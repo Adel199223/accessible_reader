@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "accessible-reader-backend"
+version = "0.1.0"
+description = "Localhost-first accessible reading assistant backend."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "beautifulsoup4>=4.12.3,<5.0.0",
+  "fastapi>=0.116.0,<1.0.0",
+  "markdown>=3.8.0,<4.0.0",
+  "openai>=1.109.0,<2.0.0",
+  "pydantic>=2.11.0,<3.0.0",
+  "pypdf>=5.4.0,<6.0.0",
+  "python-docx>=1.1.2,<2.0.0",
+  "python-multipart>=0.0.20,<1.0.0",
+  "uvicorn[standard]>=0.35.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28.1,<1.0.0",
+  "pytest>=8.4.0,<9.0.0",
+  "reportlab>=4.4.0,<5.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
