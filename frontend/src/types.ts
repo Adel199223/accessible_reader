@@ -6,6 +6,7 @@ export interface ViewBlock {
   kind: 'heading' | 'paragraph' | 'list_item' | 'quote'
   text: string
   level?: number | null
+  metadata?: Record<string, unknown>
 }
 
 export interface DocumentView {
@@ -13,6 +14,7 @@ export interface DocumentView {
   detail_level: 'default' | SummaryDetail
   title: string
   blocks: ViewBlock[]
+  variant_metadata?: Record<string, unknown>
   generated_by: 'local' | 'openai'
   cached: boolean
   source_hash: string
@@ -29,6 +31,134 @@ export interface DocumentRecord {
   updated_at: string
   available_modes: ViewMode[]
   progress_by_mode: Partial<Record<ViewMode, number>>
+  last_reader_session?: ReaderSessionState | null
+}
+
+export interface RecallDocumentRecord {
+  id: string
+  title: string
+  source_type: string
+  file_name?: string | null
+  source_locator?: string | null
+  created_at: string
+  updated_at: string
+  available_modes: ViewMode[]
+  chunk_count: number
+}
+
+export interface RecallSearchHit {
+  id: string
+  source_document_id: string
+  document_title: string
+  score: number
+  excerpt: string
+  chunk_id: string
+  block_id?: string | null
+  match_context: string
+}
+
+export type GraphReviewStatus = 'suggested' | 'confirmed' | 'rejected'
+export type RetrievalHitType = 'chunk' | 'node' | 'card'
+export type StudyCardStatus = 'new' | 'due' | 'scheduled'
+export type StudyReviewRating = 'forgot' | 'hard' | 'good' | 'easy'
+
+export interface KnowledgeNodeRecord {
+  id: string
+  label: string
+  node_type: string
+  description?: string | null
+  confidence: number
+  mention_count: number
+  document_count: number
+  status: GraphReviewStatus
+  aliases: string[]
+  source_document_ids: string[]
+}
+
+export interface KnowledgeEdgeRecord {
+  id: string
+  source_id: string
+  source_label: string
+  target_id: string
+  target_label: string
+  relation_type: string
+  provenance: 'manual' | 'inferred'
+  confidence: number
+  status: GraphReviewStatus
+  evidence_count: number
+  source_document_ids: string[]
+  excerpt?: string | null
+}
+
+export interface KnowledgeMentionRecord {
+  id: string
+  source_document_id: string
+  document_title: string
+  text: string
+  entity_type: string
+  confidence: number
+  block_id?: string | null
+  chunk_id?: string | null
+  excerpt: string
+}
+
+export interface KnowledgeNodeDetail {
+  node: KnowledgeNodeRecord
+  mentions: KnowledgeMentionRecord[]
+  outgoing_edges: KnowledgeEdgeRecord[]
+  incoming_edges: KnowledgeEdgeRecord[]
+}
+
+export interface KnowledgeGraphSnapshot {
+  nodes: KnowledgeNodeRecord[]
+  edges: KnowledgeEdgeRecord[]
+  document_count: number
+  pending_nodes: number
+  pending_edges: number
+  confirmed_nodes: number
+  confirmed_edges: number
+}
+
+export interface RecallRetrievalHit {
+  id: string
+  hit_type: RetrievalHitType
+  source_document_id: string
+  document_title: string
+  title: string
+  score: number
+  excerpt: string
+  reasons: string[]
+  chunk_id?: string | null
+  node_id?: string | null
+  card_id?: string | null
+}
+
+export interface StudyCardRecord {
+  id: string
+  source_document_id: string
+  document_title: string
+  prompt: string
+  answer: string
+  card_type: string
+  source_spans: Array<Record<string, unknown>>
+  scheduling_state: Record<string, unknown>
+  due_at: string
+  review_count: number
+  status: StudyCardStatus
+  last_rating?: StudyReviewRating | null
+}
+
+export interface StudyOverview {
+  due_count: number
+  new_count: number
+  scheduled_count: number
+  review_event_count: number
+  next_due_at?: string | null
+}
+
+export interface StudyCardGenerationResult {
+  generated_count: number
+  total_count: number
 }
 
 export interface ReaderSettings {
@@ -40,6 +170,25 @@ export interface ReaderSettings {
   focus_mode: boolean
   preferred_voice: string
   speech_rate: number
+}
+
+export interface AccessibilitySnapshot {
+  font_preset?: ReaderSettings['font_preset'] | null
+  text_size?: number | null
+  line_spacing?: number | null
+  line_width?: number | null
+  contrast_theme?: ReaderSettings['contrast_theme'] | null
+  focus_mode?: boolean | null
+  preferred_voice?: string | null
+  speech_rate?: number | null
+}
+
+export interface ReaderSessionState {
+  mode: ViewMode
+  sentence_index: number
+  summary_detail?: SummaryDetail | null
+  accessibility_snapshot?: AccessibilitySnapshot | null
+  updated_at: string
 }
 
 export interface HealthResponse {

@@ -82,6 +82,12 @@
   - frontend `npm run build`
   - live Chromium webpage-import validation in the existing Playwright harness
   - live Edge webpage-import validation in the existing Playwright harness
+- 2026-03-13: Stage 1A closeout was verified after the interrupted validation rerun resumed successfully:
+  - frontend `npm test -- --run`
+  - frontend `npm run lint`
+  - frontend `npm run build`
+  - backend `.venv` `python -m pytest`
+  - backend `.venv` `python -c "from app.main import app; print(app.title)"`
 
 ## Validation
 - Backend in WSL:

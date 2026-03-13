@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recall Companion Options</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="extension-body">
+    <main class="extension-shell">
+      <header class="extension-header">
+        <div>
+          <p class="extension-eyebrow">Recall</p>
+          <h1>Browser companion settings</h1>
+        </div>
+      </header>
+
+      <form id="options-form" class="extension-form">
+        <label class="extension-field">
+          <span>Backend base URL</span>
+          <input id="options-backend-url" type="url" placeholder="http://127.0.0.1:8000" required />
+        </label>
+
+        <label class="extension-checkbox">
+          <input id="options-auto-prompt" type="checkbox" />
+          <span>Allow low-noise automatic prompts on grounded pages</span>
+        </label>
+
+        <label class="extension-field">
+          <span>Result limit</span>
+          <input id="options-result-limit" type="number" min="1" max="10" step="1" />
+        </label>
+
+        <div class="extension-actions">
+          <button type="submit">Save settings</button>
+          <button id="options-test" class="secondary-button" type="button">Test connection</button>
+        </div>
+      </form>
+
+      <p id="options-status" class="extension-note">Configure the local backend before browsing with Recall.</p>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+  </html>
+

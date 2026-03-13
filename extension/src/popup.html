@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recall</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="extension-body">
+    <main class="extension-shell extension-shell-narrow">
+      <header class="extension-header">
+        <div>
+          <p class="extension-eyebrow">Recall</p>
+          <h1>Browser companion</h1>
+        </div>
+        <button id="popup-refresh" class="secondary-button" type="button">Refresh</button>
+      </header>
+
+      <p id="popup-status" class="extension-note">Checking the current page…</p>
+
+      <div class="extension-actions">
+        <button id="popup-open-recall" type="button">Open Recall</button>
+        <button id="popup-open-options" class="secondary-button" type="button">Options</button>
+      </div>
+
+      <section class="extension-section">
+        <h2>Current context</h2>
+        <p id="popup-summary" class="extension-note">Waiting for a grounded local match.</p>
+        <p id="popup-suppression" class="extension-note extension-note-subtle"></p>
+      </section>
+
+      <section class="extension-section">
+        <h2>Related items</h2>
+        <div id="popup-hits" class="extension-list"></div>
+      </section>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+  </html>
+

@@ -1,8 +1,20 @@
 import type {
+  AccessibilitySnapshot,
   DocumentRecord,
   DocumentView,
   HealthResponse,
+  KnowledgeEdgeRecord,
+  KnowledgeGraphSnapshot,
+  KnowledgeNodeDetail,
+  KnowledgeNodeRecord,
+  RecallRetrievalHit,
   ReaderSettings,
+  RecallDocumentRecord,
+  RecallSearchHit,
+  StudyCardGenerationResult,
+  StudyCardRecord,
+  StudyOverview,
+  StudyReviewRating,
   SummaryDetail,
   ViewMode,
 } from './types'
@@ -42,6 +54,88 @@ export function saveSettings(settings: ReaderSettings) {
 export function fetchDocuments(query = '') {
   const search = query ? `?query=${encodeURIComponent(query)}` : ''
   return request<DocumentRecord[]>(`/api/documents${search}`)
+}
+
+export function fetchRecallDocuments() {
+  return request<RecallDocumentRecord[]>('/api/recall/documents')
+}
+
+export function fetchRecallDocument(documentId: string) {
+  return request<RecallDocumentRecord>(`/api/recall/documents/${documentId}`)
+}
+
+export function searchRecall(query: string, limit = 20) {
+  const search = new URLSearchParams({
+    limit: String(limit),
+    query,
+  })
+  return request<RecallSearchHit[]>(`/api/recall/search?${search.toString()}`)
+}
+
+export function retrieveRecall(query: string, limit = 20) {
+  const search = new URLSearchParams({
+    limit: String(limit),
+    query,
+  })
+  return request<RecallRetrievalHit[]>(`/api/recall/retrieve?${search.toString()}`)
+}
+
+export function fetchRecallGraph(limitNodes = 40, limitEdges = 60) {
+  const search = new URLSearchParams({
+    limit_edges: String(limitEdges),
+    limit_nodes: String(limitNodes),
+  })
+  return request<KnowledgeGraphSnapshot>(`/api/recall/graph?${search.toString()}`)
+}
+
+export function fetchRecallGraphNode(nodeId: string) {
+  return request<KnowledgeNodeDetail>(`/api/recall/graph/nodes/${nodeId}`)
+}
+
+export function decideRecallGraphNode(nodeId: string, decision: 'confirmed' | 'rejected') {
+  return request<KnowledgeNodeRecord>(`/api/recall/graph/nodes/${nodeId}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision }),
+  })
+}
+
+export function decideRecallGraphEdge(edgeId: string, decision: 'confirmed' | 'rejected') {
+  return request<KnowledgeEdgeRecord>(`/api/recall/graph/edges/${edgeId}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision }),
+  })
+}
+
+export function fetchRecallStudyOverview() {
+  return request<StudyOverview>('/api/recall/study/overview')
+}
+
+export function fetchRecallStudyCards(status: 'all' | 'new' | 'due' | 'scheduled' = 'all', limit = 20) {
+  const search = new URLSearchParams({
+    limit: String(limit),
+    status,
+  })
+  return request<StudyCardRecord[]>(`/api/recall/study/cards?${search.toString()}`)
+}
+
+export function generateRecallStudyCards() {
+  return request<StudyCardGenerationResult>('/api/recall/study/cards/generate', {
+    method: 'POST',
+  })
+}
+
+export function reviewRecallStudyCard(cardId: string, rating: StudyReviewRating) {
+  return request<StudyCardRecord>(`/api/recall/study/cards/${cardId}/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating }),
+  })
+}
+
+export function buildRecallExportUrl(documentId: string) {
+  return `${API_BASE}/api/recall/documents/${documentId}/export.md`
 }
 
 export function importTextDocument(text: string, title?: string) {
@@ -92,11 +186,24 @@ export function generateDocumentView(
   })
 }
 
-export function saveProgress(documentId: string, mode: ViewMode, sentenceIndex: number) {
+export function saveProgress(
+  documentId: string,
+  mode: ViewMode,
+  sentenceIndex: number,
+  options?: {
+    summaryDetail?: SummaryDetail
+    accessibilitySnapshot?: AccessibilitySnapshot
+  },
+) {
   return request<{ ok: boolean }>(`/api/documents/${documentId}/progress`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode, sentence_index: sentenceIndex }),
+    body: JSON.stringify({
+      mode,
+      sentence_index: sentenceIndex,
+      summary_detail: options?.summaryDetail,
+      accessibility_snapshot: options?.accessibilitySnapshot,
+    }),
   })
 }
 

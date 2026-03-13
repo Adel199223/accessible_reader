@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { ReaderSurface } from './ReaderSurface'
@@ -102,4 +102,48 @@ test('ReaderSurface keeps an accessible article label without rendering a duplic
 
   expect(screen.getByRole('article', { name: 'Readable guide' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Readable guide' })).not.toBeInTheDocument()
+})
+
+test('ReaderSurface renders ordered and nested lists semantically from block metadata', () => {
+  const blocks: RenderableBlock[] = [
+    {
+      id: 'parent-1',
+      kind: 'list_item',
+      text: 'First parent item.',
+      metadata: { list_depth: 0, list_index: 1, list_ordered: true },
+      sentences: [{ key: 'parent-1-0', text: 'First parent item.', globalIndex: 0 }],
+    },
+    {
+      id: 'child-1',
+      kind: 'list_item',
+      text: 'Nested child item.',
+      metadata: { list_depth: 1, list_index: 1, list_ordered: false },
+      sentences: [{ key: 'child-1-0', text: 'Nested child item.', globalIndex: 1 }],
+    },
+    {
+      id: 'parent-2',
+      kind: 'list_item',
+      text: 'Second parent item.',
+      metadata: { list_depth: 0, list_index: 2, list_ordered: true },
+      sentences: [{ key: 'parent-2-0', text: 'Second parent item.', globalIndex: 2 }],
+    },
+  ]
+
+  render(
+    <ReaderSurface
+      accessibleLabel="Readable guide"
+      blocks={blocks}
+      activeSentenceIndex={0}
+      settings={settings}
+      onSelectSentence={() => undefined}
+    />,
+  )
+
+  const [orderedList] = screen.getAllByRole('list')
+  expect(orderedList.tagName).toBe('OL')
+  expect(Array.from(orderedList.children)).toHaveLength(2)
+
+  const nestedList = within(orderedList.children[0] as HTMLElement).getByRole('list')
+  expect(nestedList.tagName).toBe('UL')
+  expect(within(nestedList).getByRole('button', { name: 'Nested child item.' })).toBeInTheDocument()
 })

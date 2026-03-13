@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+import re
 from typing import Iterable
 from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
-from bs4.element import Tag
+from bs4.element import NavigableString, Tag
 from docx import Document as DocxDocument
 from markdown import markdown
 from pypdf import PdfReader
@@ -18,6 +19,11 @@ from .text_utils import normalize_whitespace
 
 class UnsupportedDocumentError(ValueError):
     """Raised when a document cannot be meaningfully parsed."""
+
+
+ORDERED_LIST_RE = re.compile(r"^(?P<indent>\s*)(?P<index>\d+)[.)]\s+(?P<text>.+)$")
+UNORDERED_LIST_RE = re.compile(r"^(?P<indent>\s*)[-*•]\s+(?P<text>.+)$")
+QUOTE_PREFIX_RE = re.compile(r"^(?P<prefix>(?:>\s*)+)(?P<text>.+)$")
 
 
 @dataclass(slots=True)
@@ -116,9 +122,60 @@ def _parse_plain_text_blocks(text: str) -> list[ViewBlock]:
         if not line:
             flush_paragraph()
             continue
-        if line.startswith(("- ", "* ", "• ")):
+        ordered_match = ORDERED_LIST_RE.match(raw_line)
+        unordered_match = UNORDERED_LIST_RE.match(raw_line)
+        quote_match = QUOTE_PREFIX_RE.match(raw_line.strip())
+        if ordered_match:
             flush_paragraph()
-            blocks.append(ViewBlock(id=f"block-{index}", kind="list_item", text=normalize_whitespace(line[2:])))
+            indent = ordered_match.group("indent")
+            blocks.append(
+                ViewBlock(
+                    id=f"block-{index}",
+                    kind="list_item",
+                    text=normalize_whitespace(ordered_match.group("text")),
+                    metadata={
+                        "list_depth": len(indent) // 2,
+                        "list_index": int(ordered_match.group("index")),
+                        "list_ordered": True,
+                        "source_tag": "plaintext_list_item",
+                    },
+                )
+            )
+            index += 1
+            continue
+        if unordered_match:
+            flush_paragraph()
+            indent = unordered_match.group("indent")
+            blocks.append(
+                ViewBlock(
+                    id=f"block-{index}",
+                    kind="list_item",
+                    text=normalize_whitespace(unordered_match.group("text")),
+                    metadata={
+                        "list_depth": len(indent) // 2,
+                        "list_index": index + 1,
+                        "list_ordered": False,
+                        "source_tag": "plaintext_list_item",
+                    },
+                )
+            )
+            index += 1
+            continue
+        if quote_match:
+            flush_paragraph()
+            prefix = quote_match.group("prefix")
+            quote_depth = prefix.count(">")
+            blocks.append(
+                ViewBlock(
+                    id=f"block-{index}",
+                    kind="quote",
+                    text=normalize_whitespace(quote_match.group("text")),
+                    metadata={
+                        "quote_depth": quote_depth,
+                        "source_tag": "plaintext_quote",
+                    },
+                )
+            )
             index += 1
             continue
         if _looks_like_heading(line):
@@ -133,49 +190,10 @@ def _parse_plain_text_blocks(text: str) -> list[ViewBlock]:
 
 
 def _parse_markdown_blocks(text: str) -> list[ViewBlock]:
-    blocks: list[ViewBlock] = []
-    index = 0
-    paragraph_lines: list[str] = []
-
-    def flush_paragraph() -> None:
-        nonlocal index
-        if not paragraph_lines:
-            return
-        paragraph = normalize_whitespace(" ".join(paragraph_lines))
-        if paragraph:
-            blocks.append(ViewBlock(id=f"block-{index}", kind="paragraph", text=paragraph))
-            index += 1
-        paragraph_lines.clear()
-
-    for raw_line in text.replace("\r\n", "\n").split("\n"):
-        line = raw_line.strip()
-        if not line:
-            flush_paragraph()
-            continue
-        if line.startswith("#"):
-            flush_paragraph()
-            hashes, heading_text = line.split(" ", 1) if " " in line else (line, line.lstrip("#"))
-            blocks.append(
-                ViewBlock(
-                    id=f"block-{index}",
-                    kind="heading",
-                    text=normalize_whitespace(heading_text),
-                    level=min(max(len(hashes), 1), 4),
-                )
-            )
-            index += 1
-            continue
-        if line.startswith(("- ", "* ")):
-            flush_paragraph()
-            blocks.append(ViewBlock(id=f"block-{index}", kind="list_item", text=normalize_whitespace(line[2:])))
-            index += 1
-            continue
-        paragraph_lines.append(line)
-
-    flush_paragraph()
+    blocks = _parse_html_blocks(markdown(text, extensions=["extra", "sane_lists"]))
     if blocks:
         return blocks
-    return _parse_html_blocks(markdown(text))
+    return _parse_plain_text_blocks(text)
 
 
 def _parse_html_blocks(text: str) -> list[ViewBlock]:
@@ -202,7 +220,20 @@ def _parse_docx_blocks(content: bytes) -> list[ViewBlock]:
                     break
             blocks.append(ViewBlock(id=f"block-{index}", kind="heading", text=text, level=level))
         elif "list" in style_name or text.startswith(("- ", "* ", "• ")):
-            blocks.append(ViewBlock(id=f"block-{index}", kind="list_item", text=text.lstrip("-*• ").strip()))
+            ordered = "number" in style_name
+            blocks.append(
+                ViewBlock(
+                    id=f"block-{index}",
+                    kind="list_item",
+                    text=text.lstrip("-*• ").strip(),
+                    metadata={
+                        "list_depth": 0,
+                        "list_index": index + 1,
+                        "list_ordered": ordered,
+                        "source_tag": "docx_list_item",
+                    },
+                )
+            )
         else:
             blocks.append(ViewBlock(id=f"block-{index}", kind="paragraph", text=text))
         index += 1
@@ -249,29 +280,118 @@ def _looks_like_heading(line: str) -> bool:
 def _collect_html_blocks(container: Tag | BeautifulSoup) -> list[ViewBlock]:
     blocks: list[ViewBlock] = []
     index = 0
-    for node in container.find_all(["h1", "h2", "h3", "h4", "p", "li", "blockquote"]):
-        if node.find_parent(["blockquote", "li"]) and node.name == "p":
-            continue
-        text_value = normalize_whitespace(node.get_text(" ", strip=True))
+
+    def append_block(kind: str, text: str, *, level: int | None = None, metadata: dict[str, object] | None = None) -> None:
+        nonlocal index
+        text_value = normalize_whitespace(text)
         if not text_value:
-            continue
-        if node.name.startswith("h"):
-            blocks.append(
-                ViewBlock(
-                    id=f"block-{index}",
-                    kind="heading",
-                    text=text_value,
-                    level=min(max(int(node.name[1]), 1), 4),
-                )
+            return
+        blocks.append(
+            ViewBlock(
+                id=f"block-{index}",
+                kind=kind,  # type: ignore[arg-type]
+                text=text_value,
+                level=level,
+                metadata={key: value for key, value in (metadata or {}).items() if value is not None},
             )
-        elif node.name == "li":
-            blocks.append(ViewBlock(id=f"block-{index}", kind="list_item", text=text_value))
-        elif node.name == "blockquote":
-            blocks.append(ViewBlock(id=f"block-{index}", kind="quote", text=text_value))
-        else:
-            blocks.append(ViewBlock(id=f"block-{index}", kind="paragraph", text=text_value))
+        )
         index += 1
+
+    def walk(node: Tag | BeautifulSoup, *, quote_depth: int = 0) -> None:
+        for child in node.children:
+            if isinstance(child, NavigableString):
+                continue
+            if child.name in {"ol", "ul"}:
+                walk_list(child, list_depth=0, quote_depth=quote_depth)
+                continue
+            if child.name == "blockquote":
+                walk(child, quote_depth=quote_depth + 1)
+                continue
+            if child.name and child.name.startswith("h"):
+                kind = "quote" if quote_depth > 0 else "heading"
+                level = None if quote_depth > 0 else min(max(int(child.name[1]), 1), 6)
+                append_block(
+                    kind,
+                    child.get_text(" ", strip=True),
+                    level=level,
+                    metadata={
+                        "quote_depth": quote_depth if quote_depth > 0 else None,
+                        "source_tag": child.name,
+                    },
+                )
+                continue
+            if child.name == "p":
+                append_block(
+                    "quote" if quote_depth > 0 else "paragraph",
+                    child.get_text(" ", strip=True),
+                    metadata={
+                        "quote_depth": quote_depth if quote_depth > 0 else None,
+                        "source_tag": child.name,
+                    },
+                )
+                continue
+            walk(child, quote_depth=quote_depth)
+
+    def walk_list(list_node: Tag, *, list_depth: int, quote_depth: int) -> None:
+        start_index = int(list_node.get("start") or 1)
+        ordered = list_node.name == "ol"
+        for item_offset, list_item in enumerate(list_node.find_all("li", recursive=False)):
+            list_index = int(list_item.get("value") or (start_index + item_offset))
+            append_block(
+                "list_item",
+                _collect_list_item_text(list_item),
+                metadata={
+                    "list_depth": list_depth,
+                    "list_index": list_index,
+                    "list_ordered": ordered,
+                    "quote_depth": quote_depth if quote_depth > 0 else None,
+                    "source_tag": "li",
+                },
+            )
+            walk_nested_list_item_children(list_item, list_depth=list_depth, quote_depth=quote_depth)
+
+    def walk_nested_list_item_children(list_item: Tag, *, list_depth: int, quote_depth: int) -> None:
+        for child in list_item.children:
+            if isinstance(child, NavigableString):
+                continue
+            if child.name in {"ol", "ul"}:
+                walk_list(child, list_depth=list_depth + 1, quote_depth=quote_depth)
+                continue
+            if child.name == "blockquote":
+                walk(child, quote_depth=quote_depth + 1)
+                continue
+            walk_nested_list_item_children(child, list_depth=list_depth, quote_depth=quote_depth)
+
+    walk(container)
     return blocks
+
+
+def _collect_list_item_text(list_item: Tag) -> str:
+    parts: list[str] = []
+    for child in list_item.children:
+        if isinstance(child, NavigableString):
+            text = normalize_whitespace(str(child))
+            if text:
+                parts.append(text)
+            continue
+        if child.name in {"ol", "ul", "blockquote"}:
+            continue
+        child_text = _collect_text_without_structures(child)
+        if child_text:
+            parts.append(child_text)
+    return normalize_whitespace(" ".join(parts))
+
+
+def _collect_text_without_structures(node: Tag) -> str:
+    parts: list[str] = []
+    for child in node.children:
+        if isinstance(child, NavigableString):
+            parts.append(str(child))
+            continue
+        if child.name in {"ol", "ul", "blockquote"}:
+            continue
+        parts.append(_collect_text_without_structures(child))
+    return normalize_whitespace(" ".join(part for part in parts if part))
 
 
 def _strip_noise_tags(container: Tag | BeautifulSoup) -> None:

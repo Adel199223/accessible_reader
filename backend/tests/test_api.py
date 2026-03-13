@@ -3,8 +3,11 @@ from __future__ import annotations
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib
+import json
 import sqlite3
 import threading
+from io import BytesIO
+from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 import pytest
@@ -212,6 +215,8 @@ def test_import_text_and_restore_reflow_view(tmp_path, monkeypatch) -> None:
     )
     assert view_response.status_code == 200
     assert view_response.json()["mode"] == "reflowed"
+    assert view_response.json()["variant_metadata"]["variant_contract_version"] == "1"
+    assert "reflow_source_block_id" in view_response.json()["blocks"][0]["metadata"]
 
     progress_response = client.put(
         f"/api/documents/{document['id']}/progress",
@@ -223,6 +228,89 @@ def test_import_text_and_restore_reflow_view(tmp_path, monkeypatch) -> None:
     assert listing_response.status_code == 200
     assert listing_response.json()[0]["progress_by_mode"]["reflowed"] == 2
     assert (tmp_path / ".data" / "workspace.db").exists()
+
+    recall_listing_response = client.get("/api/recall/documents")
+    assert recall_listing_response.status_code == 200
+    assert recall_listing_response.json()[0]["chunk_count"] >= 1
+
+    recall_detail_response = client.get(f"/api/recall/documents/{document['id']}")
+    assert recall_detail_response.status_code == 200
+    assert recall_detail_response.json()["title"] == "Plain guide"
+
+
+def test_progress_update_persists_reader_session_metadata_and_surfaces_last_session(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Session guide", "text": "First sentence. Second sentence."},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    progress_response = client.put(
+        f"/api/documents/{document['id']}/progress",
+        json={
+            "mode": "reflowed",
+            "sentence_index": 3,
+            "summary_detail": "detailed",
+            "accessibility_snapshot": {
+                "font_preset": "atkinson",
+                "text_size": 24,
+                "line_spacing": 1.9,
+                "line_width": 68,
+                "contrast_theme": "high",
+                "focus_mode": True,
+                "preferred_voice": "default",
+                "speech_rate": 1.1,
+            },
+        },
+    )
+    assert progress_response.status_code == 200
+
+    listing_response = client.get("/api/documents")
+    assert listing_response.status_code == 200
+    listing = listing_response.json()
+    assert listing[0]["last_reader_session"]["mode"] == "reflowed"
+    assert listing[0]["last_reader_session"]["sentence_index"] == 3
+    assert listing[0]["last_reader_session"]["summary_detail"] == "detailed"
+    assert listing[0]["last_reader_session"]["accessibility_snapshot"]["font_preset"] == "atkinson"
+    assert listing[0]["last_reader_session"]["accessibility_snapshot"]["contrast_theme"] == "high"
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        metadata_row = connection.execute(
+            """
+            SELECT metadata_json
+            FROM reading_sessions
+            WHERE source_document_id = ? AND mode = 'reflowed'
+            """,
+            (document["id"],),
+        ).fetchone()
+
+    assert metadata_row is not None
+    metadata = json.loads(metadata_row[0])
+    assert metadata["summary_detail"] == "detailed"
+    assert metadata["accessibility_snapshot"]["focus_mode"] is True
+    assert metadata["accessibility_snapshot"]["line_width"] == 68
+
+
+def test_import_file_creates_searchable_recall_chunks(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    import_response = client.post(
+        "/api/documents/import-file",
+        files={"file": ("memory.txt", b"Recallable sentence one. Recallable sentence two.", "text/plain")},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    search_response = client.get("/api/recall/search", params={"query": "Recallable"})
+    assert search_response.status_code == 200
+    hits = search_response.json()
+    assert hits
+    assert hits[0]["source_document_id"] == document["id"]
+    assert hits[0]["chunk_id"].startswith(f"{document['id']}:chunk:")
+    assert "chunk" in hits[0]["match_context"].lower()
 
 
 def test_import_url_creates_reflowed_snapshot_and_stores_source_locator(tmp_path, monkeypatch) -> None:
@@ -272,6 +360,12 @@ def test_import_url_creates_reflowed_snapshot_and_stores_source_locator(tmp_path
         ).fetchone()
         assert source_locator is not None
         assert source_locator[0] == f"{base_url}/article"
+        chunk_count = connection.execute(
+            "SELECT COUNT(*) FROM content_chunks WHERE source_document_id = ?",
+            (document["id"],),
+        ).fetchone()
+        assert chunk_count is not None
+        assert chunk_count[0] >= 1
 
 
 def test_import_url_reuses_existing_snapshot_by_content_hash(tmp_path, monkeypatch) -> None:
@@ -401,6 +495,566 @@ def test_transform_returns_clear_error_without_openai_key(tmp_path, monkeypatch)
     assert "OPENAI_API_KEY" in transform_response.json()["detail"]
 
 
+def test_recall_markdown_export_returns_attachment_with_provenance(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Export guide", "text": "First paragraph.\n\nSecond paragraph."},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    export_response = client.get(f"/api/recall/documents/{document['id']}/export.md")
+
+    assert export_response.status_code == 200
+    assert export_response.headers["content-type"].startswith("text/markdown")
+    assert "attachment" in export_response.headers["content-disposition"]
+    assert "# Export guide" in export_response.text
+    assert "## Provenance" in export_response.text
+    assert "### Chunk Mapping" in export_response.text
+
+
+def test_recall_markdown_export_preserves_lists_quotes_and_variant_metadata(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-file",
+        files={
+            "file": (
+                "guide.md",
+                (
+                    b"# Export guide\n\n"
+                    b"1. Ordered item\n"
+                    b"2. Second item\n"
+                    b"    - Nested bullet\n\n"
+                    b"> Quoted line"
+                ),
+                "text/markdown",
+            )
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    export_response = client.get(f"/api/recall/documents/{document['id']}/export.md")
+
+    assert export_response.status_code == 200
+    assert "\n1. Ordered item\n" in export_response.text
+    assert "\n2. Second item\n" in export_response.text
+    assert "\n  - Nested bullet\n" in export_response.text
+    assert "\n> Quoted line\n" in export_response.text
+    assert "- Variant contract version: 1" in export_response.text
+    assert "- Block count:" in export_response.text
+    assert "- Word count:" in export_response.text
+
+
+def test_workspace_change_events_paginate_and_filter(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Change log guide", "text": "One sentence.\n\nSecond sentence."},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    progress_response = client.put(
+        f"/api/documents/{document['id']}/progress",
+        json={"mode": "reflowed", "sentence_index": 2},
+    )
+    assert progress_response.status_code == 200
+
+    first_page_response = client.get("/api/workspace/change-events", params={"limit": 2})
+    assert first_page_response.status_code == 200
+    first_page = first_page_response.json()
+    assert len(first_page["events"]) == 2
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] is not None
+    assert first_page["latest_cursor"] is not None
+
+    second_page_response = client.get(
+        "/api/workspace/change-events",
+        params={"after": first_page["next_cursor"], "limit": 10},
+    )
+    assert second_page_response.status_code == 200
+    second_page = second_page_response.json()
+    assert second_page["events"]
+    first_ids = [event["id"] for event in first_page["events"]]
+    second_ids = [event["id"] for event in second_page["events"]]
+    assert set(first_ids).isdisjoint(second_ids)
+
+    reading_session_response = client.get(
+        "/api/workspace/change-events",
+        params={"entity_type": "reading_session"},
+    )
+    assert reading_session_response.status_code == 200
+    reading_events = reading_session_response.json()["events"]
+    assert reading_events
+    assert all(event["entity_type"] == "reading_session" for event in reading_events)
+    assert any(event["event_type"] == "progress_saved" for event in reading_events)
+
+
+def test_workspace_attachments_manifest_and_zip_export(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    raw_bytes = b"Portable attachment content."
+    import_response = client.post(
+        "/api/documents/import-file",
+        files={"file": ("portable.txt", raw_bytes, "text/plain")},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    attachments_response = client.get("/api/workspace/attachments")
+    assert attachments_response.status_code == 200
+    attachments = attachments_response.json()
+    assert len(attachments) == 1
+    attachment = attachments[0]
+    assert attachment["source_document_id"] == document["id"]
+    assert attachment["relative_path"].startswith("files/")
+    assert attachment["content_digest"]
+    assert attachment["byte_size"] == len(raw_bytes)
+
+    download_response = client.get(f"/api/workspace/attachments/{attachment['id']}")
+    assert download_response.status_code == 200
+    assert download_response.content == raw_bytes
+
+    manifest_response = client.get("/api/workspace/export.manifest.json")
+    assert manifest_response.status_code == 200
+    manifest = manifest_response.json()
+    assert manifest["format_version"] == "1"
+    assert manifest["attachments"][0]["id"] == attachment["id"]
+    entity_types = {entity["entity_type"] for entity in manifest["entities"]}
+    assert "source_document" in entity_types
+    assert "document_variant" in entity_types
+
+    bundle_response = client.get("/api/workspace/export.zip")
+    assert bundle_response.status_code == 200
+    assert bundle_response.headers["content-type"].startswith("application/zip")
+    assert "attachment" in bundle_response.headers["content-disposition"]
+
+    with ZipFile(BytesIO(bundle_response.content)) as archive:
+        assert "manifest.json" in archive.namelist()
+        assert attachment["relative_path"] in archive.namelist()
+        assert archive.read(attachment["relative_path"]) == raw_bytes
+        manifest_in_archive = json.loads(archive.read("manifest.json").decode("utf-8"))
+        assert manifest_in_archive["attachments"][0]["id"] == attachment["id"]
+
+
+def test_workspace_integrity_and_repair_rebuild_fts_indexes(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Integrity guide", "text": "Knowledge Graphs support grounded retrieval practice."},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    workspace_db = tmp_path / ".data" / "workspace.db"
+    with sqlite3.connect(workspace_db) as connection:
+        connection.execute("DELETE FROM source_documents_fts")
+        connection.execute("DELETE FROM content_chunks_fts")
+        connection.commit()
+
+    integrity_response = client.get("/api/workspace/integrity")
+    assert integrity_response.status_code == 200
+    integrity = integrity_response.json()
+    issue_codes = {issue["code"] for issue in integrity["issues"]}
+    assert "source_documents_fts_drift" in issue_codes
+    assert "content_chunks_fts_drift" in issue_codes
+    assert integrity["ok"] is False
+
+    repair_response = client.post("/api/workspace/repair")
+    assert repair_response.status_code == 200
+    repair = repair_response.json()
+    assert any(action.startswith("rebuild_source_documents_fts:") for action in repair["actions"])
+    assert any(action.startswith("rebuild_content_chunks_fts:") for action in repair["actions"])
+    assert repair["report"]["ok"] is True
+
+    search_response = client.get("/api/recall/search", params={"query": "grounded"})
+    assert search_response.status_code == 200
+    assert search_response.json()
+
+    list_response = client.get("/api/documents", params={"query": "Integrity"})
+    assert list_response.status_code == 200
+    assert [item["id"] for item in list_response.json()] == [document["id"]]
+
+
+def test_workspace_manifest_warns_when_attachment_payload_is_missing(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    raw_bytes = b"Missing attachment payload."
+    import_response = client.post(
+        "/api/documents/import-file",
+        files={"file": ("missing.txt", raw_bytes, "text/plain")},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    stored_file = tmp_path / ".data" / "files" / f"{document['id']}.txt"
+    stored_file.unlink()
+
+    integrity_response = client.get("/api/workspace/integrity")
+    assert integrity_response.status_code == 200
+    integrity = integrity_response.json()
+    missing_issue = next(issue for issue in integrity["issues"] if issue["code"] == "missing_attachment_payloads")
+    assert missing_issue["severity"] == "warning"
+    assert missing_issue["repairable"] is False
+
+    manifest_response = client.get("/api/workspace/export.manifest.json")
+    assert manifest_response.status_code == 200
+    manifest = manifest_response.json()
+    assert manifest["attachments"] == []
+    assert manifest["warnings"]
+    assert "Missing attachment payload" in manifest["warnings"][0]
+
+    bundle_response = client.get("/api/workspace/export.zip")
+    assert bundle_response.status_code == 200
+    with ZipFile(BytesIO(bundle_response.content)) as archive:
+        manifest_in_archive = json.loads(archive.read("manifest.json").decode("utf-8"))
+        assert manifest_in_archive["warnings"] == manifest["warnings"]
+
+
+def test_workspace_merge_preview_returns_deterministic_decisions(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-file",
+        files={"file": ("merge.txt", b"Merge preview content.", "text/plain")},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    settings_response = client.put(
+        "/api/settings",
+        json={
+            "font_preset": "atkinson",
+            "text_size": 24,
+            "line_spacing": 1.8,
+            "line_width": 70,
+            "contrast_theme": "high",
+            "focus_mode": False,
+            "preferred_voice": "default",
+            "speech_rate": 1.0,
+        },
+    )
+    assert settings_response.status_code == 200
+
+    progress_response = client.put(
+        f"/api/documents/{document['id']}/progress",
+        json={"mode": "reflowed", "sentence_index": 1},
+    )
+    assert progress_response.status_code == 200
+
+    manifest_response = client.get("/api/workspace/export.manifest.json")
+    assert manifest_response.status_code == 200
+    remote_manifest = json.loads(json.dumps(manifest_response.json()))
+
+    source_entity = next(entity for entity in remote_manifest["entities"] if entity["entity_type"] == "source_document")
+    source_entity["payload_digest"] = "f" * 64
+    source_entity["updated_at"] = "2030-01-01T00:00:00+00:00"
+
+    variant_entity = next(entity for entity in remote_manifest["entities"] if entity["entity_type"] == "document_variant")
+    variant_entity["payload_digest"] = "0" * 64
+    variant_entity["updated_at"] = "2020-01-01T00:00:00+00:00"
+
+    setting_entity = next(entity for entity in remote_manifest["entities"] if entity["entity_type"] == "app_setting")
+    imported_entity = {
+        "entity_type": "app_setting",
+        "entity_key": "app_setting:reader-remote",
+        "entity_id": "reader-remote",
+        "updated_at": "2030-01-02T00:00:00+00:00",
+        "payload_digest": "a" * 64,
+        "source_document_id": None,
+        "metadata": {"namespace": "reader-remote"},
+    }
+    remote_manifest["entities"].append(imported_entity)
+
+    remote_manifest["attachments"][0]["content_digest"] = "e" * 64
+    remote_manifest["attachments"][0]["updated_at"] = "2030-01-03T00:00:00+00:00"
+
+    preview_response = client.post("/api/workspace/merge-preview", json={"manifest": remote_manifest})
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+
+    operations = {
+        (operation["entity_type"], operation["entity_key"]): operation
+        for operation in preview["operations"]
+    }
+    assert operations[(source_entity["entity_type"], source_entity["entity_key"])]["decision"] == "prefer_remote"
+    assert operations[(variant_entity["entity_type"], variant_entity["entity_key"])]["decision"] == "keep_local"
+    assert operations[(setting_entity["entity_type"], setting_entity["entity_key"])]["decision"] == "skip_equal"
+    assert operations[(imported_entity["entity_type"], imported_entity["entity_key"])]["decision"] == "import_remote"
+    attachment_key = remote_manifest["attachments"][0]["logical_key"]
+    assert operations[("attachment", attachment_key)]["decision"] == "prefer_remote"
+
+    assert preview["summary"]["import_remote"] >= 1
+    assert preview["summary"]["keep_local"] >= 1
+    assert preview["summary"]["prefer_remote"] >= 1
+    assert preview["summary"]["skip_equal"] >= 1
+
+
+def test_startup_repair_recovers_drifted_workspace(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Startup repair guide", "text": "Recovery paths keep retrieval grounded and durable."},
+    )
+    assert import_response.status_code == 200
+    client.__exit__(None, None, None)
+
+    workspace_db = tmp_path / ".data" / "workspace.db"
+    with sqlite3.connect(workspace_db) as connection:
+        connection.execute("DELETE FROM source_documents_fts")
+        connection.execute("DELETE FROM content_chunks_fts")
+        connection.commit()
+
+    reopened_client = create_client(tmp_path, monkeypatch)
+    integrity_response = reopened_client.get("/api/workspace/integrity")
+    assert integrity_response.status_code == 200
+    assert integrity_response.json()["ok"] is True
+
+    search_response = reopened_client.get("/api/recall/search", params={"query": "durable"})
+    assert search_response.status_code == 200
+    assert search_response.json()
+
+
+def test_recall_graph_summary_and_manual_decision_flow(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Graph guide",
+            "text": (
+                "Recall Workspace uses Knowledge Graphs. "
+                "Knowledge Graphs support Study Cards."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+
+    graph_response = client.get("/api/recall/graph")
+    assert graph_response.status_code == 200
+    graph = graph_response.json()
+    assert graph["nodes"]
+    assert graph["edges"]
+
+    knowledge_node = next(
+        node for node in graph["nodes"] if node["label"] == "Knowledge Graphs"
+    )
+    assert knowledge_node["mention_count"] >= 1
+
+    uses_edge = next(
+        edge
+        for edge in graph["edges"]
+        if edge["relation_type"] == "uses"
+        and edge["source_label"] == "Recall Workspace"
+        and edge["target_label"] == "Knowledge Graphs"
+    )
+
+    detail_response = client.get(f"/api/recall/graph/nodes/{knowledge_node['id']}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["mentions"]
+    assert detail["outgoing_edges"] or detail["incoming_edges"]
+
+    decision_response = client.post(
+        f"/api/recall/graph/edges/{uses_edge['id']}/decision",
+        json={"decision": "confirmed"},
+    )
+    assert decision_response.status_code == 200
+    decided_edge = decision_response.json()
+    assert decided_edge["status"] == "confirmed"
+    assert decided_edge["provenance"] == "manual"
+
+    refreshed_graph_response = client.get("/api/recall/graph")
+    assert refreshed_graph_response.status_code == 200
+    assert refreshed_graph_response.json()["confirmed_edges"] >= 1
+
+
+def test_recall_hybrid_retrieval_and_study_review_cycle(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Study guide",
+            "text": (
+                "Recall Workspace uses Knowledge Graphs. "
+                "Knowledge Graphs support Study Cards. "
+                "Study Cards keep review sessions grounded in source chunks."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+
+    retrieval_response = client.get(
+        "/api/recall/retrieve",
+        params={"query": "Recall Workspace"},
+    )
+    assert retrieval_response.status_code == 200
+    retrieval_hits = retrieval_response.json()
+    assert retrieval_hits
+    assert {hit["hit_type"] for hit in retrieval_hits}.issubset({"chunk", "node", "card"})
+    assert any(hit["hit_type"] == "node" for hit in retrieval_hits)
+    assert any("lexical overlap" in hit["reasons"] for hit in retrieval_hits)
+
+    overview_response = client.get("/api/recall/study/overview")
+    assert overview_response.status_code == 200
+    overview = overview_response.json()
+    assert overview["new_count"] >= 1
+
+    cards_response = client.get("/api/recall/study/cards", params={"status": "all"})
+    assert cards_response.status_code == 200
+    cards = cards_response.json()
+    assert cards
+    assert cards[0]["status"] == "new"
+
+    regenerate_response = client.post("/api/recall/study/cards/generate")
+    assert regenerate_response.status_code == 200
+    assert regenerate_response.json()["total_count"] >= len(cards)
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{cards[0]['id']}/review",
+        json={"rating": "good"},
+    )
+    assert review_response.status_code == 200
+    reviewed_card = review_response.json()
+    assert reviewed_card["review_count"] == 1
+    assert reviewed_card["last_rating"] == "good"
+    assert reviewed_card["status"] in {"due", "scheduled"}
+
+    refreshed_overview_response = client.get("/api/recall/study/overview")
+    assert refreshed_overview_response.status_code == 200
+    assert refreshed_overview_response.json()["review_event_count"] >= 1
+
+
+def test_recall_browser_context_prompts_for_selected_text(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Selection guide",
+            "text": "Spaced repetition improves working memory and retrieval practice.",
+        },
+    )
+    assert import_response.status_code == 200
+
+    context_response = client.post(
+        "/api/recall/browser/context",
+        json={
+            "page_url": "https://notes.example.com/learning",
+            "page_title": "Working memory strategies",
+            "selection_text": "Spaced repetition improves working memory and retrieval practice.",
+            "page_excerpt": "This page discusses study habits and retention.",
+            "manual": False,
+        },
+    )
+
+    assert context_response.status_code == 200
+    payload = context_response.json()
+    assert payload["trigger_mode"] == "selection"
+    assert payload["should_prompt"] is True
+    assert payload["hits"]
+    assert any("selection overlap" in hit["reasons"] for hit in payload["hits"])
+
+
+def test_recall_browser_context_boosts_exact_saved_webpage_matches(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    article_html = b"""
+    <html>
+      <body>
+        <article>
+          <h1>Fixture browser article</h1>
+          <p>Knowledge Graphs support study review.</p>
+        </article>
+      </body>
+    </html>
+    """
+
+    with serve_fixture_routes({
+        "/browser-article": (200, "text/html; charset=utf-8", article_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/browser-article"},
+        )
+        assert import_response.status_code == 200
+        document = import_response.json()
+
+        context_response = client.post(
+            "/api/recall/browser/context",
+            json={
+                "page_url": f"{base_url}/browser-article",
+                "page_title": "Fixture browser article",
+                "page_excerpt": "Knowledge Graphs support study review.",
+                "manual": False,
+            },
+        )
+
+    assert context_response.status_code == 200
+    payload = context_response.json()
+    assert payload["should_prompt"] is True
+    assert payload["summary"] == "Recall already knows this saved page."
+    assert payload["hits"][0]["source_document_id"] == document["id"]
+    assert "exact saved page" in payload["hits"][0]["reasons"]
+
+
+def test_recall_browser_context_suppresses_internal_workspace_pages(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    context_response = client.post(
+        "/api/recall/browser/context",
+        json={
+            "page_url": "http://127.0.0.1:8000/recall",
+            "page_title": "Recall",
+            "manual": False,
+        },
+    )
+
+    assert context_response.status_code == 200
+    payload = context_response.json()
+    assert payload["should_prompt"] is False
+    assert payload["hits"] == []
+    assert "internal workspace page" in payload["suppression_reasons"]
+
+
+def test_recall_browser_context_manual_mode_returns_hits_when_auto_stays_quiet(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Focus guide",
+            "text": "Focus sessions reduce context switching and distractions for deep work.",
+        },
+    )
+    assert import_response.status_code == 200
+
+    auto_response = client.post(
+        "/api/recall/browser/context",
+        json={
+            "page_url": "https://workspace.example.com/post",
+            "page_title": "Notes",
+            "page_excerpt": "Focus sessions reduce context switching and distractions for deep work.",
+            "manual": False,
+        },
+    )
+    assert auto_response.status_code == 200
+    auto_payload = auto_response.json()
+    assert auto_payload["should_prompt"] is False
+    assert auto_payload["hits"] == []
+    assert "automatic prompt stayed below confidence threshold" in auto_payload["suppression_reasons"]
+
+    manual_response = client.post(
+        "/api/recall/browser/context",
+        json={
+            "page_url": "https://workspace.example.com/post",
+            "page_title": "Notes",
+            "page_excerpt": "Focus sessions reduce context switching and distractions for deep work.",
+            "manual": True,
+        },
+    )
+    assert manual_response.status_code == 200
+    manual_payload = manual_response.json()
+    assert manual_payload["should_prompt"] is False
+    assert manual_payload["trigger_mode"] == "page"
+    assert manual_payload["hits"]
+
+
 def test_delete_document_removes_document_views_progress_and_stored_file(tmp_path, monkeypatch) -> None:
     client = create_client(tmp_path, monkeypatch)
     import_response = client.post(
@@ -472,7 +1126,7 @@ def test_legacy_reader_db_is_migrated_into_workspace_schema(tmp_path, monkeypatc
             """
             SELECT event_type, payload_json
             FROM change_events
-            WHERE entity_type = 'workspace'
+            WHERE entity_type = 'workspace' AND event_type = 'legacy_reader_db_migrated'
             ORDER BY created_at DESC
             LIMIT 1
             """
@@ -485,3 +1139,17 @@ def test_legacy_reader_db_is_migrated_into_workspace_schema(tmp_path, monkeypatc
         ).fetchone()
         assert migrated_from is not None
         assert migrated_from[0].endswith("reader.db")
+
+        chunk_rows = connection.execute(
+            "SELECT COUNT(*) FROM content_chunks WHERE source_document_id = 'legacy-doc-1'"
+        ).fetchone()
+        assert chunk_rows is not None
+        assert chunk_rows[0] >= 1
+
+    recall_detail_response = client.get("/api/recall/documents/legacy-doc-1")
+    assert recall_detail_response.status_code == 200
+    assert recall_detail_response.json()["chunk_count"] >= 1
+
+    search_response = client.get("/api/recall/search", params={"query": "Legacy"})
+    assert search_response.status_code == 200
+    assert search_response.json()

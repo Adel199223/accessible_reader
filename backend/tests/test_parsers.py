@@ -28,6 +28,40 @@ def test_parse_markdown_file_preserves_structure() -> None:
     assert parsed.blocks[2].kind == "list_item"
 
 
+def test_parse_markdown_file_preserves_ordered_lists_nesting_and_quotes() -> None:
+    parsed = parse_uploaded_file(
+        "guide.md",
+        (
+            b"# Main heading\n\n"
+            b"1. First ordered item\n"
+            b"2. Second ordered item\n"
+            b"    - Nested bullet\n\n"
+            b"> Quoted line"
+        ),
+    )
+
+    assert parsed.blocks[0].kind == "heading"
+    assert parsed.blocks[0].level == 1
+
+    ordered_items = [
+        block
+        for block in parsed.blocks
+        if block.kind == "list_item" and block.metadata.get("list_ordered") is True
+    ]
+    assert len(ordered_items) == 2
+    assert all(block.metadata.get("list_depth") == 0 for block in ordered_items)
+
+    nested_item = next(
+        block
+        for block in parsed.blocks
+        if block.kind == "list_item" and block.metadata.get("list_ordered") is False
+    )
+    assert nested_item.metadata["list_depth"] == 1
+
+    quote_block = next(block for block in parsed.blocks if block.kind == "quote")
+    assert quote_block.metadata["quote_depth"] == 1
+
+
 def test_parse_docx_file_extracts_heading() -> None:
     document = DocxDocument()
     document.add_heading("Docx heading", level=1)

@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Recall Browser Companion",
+  "version": "0.1.0",
+  "description": "Surface grounded Recall context from the local workspace while you browse.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["http://127.0.0.1:*/*", "http://localhost:*/*", "http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Recall"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+

@@ -18,23 +18,51 @@ Keep this repository as one local-first workspace.
   - shared tables now exist for source documents, document variants, reading sessions, app settings, change events, and future Recall-oriented entities
   - current reader API responses remain stable through the repository layer
   - shared storage now includes a generic source locator so future URL import can fit without another schema redesign
-- Stage 1A frontend reconciliation is still active because the accessible-reader UI cleanup and webpage-import work are landing in parallel with shared-core changes and must stay validation-green together.
+- Stage 1 closeout is complete:
+  - the interrupted validation rerun was resumed and verified green on 2026-03-13
+  - frontend `npm test -- --run`, `npm run lint`, and `npm run build` pass
+  - backend `pytest` and app import checks pass
+- Stage 2 closeout is complete:
+  - `Recall` is now the default product shell
+  - the current accessible-reader experience stays as an integrated Reader section inside that shell
+  - deterministic chunking, keyword retrieval, and Markdown export now run over the shared document core
+- The user-directed combined Stage 3 and Stage 4 pass is now complete:
+  - deterministic graph extraction, confidence-ranked graph suggestions, and manual confirm/reject loops are live
+  - hybrid retrieval now blends chunk, graph, and study-card evidence
+  - source-grounded study cards and FSRS-backed review logs are live in Recall
+  - the slice remains local-first and deterministic by default
+  - AI scope is still unchanged and opt-in only for `Simplify` and `Summary`
+- Stage 5 closeout is complete:
+  - a bounded MV3 browser companion now runs against the existing localhost backend
+  - low-noise contextual resurfacing is live through an in-page chip, popup, and options page
+  - the extension stays context-only; current-tab import and live capture remain out of scope
+  - backend browser-context retrieval, extension tests/build, and an Edge unpacked-extension smoke run are green
+- Stage 6 closeout is complete:
+  - Markdown round-trip fidelity now preserves ordered lists, nested lists, quotes, and heading levels through import, reflow, and export
+  - shared document views now carry block metadata and deterministic variant metadata across local and AI-backed variants
+  - shared reading sessions now persist summary detail and accessibility snapshots alongside sentence progress
+  - Reader now falls back to backend last-session state when browser-local session storage is absent
+  - backend/frontend validation and an Edge structured-Markdown/session-restore smoke run are green
+- Stage 7 closeout is complete:
+  - incremental workspace change-log APIs are now live over the shared change-event stream
+  - portable attachment refs and workspace export manifests are now live
+  - workspace export zip bundles now include `manifest.json` plus stored source attachments
+  - deterministic merge-preview rules are now live without enabling full sync or background replay
+  - backend/frontend validation and a localhost manifest/export/merge smoke run are green
+- Stage 8 closeout is complete:
+  - workspace integrity and repair APIs are now live
+  - startup self-healing now repairs drifted FTS indexes and refreshes derived Recall state when versions or indexes are stale
+  - workspace export manifests now surface non-fatal missing-attachment warnings while zip export remains available
+  - a deterministic benchmark harness now measures ingest, retrieval, browser-context, export, merge preview, and study scheduling flows
+  - backend/frontend/extension validation, benchmark runs, and a localhost integrity/repair smoke run are green
 
 ## Active Milestone
 
-1. Stage 1: Baseline Stabilization and Shared Core Extraction
-   - keep backend shared-core work green and compatible with current reader behavior
-   - keep the active reader/UI branch and the new webpage snapshot import green while shared-core work settles
-   - preserve browser-native speech, opt-in AI, and current reader route shapes
-   - keep webpage import article-first, snapshot-based, and local-first after fetch
-   - keep shared storage ready for reader, converter, Recall, and later tablet-safe change tracking
+1. No active implementation milestone is scheduled beyond the completed Stage 8 closeout.
 
 ## Next Milestone
 
-1. Stage 2: Recall Foundation Vertical Slice
-   - expose a Recall-oriented library view backed by shared source documents
-   - add chunking and keyword retrieval over shared content
-   - add Markdown export with provenance for a single shared document
+1. Backlog reprioritization is pending explicit user direction.
 
 ## Stage Map
 
@@ -42,9 +70,9 @@ Keep this repository as one local-first workspace.
    - 1A: rerun and reconcile frontend lint/test/build after the active reader UI/web-link pass lands
    - 1B: shared document-core schema, migration path, change log, and compatibility tests
 2. Stage 2: Recall Foundation Vertical Slice
-   - import into shared storage
-   - chunk documents
-   - ship keyword search and first Markdown export path
+   - Recall-first shell and Reader integration
+   - deterministic chunking over shared documents
+   - keyword retrieval and first Markdown export path
 3. Stage 3: Knowledge Graph V1
    - provenance-aware entity and relation groundwork
    - confidence-ranked linking
@@ -80,7 +108,7 @@ Keep this repository as one local-first workspace.
 
 - `roadmap`, `master plan`, and `next milestone` mean this file unless explicitly redirected
 - log detours in `docs/ROADMAP_ANCHOR.md`
-- prefer backend/shared-core work over frontend churn while the reader UI branch is actively changing elsewhere
+- prefer shared-core and Recall-shell work over reopening broad reader UI churn
 - return to the roadmap after blockers or corrections are resolved
 
 ## Recent Detours
@@ -88,3 +116,10 @@ Keep this repository as one local-first workspace.
 - 2026-03-13: added Stage 0/1 planning artifacts, decision/risk/assumption/backlog logs, repo-fit notes, and future integration logs
 - 2026-03-13: completed the first shared-core backend slice with `workspace.db`, legacy `reader.db` migration, shared tables, UUIDv7-style IDs for new shared records, and migration coverage in backend tests
 - 2026-03-13: implemented and validated bounded public webpage snapshot import for article-style pages, including backend fetch/extraction, local HTML snapshot storage, frontend `Web page` disclosure, and delete-path cleanup for saved snapshots
+- 2026-03-13: resumed the interrupted Stage 1 validation rerun, confirmed frontend and backend checks are green, and advanced the roadmap to the Stage 2 Recall shell slice
+- 2026-03-13: completed the Stage 2 Recall shell slice and, by explicit user request, combined the Stage 3 graph milestone and Stage 4 retrieval/study milestone into one implementation pass
+- 2026-03-13: completed the combined Stage 3/4 pass with local graph extraction, graph feedback, hybrid retrieval, source-grounded study cards, FSRS-backed review logs, backend/frontend coverage, and a live Edge-channel smoke run
+- 2026-03-13: completed Stage 5 augmented browsing with a localhost-backed MV3 extension, browser-context retrieval heuristics, popup/options surfaces, extension coverage, and a live Edge unpacked-extension smoke run
+- 2026-03-13: completed Stage 6 portability and accessibility integration with richer block/variant contracts, shared reader-session metadata, backend/frontend coverage, and a live Edge structured-Markdown/session-restore smoke run
+- 2026-03-13: completed Stage 7 tablet-safe groundwork with workspace change-log APIs, portable attachment/export manifests, deterministic merge preview, backend/frontend coverage, and a localhost API smoke run
+- 2026-03-13: completed Stage 8 hardening and benchmarks with workspace integrity/repair APIs, startup self-healing for drifted derived indexes, benchmark coverage, extension timeout hardening, and localhost integrity/repair validation

@@ -61,6 +61,27 @@ function defaultModeForDocument(document: DocumentRecord | null | undefined): Vi
   return document.available_modes.includes('reflowed') ? 'reflowed' : document.available_modes[0] ?? 'reflowed'
 }
 
+function coerceSummaryDetail(
+  value: string | null | undefined,
+  fallback: SummaryDetail = defaultReaderSession.summaryDetail,
+): SummaryDetail {
+  return value && validSummaryDetails.has(value as SummaryDetail) ? (value as SummaryDetail) : fallback
+}
+
+function resolveBackendSessionDocument(documents: DocumentRecord[]): DocumentRecord | null {
+  const candidates = documents.filter((document) => document.last_reader_session)
+  if (candidates.length === 0) {
+    return null
+  }
+
+  candidates.sort((left, right) => {
+    const leftUpdatedAt = left.last_reader_session?.updated_at ?? ''
+    const rightUpdatedAt = right.last_reader_session?.updated_at ?? ''
+    return rightUpdatedAt.localeCompare(leftUpdatedAt)
+  })
+  return candidates[0]
+}
+
 export function resolveReaderSession(
   documents: DocumentRecord[],
   session: ReaderSession,
@@ -97,6 +118,19 @@ export function resolveReaderSession(
         ? session.mode
         : defaultModeForDocument(currentDocument),
       summaryDetail: session.summaryDetail,
+    }
+  }
+
+  const backendSessionDocument = resolveBackendSessionDocument(documents)
+  if (backendSessionDocument?.last_reader_session) {
+    const backendSession = backendSessionDocument.last_reader_session
+    return {
+      document: backendSessionDocument,
+      documentId: backendSessionDocument.id,
+      mode: backendSessionDocument.available_modes.includes(backendSession.mode)
+        ? backendSession.mode
+        : defaultModeForDocument(backendSessionDocument),
+      summaryDetail: coerceSummaryDetail(backendSession.summary_detail, session.summaryDetail),
     }
   }
 

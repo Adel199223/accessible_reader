@@ -4,10 +4,11 @@ from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .models import DocumentMode, DocumentView, ViewBlock
 from .text_utils import now_iso
+from .variant_contract import build_variant_metadata
 
 
 class TransformProvider(Protocol):
@@ -31,6 +32,7 @@ class StructuredBlock(BaseModel):
     kind: Literal["heading", "paragraph", "list_item"]
     text: str
     level: int | None = None
+    metadata: dict[str, str | int | bool] = Field(default_factory=dict)
 
 
 class StructuredView(BaseModel):
@@ -63,20 +65,23 @@ class OpenAITransformProvider:
         else:
             raise TransformUnavailableError(f"`{mode}` is not an AI transform mode.")
 
+        blocks = [
+            ViewBlock(
+                id=f"{mode}-{index}",
+                kind=block.kind,
+                text=block.text.strip(),
+                level=block.level,
+                metadata=dict(block.metadata),
+            )
+            for index, block in enumerate(view.blocks)
+            if block.text.strip()
+        ]
         return DocumentView(
             mode=mode,
             detail_level=detail_level if mode == "summary" else "default",
             title=view.title or title,
-            blocks=[
-                ViewBlock(
-                    id=f"{mode}-{index}",
-                    kind=block.kind,
-                    text=block.text.strip(),
-                    level=block.level,
-                )
-                for index, block in enumerate(view.blocks)
-                if block.text.strip()
-            ],
+            blocks=blocks,
+            variant_metadata=build_variant_metadata(blocks),
             generated_by="openai",
             cached=False,
             source_hash=source_hash,

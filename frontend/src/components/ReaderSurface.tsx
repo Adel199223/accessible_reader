@@ -44,6 +44,105 @@ function renderSentence(
   )
 }
 
+function getBlockMetadata(block: RenderableBlock) {
+  return block.metadata ?? {}
+}
+
+function getListDepth(block: RenderableBlock) {
+  const value = getBlockMetadata(block).list_depth
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
+}
+
+function isOrderedList(block: RenderableBlock) {
+  return Boolean(getBlockMetadata(block).list_ordered)
+}
+
+function renderListSequence(
+  blocks: RenderableBlock[],
+  activeSentenceIndex: number,
+  onSelectSentence: (sentenceIndex: number) => void,
+) {
+  const content: ReactNode[] = []
+  let blockIndex = 0
+
+  while (blockIndex < blocks.length) {
+    const { node, nextIndex } = renderListBlockGroup(
+      blocks,
+      blockIndex,
+      getListDepth(blocks[blockIndex]),
+      activeSentenceIndex,
+      onSelectSentence,
+    )
+    content.push(node)
+    blockIndex = nextIndex
+  }
+
+  return content
+}
+
+function renderListBlockGroup(
+  blocks: RenderableBlock[],
+  startIndex: number,
+  depth: number,
+  activeSentenceIndex: number,
+  onSelectSentence: (sentenceIndex: number) => void,
+): {
+  nextIndex: number
+  node: ReactNode
+} {
+  const firstBlock = blocks[startIndex]
+  const ordered = isOrderedList(firstBlock)
+  const items: ReactNode[] = []
+  let blockIndex = startIndex
+
+  while (blockIndex < blocks.length) {
+    const block = blocks[blockIndex]
+    if (getListDepth(block) !== depth || isOrderedList(block) !== ordered) {
+      break
+    }
+
+    const nestedLists: ReactNode[] = []
+    const sentenceNodes = block.sentences.map((sentence) =>
+      renderSentence(sentence.text, sentence.globalIndex, activeSentenceIndex, onSelectSentence),
+    )
+    blockIndex += 1
+
+    while (blockIndex < blocks.length && getListDepth(blocks[blockIndex]) > depth) {
+      const nestedDepth = getListDepth(blocks[blockIndex])
+      const nestedResult = renderListBlockGroup(
+        blocks,
+        blockIndex,
+        nestedDepth,
+        activeSentenceIndex,
+        onSelectSentence,
+      )
+      nestedLists.push(nestedResult.node)
+      blockIndex = nestedResult.nextIndex
+    }
+
+    items.push(
+      <li key={block.id}>
+        {sentenceNodes}
+        {nestedLists}
+      </li>,
+    )
+  }
+
+  const listClassName = ordered ? 'reader-list reader-list-ordered' : 'reader-list reader-list-unordered'
+  return {
+    nextIndex: blockIndex,
+    node: ordered ? (
+      <ol key={`${firstBlock.id}-ordered-${depth}`} className={listClassName}>
+        {items}
+      </ol>
+    ) : (
+      <ul key={`${firstBlock.id}-unordered-${depth}`} className={listClassName}>
+        {items}
+      </ul>
+    ),
+  }
+}
+
 export function ReaderSurface({
   accessibleLabel,
   blocks,
@@ -70,15 +169,7 @@ export function ReaderSurface({
         blockIndex += 1
       }
       content.push(
-        <ul key={listItems[0].id} className="reader-list">
-          {listItems.map((item) => (
-            <li key={item.id}>
-              {item.sentences.map((sentence) =>
-                renderSentence(sentence.text, sentence.globalIndex, activeSentenceIndex, onSelectSentence),
-              )}
-            </li>
-          ))}
-        </ul>,
+        ...renderListSequence(listItems, activeSentenceIndex, onSelectSentence),
       )
       continue
     }
