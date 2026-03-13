@@ -55,6 +55,11 @@ Keep this repository as one local-first workspace.
   - workspace export manifests now surface non-fatal missing-attachment warnings while zip export remains available
   - a deterministic benchmark harness now measures ingest, retrieval, browser-context, export, merge preview, and study scheduling flows
   - backend/frontend/extension validation, benchmark runs, and a localhost integrity/repair smoke run are green
+- A bounded pre-Stage-9 stabilization detour is now complete:
+  - fetch-level network failures now show actionable local-service reconnect guidance instead of raw `Failed to fetch`
+  - Recall now reports explicit unavailable states for library, graph, study, and document-detail loading, each with retry actions
+  - Reader now distinguishes an empty library from a temporary local-service outage while keeping import controls usable
+  - backend/frontend/extension validation plus live Playwright outage-and-recovery smoke coverage are green
 - A post-Stage-8 roadmap extension is now approved:
   - Stage 9 will add source-linked highlights and notes inside Reader and Recall
   - Stage 10 will extend note capture through the browser companion and fold notes into retrieval
@@ -143,3 +148,4 @@ Keep this repository as one local-first workspace.
 - 2026-03-13: completed Stage 7 tablet-safe groundwork with workspace change-log APIs, portable attachment/export manifests, deterministic merge preview, backend/frontend coverage, and a localhost API smoke run
 - 2026-03-13: completed Stage 8 hardening and benchmarks with workspace integrity/repair APIs, startup self-healing for drifted derived indexes, benchmark coverage, extension timeout hardening, and localhost integrity/repair validation
 - 2026-03-13: published the Stage 1-8 closeout to `origin/codex/stage8-closeout-doc-sync`, synced touched assistant docs, and approved a Stage 9-11 roadmap extension focused on notes, browser capture, and portable apply flows
+- 2026-03-13: completed a pre-Stage-9 stabilization detour that normalized local-service network errors, added retryable unavailable states in Recall and Reader, and validated outage/recovery behavior in Playwright before resuming the Stage 9 roadmap

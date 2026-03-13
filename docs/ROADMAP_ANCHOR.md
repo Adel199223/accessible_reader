@@ -58,6 +58,11 @@ As of 2026-03-13, this workspace includes:
   - startup self-healing now repairs drifted FTS indexes and refreshes derived Recall state when needed
   - export manifests now carry non-fatal missing-attachment warnings while zip export remains available
   - a deterministic benchmark harness now measures ingest, retrieval, browser-context, export, merge preview, and study scheduling flows
+- a bounded pre-Stage-9 stabilization detour is complete:
+  - fetch-level network failures now show actionable local-service reconnect guidance instead of raw `Failed to fetch`
+  - Recall now exposes explicit unavailable states for library, graph, study, and document-detail loading plus retry actions
+  - Reader now distinguishes `empty library` from `service unavailable` while keeping import controls usable
+  - live Playwright smoke coverage now includes outage and retry recovery checks for both Recall and Reader
 - the Stage 1-8 closeout is published on branch `codex/stage8-closeout-doc-sync`
   - product/state closeout commit: `bf3be7f77e56f4e0a00896dcf0a0df4c999db57a`
   - assistant-docs sync commit: `27b7b42d785374236d11f0c335032e9dfab575bf`
@@ -91,6 +96,7 @@ As of 2026-03-13, this workspace includes:
 - Stage 6 is complete after portability/accessibility contracts, reader-session metadata, backend/frontend validation, and the Edge structured-Markdown/session-restore smoke run landed.
 - Stage 7 is complete after the change-log/export/merge groundwork, backend/frontend validation, and the localhost API smoke run landed.
 - Stage 8 is complete after the integrity/repair APIs, benchmark harness, extension timeout hardening, validation matrix, and localhost integrity/repair smoke run landed.
+- The bounded pre-Stage-9 stabilization detour is complete after the frontend resilience pass, validation reruns, and live outage/recovery smoke checks landed.
 - Stage 9 is now the active roadmap milestone.
 - Stage 10 is next.
 - Stage 11 is queued after Stage 10.
@@ -108,6 +114,7 @@ As of 2026-03-13, this workspace includes:
 - 2026-03-13: completed Stage 7 tablet-safe groundwork with workspace change-log APIs, portable export bundles, deterministic merge preview, backend/frontend coverage, and a localhost API smoke run
 - 2026-03-13: completed Stage 8 hardening and benchmarks with workspace integrity/repair APIs, startup FTS self-healing, benchmark coverage, extension timeout hardening, and localhost integrity/repair validation
 - 2026-03-13: published the Stage 1-8 closeout branch, synced touched assistant docs, and approved the Stage 9-11 roadmap extension centered on notes, browser capture, and portable apply flows
+- 2026-03-13: completed a pre-Stage-9 stabilization detour that replaced raw `Failed to fetch` copy with actionable local-service guidance, added retryable unavailable states in Recall and Reader, and verified outage/recovery behavior in Playwright before resuming Stage 9
 
 ## Resume Checklist
 
