@@ -24,12 +24,12 @@ Instead use `docs/assistant/workflows/ROADMAP_WORKFLOW.md`.
 - `frontend/src/lib/segment.ts`
 
 ## Minimal Commands
-- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && . .venv/bin/activate && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000'`
+- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000'`
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run dev -- --host 127.0.0.1'`
 - Launch Windows Edge against `http://127.0.0.1:5173`
 
 ## Targeted Tests
-- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test'`
+- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'`
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'`
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
 

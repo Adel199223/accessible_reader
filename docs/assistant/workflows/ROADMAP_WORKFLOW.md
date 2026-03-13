@@ -25,10 +25,11 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 
 ## Minimal Commands
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git status --short --branch'`
-- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test'`
+- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'`
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'`
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
-- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && . .venv/bin/activate && pytest'`
+- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'`
+- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -c "from app.main import app; print(app.title)"'`
 
 ## Targeted Tests
 - Frontend checks for frontend-only roadmap work.

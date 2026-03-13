@@ -5,7 +5,7 @@
     "BUILD_BRIEF.md",
     "docs/ROADMAP.md",
     "docs/ROADMAP_ANCHOR.md",
-    "docs/exec_plans/active/2026-03-13_stage1_stabilization_and_shared_core.md"
+    "docs/exec_plans/active/2026-03-13_post_stage8_direction_pending.md"
   ],
   "bridges": [
     "agent.md",
@@ -21,13 +21,14 @@
         "BUILD_BRIEF.md",
         "docs/ROADMAP.md",
         "docs/ROADMAP_ANCHOR.md",
-        "docs/exec_plans/active/2026-03-13_stage1_stabilization_and_shared_core.md"
+        "docs/exec_plans/active/2026-03-13_post_stage8_direction_pending.md"
       ],
       "validation_commands": [
-        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'",
-        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && . .venv/bin/activate && pytest'"
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -c \"from app.main import app; print(app.title)\"'"
       ]
     },
     {
@@ -41,7 +42,7 @@
         "frontend/src/lib/segment.ts"
       ],
       "validation_commands": [
-        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'"
       ]
@@ -50,8 +51,8 @@
   "global_commands": {
     "repo_status": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git status --short --branch'",
     "frontend_dev": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run dev -- --host 127.0.0.1'",
-    "backend_dev": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && . .venv/bin/activate && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000'",
-    "backend_pytest": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && . .venv/bin/activate && pytest'"
+    "backend_dev": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000'",
+    "backend_pytest": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'"
   },
   "contracts": {
     "template_read_policy": "Read docs/assistant/templates/* only when the user explicitly asks for harness/bootstrap prompt creation, cross-project Codex scaffolding, or a follow-up delta/refinement prompt.",
