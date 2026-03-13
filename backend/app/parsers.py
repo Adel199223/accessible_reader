@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 from docx import Document as DocxDocument
 from markdown import markdown
 from pypdf import PdfReader
@@ -23,6 +25,7 @@ class ParsedDocument:
     title: str
     source_type: str
     file_name: str | None
+    source_locator: str | None
     blocks: list[ViewBlock]
     plain_text: str
 
@@ -36,6 +39,7 @@ def parse_text_input(text: str, title: str | None = None) -> ParsedDocument:
         title=chosen_title,
         source_type="paste",
         file_name=None,
+        source_locator=None,
         blocks=blocks,
         plain_text=_blocks_to_text(blocks),
     )
@@ -63,6 +67,29 @@ def parse_uploaded_file(file_name: str, content: bytes) -> ParsedDocument:
         title=_pick_title_from_blocks(blocks) or Path(file_name).stem.replace("_", " ").strip() or "Imported document",
         source_type=suffix.removeprefix("."),
         file_name=file_name,
+        source_locator=None,
+        blocks=blocks,
+        plain_text=_blocks_to_text(blocks),
+    )
+
+
+def parse_web_page(url: str, html: str) -> ParsedDocument:
+    soup = BeautifulSoup(html, "html.parser")
+    title = _pick_web_title(soup, url)
+    container = _pick_web_container(soup)
+    if container is None:
+        raise UnsupportedDocumentError("The webpage did not contain a readable article.")
+
+    _strip_noise_tags(container)
+    blocks = _collect_html_blocks(container)
+    if not blocks:
+        raise UnsupportedDocumentError("The webpage did not contain a readable article.")
+
+    return ParsedDocument(
+        title=title,
+        source_type="web",
+        file_name=None,
+        source_locator=url,
         blocks=blocks,
         plain_text=_blocks_to_text(blocks),
     )
@@ -153,36 +180,9 @@ def _parse_markdown_blocks(text: str) -> list[ViewBlock]:
 
 def _parse_html_blocks(text: str) -> list[ViewBlock]:
     soup = BeautifulSoup(text, "html.parser")
-    for tag_name in ["script", "style", "nav", "header", "footer", "aside"]:
-        for tag in soup.find_all(tag_name):
-            tag.decompose()
-
     container = soup.body or soup
-    blocks: list[ViewBlock] = []
-    index = 0
-    for node in container.find_all(["h1", "h2", "h3", "h4", "p", "li", "blockquote"]):
-        if node.find_parent(["blockquote", "li"]) and node.name == "p":
-            continue
-        text_value = normalize_whitespace(node.get_text(" ", strip=True))
-        if not text_value:
-            continue
-        if node.name.startswith("h"):
-            blocks.append(
-                ViewBlock(
-                    id=f"block-{index}",
-                    kind="heading",
-                    text=text_value,
-                    level=min(max(int(node.name[1]), 1), 4),
-                )
-            )
-        elif node.name == "li":
-            blocks.append(ViewBlock(id=f"block-{index}", kind="list_item", text=text_value))
-        elif node.name == "blockquote":
-            blocks.append(ViewBlock(id=f"block-{index}", kind="quote", text=text_value))
-        else:
-            blocks.append(ViewBlock(id=f"block-{index}", kind="paragraph", text=text_value))
-        index += 1
-    return blocks
+    _strip_noise_tags(container)
+    return _collect_html_blocks(container)
 
 
 def _parse_docx_blocks(content: bytes) -> list[ViewBlock]:
@@ -244,3 +244,130 @@ def _looks_like_heading(line: str) -> bool:
         return False
     capitals = sum(1 for word in words if word[:1].isupper())
     return capitals >= max(1, len(words) // 2)
+
+
+def _collect_html_blocks(container: Tag | BeautifulSoup) -> list[ViewBlock]:
+    blocks: list[ViewBlock] = []
+    index = 0
+    for node in container.find_all(["h1", "h2", "h3", "h4", "p", "li", "blockquote"]):
+        if node.find_parent(["blockquote", "li"]) and node.name == "p":
+            continue
+        text_value = normalize_whitespace(node.get_text(" ", strip=True))
+        if not text_value:
+            continue
+        if node.name.startswith("h"):
+            blocks.append(
+                ViewBlock(
+                    id=f"block-{index}",
+                    kind="heading",
+                    text=text_value,
+                    level=min(max(int(node.name[1]), 1), 4),
+                )
+            )
+        elif node.name == "li":
+            blocks.append(ViewBlock(id=f"block-{index}", kind="list_item", text=text_value))
+        elif node.name == "blockquote":
+            blocks.append(ViewBlock(id=f"block-{index}", kind="quote", text=text_value))
+        else:
+            blocks.append(ViewBlock(id=f"block-{index}", kind="paragraph", text=text_value))
+        index += 1
+    return blocks
+
+
+def _strip_noise_tags(container: Tag | BeautifulSoup) -> None:
+    for tag_name in ["script", "style", "noscript", "nav", "header", "footer", "aside", "form", "dialog"]:
+        for tag in container.find_all(tag_name):
+            tag.decompose()
+
+    noise_keywords = (
+        "cookie",
+        "consent",
+        "banner",
+        "advert",
+        "promo",
+        "newsletter",
+        "subscribe",
+        "share",
+        "social",
+        "recommend",
+        "related",
+        "comment",
+        "breadcrumb",
+        "sidebar",
+        "popover",
+        "modal",
+    )
+    for tag in list(container.find_all(True)):
+        metadata = " ".join(
+            [
+                tag.get("id") or "",
+                " ".join(tag.get("class", [])) if isinstance(tag.get("class"), list) else "",
+                tag.get("role") or "",
+                tag.get("aria-label") or "",
+            ]
+        ).lower()
+        if metadata and any(keyword in metadata for keyword in noise_keywords):
+            tag.decompose()
+
+
+def _pick_web_title(soup: BeautifulSoup, url: str) -> str:
+    for attributes in (
+        {"property": "og:title"},
+        {"name": "twitter:title"},
+        {"property": "twitter:title"},
+    ):
+        meta = soup.find("meta", attrs=attributes)
+        if meta and meta.get("content"):
+            title = normalize_whitespace(meta["content"])
+            if title:
+                return title
+
+    if soup.title and soup.title.string:
+        title = normalize_whitespace(soup.title.string)
+        if title:
+            return title
+
+    first_heading = soup.find(["h1", "h2"])
+    if first_heading:
+        heading_text = normalize_whitespace(first_heading.get_text(" ", strip=True))
+        if heading_text:
+            return heading_text
+
+    hostname = urlsplit(url).hostname or "Imported article"
+    return hostname.removeprefix("www.")
+
+
+def _pick_web_container(soup: BeautifulSoup) -> Tag | BeautifulSoup | None:
+    for selector in ("article", "main", '[role="main"]'):
+        container = soup.select_one(selector)
+        if container is not None:
+            return container
+
+    body = soup.body
+    if body is None:
+        return None
+
+    best_container: Tag | None = None
+    best_score = 0
+    for candidate in body.find_all(["section", "div"], recursive=True):
+        paragraph_texts = [
+            normalize_whitespace(node.get_text(" ", strip=True))
+            for node in candidate.find_all("p")
+        ]
+        paragraph_texts = [text for text in paragraph_texts if text]
+        if len(paragraph_texts) < 2:
+            continue
+
+        text_length = sum(len(text) for text in paragraph_texts)
+        heading_bonus = 120 if candidate.find(["h1", "h2", "h3"]) else 0
+        list_bonus = 30 * len(candidate.find_all("li"))
+        link_penalty = sum(
+            len(normalize_whitespace(link.get_text(" ", strip=True)))
+            for link in candidate.find_all("a")
+        )
+        score = text_length + heading_bonus + list_bonus - min(link_penalty, text_length // 2)
+        if score > best_score:
+            best_score = score
+            best_container = candidate
+
+    return best_container if best_score >= 240 else None

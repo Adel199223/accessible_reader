@@ -1,12 +1,13 @@
-import type { CSSProperties, ReactNode } from 'react'
+import { Fragment, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 
 import type { RenderableBlock } from '../lib/segment'
 import type { ReaderSettings } from '../types'
 
 interface ReaderSurfaceProps {
-  title: string
+  accessibleLabel?: string
   blocks: RenderableBlock[]
   activeSentenceIndex: number
+  labelledBy?: string
   settings: ReaderSettings
   onSelectSentence: (sentenceIndex: number) => void
 }
@@ -17,22 +18,37 @@ function renderSentence(
   activeSentenceIndex: number,
   onSelectSentence: (sentenceIndex: number) => void,
 ) {
+  function handleKeyDown(event: KeyboardEvent<HTMLSpanElement>) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return
+    }
+    event.preventDefault()
+    onSelectSentence(sentenceIndex)
+  }
+
   return (
-    <span
-      key={`${sentenceIndex}-${text}`}
-      className={sentenceIndex === activeSentenceIndex ? 'reader-sentence reader-sentence-active' : 'reader-sentence'}
-      data-sentence-index={sentenceIndex}
-      onClick={() => onSelectSentence(sentenceIndex)}
-    >
-      {text}{' '}
-    </span>
+    <Fragment key={`${sentenceIndex}-${text}`}>
+      <span
+        aria-current={sentenceIndex === activeSentenceIndex ? 'true' : undefined}
+        className={sentenceIndex === activeSentenceIndex ? 'reader-sentence reader-sentence-active' : 'reader-sentence'}
+        data-reader-sentence="true"
+        data-sentence-index={sentenceIndex}
+        role="button"
+        tabIndex={0}
+        onClick={() => onSelectSentence(sentenceIndex)}
+        onKeyDown={handleKeyDown}
+      >
+        {text}
+      </span>{' '}
+    </Fragment>
   )
 }
 
 export function ReaderSurface({
-  title,
+  accessibleLabel,
   blocks,
   activeSentenceIndex,
+  labelledBy,
   settings,
   onSelectSentence,
 }: ReaderSurfaceProps) {
@@ -115,11 +131,12 @@ export function ReaderSurface({
   }
 
   return (
-    <article className="reader-surface" style={articleStyle}>
-      <header className="reader-header">
-        <p className="eyebrow">Reading surface</p>
-        <h1>{title}</h1>
-      </header>
+    <article
+      aria-label={labelledBy ? undefined : accessibleLabel}
+      aria-labelledby={labelledBy}
+      className="reader-surface"
+      style={articleStyle}
+    >
       {content}
     </article>
   )

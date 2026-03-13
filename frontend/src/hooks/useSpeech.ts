@@ -16,36 +16,48 @@ interface UseSpeechOptions {
   onSentenceChange: (sentenceIndex: number) => void
 }
 
+const defaultVoiceChoice: VoiceChoice = {
+  id: 'default',
+  label: 'Default voice',
+  name: 'default',
+}
+
 const voicePreferences = [
   { id: 'ava', label: 'Ava Multilingual Natural', matcher: /ava.*multilingual.*natural/i },
   { id: 'andrew', label: 'Andrew Multilingual Natural', matcher: /andrew.*multilingual.*natural/i },
 ]
 
-function curateVoices(voices: SpeechSynthesisVoice[]): VoiceChoice[] {
-  const curated = voicePreferences
+function resolvePreferredVoices(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
+  return voicePreferences
     .map((preference) => {
       const voice = voices.find((item) => preference.matcher.test(item.name))
-      return voice
-        ? {
-            id: preference.id,
-            label: preference.label,
-            name: voice.name,
-          }
-        : null
+      return voice ?? null
     })
-    .filter((value): value is VoiceChoice => value !== null)
-
-  return [{ id: 'default', label: 'Default voice', name: 'default' }, ...curated]
+    .filter((value): value is SpeechSynthesisVoice => value !== null)
 }
 
-function pickBrowserVoice(
+export function curateVoices(voices: SpeechSynthesisVoice[]): VoiceChoice[] {
+  const curated = resolvePreferredVoices(voices).map((voice, index) => ({
+    id: voicePreferences[index].id,
+    label: voicePreferences[index].label,
+    name: voice.name,
+  }))
+
+  return [...curated, defaultVoiceChoice]
+}
+
+function fallbackBrowserVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  return resolvePreferredVoices(voices)[0] ?? voices.find((voice) => voice.default) ?? voices[0] ?? null
+}
+
+export function pickBrowserVoice(
   voices: SpeechSynthesisVoice[],
   selectedName: string,
 ): SpeechSynthesisVoice | null {
   if (!selectedName || selectedName === 'default') {
-    return voices.find((voice) => voice.default) ?? voices[0] ?? null
+    return fallbackBrowserVoice(voices)
   }
-  return voices.find((voice) => voice.name === selectedName) ?? voices.find((voice) => voice.default) ?? null
+  return voices.find((voice) => voice.name === selectedName) ?? fallbackBrowserVoice(voices)
 }
 
 export function useSpeech({
@@ -56,12 +68,17 @@ export function useSpeech({
   onSentenceChange,
 }: UseSpeechOptions) {
   const synthesis = typeof window !== 'undefined' ? window.speechSynthesis : null
+  const sentenceSignature = sentences.map((sentence) => `${sentence.key}:${sentence.text}`).join('\u0001')
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(initialSentenceIndex)
-  const [voiceChoices, setVoiceChoices] = useState<VoiceChoice[]>([{ id: 'default', label: 'Default voice', name: 'default' }])
+  const [voiceChoices, setVoiceChoices] = useState<VoiceChoice[]>([defaultVoiceChoice])
   const sentencesRef = useRef(sentences)
   const currentIndexRef = useRef(initialSentenceIndex)
+  const lastResetRef = useRef<{
+    initialSentenceIndex: number
+    sentenceSignature: string
+  } | null>(null)
   const rateRef = useRef(rate)
   const preferredVoiceRef = useRef(preferredVoice)
   const voicesRef = useRef<SpeechSynthesisVoice[]>([])
@@ -106,18 +123,36 @@ export function useSpeech({
     if (!synthesis) {
       return
     }
+    const lastReset = lastResetRef.current
+    const shouldReset =
+      !lastReset ||
+      lastReset.sentenceSignature !== sentenceSignature ||
+      (lastReset.initialSentenceIndex !== initialSentenceIndex && currentIndexRef.current !== initialSentenceIndex)
+
+    lastResetRef.current = {
+      initialSentenceIndex,
+      sentenceSignature,
+    }
+
+    if (!shouldReset) {
+      return
+    }
+
     cancelRef.current = true
     synthesis.cancel()
     setIsSpeaking(false)
     setIsPaused(false)
     updateSentenceIndex(initialSentenceIndex)
     cancelRef.current = false
-  }, [initialSentenceIndex, sentences, synthesis])
+  }, [initialSentenceIndex, sentenceSignature, synthesis])
 
   function updateSentenceIndex(nextIndex: number) {
+    const changed = currentIndexRef.current !== nextIndex
     currentIndexRef.current = nextIndex
     setCurrentSentenceIndex(nextIndex)
-    onSentenceChangeRef.current(nextIndex)
+    if (changed) {
+      onSentenceChangeRef.current(nextIndex)
+    }
   }
 
   function finishPlayback() {

@@ -2,31 +2,39 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-import uuid
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
+from .ids import new_uuid7_str
 from .models import (
     DocumentRecord,
     DocumentView,
     HealthResponse,
     ImportTextRequest,
+    ImportUrlRequest,
     ProgressUpdate,
     ReaderSettings,
     TransformRequest,
 )
-from .parsers import ParsedDocument, UnsupportedDocumentError, parse_text_input, parse_uploaded_file
+from .parsers import (
+    ParsedDocument,
+    UnsupportedDocumentError,
+    parse_text_input,
+    parse_uploaded_file,
+    parse_web_page,
+)
 from .reflow import reflow_blocks
 from .storage import Repository
 from .text_utils import now_iso, sha256_text
 from .transforms import TransformUnavailableError, provider_for_key
+from .web_import import WebImportError, fetch_webpage_snapshot
 
 
 settings = get_settings()
-repository = Repository(settings.database_path)
+repository = Repository(settings.database_path, legacy_database_path=settings.legacy_database_path)
 transform_provider = provider_for_key(settings.openai_api_key, settings.openai_model)
 
 
@@ -92,12 +100,42 @@ async def import_file(file: UploadFile = File(...)) -> DocumentRecord:
     return _save_or_reuse_document(parsed, raw_bytes=content, extension=extension)
 
 
+@app.post("/api/documents/import-url", response_model=DocumentRecord)
+def import_url(payload: ImportUrlRequest) -> DocumentRecord:
+    try:
+        fetched_page = fetch_webpage_snapshot(payload.url)
+        parsed = parse_web_page(fetched_page.resolved_url, fetched_page.html)
+    except WebImportError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+    except UnsupportedDocumentError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return _save_or_reuse_document(
+        parsed,
+        raw_bytes=fetched_page.html.encode("utf-8"),
+        extension=".html",
+    )
+
+
 @app.get("/api/documents/{document_id}", response_model=DocumentRecord)
 def get_document(document_id: str) -> DocumentRecord:
     document = repository.get_document(document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
     return document
+
+
+@app.delete("/api/documents/{document_id}", status_code=204)
+def delete_document(document_id: str) -> None:
+    document = repository.get_document(document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    stored_path = repository.delete_document(document_id)
+    if stored_path:
+        try:
+            Path(stored_path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 @app.get("/api/documents/{document_id}/view", response_model=DocumentView)
@@ -154,7 +192,7 @@ def _save_or_reuse_document(parsed: ParsedDocument, *, raw_bytes: bytes, extensi
     if existing:
         return existing
 
-    document_id = str(uuid.uuid4())
+    document_id = new_uuid7_str()
     stored_path = _store_source_file(document_id=document_id, raw_bytes=raw_bytes, extension=extension)
     timestamp = now_iso()
     original_view = DocumentView(
@@ -178,6 +216,7 @@ def _save_or_reuse_document(parsed: ParsedDocument, *, raw_bytes: bytes, extensi
         title=parsed.title,
         source_type=parsed.source_type,
         file_name=parsed.file_name,
+        source_locator=parsed.source_locator,
         stored_path=str(stored_path),
         content_hash=content_hash,
         original_view=original_view,

@@ -17,6 +17,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       | null
     throw new Error(errorPayload?.detail ?? `Request failed with status ${response.status}.`)
   }
+  if (response.status === 204) {
+    return undefined as T
+  }
   return (await response.json()) as T
 }
 
@@ -58,6 +61,14 @@ export function importFileDocument(file: File) {
   })
 }
 
+export function importUrlDocument(url: string) {
+  return request<DocumentRecord>('/api/documents/import-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  })
+}
+
 export function fetchDocumentView(
   documentId: string,
   mode: ViewMode,
@@ -86,5 +97,11 @@ export function saveProgress(documentId: string, mode: ViewMode, sentenceIndex: 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode, sentence_index: sentenceIndex }),
+  })
+}
+
+export function deleteDocumentRecord(documentId: string) {
+  return request<void>(`/api/documents/${documentId}`, {
+    method: 'DELETE',
   })
 }
