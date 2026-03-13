@@ -8,6 +8,13 @@ Localhost-first reading assistant for Windows 11. This repository is intended to
 - `BUILD_BRIEF.md`
 - `docs/ROADMAP.md`
 - `docs/ROADMAP_ANCHOR.md`
+- the latest active ExecPlan in `docs/exec_plans/active/`
+
+## Harness
+
+- `agent.md` is the short Codex runbook for this repo.
+- `docs/assistant/INDEX.md` is the lightweight assistant routing map.
+- `docs/assistant/templates/CODEX_PROJECT_BOOTSTRAP_PROMPT.md` stays on-demand only for explicit harness/bootstrap prompt work.
 
 This project is optimized for:
 
@@ -15,6 +22,7 @@ This project is optimized for:
 - ADHD-considerate chunking and focus modes
 - browser-native read aloud in Microsoft Edge
 - local parsing, storage, and reflow
+- snapshot-based public article webpage import
 - AI only for explicit `Simplify` and `Summary` actions
 
 ## Stack
@@ -54,6 +62,7 @@ Frontend defaults to `http://127.0.0.1:5173` and proxies API requests to `http:/
 ## Current Scope
 
 - Paste text and upload local files
+- Import public article webpages as one-time local HTML snapshots
 - Local library with search and reopen support
 - `Original`, `Reflowed`, `Simplified`, and `Summary` views
 - Sentence-highlighted browser read aloud
@@ -61,4 +70,4 @@ Frontend defaults to `http://127.0.0.1:5173` and proxies API requests to `http:/
 
 ## Templates
 
-- `docs/assistant/templates/CODEX_PROJECT_BOOTSTRAP_PROMPT.md` is included as a reusable harness/bootstrap template for future Codex documentation bootstraps.
+- `docs/assistant/templates/CODEX_PROJECT_BOOTSTRAP_PROMPT.md` is included as a reusable harness/bootstrap template for future Codex documentation bootstraps when explicitly requested.

@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "last_updated": "2026-03-13",
+  "canonical": [
+    "BUILD_BRIEF.md",
+    "docs/ROADMAP.md",
+    "docs/ROADMAP_ANCHOR.md",
+    "docs/exec_plans/active/2026-03-13_stage1_stabilization_and_shared_core.md"
+  ],
+  "bridges": [
+    "agent.md",
+    "docs/assistant/INDEX.md",
+    "docs/assistant/APP_KNOWLEDGE.md"
+  ],
+  "workflows": [
+    {
+      "id": "roadmap_continuation",
+      "doc": "docs/assistant/workflows/ROADMAP_WORKFLOW.md",
+      "scope": "Roadmap-driven product work and milestone continuation.",
+      "primary_files": [
+        "BUILD_BRIEF.md",
+        "docs/ROADMAP.md",
+        "docs/ROADMAP_ANCHOR.md",
+        "docs/exec_plans/active/2026-03-13_stage1_stabilization_and_shared_core.md"
+      ],
+      "validation_commands": [
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && . .venv/bin/activate && pytest'"
+      ]
+    },
+    {
+      "id": "edge_speech_validation",
+      "doc": "docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md",
+      "scope": "Edge read-aloud, sentence highlighting, progress restore, and manual browser validation.",
+      "primary_files": [
+        "frontend/src/App.tsx",
+        "frontend/src/hooks/useSpeech.ts",
+        "frontend/src/components/ReaderSurface.tsx",
+        "frontend/src/lib/segment.ts"
+      ],
+      "validation_commands": [
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'"
+      ]
+    }
+  ],
+  "global_commands": {
+    "repo_status": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git status --short --branch'",
+    "frontend_dev": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run dev -- --host 127.0.0.1'",
+    "backend_dev": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && . .venv/bin/activate && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000'",
+    "backend_pytest": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && . .venv/bin/activate && pytest'"
+  },
+  "contracts": {
+    "template_read_policy": "Read docs/assistant/templates/* only when the user explicitly asks for harness/bootstrap prompt creation, cross-project Codex scaffolding, or a follow-up delta/refinement prompt.",
+    "delta_refinement_prompt_policy": "When the user explicitly asks for a follow-up delta/refinement prompt based on later prototype or live-review learnings, use docs/assistant/templates/CODEX_DELTA_REFINEMENT_PROMPT.md and keep the pass inspect-first: keep good work, correct weak work, add only the meaningful delta.",
+    "wsl_toolchain_home": "Run git, npm, pytest, and uvicorn from WSL against /home/fa507/dev/accessible_reader.",
+    "browser_target": "Validate browser behavior in Windows Edge on Windows 11.",
+    "local_first_default": "Keep parsing, storage, search, settings, progress, and deterministic reflow local-first.",
+    "web_import_scope": "Public webpage import is limited to article-style pages, fetched once, stored locally as snapshots, and never live-synced on reopen.",
+    "speech_path": "Browser-native speechSynthesis is the shipped read-aloud path for v1.",
+    "local_tts_status": "Local TTS remains deferred and should be described as coming soon unless the user reprioritizes it.",
+    "ai_scope": "AI is opt-in only and limited to Simplify and Summary.",
+    "validation_strategy": "Run targeted validation before broad checks; keep backend pytest targeted when backend code is untouched.",
+    "push_policy": "Do not push unless the user explicitly asks.",
+    "execplan_policy": "Major or multi-file work must start by creating or updating an ExecPlan in docs/exec_plans/active/."
+  }
+}

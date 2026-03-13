@@ -8,7 +8,11 @@ Read these docs in order before doing major work:
 4. the latest active ExecPlan in `docs/exec_plans/active/`
 
 Read `docs/assistant/templates/*` only on demand:
-- use it when the user explicitly asks for harness/bootstrap prompt creation or cross-project Codex documentation scaffolding
+- use it when the user explicitly asks for harness/bootstrap prompt creation, cross-project Codex documentation scaffolding, or a follow-up delta/refinement prompt
+
+Harness quick links:
+- `agent.md` is the short repo runbook for future Codex chats
+- `docs/assistant/INDEX.md` is the lightweight assistant routing map
 
 ## Non-Negotiables
 
