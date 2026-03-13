@@ -6,6 +6,7 @@ interface LibraryPaneProps {
   activeDocumentId: string | null
   deletingDocumentId: string | null
   documents: DocumentRecord[]
+  errorMessage?: string | null
   hasAnyDocuments: boolean
   loading: boolean
   open: boolean
@@ -35,6 +36,7 @@ export function LibraryPane({
   activeDocumentId,
   deletingDocumentId,
   documents,
+  errorMessage = null,
   hasAnyDocuments,
   loading,
   open,
@@ -54,6 +56,7 @@ export function LibraryPane({
     month: 'short',
   })
   const libraryCountLabel = documents.length === 1 ? '1 saved' : `${documents.length} saved`
+  const libraryStatusLabel = loading ? 'Loading…' : errorMessage ? 'Unavailable' : hasAnyDocuments ? libraryCountLabel : null
 
   useEffect(() => {
     if (!openActionsId) {
@@ -85,7 +88,7 @@ export function LibraryPane({
       <div className="toolbar library-pane-toolbar">
         <div className="section-header section-header-compact">
           <h2>Library</h2>
-          {loading || hasAnyDocuments ? <p>{loading ? 'Loading…' : libraryCountLabel}</p> : null}
+          {libraryStatusLabel ? <p>{libraryStatusLabel}</p> : null}
         </div>
         <button
           aria-expanded={open}
@@ -116,7 +119,8 @@ export function LibraryPane({
 
           <div className="library-list" role="list">
             {loading ? <p className="small-note">Loading documents…</p> : null}
-            {!loading && documents.length === 0 ? (
+            {!loading && errorMessage ? <p className="small-note">{errorMessage}</p> : null}
+            {!loading && !errorMessage && documents.length === 0 ? (
               <p className="small-note">
                 {hasSearch && hasAnyDocuments
                   ? 'No documents match this search yet.'

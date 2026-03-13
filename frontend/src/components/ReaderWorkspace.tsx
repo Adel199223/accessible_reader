@@ -155,6 +155,10 @@ function buildAccessibilitySnapshot(settings: ReaderSettings) {
   }
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
+}
+
 export function ReaderWorkspace({
   health,
   onSettingsChange,
@@ -180,6 +184,7 @@ export function ReaderWorkspace({
   const [view, setView] = useState<DocumentView | null>(null)
   const [viewLoading, setViewLoading] = useState(false)
   const [viewError, setViewError] = useState<string | null>(null)
+  const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [importBusy, setImportBusy] = useState(false)
   const [transformBusy, setTransformBusy] = useState(false)
   const [importPanelOpen, setImportPanelOpen] = useState(false)
@@ -194,6 +199,7 @@ export function ReaderWorkspace({
     preferredMode = activeMode,
   ) {
     setDocumentsLoading(true)
+    setDocumentsError(null)
     try {
       const loadedDocuments = await fetchDocuments(nextQuery)
       setDocuments(loadedDocuments)
@@ -225,7 +231,7 @@ export function ReaderWorkspace({
         }
       })
     } catch (error) {
-      setViewError(error instanceof Error ? error.message : 'Could not load documents.')
+      setDocumentsError(getErrorMessage(error, 'Could not load documents.'))
     } finally {
       setDocumentsLoading(false)
     }
@@ -528,10 +534,14 @@ export function ReaderWorkspace({
   ].filter(Boolean)
   const emptyStateTitle = documentsLoading
     ? 'Loading your reading space'
-    : 'Add something to start reading'
+    : documentsError
+      ? 'Reader is temporarily unavailable'
+      : 'Add something to start reading'
   const emptyStateDescription = documentsLoading
     ? 'Your local library is loading. Reading controls appear after a document opens.'
-    : 'Paste text, choose a file, or import a public article link on the left. Reading controls appear here after a document opens.'
+    : documentsError
+      ? 'Reader could not reconnect to the local library yet. Retry loading after the backend is running again.'
+      : 'Paste text, choose a file, or import a public article link on the left. Reading controls appear here after a document opens.'
 
   useEffect(() => {
     setLibraryOpen(!hasActiveDocument)
@@ -568,6 +578,16 @@ export function ReaderWorkspace({
     }
   }
 
+  function handleRetryReaderLoading() {
+    setViewError(null)
+    void loadDocuments(search, activeDocumentId, activeMode)
+  }
+
+  const libraryErrorMessage = documentsError ? 'Saved documents are unavailable until Reader reconnects.' : null
+  const readerErrorMessage = viewError ?? documentsError
+  const canRetryReaderLoading = Boolean(documentsError || (selectedDocument && viewError))
+  const showUnavailableEmptyState = !selectedDocument && Boolean(documentsError)
+
   return (
     <div className="reader-workspace">
       <aside className="sidebar">
@@ -594,6 +614,7 @@ export function ReaderWorkspace({
             activeDocumentId={activeDocumentId}
             deletingDocumentId={deletingDocumentId}
             documents={documents}
+            errorMessage={libraryErrorMessage}
             hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
             open={libraryOpen}
             loading={documentsLoading}
@@ -636,7 +657,18 @@ export function ReaderWorkspace({
             </button>
           </div>
         ) : null}
-        {viewError ? <p className="inline-error">{viewError}</p> : null}
+        {readerErrorMessage ? (
+          <div className="inline-error stack-gap" role="alert">
+            <p>{readerErrorMessage}</p>
+            {canRetryReaderLoading ? (
+              <div className="inline-actions">
+                <button className="ghost-button" type="button" onClick={handleRetryReaderLoading}>
+                  Retry loading
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {selectedDocument ? (
           <>
             <section className="sticky-transport-shell" aria-label="Read aloud controls">
@@ -760,24 +792,37 @@ export function ReaderWorkspace({
         ) : (
           <section className="card empty-state-card stack-gap">
             <div className="section-header">
-              <p className="eyebrow">Ready when you are</p>
+              <p className="eyebrow">{showUnavailableEmptyState ? 'Local service unavailable' : 'Ready when you are'}</p>
               <h2>{emptyStateTitle}</h2>
               <p>{emptyStateDescription}</p>
             </div>
-            <div className="empty-state-steps" role="list" aria-label="How to begin">
-              <div className="empty-state-step" role="listitem">
-                <strong>1. Add or reopen something</strong>
-                <span>Paste text, choose a file, import a public article link, or reopen a saved document from the library.</span>
+            {showUnavailableEmptyState ? (
+              <>
+                <div className="inline-actions">
+                  <button className="ghost-button" type="button" onClick={handleRetryReaderLoading}>
+                    Retry loading
+                  </button>
+                </div>
+                <p className="small-note">
+                  Import controls on the left still work for local text, files, and public article links while Reader reconnects.
+                </p>
+              </>
+            ) : (
+              <div className="empty-state-steps" role="list" aria-label="How to begin">
+                <div className="empty-state-step" role="listitem">
+                  <strong>1. Add or reopen something</strong>
+                  <span>Paste text, choose a file, import a public article link, or reopen a saved document from the library.</span>
+                </div>
+                <div className="empty-state-step" role="listitem">
+                  <strong>2. Read in calmer view</strong>
+                  <span>Reflowed opens first so spacing and line breaks stay easier to scan.</span>
+                </div>
+                <div className="empty-state-step" role="listitem">
+                  <strong>3. Open Settings only if needed</strong>
+                  <span>Theme and layout stay available from the Settings button.</span>
+                </div>
               </div>
-              <div className="empty-state-step" role="listitem">
-                <strong>2. Read in calmer view</strong>
-                <span>Reflowed opens first so spacing and line breaks stay easier to scan.</span>
-              </div>
-              <div className="empty-state-step" role="listitem">
-                <strong>3. Open Settings only if needed</strong>
-                <span>Theme and layout stay available from the Settings button.</span>
-              </div>
-            </div>
+            )}
           </section>
         )}
       </main>

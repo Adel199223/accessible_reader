@@ -220,6 +220,9 @@ const settings: ReaderSettings = {
   speech_rate: 1,
 }
 
+const localServiceUnavailableMessage =
+  'Could not reach the local service at 127.0.0.1:8000. Retry after the backend is running again.'
+
 const {
   decideRecallGraphEdgeMock,
   decideRecallGraphNodeMock,
@@ -440,12 +443,15 @@ beforeEach(() => {
 })
 
 async function ensureLibraryOpen() {
-  const showButton = screen.queryByRole('button', { name: 'Show' })
+  const librarySection = screen.getByRole('heading', { name: 'Library', level: 2 }).closest('section')
+  expect(librarySection).not.toBeNull()
+
+  const showButton = within(librarySection as HTMLElement).queryByRole('button', { name: 'Show' })
   if (showButton) {
     fireEvent.click(showButton)
   }
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Hide' })).toBeInTheDocument()
+    expect(within(librarySection as HTMLElement).getByRole('button', { name: 'Hide' })).toBeInTheDocument()
   })
 }
 
@@ -474,6 +480,49 @@ test('app lands on Recall by default and normalizes the URL to /recall', async (
   expect(screen.getByRole('heading', { name: 'Recall', level: 1 })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
   expect(fetchRecallDocumentsMock).toHaveBeenCalled()
+})
+
+test('Recall shows unavailable states when its initial API loads fail', async () => {
+  fetchRecallDocumentsMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
+  fetchRecallGraphMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
+  fetchRecallStudyOverviewMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
+  fetchRecallStudyCardsMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByText(localServiceUnavailableMessage)).toBeInTheDocument()
+  })
+
+  expect(screen.getAllByText('Library unavailable').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('Graph unavailable').length).toBeGreaterThan(0)
+  expect(screen.getByText('Study unavailable')).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: 'Retry loading' }).length).toBeGreaterThan(0)
+})
+
+test('Recall retry recovers after a transient initial load failure', async () => {
+  fetchRecallDocumentsMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
+  fetchRecallGraphMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
+  fetchRecallStudyOverviewMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
+  fetchRecallStudyCardsMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByText(localServiceUnavailableMessage)).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Retry loading' })[0])
+
+  await waitFor(() => {
+    expect(screen.getAllByText('2 source documents').length).toBeGreaterThan(0)
+  })
+
+  await waitFor(() => {
+    expect(screen.getByText('2 visible nodes')).toBeInTheDocument()
+    expect(screen.getByText('2 cards')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open in Reader' })).toBeInTheDocument()
+  })
 })
 
 test('Recall hybrid retrieval shows graph-aware hits and keeps export on the selected document', async () => {
@@ -591,6 +640,21 @@ test('library selection updates the reader and search does not replace the activ
   })
 
   expect(screen.getByRole('heading', { name: 'Reader stays here', level: 2 })).toBeInTheDocument()
+})
+
+test('Reader shows a service unavailable state when initial document loading fails', async () => {
+  fetchDocumentsMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
+
+  render(<App />)
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Reader is temporarily unavailable', level: 2 })).toBeInTheDocument()
+  })
+
+  expect(screen.getByText(localServiceUnavailableMessage)).toBeInTheDocument()
+  expect(screen.getByPlaceholderText('Paste text here')).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: 'Retry loading' }).length).toBeGreaterThan(0)
+  expect(screen.queryByRole('heading', { name: 'Add something to start reading', level: 2 })).not.toBeInTheDocument()
 })
 
 test('settings stay off the page until the settings drawer is opened and default to Appearance without a document', async () => {

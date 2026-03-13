@@ -20,14 +20,61 @@ import type {
 } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+const DEFAULT_LOCAL_SERVICE_HOST = '127.0.0.1:8000'
+
+export type ApiRequestErrorKind = 'http' | 'network'
+
+export class ApiRequestError extends Error {
+  kind: ApiRequestErrorKind
+  status: number | null
+
+  constructor(message: string, options: { kind: ApiRequestErrorKind; status?: number | null }) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.kind = options.kind
+    this.status = options.status ?? null
+  }
+}
+
+function resolveLocalServiceHost() {
+  if (!API_BASE) {
+    return DEFAULT_LOCAL_SERVICE_HOST
+  }
+
+  if (typeof window === 'undefined') {
+    return DEFAULT_LOCAL_SERVICE_HOST
+  }
+
+  try {
+    return new URL(API_BASE, window.location.origin).host || DEFAULT_LOCAL_SERVICE_HOST
+  } catch {
+    return DEFAULT_LOCAL_SERVICE_HOST
+  }
+}
+
+function localServiceUnavailableMessage() {
+  return `Could not reach the local service at ${resolveLocalServiceHost()}. Retry after the backend is running again.`
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, init)
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, init)
+  } catch {
+    throw new ApiRequestError(localServiceUnavailableMessage(), { kind: 'network' })
+  }
+
   if (!response.ok) {
     const errorPayload = (await response.json().catch(() => null)) as
       | { detail?: string }
       | null
-    throw new Error(errorPayload?.detail ?? `Request failed with status ${response.status}.`)
+    throw new ApiRequestError(
+      errorPayload?.detail ?? `Request failed with status ${response.status}.`,
+      {
+        kind: 'http',
+        status: response.status,
+      },
+    )
   }
   if (response.status === 204) {
     return undefined as T

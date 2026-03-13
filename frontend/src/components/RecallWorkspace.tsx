@@ -33,6 +33,7 @@ interface RecallWorkspaceProps {
 
 
 type RecallSection = 'library' | 'graph' | 'study'
+type LoadState = 'idle' | 'loading' | 'success' | 'error'
 
 
 function formatModeLabel(mode: string) {
@@ -60,6 +61,10 @@ function formatStudyStatus(status: StudyCardStatus) {
   return status.slice(0, 1).toUpperCase() + status.slice(1)
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
+}
+
 
 export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
   const [section, setSection] = useState<RecallSection>('library')
@@ -68,24 +73,30 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
   const [selectedDocument, setSelectedDocument] = useState<RecallDocumentRecord | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [retrievalResults, setRetrievalResults] = useState<RecallRetrievalHit[]>([])
-  const [documentsLoading, setDocumentsLoading] = useState(true)
-  const [detailLoading, setDetailLoading] = useState(false)
+  const [retrievalError, setRetrievalError] = useState<string | null>(null)
+  const [documentsStatus, setDocumentsStatus] = useState<LoadState>('loading')
+  const [documentsError, setDocumentsError] = useState<string | null>(null)
+  const [detailStatus, setDetailStatus] = useState<LoadState>('idle')
+  const [detailError, setDetailError] = useState<string | null>(null)
   const [retrievalLoading, setRetrievalLoading] = useState(false)
   const [graphSnapshot, setGraphSnapshot] = useState<KnowledgeGraphSnapshot | null>(null)
-  const [graphLoading, setGraphLoading] = useState(true)
+  const [graphStatus, setGraphStatus] = useState<LoadState>('loading')
+  const [graphError, setGraphError] = useState<string | null>(null)
   const [graphBusyKey, setGraphBusyKey] = useState<string | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedNodeDetail, setSelectedNodeDetail] = useState<KnowledgeNodeDetail | null>(null)
   const [nodeDetailLoading, setNodeDetailLoading] = useState(false)
   const [studyOverview, setStudyOverview] = useState<StudyOverview | null>(null)
   const [studyCards, setStudyCards] = useState<StudyCardRecord[]>([])
-  const [studyLoading, setStudyLoading] = useState(true)
+  const [studyStatus, setStudyStatus] = useState<LoadState>('loading')
+  const [studyError, setStudyError] = useState<string | null>(null)
   const [studyBusyKey, setStudyBusyKey] = useState<string | null>(null)
   const [studyFilter, setStudyFilter] = useState<'all' | 'new' | 'due' | 'scheduled'>('all')
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
   const [showAnswer, setShowAnswer] = useState(false)
   const [studyMessage, setStudyMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
   const deferredSearch = useDeferredValue(searchQuery)
 
   const dateFormatter = useMemo(
@@ -103,71 +114,79 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
 
   useEffect(() => {
     let active = true
+    setDocumentsStatus('loading')
+    setDocumentsError(null)
     void fetchRecallDocuments()
       .then((loadedDocuments) => {
         if (!active) {
           return
         }
         setDocuments(loadedDocuments)
-        const nextDocumentId = loadedDocuments[0]?.id ?? null
-        if (nextDocumentId) {
-          setDetailLoading(true)
-        }
-        setSelectedDocumentId((current) => current ?? nextDocumentId)
+        setDocumentsStatus('success')
+        setSelectedDocumentId((current) =>
+          current && loadedDocuments.some((document) => document.id === current)
+            ? current
+            : loadedDocuments[0]?.id ?? null,
+        )
       })
       .catch((loadError: Error) => {
         if (active) {
-          setError(loadError.message)
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setDocumentsLoading(false)
+          setDocuments([])
+          setSelectedDocumentId(null)
+          setSelectedDocument(null)
+          setDetailStatus('idle')
+          setDetailError(null)
+          setDocumentsStatus('error')
+          setDocumentsError(getErrorMessage(loadError, 'Could not load saved documents.'))
         }
       })
 
     return () => {
       active = false
     }
-  }, [])
+  }, [reloadToken])
 
   useEffect(() => {
     if (!selectedDocumentId) {
       setSelectedDocument(null)
+      setDetailStatus('idle')
+      setDetailError(null)
       return
     }
 
     let active = true
+    setDetailStatus('loading')
+    setDetailError(null)
     void fetchRecallDocument(selectedDocumentId)
       .then((document) => {
         if (active) {
           setSelectedDocument(document)
+          setDetailStatus('success')
         }
       })
       .catch((loadError: Error) => {
         if (active) {
-          setError(loadError.message)
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setDetailLoading(false)
+          setSelectedDocument(null)
+          setDetailStatus('error')
+          setDetailError(getErrorMessage(loadError, 'Could not load document detail.'))
         }
       })
 
     return () => {
       active = false
     }
-  }, [selectedDocumentId])
+  }, [selectedDocumentId, reloadToken])
 
   useEffect(() => {
     if (!deferredSearch.trim()) {
       setRetrievalResults([])
+      setRetrievalError(null)
       return
     }
 
     let active = true
     setRetrievalLoading(true)
+    setRetrievalError(null)
     void retrieveRecall(deferredSearch)
       .then((hits) => {
         if (active) {
@@ -176,7 +195,7 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
       })
       .catch((searchError: Error) => {
         if (active) {
-          setError(searchError.message)
+          setRetrievalError(getErrorMessage(searchError, 'Could not search saved knowledge.'))
         }
       })
       .finally(() => {
@@ -192,7 +211,7 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
 
   useEffect(() => {
     void loadGraph()
-  }, [])
+  }, [reloadToken])
 
   useEffect(() => {
     if (!selectedNodeId) {
@@ -226,7 +245,7 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
 
   useEffect(() => {
     void loadStudy(studyFilter)
-  }, [studyFilter])
+  }, [studyFilter, reloadToken])
 
   useEffect(() => {
     setActiveCardId((current) => {
@@ -238,7 +257,8 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
   }, [studyCards])
 
   function handleSelectDocument(documentId: string) {
-    setDetailLoading(true)
+    setDetailStatus('loading')
+    setDetailError(null)
     setSelectedDocumentId(documentId)
   }
 
@@ -260,20 +280,28 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
   }
 
   async function loadGraph() {
-    setGraphLoading(true)
+    setGraphStatus('loading')
+    setGraphError(null)
     try {
       const snapshot = await fetchRecallGraph()
       setGraphSnapshot(snapshot)
-      setSelectedNodeId((current) => current ?? snapshot.nodes[0]?.id ?? null)
+      setSelectedNodeId((current) =>
+        current && snapshot.nodes.some((node) => node.id === current) ? current : snapshot.nodes[0]?.id ?? null,
+      )
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load the knowledge graph.')
-    } finally {
-      setGraphLoading(false)
+      setGraphSnapshot(null)
+      setSelectedNodeId(null)
+      setSelectedNodeDetail(null)
+      setGraphError(getErrorMessage(loadError, 'Could not load the knowledge graph.'))
+      setGraphStatus('error')
+      return
     }
+    setGraphStatus('success')
   }
 
   async function loadStudy(status: 'all' | 'new' | 'due' | 'scheduled') {
-    setStudyLoading(true)
+    setStudyStatus('loading')
+    setStudyError(null)
     try {
       const [overview, cards] = await Promise.all([
         fetchRecallStudyOverview(),
@@ -282,10 +310,20 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
       setStudyOverview(overview)
       setStudyCards(cards)
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load study cards.')
-    } finally {
-      setStudyLoading(false)
+      setStudyOverview(null)
+      setStudyCards([])
+      setActiveCardId(null)
+      setStudyError(getErrorMessage(loadError, 'Could not load study cards.'))
+      setStudyStatus('error')
+      return
     }
+    setStudyStatus('success')
+  }
+
+  function handleRetryRecallLoading() {
+    setError(null)
+    setRetrievalError(null)
+    setReloadToken((current) => current + 1)
   }
 
   async function handleDecideNode(decision: 'confirmed' | 'rejected') {
@@ -356,11 +394,38 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
     }
   }
 
-  const documentCountLabel = documents.length === 1 ? '1 source document' : `${documents.length} source documents`
-  const graphNodeCountLabel = graphSnapshot ? `${graphSnapshot.nodes.length} visible nodes` : 'Loading graph…'
-  const studyCountLabel = studyOverview
-    ? `${studyOverview.new_count + studyOverview.due_count + studyOverview.scheduled_count} cards`
-    : 'Loading study…'
+  const documentsLoading = documentsStatus === 'loading'
+  const detailLoading = detailStatus === 'loading'
+  const graphLoading = graphStatus === 'loading'
+  const studyLoading = studyStatus === 'loading'
+  const documentCountLabel =
+    documentsStatus === 'error'
+      ? 'Library unavailable'
+      : documents.length === 1
+        ? '1 source document'
+        : `${documents.length} source documents`
+  const graphNodeCountLabel =
+    graphStatus === 'error'
+      ? 'Graph unavailable'
+      : graphSnapshot
+        ? `${graphSnapshot.nodes.length} visible nodes`
+        : 'Loading graph…'
+  const studyCountLabel =
+    studyStatus === 'error'
+      ? 'Study unavailable'
+      : studyOverview
+        ? `${studyOverview.new_count + studyOverview.due_count + studyOverview.scheduled_count} cards`
+        : 'Loading study…'
+  const graphPendingEdgesLabel =
+    graphStatus === 'error' ? 'Relations unavailable' : `${graphSnapshot?.pending_edges ?? 0} pending edges`
+  const graphConfirmedEdgesLabel =
+    graphStatus === 'error' ? 'Retry needed' : `${graphSnapshot?.confirmed_edges ?? 0} confirmed edges`
+  const studyNewCountLabel = studyStatus === 'error' ? 'Study unavailable' : `${studyOverview?.new_count ?? 0} new`
+  const studyDueCountLabel = studyStatus === 'error' ? 'Counts unavailable' : `${studyOverview?.due_count ?? 0} due`
+  const studyReviewCountLabel =
+    studyStatus === 'error' ? 'Retry needed' : `${studyOverview?.review_event_count ?? 0} reviews logged`
+  const overallError = error ?? documentsError ?? detailError ?? graphError ?? studyError
+  const canRetryRecallLoading = Boolean(documentsError || detailError || graphError || studyError)
 
   return (
     <div className="recall-workspace stack-gap">
@@ -398,7 +463,18 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
         ))}
       </div>
 
-      {error ? <p className="inline-error">{error}</p> : null}
+      {overallError ? (
+        <div className="inline-error stack-gap" role="alert">
+          <p>{overallError}</p>
+          {canRetryRecallLoading ? (
+            <div className="inline-actions">
+              <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                Retry loading
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {studyMessage ? <p className="small-note">{studyMessage}</p> : null}
 
       {section === 'library' ? (
@@ -413,7 +489,17 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
 
             <div className="recall-document-list" role="list">
               {documentsLoading ? <p className="small-note">Loading saved documents…</p> : null}
-              {!documentsLoading && documents.length === 0 ? (
+              {!documentsLoading && documentsStatus === 'error' ? (
+                <div className="stack-gap">
+                  <p className="small-note">Saved documents are unavailable until the local service reconnects.</p>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                      Retry loading
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {!documentsLoading && documentsStatus !== 'error' && documents.length === 0 ? (
                 <p className="small-note">
                   Reader imports appear here automatically once they reach shared storage.
                 </p>
@@ -464,7 +550,27 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
               </div>
 
               {detailLoading ? <p className="small-note">Loading document detail…</p> : null}
-              {!detailLoading && !selectedDocument ? (
+              {!detailLoading && documentsStatus === 'error' ? (
+                <div className="stack-gap">
+                  <p className="small-note">Document detail is unavailable until the library reloads.</p>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                      Retry loading
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {!detailLoading && detailStatus === 'error' ? (
+                <div className="stack-gap">
+                  <p className="small-note">{detailError}</p>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                      Retry loading
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {!detailLoading && documentsStatus !== 'error' && detailStatus !== 'error' && !selectedDocument ? (
                 <p className="small-note">No shared document selected yet.</p>
               ) : null}
               {selectedDocument ? (
@@ -515,16 +621,17 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
                 />
               </label>
 
-              <div className="recall-search-results" role="list">
-                {retrievalLoading ? <p className="small-note">Searching chunks, nodes, and cards…</p> : null}
-                {!retrievalLoading && !searchQuery.trim() ? (
-                  <p className="small-note">
-                    Search across chunk text, graph suggestions, and study prompts without leaving Recall.
-                  </p>
-                ) : null}
-                {!retrievalLoading && searchQuery.trim() && retrievalResults.length === 0 ? (
-                  <p className="small-note">No saved chunks, nodes, or cards match that query yet.</p>
-                ) : null}
+            <div className="recall-search-results" role="list">
+              {retrievalLoading ? <p className="small-note">Searching chunks, nodes, and cards…</p> : null}
+              {!retrievalLoading && retrievalError ? <p className="small-note">{retrievalError}</p> : null}
+              {!retrievalLoading && !retrievalError && !searchQuery.trim() ? (
+                <p className="small-note">
+                  Search across chunk text, graph suggestions, and study prompts without leaving Recall.
+                </p>
+              ) : null}
+              {!retrievalLoading && !retrievalError && searchQuery.trim() && retrievalResults.length === 0 ? (
+                <p className="small-note">No saved chunks, nodes, or cards match that query yet.</p>
+              ) : null}
 
                 {retrievalResults.map((hit) => (
                   <button
@@ -562,14 +669,26 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
               <p>Inspect extracted concepts, validate links, and keep the graph grounded in saved source evidence.</p>
             </div>
             <div className="recall-hero-metrics" role="list" aria-label="Knowledge graph metrics">
-              <span className="status-chip" role="listitem">{graphLoading ? 'Loading graph…' : `${graphSnapshot?.nodes.length ?? 0} nodes`}</span>
-              <span className="status-chip status-muted" role="listitem">{graphSnapshot?.pending_edges ?? 0} pending edges</span>
-              <span className="status-chip status-muted" role="listitem">{graphSnapshot?.confirmed_edges ?? 0} confirmed edges</span>
+              <span className="status-chip" role="listitem">
+                {graphStatus === 'error' ? 'Graph unavailable' : graphLoading ? 'Loading graph…' : `${graphSnapshot?.nodes.length ?? 0} nodes`}
+              </span>
+              <span className="status-chip status-muted" role="listitem">{graphPendingEdgesLabel}</span>
+              <span className="status-chip status-muted" role="listitem">{graphConfirmedEdgesLabel}</span>
             </div>
 
             <div className="recall-document-list" role="list">
               {graphLoading ? <p className="small-note">Building the local knowledge graph…</p> : null}
-              {!graphLoading && !graphSnapshot?.nodes.length ? (
+              {!graphLoading && graphStatus === 'error' ? (
+                <div className="stack-gap">
+                  <p className="small-note">The knowledge graph is unavailable until the local service reconnects.</p>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                      Retry loading
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {!graphLoading && graphStatus !== 'error' && !graphSnapshot?.nodes.length ? (
                 <p className="small-note">Import more source material to give the graph stronger concepts and relations.</p>
               ) : null}
 
@@ -732,9 +851,9 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
             </div>
 
             <div className="recall-hero-metrics" role="list" aria-label="Study overview">
-              <span className="status-chip" role="listitem">{studyOverview?.new_count ?? 0} new</span>
-              <span className="status-chip status-muted" role="listitem">{studyOverview?.due_count ?? 0} due</span>
-              <span className="status-chip status-muted" role="listitem">{studyOverview?.review_event_count ?? 0} reviews logged</span>
+              <span className="status-chip" role="listitem">{studyNewCountLabel}</span>
+              <span className="status-chip status-muted" role="listitem">{studyDueCountLabel}</span>
+              <span className="status-chip status-muted" role="listitem">{studyReviewCountLabel}</span>
             </div>
 
             <div className="recall-stage-tabs" aria-label="Study filters" role="tablist">
@@ -759,7 +878,17 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
 
             <div className="recall-document-list" role="list">
               {studyLoading ? <p className="small-note">Loading study cards…</p> : null}
-              {!studyLoading && studyCards.length === 0 ? (
+              {!studyLoading && studyStatus === 'error' ? (
+                <div className="stack-gap">
+                  <p className="small-note">Study cards are unavailable until the local service reconnects.</p>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                      Retry loading
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {!studyLoading && studyStatus !== 'error' && studyCards.length === 0 ? (
                 <p className="small-note">No study cards are available for that filter yet.</p>
               ) : null}
               {studyCards.map((card) => (
