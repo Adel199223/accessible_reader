@@ -2,7 +2,7 @@
 
 ## Summary
 
-Build a standalone localhost-first web app for Windows 11 that turns pasted text and uploaded documents into a dyslexia-friendly, ADHD-considerate reading experience. Keep as much of the pipeline local as possible, use browser-native read aloud first, highlight the current sentence while reading, and reserve AI for high-value transforms such as `Simplify` and `Summary`.
+Build a standalone localhost-first web app for Windows 11 that turns pasted text, uploaded documents, and public article webpages into a dyslexia-friendly, ADHD-considerate reading experience. Keep as much of the pipeline local as possible, use browser-native read aloud first, highlight the current sentence while reading, and reserve AI for high-value transforms such as `Simplify` and `Summary`.
 
 ## Product Goal
 
@@ -11,6 +11,7 @@ Build a standalone localhost-first web app for Windows 11 that turns pasted text
 - Optimize first for Microsoft Edge on Windows 11.
 - Keep the app useful without AI for import, parsing, reflow, reading controls, storage, search, and reopen support.
 - Defaults should favor low friction, calm structure, strong scan order, and readability for dyslexic and ADHD-prone users.
+- Public webpage support should stay article-first and snapshot-based: fetch once, store locally, and reopen from the local snapshot instead of live syncing.
 
 ## Architecture
 
@@ -23,6 +24,7 @@ Build a standalone localhost-first web app for Windows 11 that turns pasted text
 ## Core Experience
 
 - Accept pasted text and local file uploads.
+- Accept public article webpage URLs as one-time local HTML snapshots.
 - Support TXT, Markdown, HTML, DOCX, and text-based PDF.
 - Include a small local library with search, reopen support, and reading-progress memory.
 - Provide four modes:
@@ -54,7 +56,8 @@ Build a standalone localhost-first web app for Windows 11 that turns pasted text
 - authentication
 - cloud sync
 - collaboration
-- live URL import
+- live URL sync or automatic refetch on reopen
+- browser-extension "import current tab" capture
 - OCR for scanned PDFs
 - general assistant chat
 - document Q&A
