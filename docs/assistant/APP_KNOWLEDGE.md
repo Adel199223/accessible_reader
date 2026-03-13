@@ -24,7 +24,7 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Windows Edge is the primary browser validation target.
 - Local TTS is deferred and should remain `coming soon`.
 - AI is opt-in only and limited to `Simplify` and `Summary`.
-- Stage 8 is complete and no new milestone is scheduled yet beyond the active post-Stage-8 placeholder ExecPlan.
+- Stage 9 is the active milestone: source-linked highlights and notes in Reader and Recall.
 
 ## Main Entry Points
 - Frontend shell: `frontend/src/App.tsx`

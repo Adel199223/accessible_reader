@@ -55,14 +55,23 @@ Keep this repository as one local-first workspace.
   - workspace export manifests now surface non-fatal missing-attachment warnings while zip export remains available
   - a deterministic benchmark harness now measures ingest, retrieval, browser-context, export, merge preview, and study scheduling flows
   - backend/frontend/extension validation, benchmark runs, and a localhost integrity/repair smoke run are green
+- A post-Stage-8 roadmap extension is now approved:
+  - Stage 9 will add source-linked highlights and notes inside Reader and Recall
+  - Stage 10 will extend note capture through the browser companion and fold notes into retrieval
+  - Stage 11 will carry notes through portable apply flows and support manual promotion into graph/study workflows
 
 ## Active Milestone
 
-1. No active implementation milestone is scheduled beyond the completed Stage 8 closeout.
+1. Stage 9: Source-Linked Highlights and Notes
+   - Reader capture for sentence-range highlights with optional note text
+   - Recall notes section, note search, and Reader jump-back
+   - shared note storage, note FTS, and note change-log coverage
 
 ## Next Milestone
 
-1. Backlog reprioritization is pending explicit user direction.
+1. Stage 10: Browser Note Capture and Note-Aware Retrieval
+   - manual note capture from exact saved public-page matches in the MV3 companion
+   - note hits added to Recall retrieval and browser-context summaries
 
 ## Stage Map
 
@@ -96,6 +105,16 @@ Keep this repository as one local-first workspace.
 8. Stage 8: Hardening and Benchmarks
    - ingest, retrieval, extension, export, and scheduling benchmarks
    - migration hardening and recovery paths
+9. Stage 9: Source-Linked Highlights and Notes
+   - shared note records anchored to deterministic `reflowed/default` content
+   - Reader note capture plus Recall note management and search
+   - Reader jump-back from note anchors
+10. Stage 10: Browser Note Capture and Note-Aware Retrieval
+   - manual note capture from the MV3 companion for exact saved public-page matches
+   - note-aware retrieval and browser-context surfacing
+11. Stage 11: Portable Annotation Apply and Manual Knowledge Promotion
+   - note entities in export/merge/apply flows
+   - manual promotion from notes into graph evidence or study-card seeds
 
 ## Deferred Follow-Ups
 
@@ -123,3 +142,4 @@ Keep this repository as one local-first workspace.
 - 2026-03-13: completed Stage 6 portability and accessibility integration with richer block/variant contracts, shared reader-session metadata, backend/frontend coverage, and a live Edge structured-Markdown/session-restore smoke run
 - 2026-03-13: completed Stage 7 tablet-safe groundwork with workspace change-log APIs, portable attachment/export manifests, deterministic merge preview, backend/frontend coverage, and a localhost API smoke run
 - 2026-03-13: completed Stage 8 hardening and benchmarks with workspace integrity/repair APIs, startup self-healing for drifted derived indexes, benchmark coverage, extension timeout hardening, and localhost integrity/repair validation
+- 2026-03-13: published the Stage 1-8 closeout to `origin/codex/stage8-closeout-doc-sync`, synced touched assistant docs, and approved a Stage 9-11 roadmap extension focused on notes, browser capture, and portable apply flows

@@ -58,7 +58,17 @@ As of 2026-03-13, this workspace includes:
   - startup self-healing now repairs drifted FTS indexes and refreshes derived Recall state when needed
   - export manifests now carry non-fatal missing-attachment warnings while zip export remains available
   - a deterministic benchmark harness now measures ingest, retrieval, browser-context, export, merge preview, and study scheduling flows
-- no new roadmap milestone is scheduled beyond the completed Stage 8 closeout yet
+- the Stage 1-8 closeout is published on branch `codex/stage8-closeout-doc-sync`
+  - product/state closeout commit: `bf3be7f77e56f4e0a00896dcf0a0df4c999db57a`
+  - assistant-docs sync commit: `27b7b42d785374236d11f0c335032e9dfab575bf`
+  - remote parity was confirmed immediately after push
+- Stage 9 is now approved as the next implementation slice:
+  - source-linked highlights and notes in Reader and Recall
+  - sentence-range anchors within deterministic `reflowed/default` content
+  - optional note text only; tags, notebooks, and cross-block spans remain deferred
+- Stage 10 and Stage 11 are also approved in outline:
+  - Stage 10: browser note capture and note-aware retrieval
+  - Stage 11: portable annotation apply and manual knowledge promotion
 
 ## Current Limits
 
@@ -81,7 +91,9 @@ As of 2026-03-13, this workspace includes:
 - Stage 6 is complete after portability/accessibility contracts, reader-session metadata, backend/frontend validation, and the Edge structured-Markdown/session-restore smoke run landed.
 - Stage 7 is complete after the change-log/export/merge groundwork, backend/frontend validation, and the localhost API smoke run landed.
 - Stage 8 is complete after the integrity/repair APIs, benchmark harness, extension timeout hardening, validation matrix, and localhost integrity/repair smoke run landed.
-- No new roadmap milestone is scheduled yet beyond the completed Stage 8 slice.
+- Stage 9 is now the active roadmap milestone.
+- Stage 10 is next.
+- Stage 11 is queued after Stage 10.
 
 ## Recent Detours
 
@@ -95,14 +107,15 @@ As of 2026-03-13, this workspace includes:
 - 2026-03-13: completed Stage 6 portability and accessibility integration with shared variant contracts, shared reader-session metadata, backend/frontend coverage, and an Edge structured-Markdown/session-restore validation run
 - 2026-03-13: completed Stage 7 tablet-safe groundwork with workspace change-log APIs, portable export bundles, deterministic merge preview, backend/frontend coverage, and a localhost API smoke run
 - 2026-03-13: completed Stage 8 hardening and benchmarks with workspace integrity/repair APIs, startup FTS self-healing, benchmark coverage, extension timeout hardening, and localhost integrity/repair validation
+- 2026-03-13: published the Stage 1-8 closeout branch, synced touched assistant docs, and approved the Stage 9-11 roadmap extension centered on notes, browser capture, and portable apply flows
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Open the active placeholder ExecPlan in `docs/exec_plans/active/` and confirm whether a new milestone has been scheduled.
-4. Do not start a new major slice until roadmap priority is explicitly set.
+3. Open the active Stage 9 ExecPlan in `docs/exec_plans/active/`.
+4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
 6. Preserve the current reader experience as a dedicated Reader section inside the Recall-first shell.
-7. Keep the Stage 2 through Stage 8 Recall and browser-companion behavior stable unless a new milestone explicitly changes it.
+7. Implement Stage 9 without reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, tags, notebooks, or free-text span anchors.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.
