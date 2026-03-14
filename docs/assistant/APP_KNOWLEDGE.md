@@ -14,6 +14,7 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stores webpage imports as local HTML snapshots and reopens them from the saved snapshot rather than refetching live.
 - Uses `Recall` as the product shell with `Reader` presented as a shared workspace section rather than a sibling app.
 - Uses one unified workspace section row: `Library`, `Graph`, `Study`, `Notes`, and `Reader`.
+- Uses one shared workspace-search session across the shell `Search` dialog and the Library search panel.
 - Reopens the last document and reading mode from browser-local storage, with backend last-session fallback when local state is missing.
 - Supports `Original`, `Reflowed`, `Simplified`, and `Summary` document modes.
 - Keeps `Original` and `Reflowed` local and deterministic.
@@ -30,10 +31,19 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stage 17 is complete: the UX audit confirmed the next bottleneck is workspace continuity rather than another generic density pass.
 - Stage 18 is complete: Library, Notes, Graph, and Study continuity now survive Reader handoff, browser back, and search-backed landings, and the repo-owned real Edge continuity smoke is green.
 - Stage 19 is complete: the shared shell now surfaces current context and bounded recent work, and the repo-owned real Edge shell-context smoke is green.
-- Stage 20 is the active milestone: adaptive context compression and detail consolidation.
+- Stage 20 is complete: the shared shell dock now compresses by section, Reader no longer repeats a dedicated current-source block, Notes detail is lighter, and the repo-owned real Edge context-compression smoke is green.
+- Stage 21 is complete: the UX audit identified search continuity and duplicated search surfaces as the highest-friction remaining workflow break.
+- Stage 22 is complete: shell Search and Library search now share one remembered search session with grouped results, focused-result actions, and a repo-owned real Edge continuity smoke.
+- Stage 23 is complete: the post-search UX audit confirmed that saved-note work is still too detached from active reading.
+- Stage 24 is complete: Reader now keeps selected saved-note editing, deletion, Graph promotion, and Study promotion beside the source, with a repo-owned real Edge notebook-adjacency smoke green.
+- Stage 25 is complete: the audit confirmed the next workflow break is source fragmentation across Library, Reader, Notes, Graph, and Study rather than notebook adjacency.
+- Stage 26 is complete: one selected source now keeps a shared source-workspace frame with nearby Overview, Reader, Notes, Graph, and Study handoffs across Recall and Reader, and the repo-owned real Edge source-workspace smoke is green.
+- Stage 27 is complete: the audit confirmed the remaining bottleneck is that source tabs still land inside section-first layouts with duplicated detail panels and always-visible collection rails.
+- Stage 28 is complete: the source workspace now has a stronger Overview plus lighter contextual browse drawers for Library, Notes, Graph, and Study during source-focused work, and the repo-owned real Edge shared-source-pane smoke is green.
+- Stage 29 is the active milestone: reassess the live post-Stage-28 workspace and choose the next bounded milestone from the current UX state.
 - Future work should preserve local-first behavior, routes, note anchors, browser-companion handoff, and reading continuity, but should not preserve the current UI arrangement when a better Recall-quality workflow is available.
 - Treat the original Recall app as a directional benchmark for workflow and information hierarchy, not as a pixel-perfect copy target.
-- The current highest-priority task is to keep that shell-level working-set visibility while reducing repeated context and reclaiming space, especially in Reader and Notes.
+- The current highest-priority task is to audit the live post-Stage-28 workspace and identify the next highest-leverage UX correction.
 
 ## Main Entry Points
 - Frontend shell: `frontend/src/App.tsx`

@@ -5,7 +5,7 @@
     "BUILD_BRIEF.md",
     "docs/ROADMAP.md",
     "docs/ROADMAP_ANCHOR.md",
-    "docs/exec_plans/active/2026-03-14_stage20_adaptive_context_compression_and_detail_consolidation.md"
+    "docs/exec_plans/active/2026-03-14_stage29_post_stage28_recall_ux_refresh.md"
   ],
   "bridges": [
     "agent.md",
@@ -21,7 +21,7 @@
         "BUILD_BRIEF.md",
         "docs/ROADMAP.md",
         "docs/ROADMAP_ANCHOR.md",
-        "docs/exec_plans/active/2026-03-14_stage20_adaptive_context_compression_and_detail_consolidation.md"
+        "docs/exec_plans/active/2026-03-14_stage29_post_stage28_recall_ux_refresh.md"
       ],
       "validation_commands": [
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'",
