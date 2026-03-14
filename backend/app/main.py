@@ -14,6 +14,7 @@ from .models import (
     AttachmentRef,
     BrowserContextRequest,
     BrowserContextResponse,
+    BrowserRecallNoteCreateRequest,
     DocumentRecord,
     DocumentView,
     GraphDecisionRequest,
@@ -25,6 +26,10 @@ from .models import (
     KnowledgeNodeDetail,
     KnowledgeNodeRecord,
     ProgressUpdate,
+    RecallNoteCreateRequest,
+    RecallNoteRecord,
+    RecallNoteSearchHit,
+    RecallNoteUpdateRequest,
     RecallRetrievalHit,
     ReaderSettings,
     RecallDocumentRecord,
@@ -69,7 +74,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Accessible Reader API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Recall Workspace API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -175,6 +180,53 @@ def get_recall_document(document_id: str) -> RecallDocumentRecord:
     return document
 
 
+@app.get("/api/recall/documents/{document_id}/notes", response_model=list[RecallNoteRecord])
+def list_recall_document_notes(document_id: str) -> list[RecallNoteRecord]:
+    document = repository.get_document(document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return repository.list_recall_notes(document_id)
+
+
+@app.post("/api/recall/documents/{document_id}/notes", response_model=RecallNoteRecord)
+def create_recall_document_note(
+    document_id: str,
+    payload: RecallNoteCreateRequest,
+) -> RecallNoteRecord:
+    document = repository.get_document(document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    try:
+        return repository.create_recall_note(document_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/recall/notes/search", response_model=list[RecallNoteSearchHit])
+def search_recall_notes(
+    query: str = "",
+    limit: int = 20,
+    document_id: str | None = None,
+) -> list[RecallNoteSearchHit]:
+    capped_limit = min(max(limit, 1), 50)
+    return repository.search_recall_notes(query, limit=capped_limit, document_id=document_id)
+
+
+@app.patch("/api/recall/notes/{note_id}", response_model=RecallNoteRecord)
+def update_recall_note(note_id: str, payload: RecallNoteUpdateRequest) -> RecallNoteRecord:
+    note = repository.update_recall_note(note_id, payload)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found.")
+    return note
+
+
+@app.delete("/api/recall/notes/{note_id}", status_code=204)
+def delete_recall_note(note_id: str) -> None:
+    deleted = repository.delete_recall_note(note_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Note not found.")
+
+
 @app.get("/api/recall/search", response_model=list[RecallSearchHit])
 def search_recall(query: str = "", limit: int = 20) -> list[RecallSearchHit]:
     capped_limit = min(max(limit, 1), 50)
@@ -190,6 +242,14 @@ def retrieve_recall(query: str = "", limit: int = 20) -> list[RecallRetrievalHit
 @app.post("/api/recall/browser/context", response_model=BrowserContextResponse)
 def get_browser_context(payload: BrowserContextRequest) -> BrowserContextResponse:
     return repository.get_browser_context(payload)
+
+
+@app.post("/api/recall/browser/notes", response_model=RecallNoteRecord)
+def create_browser_recall_note(payload: BrowserRecallNoteCreateRequest) -> RecallNoteRecord:
+    try:
+        return repository.create_browser_recall_note(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/recall/graph", response_model=KnowledgeGraphSnapshot)

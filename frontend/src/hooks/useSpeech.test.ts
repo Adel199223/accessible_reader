@@ -5,6 +5,16 @@ import { curateVoices, pickBrowserVoice, useSpeech } from './useSpeech'
 
 import type { RenderSentence } from '../lib/segment'
 
+function makeSentence(index: number, text: string): RenderSentence {
+  return {
+    blockId: `block-${index}`,
+    globalIndex: index,
+    key: `block-${index}`,
+    sentenceIndexInBlock: 0,
+    text,
+  }
+}
+
 function makeVoice(name: string, isDefault = false): SpeechSynthesisVoice {
   return {
     default: isDefault,
@@ -120,16 +130,8 @@ test('useSpeech does not cancel active playback when equivalent sentence content
   const { synthesis } = installSpeechSynthesisMock()
   const onSentenceChange = vi.fn()
   const sentences: RenderSentence[] = [
-    {
-      globalIndex: 0,
-      key: 'block-0',
-      text: 'First sentence.',
-    },
-    {
-      globalIndex: 1,
-      key: 'block-1',
-      text: 'Second sentence.',
-    },
+    makeSentence(0, 'First sentence.'),
+    makeSentence(1, 'Second sentence.'),
   ]
 
   const { result, rerender } = renderHook(
@@ -168,16 +170,8 @@ test('useSpeech keeps playback active when parent syncs the current sentence bac
   const { synthesis } = installSpeechSynthesisMock()
   const onSentenceChange = vi.fn()
   const sentences: RenderSentence[] = [
-    {
-      globalIndex: 0,
-      key: 'block-0',
-      text: 'First sentence.',
-    },
-    {
-      globalIndex: 1,
-      key: 'block-1',
-      text: 'Second sentence.',
-    },
+    makeSentence(0, 'First sentence.'),
+    makeSentence(1, 'Second sentence.'),
   ]
 
   const { result, rerender } = renderHook(
@@ -219,8 +213,8 @@ test('useSpeech jumpTo restarts playback from the chosen sentence while actively
   const { synthesis, utterances } = installSpeechSynthesisMock()
   const onSentenceChange = vi.fn()
   const sentences: RenderSentence[] = [
-    { globalIndex: 0, key: 'block-0', text: 'First sentence.' },
-    { globalIndex: 1, key: 'block-1', text: 'Second sentence.' },
+    makeSentence(0, 'First sentence.'),
+    makeSentence(1, 'Second sentence.'),
   ]
 
   const { result } = renderHook(() =>
@@ -251,8 +245,8 @@ test('useSpeech jumpTo resumes playback from the chosen sentence while paused', 
   const { synthesis, utterances } = installSpeechSynthesisMock()
   const onSentenceChange = vi.fn()
   const sentences: RenderSentence[] = [
-    { globalIndex: 0, key: 'block-0', text: 'First sentence.' },
-    { globalIndex: 1, key: 'block-1', text: 'Second sentence.' },
+    makeSentence(0, 'First sentence.'),
+    makeSentence(1, 'Second sentence.'),
   ]
 
   const { result } = renderHook(() =>
@@ -285,8 +279,8 @@ test('useSpeech jumpTo only selects while idle or after stop', () => {
   const { synthesis } = installSpeechSynthesisMock()
   const onSentenceChange = vi.fn()
   const sentences: RenderSentence[] = [
-    { globalIndex: 0, key: 'block-0', text: 'First sentence.' },
-    { globalIndex: 1, key: 'block-1', text: 'Second sentence.' },
+    makeSentence(0, 'First sentence.'),
+    makeSentence(1, 'Second sentence.'),
   ]
 
   const { result } = renderHook(() =>
@@ -326,8 +320,8 @@ test('useSpeech jumpTo only selects after playback ends naturally', () => {
   const { synthesis, utterances } = installSpeechSynthesisMock()
   const onSentenceChange = vi.fn()
   const sentences: RenderSentence[] = [
-    { globalIndex: 0, key: 'block-0', text: 'First sentence.' },
-    { globalIndex: 1, key: 'block-1', text: 'Second sentence.' },
+    makeSentence(0, 'First sentence.'),
+    makeSentence(1, 'Second sentence.'),
   ]
 
   const { result } = renderHook(() =>

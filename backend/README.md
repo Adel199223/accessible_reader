@@ -1,6 +1,6 @@
-# Accessible Reader Backend
+# Recall Workspace Backend
 
-FastAPI backend for the localhost-first accessible reading assistant.
+FastAPI backend for the local-first Recall workspace and its integrated Reader experience.
 
 ## Start
 

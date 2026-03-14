@@ -4,11 +4,12 @@
 
 Keep this repository as one local-first workspace.
 
-- The existing accessible-reader app remains the reader/converter sibling app.
-- `backend/` remains the single local service host for reader, converter, and future Recall surfaces.
-- Shared storage and domain contracts must support current reader behavior first, then expand toward Recall graph/study/export features without a rewrite.
+- `Recall` is the product shell and workspace identity.
+- `Reader` remains an integrated section inside that shell, preserving reading behavior while converging onto Recall structure and language.
+- `backend/` remains the single local service host for Reader, Recall, and future shared workspace surfaces.
+- Shared storage and domain contracts must support current reading behavior first, then expand toward Recall graph/study/export features without a rewrite.
 
-## Status As Of 2026-03-13
+## Status As Of 2026-03-14
 
 - The accessible-reader app already provides local import for TXT, Markdown, HTML, DOCX, and text-based PDF, deterministic `Original` and `Reflowed` views, opt-in AI `Simplify` and `Summary`, local library/search, saved progress/settings, and Edge-first browser speech.
 - A bounded Stage 1A detour is now implemented on the reader branch: public article-style webpage import fetches once on the backend, stores a local HTML snapshot, extracts readable article content locally, and reuses the normal reader pipeline. It remains snapshot-only; live URL sync and "import current tab" behavior are still out of scope.
@@ -60,23 +61,44 @@ Keep this repository as one local-first workspace.
   - Recall now reports explicit unavailable states for library, graph, study, and document-detail loading, each with retry actions
   - Reader now distinguishes an empty library from a temporary local-service outage while keeping import controls usable
   - backend/frontend/extension validation plus live Playwright outage-and-recovery smoke coverage are green
+- Stage 9 closeout is complete:
+  - shared note records, note FTS, note routes, and note change events are now live in the shared backend
+  - Reader now captures local source-linked sentence-range notes in deterministic `reflowed/default` views only
+  - Reader now renders persisted note highlights, route-anchor highlights, and jump-back ranges without auto-starting speech
+  - Recall now includes a dedicated `Notes` section with document-scoped notes, note search, edit/delete flows, and `Open in Reader`
+  - stale saved-session view/note fetches now wait until the active document is actually resolved, preventing noisy 404s during startup recovery
+  - backend/frontend/extension validation plus a live Playwright note capture/search/jump-back smoke run on a clean temp workspace are green
+- Stage 10 closeout is complete:
+  - the MV3 companion now supports bounded browser note capture for exact saved public-page matches
+  - note hits now participate in Recall retrieval and browser-context resurfacing
+  - a debug-only extension inspection build plus a repo-owned real Edge unpacked harness now cover popup refresh, note capture, Recall note surfacing, and anchored Reader reopen
+- The approved Reader shell convergence correction is complete:
+  - Reader now renders inside Recall-native hero, sidebar, view-tab, and card structure instead of preserving a competing standalone app identity
+  - Reader wording now follows the Recall-first product frame, including `Add source`, `Source library`, and Recall-centered hero copy
+  - the browser tab title, backend API title, and related runtime labels now use `Recall Workspace`
+  - frontend/backend/extension validation plus the real Edge harness and visual artifact review are green after the convergence
+- The Reader-as-section parity follow-up is complete:
+  - the top-level `Recall | Reader` split is gone; one workspace section row now owns `Library`, `Graph`, `Study`, `Notes`, and `Reader`
+  - returning from Reader now preserves the prior Recall section across handoff and browser-back flows instead of dropping users back to `Library`
+  - compact no-document Reader onboarding keeps `Settings` reachable without restoring the old standalone Reader shell chrome
 - A post-Stage-8 roadmap extension is now approved:
   - Stage 9 will add source-linked highlights and notes inside Reader and Recall
   - Stage 10 will extend note capture through the browser companion and fold notes into retrieval
   - Stage 11 will carry notes through portable apply flows and support manual promotion into graph/study workflows
+- A user-directed product correction is now fully implemented:
+  - Reader adapts to the Recall-first shell structure instead of pulling Recall toward a separate app identity
+  - the shared Recall shell now treats Reader as a section while keeping `/reader` deep links and anchor restore stable
 
 ## Active Milestone
 
-1. Stage 9: Source-Linked Highlights and Notes
-   - Reader capture for sentence-range highlights with optional note text
-   - Recall notes section, note search, and Reader jump-back
-   - shared note storage, note FTS, and note change-log coverage
+1. Stage 11: Portable Annotation Apply and Manual Knowledge Promotion
+   - note entities in export/merge/apply flows
+   - manual promotion from notes into graph evidence or study-card seeds
 
 ## Next Milestone
 
-1. Stage 10: Browser Note Capture and Note-Aware Retrieval
-   - manual note capture from exact saved public-page matches in the MV3 companion
-   - note hits added to Recall retrieval and browser-context summaries
+1. Post-Stage-11 roadmap refresh
+   - confirm the next bounded slice after note portability and manual promotion land
 
 ## Stage Map
 
@@ -132,7 +154,7 @@ Keep this repository as one local-first workspace.
 
 - `roadmap`, `master plan`, and `next milestone` mean this file unless explicitly redirected
 - log detours in `docs/ROADMAP_ANCHOR.md`
-- prefer shared-core and Recall-shell work over reopening broad reader UI churn
+- prefer shared-core and Recall-shell work; Reader shell convergence toward Recall is now an intentional roadmap correction, not churn
 - return to the roadmap after blockers or corrections are resolved
 
 ## Recent Detours
@@ -149,3 +171,7 @@ Keep this repository as one local-first workspace.
 - 2026-03-13: completed Stage 8 hardening and benchmarks with workspace integrity/repair APIs, startup self-healing for drifted derived indexes, benchmark coverage, extension timeout hardening, and localhost integrity/repair validation
 - 2026-03-13: published the Stage 1-8 closeout to `origin/codex/stage8-closeout-doc-sync`, synced touched assistant docs, and approved a Stage 9-11 roadmap extension focused on notes, browser capture, and portable apply flows
 - 2026-03-13: completed a pre-Stage-9 stabilization detour that normalized local-service network errors, added retryable unavailable states in Recall and Reader, and validated outage/recovery behavior in Playwright before resuming the Stage 9 roadmap
+- 2026-03-13: completed Stage 9 source-linked highlights and notes with shared note storage/search, Reader note capture and anchored jump-back, Recall note management, stale-session startup guards, full validation reruns, and a live Playwright temp-workspace smoke pass
+- 2026-03-14: approved a bounded Stage 10 closeout extension to add a debug-only extension harness path, finish manual Edge companion validation, and then converge Reader onto the Recall-first shell before resuming the roadmap
+- 2026-03-14: completed the Stage 10 closeout with bounded browser note capture, note-aware retrieval, a debug-only extension harness, and a real Edge unpacked-extension validation pass, then completed the Reader shell convergence correction with Recall-first UI realignment and product-label cleanup
+- 2026-03-14: completed a Reader-as-section parity follow-up that removed the remaining top-level `Recall | Reader` split, unified workspace tabs under Recall, restored prior-section return behavior after Reader handoff, kept no-document Settings reachable, and reran the full validation matrix plus the real Edge debug harness

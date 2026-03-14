@@ -33,8 +33,26 @@
         <h2>Related items</h2>
         <div id="popup-hits" class="extension-list"></div>
       </section>
+
+      <section class="extension-section">
+        <h2>Saved page note</h2>
+        <p id="popup-note-status" class="extension-note">
+          Notes are available only when this exact public page is already saved in Recall.
+        </p>
+        <label class="extension-field">
+          <span>Optional note</span>
+          <textarea
+            id="popup-note-body"
+            rows="4"
+            placeholder="Add a short note before saving this selection"
+          ></textarea>
+        </label>
+        <div class="extension-actions">
+          <button id="popup-save-note" type="button">Save note</button>
+          <button id="popup-open-note" class="secondary-button" type="button" hidden>Open note in Reader</button>
+        </div>
+      </section>
     </main>
     <script type="module" src="popup.js"></script>
   </body>
-  </html>
-
+</html>

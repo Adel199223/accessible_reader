@@ -9,6 +9,7 @@ from .variant_contract import build_variant_metadata, render_blocks_as_markdown
 
 
 CHUNK_SCHEMA_VERSION = "1"
+SENTENCE_METADATA_VERSION = "1"
 MAX_CHUNK_CHARS = 280
 MAX_CHUNK_SENTENCES = 3
 EXCERPT_RADIUS = 72
@@ -28,7 +29,7 @@ def build_reflow_chunks(
         if not block_text:
             continue
 
-        segments = _chunk_block_text(block_text)
+        segments = _chunk_block_text(block_text, sentence_texts_for_block(block))
         for chunk_index, segment in enumerate(segments):
             metadata = {
                 "block_kind": block.kind,
@@ -53,6 +54,54 @@ def build_reflow_chunks(
             )
             ordinal += 1
     return chunks
+
+
+def sentence_texts_for_block(block: ViewBlock) -> list[str]:
+    metadata = block.metadata or {}
+    sentence_texts = metadata.get("sentence_texts")
+    if isinstance(sentence_texts, list):
+        normalized = [normalize_whitespace(str(item)) for item in sentence_texts if normalize_whitespace(str(item))]
+        if normalized:
+            return normalized
+
+    normalized_text = normalize_whitespace(block.text)
+    if not normalized_text:
+        return []
+    if block.kind == "heading":
+        return [normalized_text]
+    sentences = split_sentences(normalized_text)
+    return sentences or [normalized_text]
+
+
+def enrich_view_with_sentence_metadata(view: DocumentView, *, variant_id: str | None = None) -> DocumentView:
+    blocks: list[ViewBlock] = []
+    for block in view.blocks:
+        sentence_texts = sentence_texts_for_block(block)
+        metadata = dict(block.metadata or {})
+        metadata["sentence_count"] = len(sentence_texts)
+        metadata["sentence_metadata_version"] = SENTENCE_METADATA_VERSION
+        metadata["sentence_texts"] = sentence_texts
+        blocks.append(block.model_copy(update={"metadata": metadata}))
+
+    variant_metadata = dict(view.variant_metadata or {})
+    variant_metadata["sentence_metadata_version"] = SENTENCE_METADATA_VERSION
+    if variant_id is not None:
+        variant_metadata["variant_id"] = variant_id
+    return view.model_copy(update={"blocks": blocks, "variant_metadata": variant_metadata})
+
+
+def build_note_excerpt(sentence_texts: list[str], sentence_start: int, sentence_end: int) -> str:
+    if not sentence_texts:
+        return ""
+
+    excerpt_start = max(sentence_start - 1, 0)
+    excerpt_end = min(sentence_end + 1, len(sentence_texts) - 1)
+    excerpt = " ".join(sentence_texts[excerpt_start : excerpt_end + 1]).strip()
+    if excerpt_start > 0:
+        excerpt = f"...{excerpt}"
+    if excerpt_end < len(sentence_texts) - 1:
+        excerpt = f"{excerpt}..."
+    return excerpt
 
 
 def build_chunk_excerpt(text: str, query_terms: list[str]) -> str:
@@ -153,8 +202,8 @@ def build_export_filename(title: str) -> str:
     return f"{slug or 'recall-document'}.md"
 
 
-def _chunk_block_text(text: str) -> list[dict[str, Any]]:
-    sentences = split_sentences(text)
+def _chunk_block_text(text: str, sentence_texts: list[str] | None = None) -> list[dict[str, Any]]:
+    sentences = sentence_texts or split_sentences(text)
     if not sentences or len(text) <= MAX_CHUNK_CHARS:
         return [
             {

@@ -9,7 +9,7 @@ Persistent continuity anchor for future chats and handoffs.
 
 ## Current State
 
-As of 2026-03-13, this workspace includes:
+As of 2026-03-14, this workspace includes:
 
 - the existing accessible-reader frontend and backend
 - local import and parsing for TXT, Markdown, HTML, DOCX, and text-based PDF
@@ -67,13 +67,29 @@ As of 2026-03-13, this workspace includes:
   - product/state closeout commit: `bf3be7f77e56f4e0a00896dcf0a0df4c999db57a`
   - assistant-docs sync commit: `27b7b42d785374236d11f0c335032e9dfab575bf`
   - remote parity was confirmed immediately after push
-- Stage 9 is now approved as the next implementation slice:
-  - source-linked highlights and notes in Reader and Recall
-  - sentence-range anchors within deterministic `reflowed/default` content
-  - optional note text only; tags, notebooks, and cross-block spans remain deferred
-- Stage 10 and Stage 11 are also approved in outline:
-  - Stage 10: browser note capture and note-aware retrieval
-  - Stage 11: portable annotation apply and manual knowledge promotion
+- Stage 9 closeout is complete:
+  - shared note storage, note FTS, note change events, and note CRUD/search routes are live in the backend
+  - Reader now supports sentence-range note capture, persisted note highlighting, and route-anchor jump-back inside deterministic `reflowed/default`
+  - Recall now includes a dedicated `Notes` section with document-scoped note lists, note search, edit/delete flows, and `Open in Reader`
+  - stale saved-session view/note fetches now wait until the active document resolves, preventing noisy startup 404s after document removal
+  - backend/frontend/extension validation and a live Playwright note smoke run on a clean temp workspace are green
+- Stage 10 closeout is complete:
+  - the MV3 companion now supports bounded browser note capture for exact saved public-page matches
+  - note hits now surface in Recall retrieval and browser-context summaries
+  - a debug-only extension inspection build plus a real Edge unpacked-extension harness close the prior live-validation gap
+- the Reader shell convergence correction is complete:
+  - Reader now renders inside Recall-native hero, sidebar, tab, and card patterns instead of a standalone sibling app shell
+  - product-facing runtime labels now use `Recall Workspace` and `Recall Workspace API`
+- the Reader-as-section parity follow-up is complete:
+  - the shared workspace section row now owns `Library`, `Graph`, `Study`, `Notes`, and `Reader`
+  - returning from Reader preserves the prior Recall section instead of defaulting back to `Library`
+  - compact no-document Reader onboarding still exposes `Settings` without reviving the old standalone Reader shell
+- Stage 11 remains the next roadmap milestone:
+  - portable annotation apply
+  - manual knowledge promotion from notes into graph/study flows
+- A product-direction correction is now fully implemented:
+  - Recall remains the product shell
+  - Reader keeps its reading behaviors while now presenting as a Recall section instead of a separate app identity
 
 ## Current Limits
 
@@ -84,7 +100,7 @@ As of 2026-03-13, this workspace includes:
 - webpage import is intentionally limited to public article-style HTML pages; live URL sync, browser-tab capture, login-gated pages, and JS-heavy app pages remain out of scope
 - the browser companion is intentionally context-only; it does not import the current tab or capture private page data into storage
 - `msedgedriver` is still absent on this machine, so live Edge interaction checks currently rely on the temporary Windows-side Playwright harness under `C:\Users\FA507\AppData\Local\Temp\accessible-reader-playwright`
-- repo/package renaming toward `Recall` is deferred until after the product shell is stable
+- repo/package renaming beyond current runtime labels is still deferred until a later cleanup slice
 
 ## Current Roadmap Status
 
@@ -97,9 +113,10 @@ As of 2026-03-13, this workspace includes:
 - Stage 7 is complete after the change-log/export/merge groundwork, backend/frontend validation, and the localhost API smoke run landed.
 - Stage 8 is complete after the integrity/repair APIs, benchmark harness, extension timeout hardening, validation matrix, and localhost integrity/repair smoke run landed.
 - The bounded pre-Stage-9 stabilization detour is complete after the frontend resilience pass, validation reruns, and live outage/recovery smoke checks landed.
-- Stage 9 is now the active roadmap milestone.
-- Stage 10 is next.
-- Stage 11 is queued after Stage 10.
+- Stage 9 is complete after the shared note-storage slice, Reader note capture/jump-back, Recall note management, validation reruns, and the live Playwright temp-workspace smoke run landed.
+- Stage 10 is complete after the browser note-capture, note-aware retrieval, debug harness, and real Edge unpacked-extension validation pass landed.
+- The Reader shell convergence correction is complete after the Recall-first UI realignment and product-label cleanup landed.
+- Stage 11 is now the active roadmap milestone.
 
 ## Recent Detours
 
@@ -115,14 +132,18 @@ As of 2026-03-13, this workspace includes:
 - 2026-03-13: completed Stage 8 hardening and benchmarks with workspace integrity/repair APIs, startup FTS self-healing, benchmark coverage, extension timeout hardening, and localhost integrity/repair validation
 - 2026-03-13: published the Stage 1-8 closeout branch, synced touched assistant docs, and approved the Stage 9-11 roadmap extension centered on notes, browser capture, and portable apply flows
 - 2026-03-13: completed a pre-Stage-9 stabilization detour that replaced raw `Failed to fetch` copy with actionable local-service guidance, added retryable unavailable states in Recall and Reader, and verified outage/recovery behavior in Playwright before resuming Stage 9
+- 2026-03-13: completed Stage 9 source-linked highlights and notes with shared note storage/search, Reader note capture and anchored jump-back, Recall note management, stale-session startup guards, full validation reruns, and a live Playwright temp-workspace smoke pass
+- 2026-03-14: approved a bounded Stage 10 closeout extension for a debug-only extension validation harness plus a manual Edge unpacked-extension smoke, followed immediately by Reader shell convergence into the Recall-first workspace
+- 2026-03-14: completed the Stage 10 closeout with browser note capture, note-aware retrieval, a debug-only extension inspection build, and a real Edge unpacked-extension harness pass, then completed the Reader shell convergence correction with Recall-first UI alignment and runtime label cleanup
+- 2026-03-14: completed a Reader-as-section parity follow-up that removed the remaining top-level `Recall | Reader` split, unified the workspace section row, restored prior-section return behavior after Reader navigation, kept no-document Settings reachable, and reran the full validation matrix plus the real Edge debug harness
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Open the active Stage 9 ExecPlan in `docs/exec_plans/active/`.
+3. Open the active Stage 11 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current reader experience as a dedicated Reader section inside the Recall-first shell.
-7. Implement Stage 9 without reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, tags, notebooks, or free-text span anchors.
+6. Preserve the current Recall-first shell, unified workspace section row, and current Reader behavior while extending note portability and manual promotion paths.
+7. Implement Stage 11 without reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, tags, notebooks, or free-text span anchors.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

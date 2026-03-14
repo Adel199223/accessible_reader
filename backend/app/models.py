@@ -281,6 +281,45 @@ class RecallDocumentRecord(BaseModel):
     chunk_count: int = Field(default=0, ge=0)
 
 
+class RecallNoteAnchor(BaseModel):
+    source_document_id: str
+    variant_id: str
+    block_id: str
+    sentence_start: int = Field(default=0, ge=0)
+    sentence_end: int = Field(default=0, ge=0)
+    global_sentence_start: int | None = Field(default=None, ge=0)
+    global_sentence_end: int | None = Field(default=None, ge=0)
+    anchor_text: str = Field(min_length=1)
+    excerpt_text: str = Field(min_length=1)
+
+
+class RecallNoteRecord(BaseModel):
+    id: str
+    anchor: RecallNoteAnchor
+    body_text: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class RecallNoteCreateRequest(BaseModel):
+    anchor: RecallNoteAnchor
+    body_text: str | None = None
+
+
+class RecallNoteUpdateRequest(BaseModel):
+    body_text: str | None = None
+
+
+class RecallNoteSearchHit(BaseModel):
+    id: str
+    anchor: RecallNoteAnchor
+    document_title: str
+    score: float
+    body_text: str | None = None
+    created_at: str
+    updated_at: str
+
+
 class RecallSearchHit(BaseModel):
     id: str
     source_document_id: str
@@ -355,7 +394,7 @@ class GraphDecisionRequest(BaseModel):
 
 class RecallRetrievalHit(BaseModel):
     id: str
-    hit_type: Literal["chunk", "node", "card"]
+    hit_type: Literal["chunk", "node", "card", "note"]
     source_document_id: str
     document_title: str
     title: str
@@ -365,6 +404,14 @@ class RecallRetrievalHit(BaseModel):
     chunk_id: str | None = None
     node_id: str | None = None
     card_id: str | None = None
+    note_id: str | None = None
+    note_anchor: RecallNoteAnchor | None = None
+
+
+class BrowserSavedPageMatch(BaseModel):
+    source_document_id: str
+    document_title: str
+    source_locator: str
 
 
 class BrowserContextRequest(BaseModel):
@@ -384,7 +431,14 @@ class BrowserContextResponse(BaseModel):
     summary: str
     suppression_reasons: list[str] = Field(default_factory=list)
     page_fingerprint: str
+    matched_document: BrowserSavedPageMatch | None = None
     hits: list[RecallRetrievalHit] = Field(default_factory=list)
+
+
+class BrowserRecallNoteCreateRequest(BaseModel):
+    page_url: str = Field(min_length=1)
+    selection_text: str = Field(min_length=1)
+    body_text: str | None = None
 
 
 class StudyCardRecord(BaseModel):

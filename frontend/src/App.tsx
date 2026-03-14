@@ -1,16 +1,28 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 
 import { fetchHealth, fetchSettings, saveSettings } from './api'
+import { RecallShellFrame } from './components/RecallShellFrame'
 import { RecallWorkspace } from './components/RecallWorkspace'
 import { ReaderWorkspace } from './components/ReaderWorkspace'
-import { buildAppHref, parseAppRoute, type AppRoute, type AppSection } from './lib/appRoute'
+import {
+  buildAppHref,
+  parseAppRoute,
+  type AppRoute,
+  type AppSection,
+  type RecallSection,
+  type WorkspaceSection,
+} from './lib/appRoute'
 import { defaultReaderSettings, fontPresetToStack } from './lib/readerTheme'
 import type { HealthResponse, ReaderSettings } from './types'
+import type { WorkspaceHeroProps } from './components/WorkspaceHero'
 
 
 function syncRouteFromLocation(setRoute: (route: AppRoute) => void) {
   const nextRoute = parseAppRoute(window.location)
-  const expectedHref = buildAppHref(nextRoute.path, nextRoute.documentId)
+  const expectedHref = buildAppHref(nextRoute.path, nextRoute.documentId, {
+    sentenceEnd: nextRoute.sentenceEnd,
+    sentenceStart: nextRoute.sentenceStart,
+  })
   const currentHref = `${window.location.pathname}${window.location.search}`
   if (currentHref !== expectedHref) {
     window.history.replaceState({}, '', expectedHref)
@@ -18,10 +30,24 @@ function syncRouteFromLocation(setRoute: (route: AppRoute) => void) {
   setRoute(nextRoute)
 }
 
+const defaultShellHero: WorkspaceHeroProps = {
+  eyebrow: 'Recall',
+  title: 'Reconnect what you already saved.',
+  description:
+    'Inspect shared source documents, validate graph suggestions, retrieve grounded context, and study from local source-backed cards.',
+  metrics: [
+    { label: 'Loading library…' },
+    { label: 'Loading graph…', tone: 'muted' },
+    { label: 'Loading study…', tone: 'muted' },
+  ],
+}
+
 
 export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseAppRoute(window.location))
+  const [activeRecallSection, setActiveRecallSection] = useState<RecallSection>('library')
   const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [shellHero, setShellHero] = useState<WorkspaceHeroProps>(defaultShellHero)
   const [settings, setSettings] = useState<ReaderSettings>(defaultReaderSettings)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
 
@@ -58,8 +84,15 @@ export default function App() {
     return () => window.clearTimeout(timeout)
   }, [settings, settingsLoaded])
 
-  function navigate(path: AppSection, documentId?: string | null) {
-    const href = buildAppHref(path, documentId)
+  function navigate(
+    path: AppSection,
+    documentId?: string | null,
+    options?: {
+      sentenceEnd?: number | null
+      sentenceStart?: number | null
+    },
+  ) {
+    const href = buildAppHref(path, documentId, options)
     window.history.pushState({}, '', href)
     setRoute(parseAppRoute(window.location))
   }
@@ -68,6 +101,19 @@ export default function App() {
     ['--app-font-family' as string]: fontPresetToStack(settings.font_preset),
   } as CSSProperties
 
+  function handleSelectWorkspaceSection(section: WorkspaceSection) {
+    if (section === 'reader') {
+      navigate('reader')
+      return
+    }
+    setActiveRecallSection(section)
+    if (route.path !== 'recall') {
+      navigate('recall')
+    }
+  }
+
+  const activeWorkspaceSection: WorkspaceSection = route.path === 'reader' ? 'reader' : activeRecallSection
+
   return (
     <div
       className={`app-shell ${settings.contrast_theme === 'high' ? 'theme-high' : 'theme-soft'} ${
@@ -75,45 +121,31 @@ export default function App() {
       }`}
       style={appStyle}
     >
-      <header className="shell-header">
-        <div className="shell-brand">
-          <p className="eyebrow">Local knowledge workspace</p>
-          <h1>Recall</h1>
-          <p>Search what you saved, reopen it in Reader, and keep the flow local-first.</p>
-        </div>
-        <nav className="shell-nav" aria-label="Primary">
-          <button
-            aria-current={route.path === 'recall' ? 'page' : undefined}
-            className={route.path === 'recall' ? 'shell-nav-button shell-nav-button-active' : 'shell-nav-button'}
-            type="button"
-            onClick={() => navigate('recall')}
-          >
-            Recall
-          </button>
-          <button
-            aria-current={route.path === 'reader' ? 'page' : undefined}
-            className={route.path === 'reader' ? 'shell-nav-button shell-nav-button-active' : 'shell-nav-button'}
-            type="button"
-            onClick={() => navigate('reader')}
-          >
-            Reader
-          </button>
-        </nav>
-      </header>
-
-      <main className="shell-main">
+      <RecallShellFrame
+        activeSection={activeWorkspaceSection}
+        hero={shellHero}
+        onSelectSection={handleSelectWorkspaceSection}
+      >
         {route.path === 'recall' ? (
-          <RecallWorkspace onOpenReader={(documentId) => navigate('reader', documentId)} />
+          <RecallWorkspace
+            section={activeRecallSection}
+            onSectionChange={setActiveRecallSection}
+            onShellHeroChange={setShellHero}
+            onOpenReader={(documentId, options) => navigate('reader', documentId, options)}
+          />
         ) : (
           <ReaderWorkspace
-            key={`reader-${route.documentId ?? 'session'}`}
+            key={`reader-${route.documentId ?? 'session'}-${route.sentenceStart ?? 'none'}-${route.sentenceEnd ?? 'none'}`}
             health={health}
+            onShellHeroChange={setShellHero}
             routeDocumentId={route.documentId}
+            routeSentenceEnd={route.sentenceEnd}
+            routeSentenceStart={route.sentenceStart}
             settings={settings}
             onSettingsChange={setSettings}
           />
         )}
-      </main>
+      </RecallShellFrame>
     </div>
   )
 }

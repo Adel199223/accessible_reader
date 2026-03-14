@@ -1,16 +1,18 @@
-# Build Brief: Local-First Accessible Reading Assistant
+# Build Brief: Local-First Recall Workspace
 
 ## Summary
 
-Build a standalone localhost-first web app for Windows 11 that turns pasted text, uploaded documents, and public article webpages into a dyslexia-friendly, ADHD-considerate reading experience. Keep as much of the pipeline local as possible, use browser-native read aloud first, highlight the current sentence while reading, and reserve AI for high-value transforms such as `Simplify` and `Summary`.
+Build one localhost-first Recall workspace for Windows 11 that turns pasted text, uploaded documents, and public article webpages into a dyslexia-friendly, ADHD-considerate reading experience plus grounded recall, retrieval, and study flows. Keep as much of the pipeline local as possible, use browser-native read aloud first, highlight the current sentence while reading, and reserve AI for high-value transforms such as `Simplify` and `Summary`.
 
 ## Product Goal
 
-- This is a new standalone project.
-- The app helps a user read difficult content more easily, not act as a general-purpose assistant.
+- This repository now ships one local-first Recall workspace with an integrated Reader section.
+- The product still helps a user read difficult content more easily first, then extends that reading flow into grounded retrieval, notes, and study without becoming a general-purpose assistant.
 - Optimize first for Microsoft Edge on Windows 11.
 - Keep the app useful without AI for import, parsing, reflow, reading controls, storage, search, and reopen support.
 - Defaults should favor low friction, calm structure, strong scan order, and readability for dyslexic and ADHD-prone users.
+- Reader must adapt to the Recall-first shell and shared workspace structure, not the other way around.
+- The shared workspace section row is `Library`, `Graph`, `Study`, `Notes`, and `Reader`; `/reader` remains a compatibility route into the `Reader` section.
 - Public webpage support should stay article-first and snapshot-based: fetch once, store locally, and reopen from the local snapshot instead of live syncing.
 
 ## Architecture

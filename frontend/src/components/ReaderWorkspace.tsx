@@ -2,6 +2,8 @@ import {
   startTransition,
   useDeferredValue,
   useEffect,
+  useMemo,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -9,9 +11,11 @@ import {
 } from 'react'
 
 import {
+  createRecallNote,
   deleteDocumentRecord,
   fetchDocumentView,
   fetchDocuments,
+  fetchRecallNotes,
   generateDocumentView,
   importFileDocument,
   importTextDocument,
@@ -22,10 +26,12 @@ import type {
   DocumentRecord,
   DocumentView,
   HealthResponse,
+  RecallNoteRecord,
   ReaderSettings,
   SummaryDetail,
   ViewMode,
 } from '../types'
+import type { WorkspaceHeroProps } from './WorkspaceHero'
 import { ControlsOverflow } from './ControlsOverflow'
 import { ImportPanel } from './ImportPanel'
 import { LibraryPane } from './LibraryPane'
@@ -33,14 +39,34 @@ import { ReaderSurface } from './ReaderSurface'
 import { SettingsPanel } from './SettingsPanel'
 import { useSpeech } from '../hooks/useSpeech'
 import { loadReaderSession, resolveReaderSession, saveReaderSession } from '../lib/readerSession'
-import { buildRenderableBlocks } from '../lib/segment'
+import { buildRenderableBlocks, type RenderSentence, type RenderableBlock } from '../lib/segment'
 
 
 interface ReaderWorkspaceProps {
   health: HealthResponse | null
+  onShellHeroChange: (hero: WorkspaceHeroProps) => void
   routeDocumentId?: string | null
+  routeSentenceEnd?: number | null
+  routeSentenceStart?: number | null
   settings: ReaderSettings
   onSettingsChange: Dispatch<SetStateAction<ReaderSettings>>
+}
+
+type LoadState = 'idle' | 'loading' | 'success' | 'error'
+
+interface NoteSelection {
+  anchorText: string
+  blockId: string
+  excerptText: string
+  globalSentenceEnd: number
+  globalSentenceStart: number
+  sentenceEnd: number
+  sentenceStart: number
+}
+
+interface SentenceRange {
+  end: number
+  start: number
 }
 
 
@@ -159,10 +185,90 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
+function buildSentenceRangeSet(range: SentenceRange | null) {
+  const indexes = new Set<number>()
+  if (!range) {
+    return indexes
+  }
+  for (let index = range.start; index <= range.end; index += 1) {
+    indexes.add(index)
+  }
+  return indexes
+}
+
+function buildNoteHighlightSet(notes: RecallNoteRecord[]) {
+  const indexes = new Set<number>()
+  for (const note of notes) {
+    const start = note.anchor.global_sentence_start
+    const end = note.anchor.global_sentence_end
+    if (start === null || start === undefined || end === null || end === undefined) {
+      continue
+    }
+    for (let index = start; index <= end; index += 1) {
+      indexes.add(index)
+    }
+  }
+  return indexes
+}
+
+function normalizeNoteBody(bodyText: string) {
+  const trimmed = bodyText.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function buildNoteSelection(
+  sentence: RenderSentence,
+  block: RenderableBlock | undefined,
+  existingSelection: NoteSelection | null,
+): NoteSelection | null {
+  if (!block) {
+    return null
+  }
+
+  if (!existingSelection || existingSelection.blockId !== sentence.blockId) {
+    const sentenceText = block.sentences[sentence.sentenceIndexInBlock]?.text ?? sentence.text
+    return {
+      anchorText: sentenceText,
+      blockId: sentence.blockId,
+      excerptText: sentenceText,
+      globalSentenceEnd: sentence.globalIndex,
+      globalSentenceStart: sentence.globalIndex,
+      sentenceEnd: sentence.sentenceIndexInBlock,
+      sentenceStart: sentence.sentenceIndexInBlock,
+    }
+  }
+
+  const sentenceStart = Math.min(existingSelection.sentenceStart, sentence.sentenceIndexInBlock)
+  const sentenceEnd = Math.max(existingSelection.sentenceEnd, sentence.sentenceIndexInBlock)
+  const selectedSentences = block.sentences.slice(sentenceStart, sentenceEnd + 1)
+  if (selectedSentences.length === 0) {
+    return null
+  }
+
+  const excerptStart = Math.max(sentenceStart - 1, 0)
+  const excerptEnd = Math.min(sentenceEnd + 1, block.sentences.length - 1)
+  return {
+    anchorText: selectedSentences.map((item) => item.text).join(' ').trim(),
+    blockId: sentence.blockId,
+    excerptText: block.sentences.slice(excerptStart, excerptEnd + 1).map((item) => item.text).join(' ').trim(),
+    globalSentenceEnd: selectedSentences[selectedSentences.length - 1].globalIndex,
+    globalSentenceStart: selectedSentences[0].globalIndex,
+    sentenceEnd,
+    sentenceStart,
+  }
+}
+
+function findRenderableBlock(blocks: RenderableBlock[], blockId: string) {
+  return blocks.find((block) => block.id === blockId)
+}
+
 export function ReaderWorkspace({
   health,
+  onShellHeroChange,
   onSettingsChange,
   routeDocumentId = null,
+  routeSentenceEnd = null,
+  routeSentenceStart = null,
   settings,
 }: ReaderWorkspaceProps) {
   const [initialSession] = useState(() =>
@@ -191,7 +297,24 @@ export function ReaderWorkspace({
   const [libraryOpen, setLibraryOpen] = useState(() => !initialSession.documentId)
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [notes, setNotes] = useState<RecallNoteRecord[]>([])
+  const [notesStatus, setNotesStatus] = useState<LoadState>('idle')
+  const [notesError, setNotesError] = useState<string | null>(null)
+  const [noteCaptureActive, setNoteCaptureActive] = useState(false)
+  const [noteSelection, setNoteSelection] = useState<NoteSelection | null>(null)
+  const [noteDraftBody, setNoteDraftBody] = useState('')
+  const [noteSaveBusy, setNoteSaveBusy] = useState(false)
+  const [noteMessage, setNoteMessage] = useState<string | null>(null)
+  const [routeAnchorRange, setRouteAnchorRange] = useState<SentenceRange | null>(() =>
+    routeSentenceStart === null
+      ? null
+      : {
+          end: routeSentenceEnd ?? routeSentenceStart,
+          start: routeSentenceStart,
+        },
+  )
   const deferredSearch = useDeferredValue(search)
+  const pendingRouteAnchorScrollRef = useRef(Boolean(routeSentenceStart !== null))
 
   async function loadDocuments(
     nextQuery = deferredSearch,
@@ -237,6 +360,22 @@ export function ReaderWorkspace({
     }
   }
 
+  async function loadNotes(documentId: string) {
+    setNotesStatus('loading')
+    setNotesError(null)
+    try {
+      const loadedNotes = await fetchRecallNotes(documentId)
+      setNotes(loadedNotes)
+      setNotesStatus('success')
+      return loadedNotes
+    } catch (error) {
+      setNotes([])
+      setNotesStatus('error')
+      setNotesError(getErrorMessage(error, 'Could not load saved notes.'))
+      return []
+    }
+  }
+
   useEffect(() => {
     void loadDocuments(deferredSearch, activeDocumentId, activeMode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -247,7 +386,7 @@ export function ReaderWorkspace({
       return
     }
 
-    if (!activeDocumentId) {
+    if (!activeDocument) {
       setView(null)
       setViewError(null)
       return
@@ -256,7 +395,7 @@ export function ReaderWorkspace({
     let active = true
     setViewLoading(true)
     setViewError(null)
-    void fetchDocumentView(activeDocumentId, activeMode, summaryDetail)
+    void fetchDocumentView(activeDocument.id, activeMode, summaryDetail)
       .then((loadedView) => {
         if (!active) {
           return
@@ -279,11 +418,44 @@ export function ReaderWorkspace({
     return () => {
       active = false
     }
-  }, [activeDocumentId, activeMode, documentsLoading, summaryDetail])
+  }, [activeDocument, activeMode, documentsLoading, summaryDetail])
+
+  useEffect(() => {
+    if (documentsLoading) {
+      return
+    }
+
+    if (!activeDocument) {
+      setNotes([])
+      setNotesStatus('idle')
+      setNotesError(null)
+      return
+    }
+    void loadNotes(activeDocument.id)
+  }, [activeDocument, documentsLoading])
 
   const selectedDocument = activeDocument
   const initialSentenceIndex = selectedDocument?.progress_by_mode[activeMode] ?? 0
   const { blocks: renderBlocks, flatSentences } = buildRenderableBlocks(view)
+  const canAnnotateCurrentView = activeMode === 'reflowed' && view?.detail_level === 'default' && Boolean(view)
+  const noteHighlightIndexes = useMemo(
+    () => (canAnnotateCurrentView ? buildNoteHighlightSet(notes) : new Set<number>()),
+    [canAnnotateCurrentView, notes],
+  )
+  const selectedSentenceIndexes = useMemo(
+    () =>
+      noteCaptureActive && noteSelection
+        ? buildSentenceRangeSet({
+            end: noteSelection.globalSentenceEnd,
+            start: noteSelection.globalSentenceStart,
+          })
+        : new Set<number>(),
+    [noteCaptureActive, noteSelection],
+  )
+  const anchoredSentenceIndexes = useMemo(
+    () => (canAnnotateCurrentView ? buildSentenceRangeSet(routeAnchorRange) : new Set<number>()),
+    [canAnnotateCurrentView, routeAnchorRange],
+  )
   const currentModeOption = viewModeOptions.find((option) => option.mode === activeMode)
 
   useEffect(() => {
@@ -297,6 +469,20 @@ export function ReaderWorkspace({
       })
     }
   }, [selectedDocument, activeMode])
+
+  useEffect(() => {
+    if (canAnnotateCurrentView) {
+      return
+    }
+
+    setNoteCaptureActive(false)
+    setNoteSelection(null)
+    setNoteDraftBody('')
+  }, [canAnnotateCurrentView])
+
+  useEffect(() => {
+    setNoteMessage(null)
+  }, [activeDocumentId, activeMode])
 
   const speech = useSpeech({
     sentences: flatSentences,
@@ -335,25 +521,43 @@ export function ReaderWorkspace({
   })
 
   useEffect(() => {
+    if (!routeAnchorRange || !canAnnotateCurrentView || !pendingRouteAnchorScrollRef.current) {
+      return
+    }
+
+    const element = document.querySelector<HTMLElement>(
+      `[data-sentence-index="${routeAnchorRange.start}"]`,
+    )
+    if (!element) {
+      return
+    }
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    pendingRouteAnchorScrollRef.current = false
+  }, [canAnnotateCurrentView, routeAnchorRange, view])
+
+  useEffect(() => {
+    if (routeAnchorRange) {
+      return
+    }
     const element = document.querySelector<HTMLElement>(
       `[data-sentence-index="${speech.currentSentenceIndex}"]`,
     )
     element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [speech.currentSentenceIndex, view])
+  }, [routeAnchorRange, speech.currentSentenceIndex, view])
 
   useEffect(() => {
-    if (!activeDocumentId) {
+    if (!selectedDocument) {
       return
     }
     const accessibilitySnapshot = buildAccessibilitySnapshot(settings)
     const timeout = window.setTimeout(() => {
-      void saveProgress(activeDocumentId, activeMode, speech.currentSentenceIndex, {
+      void saveProgress(selectedDocument.id, activeMode, speech.currentSentenceIndex, {
         accessibilitySnapshot,
         summaryDetail,
       }).catch(() => undefined)
     }, 250)
     return () => window.clearTimeout(timeout)
-  }, [activeDocumentId, activeMode, settings, speech.currentSentenceIndex, summaryDetail])
+  }, [activeMode, selectedDocument, settings, speech.currentSentenceIndex, summaryDetail])
 
   useEffect(() => {
     if (!selectedDocument || !selectedDocument.available_modes.includes(activeMode)) {
@@ -372,6 +576,9 @@ export function ReaderWorkspace({
       if (event.defaultPrevented) {
         return
       }
+      if (noteCaptureActive) {
+        return
+      }
       const target = event.target as HTMLElement | null
       if (
         target &&
@@ -384,26 +591,31 @@ export function ReaderWorkspace({
       if (event.key === ' ') {
         event.preventDefault()
         if (speech.isSpeaking && !speech.isPaused) {
+          setRouteAnchorRange(null)
           speech.pause()
         } else if (speech.isPaused) {
+          setRouteAnchorRange(null)
           speech.resume()
         } else {
+          setRouteAnchorRange(null)
           speech.start()
         }
       }
       if (event.altKey && event.key === 'ArrowRight') {
         event.preventDefault()
+        setRouteAnchorRange(null)
         speech.next()
       }
       if (event.altKey && event.key === 'ArrowLeft') {
         event.preventDefault()
+        setRouteAnchorRange(null)
         speech.previous()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [speech])
+  }, [noteCaptureActive, speech])
 
   async function handleImportText(title: string, text: string) {
     setImportBusy(true)
@@ -490,8 +702,112 @@ export function ReaderWorkspace({
     }
   }
 
+  function resetNoteComposer() {
+    setNoteCaptureActive(false)
+    setNoteSelection(null)
+    setNoteDraftBody('')
+  }
+
+  function handleStartNoteCapture() {
+    speech.stop()
+    setRouteAnchorRange(null)
+    setNoteMessage(null)
+    setNotesError(null)
+    setNoteCaptureActive(true)
+    setNoteSelection(null)
+    setNoteDraftBody('')
+  }
+
+  function handleCancelNoteCapture() {
+    resetNoteComposer()
+  }
+
+  async function handleSaveNote() {
+    if (!activeDocumentId || !view || !noteSelection) {
+      return
+    }
+    const variantId = typeof view.variant_metadata?.variant_id === 'string' ? view.variant_metadata.variant_id : null
+    if (!variantId) {
+      setNotesError('Reader could not resolve this reflowed view for note saving yet.')
+      return
+    }
+
+    setNoteSaveBusy(true)
+    setNotesError(null)
+    setNoteMessage(null)
+    try {
+      const savedNote = await createRecallNote(activeDocumentId, {
+        anchor: {
+          source_document_id: activeDocumentId,
+          variant_id: variantId,
+          block_id: noteSelection.blockId,
+          sentence_start: noteSelection.sentenceStart,
+          sentence_end: noteSelection.sentenceEnd,
+          global_sentence_start: noteSelection.globalSentenceStart,
+          global_sentence_end: noteSelection.globalSentenceEnd,
+          anchor_text: noteSelection.anchorText,
+          excerpt_text: noteSelection.excerptText,
+        },
+        body_text: normalizeNoteBody(noteDraftBody),
+      })
+      setNotes((currentNotes) => [savedNote, ...currentNotes])
+      setNotesStatus('success')
+      setNoteMessage('Note saved locally.')
+      resetNoteComposer()
+    } catch (error) {
+      setNotesStatus('error')
+      setNotesError(getErrorMessage(error, 'Could not save that note.'))
+    } finally {
+      setNoteSaveBusy(false)
+    }
+  }
+
+  function handleTransportStart() {
+    setRouteAnchorRange(null)
+    speech.start()
+  }
+
+  function handleTransportPause() {
+    setRouteAnchorRange(null)
+    speech.pause()
+  }
+
+  function handleTransportResume() {
+    setRouteAnchorRange(null)
+    speech.resume()
+  }
+
+  function handleTransportPrevious() {
+    setRouteAnchorRange(null)
+    speech.previous()
+  }
+
+  function handleTransportNext() {
+    setRouteAnchorRange(null)
+    speech.next()
+  }
+
+  function handleTransportStop() {
+    setRouteAnchorRange(null)
+    speech.stop()
+  }
+
+  function handleSelectSentence(sentence: RenderSentence) {
+    if (noteCaptureActive) {
+      const block = findRenderableBlock(renderBlocks, sentence.blockId)
+      setNoteSelection((currentSelection) => buildNoteSelection(sentence, block, currentSelection))
+      setNoteMessage(null)
+      return
+    }
+
+    setRouteAnchorRange(null)
+    speech.jumpTo(sentence.globalIndex)
+  }
+
   function handleSetActiveMode(nextMode: ViewMode) {
     speech.stop()
+    setRouteAnchorRange(null)
+    resetNoteComposer()
     startTransition(() => {
       setActiveMode(nextMode)
     })
@@ -500,6 +816,8 @@ export function ReaderWorkspace({
   const hasActiveDocument = Boolean(selectedDocument)
   const importPanelCollapsed = hasActiveDocument && !importPanelOpen
   const canUseSpeechTransport = speech.isSupported && flatSentences.length > 0
+  const notesLoading = notesStatus === 'loading'
+  const noteSaveDisabled = !noteSelection || noteSaveBusy
   const currentSentenceLabel = `Sentence ${flatSentences.length === 0 ? 0 : speech.currentSentenceIndex + 1} of ${flatSentences.length}`
   const readerTitleId = 'reader-document-title'
   const transportAction =
@@ -508,7 +826,7 @@ export function ReaderWorkspace({
           active: true,
           ariaLabel: 'Pause read aloud',
           icon: <PauseIcon />,
-          onClick: speech.pause,
+          onClick: handleTransportPause,
           title: 'Pause read aloud',
         }
       : speech.isPaused
@@ -516,32 +834,50 @@ export function ReaderWorkspace({
             active: true,
             ariaLabel: 'Resume read aloud',
             icon: <PlayIcon />,
-            onClick: speech.resume,
+            onClick: handleTransportResume,
             title: 'Resume read aloud',
           }
         : {
             active: false,
             ariaLabel: 'Start read aloud',
             icon: <PlayIcon />,
-            onClick: () => speech.start(),
+            onClick: handleTransportStart,
             title: 'Start read aloud',
           }
   const readerViewLabel = currentModeOption?.label ?? activeMode
   const readerMetadata = [
     readerViewLabel,
+    canAnnotateCurrentView ? `${notes.length} ${notes.length === 1 ? 'note' : 'notes'}` : null,
     view?.generated_by === 'openai' ? 'AI generated' : null,
     view?.cached ? 'Cached' : null,
   ].filter(Boolean)
+  const libraryMetricLabel = documentsLoading
+    ? 'Loading library…'
+    : documentsError
+      ? 'Library unavailable'
+      : `${documents.length} ${documents.length === 1 ? 'source document' : 'source documents'}`
+  const readerStatusMetricLabel = hasActiveDocument ? `${readerViewLabel} view` : 'Reader ready'
+  const notesMetricLabel = hasActiveDocument
+    ? canAnnotateCurrentView
+      ? notesStatus === 'error'
+        ? 'Notes unavailable'
+        : `${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`
+      : view?.generated_by === 'openai'
+        ? 'AI view open'
+        : 'Source view ready'
+    : health?.openai_configured
+      ? 'AI ready'
+      : 'AI optional'
   const emptyStateTitle = documentsLoading
     ? 'Loading your reading space'
     : documentsError
       ? 'Reader is temporarily unavailable'
-      : 'Add something to start reading'
+      : 'Open a source to start reading'
   const emptyStateDescription = documentsLoading
     ? 'Your local library is loading. Reading controls appear after a document opens.'
     : documentsError
       ? 'Reader could not reconnect to the local library yet. Retry loading after the backend is running again.'
-      : 'Paste text, choose a file, or import a public article link on the left. Reading controls appear here after a document opens.'
+      : 'Add local text, choose a file, import a public article link, or reopen a saved source from the Recall library on the left.'
 
   useEffect(() => {
     setLibraryOpen(!hasActiveDocument)
@@ -560,6 +896,8 @@ export function ReaderWorkspace({
     try {
       if (deletingActiveDocument) {
         speech.stop()
+        setRouteAnchorRange(null)
+        resetNoteComposer()
         setView(null)
         setActiveDocument(null)
         setActiveDocumentId(null)
@@ -583,249 +921,375 @@ export function ReaderWorkspace({
     void loadDocuments(search, activeDocumentId, activeMode)
   }
 
+  function handleRetryNotesLoading() {
+    if (!activeDocumentId) {
+      return
+    }
+    void loadNotes(activeDocumentId)
+  }
+
   const libraryErrorMessage = documentsError ? 'Saved documents are unavailable until Reader reconnects.' : null
   const readerErrorMessage = viewError ?? documentsError
   const canRetryReaderLoading = Boolean(documentsError || (selectedDocument && viewError))
   const showUnavailableEmptyState = !selectedDocument && Boolean(documentsError)
 
+  useEffect(() => {
+    onShellHeroChange({
+      eyebrow: 'Recall',
+      title: 'Reconnect what you already saved.',
+      description:
+        'Inspect shared source documents, validate graph suggestions, retrieve grounded context, and study from local source-backed cards.',
+      metrics: [
+        { label: libraryMetricLabel },
+        { label: readerStatusMetricLabel, tone: 'muted' },
+        { label: notesMetricLabel, tone: 'muted' },
+      ],
+    })
+  }, [
+    libraryMetricLabel,
+    notesMetricLabel,
+    onShellHeroChange,
+    readerStatusMetricLabel,
+  ])
+
   return (
-    <div className="reader-workspace">
-      <aside className="sidebar">
-        <div className="sidebar-inner">
-          <header className="page-header page-header-compact brand-card">
-            <h1>Accessible Reader</h1>
-            <p>Read clearly. Keep your place.</p>
-          </header>
-          <ImportPanel
-            busy={importBusy}
-            collapsed={importPanelCollapsed}
-            onToggleCollapsed={
-              hasActiveDocument
-                ? () => {
-                    setImportPanelOpen((current) => !current)
-                  }
-                : undefined
-            }
-            onImportFile={handleImportFile}
-            onImportText={handleImportText}
-            onImportUrl={handleImportUrl}
-          />
-          <LibraryPane
-            activeDocumentId={activeDocumentId}
-            deletingDocumentId={deletingDocumentId}
-            documents={documents}
-            errorMessage={libraryErrorMessage}
-            hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
-            open={libraryOpen}
-            loading={documentsLoading}
-            searchValue={search}
-            onDelete={handleDeleteDocument}
-            onSearchChange={setSearch}
-            onSelect={(document) => {
-              speech.stop()
-              setImportPanelOpen(false)
-              startTransition(() => {
-                setActiveDocument(document)
-                setActiveDocumentId(document.id)
-                setActiveMode('reflowed')
-              })
-            }}
-            onToggleOpen={() => setLibraryOpen((current) => !current)}
-          />
-          {hasActiveDocument ? (
-            <p className="sidebar-footnote">
-              {health?.openai_configured
-                ? 'AI ready for Simplify and Summary.'
-                : 'Simplify and Summary need OPENAI_API_KEY.'}
-            </p>
+    <div className="reader-workspace stack-gap">
+      {readerErrorMessage ? (
+        <div className="inline-error stack-gap" role="alert">
+          <p>{readerErrorMessage}</p>
+          {canRetryReaderLoading ? (
+            <div className="inline-actions">
+              <button className="ghost-button" type="button" onClick={handleRetryReaderLoading}>
+                Retry loading
+              </button>
+            </div>
           ) : null}
         </div>
-      </aside>
+      ) : null}
 
-      <main className="main-panel">
-        {!selectedDocument ? (
-          <div className="app-toolbar">
-            <button
-              aria-controls="settings-drawer"
-              aria-expanded={settingsOpen}
-              className="ghost-button app-toolbar-button"
-              type="button"
-              onClick={() => setSettingsOpen((current) => !current)}
-            >
-              <SettingsIcon />
-              <span>Settings</span>
-            </button>
+      <div className="reader-shell-grid">
+        <aside className="sidebar">
+          <div className="sidebar-inner">
+            <ImportPanel
+              busy={importBusy}
+              collapsed={importPanelCollapsed}
+              collapsedActionLabel="Show"
+              collapsedTitle="Add source"
+              description="Bring local text, files, or public article links into Recall."
+              title="Add source"
+              onToggleCollapsed={
+                hasActiveDocument
+                  ? () => {
+                      setImportPanelOpen((current) => !current)
+                    }
+                  : undefined
+              }
+              onImportFile={handleImportFile}
+              onImportText={handleImportText}
+              onImportUrl={handleImportUrl}
+            />
+            <LibraryPane
+              activeDocumentId={activeDocumentId}
+              deletingDocumentId={deletingDocumentId}
+              documents={documents}
+              errorMessage={libraryErrorMessage}
+              hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
+              open={libraryOpen}
+              loading={documentsLoading}
+              searchPlaceholder="Search saved sources"
+              searchValue={search}
+              title="Source library"
+              onDelete={handleDeleteDocument}
+              onSearchChange={setSearch}
+              onSelect={(document) => {
+                speech.stop()
+                setRouteAnchorRange(null)
+                resetNoteComposer()
+                setImportPanelOpen(false)
+                startTransition(() => {
+                  setActiveDocument(document)
+                  setActiveDocumentId(document.id)
+                  setActiveMode('reflowed')
+                })
+              }}
+              onToggleOpen={() => setLibraryOpen((current) => !current)}
+            />
+            <p className="sidebar-footnote">
+              {health?.openai_configured
+                ? 'Simplify and Summary stay available as optional Recall transforms.'
+                : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
+            </p>
           </div>
-        ) : null}
-        {readerErrorMessage ? (
-          <div className="inline-error stack-gap" role="alert">
-            <p>{readerErrorMessage}</p>
-            {canRetryReaderLoading ? (
-              <div className="inline-actions">
-                <button className="ghost-button" type="button" onClick={handleRetryReaderLoading}>
-                  Retry loading
-                </button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        {selectedDocument ? (
-          <>
-            <section className="sticky-transport-shell" aria-label="Read aloud controls">
-              <div className="card sticky-transport-bar">
-                <span className="sticky-transport-label">Read aloud</span>
-                <div className="transport-bar" aria-label="Read aloud transport" role="toolbar">
-                  <button
-                    aria-label="Previous sentence"
-                    className="transport-button"
-                    disabled={!canUseSpeechTransport}
-                    title="Previous sentence"
-                    type="button"
-                    onClick={speech.previous}
-                  >
-                    <PreviousIcon />
-                  </button>
-                  <button
-                    aria-label={transportAction.ariaLabel}
-                    className={`transport-button transport-button-primary ${
-                      transportAction.active ? 'transport-button-active' : ''
-                    }`}
-                    disabled={!canUseSpeechTransport}
-                    title={transportAction.title}
-                    type="button"
-                    onClick={transportAction.onClick}
-                  >
-                    {transportAction.icon}
-                  </button>
-                  <button
-                    aria-label="Next sentence"
-                    className="transport-button"
-                    disabled={!canUseSpeechTransport}
-                    title="Next sentence"
-                    type="button"
-                    onClick={speech.next}
-                  >
-                    <NextIcon />
-                  </button>
-                  <button
-                    aria-label="Stop read aloud"
-                    className="transport-button transport-button-quiet"
-                    disabled={!canUseSpeechTransport || (!speech.isSpeaking && !speech.isPaused)}
-                    title="Stop read aloud"
-                    type="button"
-                    onClick={speech.stop}
-                  >
-                    <StopIcon />
-                  </button>
-                </div>
-                <div className="sticky-transport-actions">
+        </aside>
+
+        <main className="main-panel">
+          {selectedDocument ? (
+            <>
+              <section className="card reader-mode-card stack-gap" aria-label="Reader views">
+                <div className="toolbar">
+                  <div className="section-header section-header-compact">
+                    <h2>Reading views</h2>
+                    <p>Stay in Recall while switching between source, reflowed, and optional AI-assisted views.</p>
+                  </div>
                   <button
                     aria-controls="settings-drawer"
                     aria-expanded={settingsOpen}
-                    className="ghost-button app-toolbar-button sticky-settings-button"
+                    className="ghost-button app-toolbar-button"
                     type="button"
                     onClick={() => setSettingsOpen((current) => !current)}
                   >
                     <SettingsIcon />
                     <span>Settings</span>
                   </button>
-                  <ControlsOverflow
-                    currentSentenceLabel={currentSentenceLabel}
-                    preferredVoice={settings.preferred_voice}
-                    speechRate={settings.speech_rate}
-                    voiceChoices={speech.voiceChoices}
-                    onPreferredVoiceChange={(nextVoice) =>
-                      onSettingsChange((currentSettings) => ({
-                        ...currentSettings,
-                        preferred_voice: nextVoice,
-                      }))
-                    }
-                    onSpeechRateChange={(nextRate) =>
-                      onSettingsChange((currentSettings) => ({
-                        ...currentSettings,
-                        speech_rate: nextRate,
-                      }))
-                    }
-                  />
                 </div>
-              </div>
-            </section>
+                <div className="recall-stage-tabs" aria-label="Reader views" role="tablist">
+                  {viewModeOptions.map((option) => (
+                    <button
+                      key={option.mode}
+                      aria-selected={activeMode === option.mode}
+                      className={activeMode === option.mode ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                      role="tab"
+                      type="button"
+                      onClick={() => handleSetActiveMode(option.mode)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
 
-            <section className="card reader-card">
-              <header className="reader-toolbar">
-                <div className="reader-toolbar-main">
-                  <h2 id={readerTitleId}>{selectedDocument.title}</h2>
-                  <div className="reader-meta-row" role="list" aria-label="Reader metadata">
-                    {readerMetadata.map((item) => (
-                      <span key={item} className="status-chip reader-meta-chip" role="listitem">
-                        {item}
-                      </span>
-                    ))}
+              <section className="sticky-transport-shell" aria-label="Read aloud controls">
+                <div className="card sticky-transport-bar">
+                  <span className="sticky-transport-label">Read aloud</span>
+                  <div className="transport-bar" aria-label="Read aloud transport" role="toolbar">
+                    <button
+                      aria-label="Previous sentence"
+                      className="transport-button"
+                      disabled={!canUseSpeechTransport}
+                      title="Previous sentence"
+                      type="button"
+                      onClick={handleTransportPrevious}
+                    >
+                      <PreviousIcon />
+                    </button>
+                    <button
+                      aria-label={transportAction.ariaLabel}
+                      className={`transport-button transport-button-primary ${
+                        transportAction.active ? 'transport-button-active' : ''
+                      }`}
+                      disabled={!canUseSpeechTransport}
+                      title={transportAction.title}
+                      type="button"
+                      onClick={transportAction.onClick}
+                    >
+                      {transportAction.icon}
+                    </button>
+                    <button
+                      aria-label="Next sentence"
+                      className="transport-button"
+                      disabled={!canUseSpeechTransport}
+                      title="Next sentence"
+                      type="button"
+                      onClick={handleTransportNext}
+                    >
+                      <NextIcon />
+                    </button>
+                    <button
+                      aria-label="Stop read aloud"
+                      className="transport-button transport-button-quiet"
+                      disabled={!canUseSpeechTransport || (!speech.isSpeaking && !speech.isPaused)}
+                      title="Stop read aloud"
+                      type="button"
+                      onClick={handleTransportStop}
+                    >
+                      <StopIcon />
+                    </button>
+                  </div>
+                  <div className="sticky-transport-actions">
+                    <ControlsOverflow
+                      currentSentenceLabel={currentSentenceLabel}
+                      preferredVoice={settings.preferred_voice}
+                      speechRate={settings.speech_rate}
+                      voiceChoices={speech.voiceChoices}
+                      onPreferredVoiceChange={(nextVoice) =>
+                        onSettingsChange((currentSettings) => ({
+                          ...currentSettings,
+                          preferred_voice: nextVoice,
+                        }))
+                      }
+                      onSpeechRateChange={(nextRate) =>
+                        onSettingsChange((currentSettings) => ({
+                          ...currentSettings,
+                          speech_rate: nextRate,
+                        }))
+                      }
+                    />
                   </div>
                 </div>
-                {(activeMode === 'simplified' || activeMode === 'summary') && !view ? (
-                  <button disabled={transformBusy} type="button" onClick={() => handleGenerate(activeMode)}>
-                    {transformBusy ? 'Working…' : `Create ${activeMode}`}
-                  </button>
-                ) : null}
-              </header>
+              </section>
 
-              {viewLoading ? <p className="placeholder">Loading view…</p> : null}
-              {selectedDocument && !view && !viewLoading && (activeMode === 'simplified' || activeMode === 'summary') ? (
-                <p className="placeholder placeholder-inline">
-                  {activeMode === 'simplified'
-                    ? 'No simplified view yet. Create simplified when you want it.'
-                    : 'No summary yet. Create summary when you want it.'}
-                </p>
-              ) : null}
-              {view ? (
-                <ReaderSurface
-                  labelledBy={readerTitleId}
-                  blocks={renderBlocks}
-                  activeSentenceIndex={speech.currentSentenceIndex}
-                  settings={settings}
-                  onSelectSentence={speech.jumpTo}
-                />
-              ) : null}
-            </section>
-          </>
-        ) : (
-          <section className="card empty-state-card stack-gap">
-            <div className="section-header">
-              <p className="eyebrow">{showUnavailableEmptyState ? 'Local service unavailable' : 'Ready when you are'}</p>
-              <h2>{emptyStateTitle}</h2>
-              <p>{emptyStateDescription}</p>
-            </div>
-            {showUnavailableEmptyState ? (
-              <>
-                <div className="inline-actions">
-                  <button className="ghost-button" type="button" onClick={handleRetryReaderLoading}>
-                    Retry loading
-                  </button>
+              <section className="card reader-card">
+                <header className="reader-toolbar">
+                  <div className="reader-toolbar-main">
+                    <h2 id={readerTitleId}>{selectedDocument.title}</h2>
+                    <div className="reader-meta-row" role="list" aria-label="Reader metadata">
+                      {readerMetadata.map((item) => (
+                        <span key={item} className="status-chip reader-meta-chip" role="listitem">
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="reader-toolbar-actions">
+                    {canAnnotateCurrentView ? (
+                      noteCaptureActive ? (
+                        <button className="ghost-button" type="button" onClick={handleCancelNoteCapture}>
+                          Cancel note
+                        </button>
+                      ) : (
+                        <button type="button" onClick={handleStartNoteCapture}>
+                          Add note
+                        </button>
+                      )
+                    ) : null}
+                    {(activeMode === 'simplified' || activeMode === 'summary') && !view ? (
+                      <button disabled={transformBusy} type="button" onClick={() => handleGenerate(activeMode)}>
+                        {transformBusy ? 'Working…' : `Create ${activeMode}`}
+                      </button>
+                    ) : null}
+                  </div>
+                </header>
+
+                {canAnnotateCurrentView ? (
+                  <div className="reader-note-status">
+                    {notesLoading ? <p className="small-note">Loading saved notes…</p> : null}
+                    {!notesLoading && notesStatus === 'error' ? (
+                      <div className="inline-actions">
+                        <p className="small-note">{notesError}</p>
+                        <button className="ghost-button" type="button" onClick={handleRetryNotesLoading}>
+                          Retry notes
+                        </button>
+                      </div>
+                    ) : null}
+                    {!notesLoading && notesStatus !== 'error' && noteMessage ? <p className="small-note">{noteMessage}</p> : null}
+                    {!notesLoading && notesStatus === 'success' && !notes.length ? (
+                      <p className="small-note">Add a note to keep a local, source-linked highlight in this reflowed view.</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {noteCaptureActive ? (
+                  <section className="reader-note-composer stack-gap" aria-label="Note capture">
+                    <div className="section-header section-header-compact">
+                      <h3>Capture note</h3>
+                      <p>
+                        Click one sentence to start, then click another sentence in the same block to extend the highlight.
+                      </p>
+                    </div>
+                    {noteSelection ? (
+                      <>
+                        <div className="reader-note-preview">
+                          <strong>Highlighted text</strong>
+                          <p>{noteSelection.anchorText}</p>
+                          <span>{noteSelection.excerptText}</span>
+                        </div>
+                        <label className="field">
+                          <span>Optional note</span>
+                          <textarea
+                            placeholder="Add a short reminder, question, or takeaway"
+                            value={noteDraftBody}
+                            onChange={(event) => setNoteDraftBody(event.target.value)}
+                          />
+                        </label>
+                        <div className="inline-actions">
+                          <button disabled={noteSaveDisabled} type="button" onClick={handleSaveNote}>
+                            {noteSaveBusy ? 'Saving…' : 'Save note'}
+                          </button>
+                          <button className="ghost-button" type="button" onClick={handleCancelNoteCapture}>
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="small-note">
+                        Select a sentence in the reading surface to start the note anchor.
+                      </p>
+                    )}
+                  </section>
+                ) : null}
+
+                {viewLoading ? <p className="placeholder">Loading view…</p> : null}
+                {selectedDocument && !view && !viewLoading && (activeMode === 'simplified' || activeMode === 'summary') ? (
+                  <p className="placeholder placeholder-inline">
+                    {activeMode === 'simplified'
+                      ? 'No simplified view yet. Create simplified when you want it.'
+                      : 'No summary yet. Create summary when you want it.'}
+                  </p>
+                ) : null}
+                {view ? (
+                  <ReaderSurface
+                    labelledBy={readerTitleId}
+                    blocks={renderBlocks}
+                    activeSentenceIndex={speech.currentSentenceIndex}
+                    anchoredSentenceIndexes={anchoredSentenceIndexes}
+                    notedSentenceIndexes={noteHighlightIndexes}
+                    selectedSentenceIndexes={selectedSentenceIndexes}
+                    settings={settings}
+                    onSelectSentence={handleSelectSentence}
+                  />
+                ) : null}
+              </section>
+            </>
+          ) : (
+            <section className="card empty-state-card stack-gap">
+              <div className="toolbar">
+                <div className="section-header">
+                  <p className="eyebrow">{showUnavailableEmptyState ? 'Local service unavailable' : 'Ready when you are'}</p>
+                  <h2>{emptyStateTitle}</h2>
+                  <p>{emptyStateDescription}</p>
                 </div>
-                <p className="small-note">
-                  Import controls on the left still work for local text, files, and public article links while Reader reconnects.
-                </p>
-              </>
-            ) : (
-              <div className="empty-state-steps" role="list" aria-label="How to begin">
-                <div className="empty-state-step" role="listitem">
-                  <strong>1. Add or reopen something</strong>
-                  <span>Paste text, choose a file, import a public article link, or reopen a saved document from the library.</span>
-                </div>
-                <div className="empty-state-step" role="listitem">
-                  <strong>2. Read in calmer view</strong>
-                  <span>Reflowed opens first so spacing and line breaks stay easier to scan.</span>
-                </div>
-                <div className="empty-state-step" role="listitem">
-                  <strong>3. Open Settings only if needed</strong>
-                  <span>Theme and layout stay available from the Settings button.</span>
-                </div>
+                <button
+                  aria-controls="settings-drawer"
+                  aria-expanded={settingsOpen}
+                  className="ghost-button app-toolbar-button"
+                  type="button"
+                  onClick={() => setSettingsOpen((current) => !current)}
+                >
+                  <SettingsIcon />
+                  <span>Settings</span>
+                </button>
               </div>
-            )}
-          </section>
-        )}
-      </main>
+              {showUnavailableEmptyState ? (
+                <>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryReaderLoading}>
+                      Retry loading
+                    </button>
+                  </div>
+                  <p className="small-note">
+                    Import controls on the left still work for local text, files, and public article links while Reader reconnects.
+                  </p>
+                </>
+              ) : (
+                <div className="empty-state-steps" role="list" aria-label="How to begin">
+                  <div className="empty-state-step" role="listitem">
+                    <strong>1. Add or reopen something</strong>
+                    <span>Paste text, choose a file, import a public article link, or reopen a saved source from the library.</span>
+                  </div>
+                  <div className="empty-state-step" role="listitem">
+                    <strong>2. Read in calmer view</strong>
+                    <span>Reflowed opens first so spacing and line breaks stay easier to scan.</span>
+                  </div>
+                  <div className="empty-state-step" role="listitem">
+                    <strong>3. Open Settings only if needed</strong>
+                    <span>Theme and layout stay available from the Settings button.</span>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+        </main>
+      </div>
       <SettingsPanel
         key={`settings-${settingsOpen ? 'open' : 'closed'}-${activeDocumentId ?? 'empty'}`}
         activeMode={activeMode}

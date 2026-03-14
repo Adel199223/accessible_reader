@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Recall Debug</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="extension-body">
+    <main class="extension-shell">
+      <header class="extension-header">
+        <div>
+          <p class="extension-eyebrow">Debug build</p>
+          <h1>Recall extension inspector</h1>
+          <p class="extension-note">
+            Inspect background state, force a fresh page capture, and validate browser note flow without relying on in-page chip visibility.
+          </p>
+        </div>
+      </header>
+
+      <section class="extension-card extension-debug-card">
+        <div class="extension-form">
+          <label class="extension-field">
+            <span>Inspectable tab</span>
+            <select id="debug-tab-select"></select>
+          </label>
+          <div class="extension-actions">
+            <button id="debug-refresh" type="button">Refresh state</button>
+            <button id="debug-open-recall" class="secondary-button" type="button">Open Recall</button>
+          </div>
+        </div>
+        <p id="debug-status" class="extension-note">Loading debug state…</p>
+        <p id="debug-tab" class="extension-note extension-note-subtle"></p>
+        <p id="debug-backend" class="extension-note extension-note-subtle"></p>
+        <p id="debug-query" class="extension-note extension-note-subtle"></p>
+        <p id="debug-prompt" class="extension-note extension-note-subtle"></p>
+        <p id="debug-suppression" class="extension-note extension-note-subtle"></p>
+      </section>
+
+      <section class="extension-section">
+        <h2>Captured page context</h2>
+        <div class="extension-card extension-debug-card">
+          <p id="debug-selection" class="extension-note"></p>
+          <p id="debug-match" class="extension-note"></p>
+          <p id="debug-context" class="extension-note extension-note-subtle"></p>
+        </div>
+      </section>
+
+      <section class="extension-section">
+        <h2>Browser note capture</h2>
+        <div class="extension-card extension-debug-card">
+          <p id="debug-note-status" class="extension-note">
+            Notes are available only when this exact public page is already saved in Recall.
+          </p>
+          <label class="extension-field">
+            <span>Optional note</span>
+            <textarea id="debug-note-body" placeholder="Add a short reminder, question, or takeaway"></textarea>
+          </label>
+          <div class="extension-actions">
+            <button id="debug-save-note" type="button">Save note</button>
+            <button id="debug-open-note" class="secondary-button" type="button" hidden>Open saved note in Reader</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="extension-section">
+        <h2>Retrieved hits</h2>
+        <div id="debug-hits" class="extension-list"></div>
+      </section>
+    </main>
+    <script type="module" src="debug.js"></script>
+  </body>
+</html>

@@ -7,6 +7,10 @@ import type {
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
   KnowledgeNodeRecord,
+  RecallNoteCreateRequest,
+  RecallNoteRecord,
+  RecallNoteSearchHit,
+  RecallNoteUpdateRequest,
   RecallRetrievalHit,
   ReaderSettings,
   RecallDocumentRecord,
@@ -109,6 +113,43 @@ export function fetchRecallDocuments() {
 
 export function fetchRecallDocument(documentId: string) {
   return request<RecallDocumentRecord>(`/api/recall/documents/${documentId}`)
+}
+
+export function fetchRecallNotes(documentId: string) {
+  return request<RecallNoteRecord[]>(`/api/recall/documents/${documentId}/notes`)
+}
+
+export function createRecallNote(documentId: string, payload: RecallNoteCreateRequest) {
+  return request<RecallNoteRecord>(`/api/recall/documents/${documentId}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateRecallNote(noteId: string, payload: RecallNoteUpdateRequest) {
+  return request<RecallNoteRecord>(`/api/recall/notes/${noteId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteRecallNote(noteId: string) {
+  return request<void>(`/api/recall/notes/${noteId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function searchRecallNotes(query: string, limit = 20, documentId?: string | null) {
+  const search = new URLSearchParams({
+    limit: String(limit),
+    query,
+  })
+  if (documentId) {
+    search.set('document_id', documentId)
+  }
+  return request<RecallNoteSearchHit[]>(`/api/recall/notes/search?${search.toString()}`)
 }
 
 export function searchRecall(query: string, limit = 20) {

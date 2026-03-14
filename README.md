@@ -1,6 +1,6 @@
-# Accessible Reader
+# Recall Workspace
 
-Localhost-first reading assistant for Windows 11. This repository is intended to live in WSL and target Microsoft Edge on Windows for the main browser and read-aloud experience.
+Local-first Recall workspace for Windows 11. This repository lives in WSL and targets Microsoft Edge on Windows for the main browser companion and read-aloud experience. Reader is an integrated Recall section, not a separate sibling app.
 
 ## Read First
 
@@ -18,7 +18,8 @@ Localhost-first reading assistant for Windows 11. This repository is intended to
 
 This project is optimized for:
 
-- dyslexia-friendly reading defaults
+- Recall-first document search, graph review, and study flows
+- dyslexia-friendly reading defaults inside the integrated Reader
 - ADHD-considerate chunking and focus modes
 - browser-native read aloud in Microsoft Edge
 - local parsing, storage, and reflow
@@ -61,11 +62,10 @@ Frontend defaults to `http://127.0.0.1:5173` and proxies API requests to `http:/
 
 ## Current Scope
 
-- Paste text and upload local files
-- Import public article webpages as one-time local HTML snapshots
-- Local library with search and reopen support
-- `Original`, `Reflowed`, `Simplified`, and `Summary` views
-- Sentence-highlighted browser read aloud
+- Recall library with local search, graph review, study cards, and notes
+- Reader route for paste text, local files, and public article imports
+- `Original`, `Reflowed`, `Simplified`, and `Summary` views inside Reader
+- Sentence-highlighted browser read aloud and source-linked notes
 - Local TTS is intentionally deferred and should remain a future roadmap item
 
 ## Templates

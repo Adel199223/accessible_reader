@@ -68,3 +68,20 @@
 - Stage 9 starts from branch `codex/stage8-closeout-doc-sync`.
 - Notes are `highlight + optional note body` only in this slice.
 - Tags, notebooks, browser note capture, note-aware retrieval, portable apply, and note promotion are deferred to later stages.
+
+## Closeout
+- Completed on 2026-03-13.
+- Delivered:
+  - shared note storage, note FTS, note change events, and note CRUD/search routes in the backend
+  - Reader sentence-range note capture, persisted note highlights, and route-anchor jump-back in deterministic `reflowed/default`
+  - Recall `Notes` section with document-scoped notes, note search, edit/delete flows, and `Open in Reader`
+  - startup guards so stale saved sessions do not fetch note/view data for missing documents before the active document resolves
+- Validation completed:
+  - backend `.venv/bin/python -m pytest`
+  - backend `.venv/bin/python -c "from app.main import app; print(app.title)"`
+  - frontend `npm test -- --run`
+  - frontend `npm run lint`
+  - frontend `npm run build`
+  - extension `npm test -- --run`
+  - extension `npm run build`
+  - live Playwright smoke on a clean temp workspace covering Reader note capture, Recall note visibility/search, and Recall-to-Reader jump-back

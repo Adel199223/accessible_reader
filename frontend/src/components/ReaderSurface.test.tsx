@@ -29,8 +29,8 @@ test('ReaderSurface highlights the active sentence', () => {
       kind: 'paragraph',
       text: 'Sentence one. Sentence two.',
       sentences: [
-        { key: 'one-0', text: 'Sentence one.', globalIndex: 0 },
-        { key: 'one-1', text: 'Sentence two.', globalIndex: 1 },
+        { key: 'one-0', text: 'Sentence one.', globalIndex: 0, blockId: 'one', sentenceIndexInBlock: 0 },
+        { key: 'one-1', text: 'Sentence two.', globalIndex: 1, blockId: 'one', sentenceIndexInBlock: 1 },
       ],
     },
   ]
@@ -56,8 +56,8 @@ test('ReaderSurface allows sentence selection from the keyboard', () => {
       kind: 'paragraph',
       text: 'Sentence one. Sentence two.',
       sentences: [
-        { key: 'one-0', text: 'Sentence one.', globalIndex: 0 },
-        { key: 'one-1', text: 'Sentence two.', globalIndex: 1 },
+        { key: 'one-0', text: 'Sentence one.', globalIndex: 0, blockId: 'one', sentenceIndexInBlock: 0 },
+        { key: 'one-1', text: 'Sentence two.', globalIndex: 1, blockId: 'one', sentenceIndexInBlock: 1 },
       ],
     },
   ]
@@ -76,8 +76,14 @@ test('ReaderSurface allows sentence selection from the keyboard', () => {
   fireEvent.keyDown(secondSentence, { key: 'Enter' })
   fireEvent.keyDown(secondSentence, { key: ' ' })
 
-  expect(onSelectSentence).toHaveBeenNthCalledWith(1, 1)
-  expect(onSelectSentence).toHaveBeenNthCalledWith(2, 1)
+  expect(onSelectSentence).toHaveBeenNthCalledWith(
+    1,
+    expect.objectContaining({ blockId: 'one', globalIndex: 1, sentenceIndexInBlock: 1 }),
+  )
+  expect(onSelectSentence).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({ blockId: 'one', globalIndex: 1, sentenceIndexInBlock: 1 }),
+  )
 })
 
 test('ReaderSurface keeps an accessible article label without rendering a duplicate visible header', () => {
@@ -86,7 +92,7 @@ test('ReaderSurface keeps an accessible article label without rendering a duplic
       id: 'one',
       kind: 'paragraph',
       text: 'Sentence one.',
-      sentences: [{ key: 'one-0', text: 'Sentence one.', globalIndex: 0 }],
+      sentences: [{ key: 'one-0', text: 'Sentence one.', globalIndex: 0, blockId: 'one', sentenceIndexInBlock: 0 }],
     },
   ]
 
@@ -111,21 +117,21 @@ test('ReaderSurface renders ordered and nested lists semantically from block met
       kind: 'list_item',
       text: 'First parent item.',
       metadata: { list_depth: 0, list_index: 1, list_ordered: true },
-      sentences: [{ key: 'parent-1-0', text: 'First parent item.', globalIndex: 0 }],
+      sentences: [{ key: 'parent-1-0', text: 'First parent item.', globalIndex: 0, blockId: 'parent-1', sentenceIndexInBlock: 0 }],
     },
     {
       id: 'child-1',
       kind: 'list_item',
       text: 'Nested child item.',
       metadata: { list_depth: 1, list_index: 1, list_ordered: false },
-      sentences: [{ key: 'child-1-0', text: 'Nested child item.', globalIndex: 1 }],
+      sentences: [{ key: 'child-1-0', text: 'Nested child item.', globalIndex: 1, blockId: 'child-1', sentenceIndexInBlock: 0 }],
     },
     {
       id: 'parent-2',
       kind: 'list_item',
       text: 'Second parent item.',
       metadata: { list_depth: 0, list_index: 2, list_ordered: true },
-      sentences: [{ key: 'parent-2-0', text: 'Second parent item.', globalIndex: 2 }],
+      sentences: [{ key: 'parent-2-0', text: 'Second parent item.', globalIndex: 2, blockId: 'parent-2', sentenceIndexInBlock: 0 }],
     },
   ]
 
@@ -146,4 +152,35 @@ test('ReaderSurface renders ordered and nested lists semantically from block met
   const nestedList = within(orderedList.children[0] as HTMLElement).getByRole('list')
   expect(nestedList.tagName).toBe('UL')
   expect(within(nestedList).getByRole('button', { name: 'Nested child item.' })).toBeInTheDocument()
+})
+
+test('ReaderSurface renders note and anchor highlight classes independently', () => {
+  const blocks: RenderableBlock[] = [
+    {
+      id: 'one',
+      kind: 'paragraph',
+      text: 'Sentence one. Sentence two.',
+      sentences: [
+        { key: 'one-0', text: 'Sentence one.', globalIndex: 0, blockId: 'one', sentenceIndexInBlock: 0 },
+        { key: 'one-1', text: 'Sentence two.', globalIndex: 1, blockId: 'one', sentenceIndexInBlock: 1 },
+      ],
+    },
+  ]
+
+  render(
+    <ReaderSurface
+      accessibleLabel="Readable guide"
+      blocks={blocks}
+      activeSentenceIndex={0}
+      anchoredSentenceIndexes={new Set([1])}
+      notedSentenceIndexes={new Set([0])}
+      selectedSentenceIndexes={new Set([1])}
+      settings={settings}
+      onSelectSentence={() => undefined}
+    />,
+  )
+
+  expect(screen.getByRole('button', { name: 'Sentence one.' })).toHaveClass('reader-sentence-noted')
+  expect(screen.getByRole('button', { name: 'Sentence two.' })).toHaveClass('reader-sentence-anchored')
+  expect(screen.getByRole('button', { name: 'Sentence two.' })).toHaveClass('reader-sentence-selected')
 })

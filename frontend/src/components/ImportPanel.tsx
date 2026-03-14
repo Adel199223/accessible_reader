@@ -3,19 +3,29 @@ import { useState, type ChangeEvent, type FormEvent } from 'react'
 interface ImportPanelProps {
   busy: boolean
   collapsed?: boolean
+  collapsedActionLabel?: string
+  collapsedTitle?: string
+  description?: string
+  helperText?: string
   onToggleCollapsed?: () => void
   onImportText: (title: string, text: string) => Promise<void>
   onImportUrl: (url: string) => Promise<void>
   onImportFile: (file: File) => Promise<void>
+  title?: string
 }
 
 export function ImportPanel({
   busy,
   collapsed = false,
+  collapsedActionLabel = 'Import',
+  collapsedTitle = 'Add document',
+  description = 'Paste text, choose a file, or import a link.',
+  helperText = 'TXT, Markdown, HTML, DOCX, text-based PDF, and public article links.',
   onToggleCollapsed,
   onImportText,
   onImportUrl,
   onImportFile,
+  title: panelTitle = 'Import',
 }: ImportPanelProps) {
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
@@ -56,10 +66,10 @@ export function ImportPanel({
       <section className="card card-compact import-panel import-panel-collapsed">
         <div className="toolbar import-panel-toolbar">
           <div className="section-header section-header-compact">
-            <h2>Add document</h2>
+            <h2>{collapsedTitle}</h2>
           </div>
           <button className="ghost-button" type="button" onClick={onToggleCollapsed}>
-            Import
+            {collapsedActionLabel}
           </button>
         </div>
       </section>
@@ -70,8 +80,8 @@ export function ImportPanel({
     <section className="card card-compact stack-gap import-panel">
       <div className="toolbar import-panel-toolbar">
         <div className="section-header section-header-compact">
-          <h2>Import</h2>
-          <p>Paste text, choose a file, or import a link.</p>
+          <h2>{panelTitle}</h2>
+          <p>{description}</p>
         </div>
         {onToggleCollapsed ? (
           <button className="ghost-button" type="button" onClick={onToggleCollapsed}>
@@ -145,7 +155,7 @@ export function ImportPanel({
         ) : null}
       </section>
 
-      <p className="small-note">TXT, Markdown, HTML, DOCX, text-based PDF, and public article links.</p>
+      <p className="small-note">{helperText}</p>
     </section>
   )
 }

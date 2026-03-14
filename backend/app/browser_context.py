@@ -122,10 +122,10 @@ def summarize_context_result(
     same_site: bool,
     prompted: bool,
 ) -> str:
-    if hit_count <= 0:
-        return "Recall stayed quiet on this page."
     if exact_match:
         return "Recall already knows this saved page."
+    if hit_count <= 0:
+        return "Recall stayed quiet on this page."
     if trigger_mode == "selection":
         return f"Recall found {hit_count} related item{'s' if hit_count != 1 else ''} for the selected text."
     if same_site and prompted:

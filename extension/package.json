@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "build:debug": "node build.mjs --debug",
     "test": "vitest run"
   },
   "devDependencies": {
@@ -15,4 +16,3 @@
     "vitest": "^4.0.5"
   }
 }
-

@@ -1,4 +1,5 @@
-import type { BrowserContextResponse, PageContext, RecallRetrievalHit } from './lib/contracts'
+import { buildBrowserNoteCaptureState, getReaderAnchorOptionsFromHit, getReaderAnchorOptionsFromNote } from './lib/noteCapture'
+import type { BrowserContextResponse, PageContext, RecallNoteRecord, RecallRetrievalHit } from './lib/contracts'
 import { buildPromptLabel } from './lib/prompt'
 
 
@@ -10,12 +11,19 @@ interface ContextUpdatedMessage {
   type: 'contextUpdated'
 }
 
+interface CapturePageContextMessage {
+  type: 'capturePageContext'
+}
+
 interface RenderState {
   backendBaseUrl: string
   error: string | null
+  noteBusy: boolean
+  noteMessage: string | null
   panelOpen: boolean
   promptVisible: boolean
   response: BrowserContextResponse | null
+  savedNote: RecallNoteRecord | null
 }
 
 
@@ -29,9 +37,12 @@ let refreshTimer: number | null = null
 let renderState: RenderState = {
   backendBaseUrl: 'http://127.0.0.1:8000',
   error: null,
+  noteBusy: false,
+  noteMessage: null,
   panelOpen: false,
   promptVisible: false,
   response: null,
+  savedNote: null,
 }
 
 setupNavigationHooks()
@@ -44,19 +55,40 @@ window.addEventListener('hashchange', () => scheduleContextRefresh())
 window.addEventListener('popstate', () => scheduleContextRefresh())
 window.addEventListener('recall-urlchange', () => scheduleContextRefresh())
 
-chrome.runtime.onMessage.addListener((message: ContextUpdatedMessage) => {
-  if (message.type !== 'contextUpdated') {
-    return
-  }
-  renderState = {
-    backendBaseUrl: message.backendBaseUrl,
-    error: message.error,
-    panelOpen: message.promptVisible ? renderState.panelOpen : false,
-    promptVisible: message.promptVisible,
-    response: message.response,
-  }
-  renderOverlay()
-})
+chrome.runtime.onMessage.addListener(
+  (message: ContextUpdatedMessage | CapturePageContextMessage, _sender, sendResponse) => {
+    if (message.type === 'capturePageContext') {
+      void pushPageContext()
+        .then((context) => sendResponse({ context, ok: true }))
+        .catch((error) =>
+          sendResponse({
+            error: error instanceof Error ? error.message : 'Could not capture page context.',
+            ok: false,
+          }),
+        )
+      return true
+    }
+    if (message.type !== 'contextUpdated') {
+      return
+    }
+    const nextSavedNote =
+      message.response?.matched_document?.source_document_id === renderState.savedNote?.anchor.source_document_id
+        ? renderState.savedNote
+        : null
+    renderState = {
+      backendBaseUrl: message.backendBaseUrl,
+      error: message.error,
+      noteBusy: renderState.noteBusy,
+      noteMessage: nextSavedNote ? renderState.noteMessage : null,
+      panelOpen:
+        message.promptVisible || message.response?.matched_document ? renderState.panelOpen : false,
+      promptVisible: message.promptVisible,
+      response: message.response,
+      savedNote: nextSavedNote,
+    }
+    renderOverlay()
+  },
+)
 
 
 function scheduleContextRefresh() {
@@ -74,11 +106,17 @@ async function sendPageContext() {
   if (!location.href.startsWith('http')) {
     return
   }
+  await pushPageContext()
+}
+
+
+async function pushPageContext() {
   const context = capturePageContext()
   await chrome.runtime.sendMessage({
     context,
     type: 'upsertPageContext',
   })
+  return context
 }
 
 
@@ -100,7 +138,7 @@ function renderOverlay() {
     return
   }
 
-  if (!renderState.promptVisible || !renderState.response) {
+  if (!renderState.response || (!renderState.promptVisible && !renderState.response.matched_document)) {
     host.style.display = 'none'
     return
   }
@@ -167,27 +205,87 @@ function buildPanel(response: BrowserContextResponse) {
     void chrome.runtime.sendMessage({ path: 'recall', type: 'openApp' })
   })
 
-  const dismissButton = document.createElement('button')
-  dismissButton.className = 'recall-secondary'
-  dismissButton.type = 'button'
-  dismissButton.textContent = 'Dismiss'
-  dismissButton.addEventListener('click', () => {
-    if (response.page_fingerprint) {
-      void chrome.runtime.sendMessage({
-        fingerprint: response.page_fingerprint,
-        type: 'dismissPrompt',
-      })
-    }
-    renderState = { ...renderState, panelOpen: false, promptVisible: false }
-    renderOverlay()
-  })
-  actionRow.append(openRecallButton, dismissButton)
+  actionRow.append(openRecallButton)
+  if (renderState.promptVisible) {
+    const dismissButton = document.createElement('button')
+    dismissButton.className = 'recall-secondary'
+    dismissButton.type = 'button'
+    dismissButton.textContent = 'Dismiss'
+    dismissButton.addEventListener('click', () => {
+      if (response.page_fingerprint) {
+        void chrome.runtime.sendMessage({
+          fingerprint: response.page_fingerprint,
+          type: 'dismissPrompt',
+        })
+      }
+      renderState = { ...renderState, panelOpen: false, promptVisible: false }
+      renderOverlay()
+    })
+    actionRow.append(dismissButton)
+  }
   panel.append(actionRow)
+
+  const noteSection = document.createElement('section')
+  noteSection.className = 'recall-hit-card'
+
+  const noteHeader = document.createElement('div')
+  noteHeader.className = 'recall-hit-header'
+  const noteTitle = document.createElement('strong')
+  noteTitle.textContent = 'Saved page note'
+  const noteScope = document.createElement('span')
+  noteScope.textContent = response.matched_document ? 'exact saved page' : 'unavailable'
+  noteHeader.append(noteTitle, noteScope)
+  noteSection.append(noteHeader)
+
+  const noteStatus = document.createElement('p')
+  noteStatus.className = 'recall-excerpt'
+  const captureState = buildBrowserNoteCaptureState(response, capturePageContext().selectionText)
+  noteStatus.textContent = renderState.noteMessage ?? captureState.message
+  noteSection.append(noteStatus)
+
+  const noteActions = document.createElement('div')
+  noteActions.className = 'recall-panel-actions'
+
+  const saveNoteButton = document.createElement('button')
+  saveNoteButton.type = 'button'
+  saveNoteButton.textContent = renderState.noteBusy ? 'Saving…' : 'Save selection note'
+  saveNoteButton.disabled = !captureState.canCapture || renderState.noteBusy
+  saveNoteButton.addEventListener('click', () => {
+    void handleSaveCurrentSelection()
+  })
+  noteActions.append(saveNoteButton)
+
+  if (renderState.savedNote) {
+    const openNoteButton = document.createElement('button')
+    openNoteButton.className = 'recall-secondary'
+    openNoteButton.type = 'button'
+    openNoteButton.textContent = 'Open note in Reader'
+    openNoteButton.addEventListener('click', () => {
+      const anchor = getReaderAnchorOptionsFromNote(renderState.savedNote!)
+      void chrome.runtime.sendMessage({
+        documentId: renderState.savedNote!.anchor.source_document_id,
+        path: 'reader',
+        sentenceEnd: anchor.sentenceEnd,
+        sentenceStart: anchor.sentenceStart,
+        type: 'openApp',
+      })
+    })
+    noteActions.append(openNoteButton)
+  }
+  noteSection.append(noteActions)
+  panel.append(noteSection)
 
   const list = document.createElement('div')
   list.className = 'recall-hit-list'
-  for (const hit of response.hits.slice(0, 3)) {
-    list.append(buildHitCard(hit))
+  if (!response.hits.length) {
+    const empty = document.createElement('p')
+    empty.className = 'recall-excerpt'
+    empty.textContent = 'No related local items cleared the current threshold.'
+    list.append(empty)
+  } else {
+    for (const hit of response.hits.slice(0, 3)) {
+      list.append(buildHitCard(hit))
+    }
   }
   panel.append(list)
   return panel
@@ -232,9 +330,12 @@ function buildHitCard(hit: RecallRetrievalHit) {
   readerButton.type = 'button'
   readerButton.textContent = 'Open in Reader'
   readerButton.addEventListener('click', () => {
+    const readerAnchor = getReaderAnchorOptionsFromHit(hit)
     void chrome.runtime.sendMessage({
       documentId: hit.source_document_id,
       path: 'reader',
+      sentenceEnd: readerAnchor.sentenceEnd,
+      sentenceStart: readerAnchor.sentenceStart,
       type: 'openApp',
     })
   })
@@ -254,6 +355,54 @@ function buildHitCard(hit: RecallRetrievalHit) {
   }
   card.append(actions)
   return card
+}
+
+
+async function handleSaveCurrentSelection() {
+  if (renderState.noteBusy) {
+    return
+  }
+  renderState = { ...renderState, noteBusy: true, noteMessage: null }
+  renderOverlay()
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      bodyText: '',
+      type: 'createBrowserNote',
+    })) as {
+      error?: string
+      note?: RecallNoteRecord
+      ok: boolean
+      state?: {
+        response: BrowserContextResponse | null
+      }
+    }
+    if (!response.ok || !response.note) {
+      renderState = {
+        ...renderState,
+        noteBusy: false,
+        noteMessage: response.error ?? 'Could not save the selected note.',
+        savedNote: null,
+      }
+      renderOverlay()
+      return
+    }
+    renderState = {
+      ...renderState,
+      noteBusy: false,
+      noteMessage: 'Note saved to local Recall.',
+      response: response.state?.response ?? renderState.response,
+      savedNote: response.note,
+    }
+    renderOverlay()
+  } catch (error) {
+    renderState = {
+      ...renderState,
+      noteBusy: false,
+      noteMessage: error instanceof Error ? error.message : 'Could not save the selected note.',
+      savedNote: null,
+    }
+    renderOverlay()
+  }
 }
 
 

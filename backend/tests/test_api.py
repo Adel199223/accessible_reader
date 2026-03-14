@@ -199,6 +199,28 @@ def seed_legacy_reader_db(tmp_path) -> None:
         )
 
 
+def build_note_anchor(document_id: str, view_payload: dict, *, block_index: int = 0, sentence_start: int = 0, sentence_end: int = 0) -> dict:
+    block = view_payload["blocks"][block_index]
+    sentence_texts = block["metadata"]["sentence_texts"]
+    selected_text = " ".join(sentence_texts[sentence_start : sentence_end + 1]).strip()
+    excerpt_start = max(sentence_start - 1, 0)
+    excerpt_end = min(sentence_end + 1, len(sentence_texts) - 1)
+    excerpt_text = " ".join(sentence_texts[excerpt_start : excerpt_end + 1]).strip()
+    if excerpt_start > 0:
+        excerpt_text = f"...{excerpt_text}"
+    if excerpt_end < len(sentence_texts) - 1:
+        excerpt_text = f"{excerpt_text}..."
+    return {
+        "source_document_id": document_id,
+        "variant_id": view_payload["variant_metadata"]["variant_id"],
+        "block_id": block["id"],
+        "sentence_start": sentence_start,
+        "sentence_end": sentence_end,
+        "anchor_text": selected_text,
+        "excerpt_text": excerpt_text or selected_text,
+    }
+
+
 def test_import_text_and_restore_reflow_view(tmp_path, monkeypatch) -> None:
     client = create_client(tmp_path, monkeypatch)
 
@@ -923,6 +945,257 @@ def test_recall_hybrid_retrieval_and_study_review_cycle(tmp_path, monkeypatch) -
     assert refreshed_overview_response.json()["review_event_count"] >= 1
 
 
+def test_recall_notes_create_list_update_delete_and_change_events(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Notes guide",
+            "text": "Alpha sentence. Beta sentence. Gamma sentence.\n\nDelta sentence.",
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    reflowed_view = view_response.json()
+    anchor = build_note_anchor(document["id"], reflowed_view, sentence_start=0, sentence_end=1)
+
+    create_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={"anchor": anchor, "body_text": "Remember the beta range."},
+    )
+    assert create_response.status_code == 200
+    created_note = create_response.json()
+    assert created_note["anchor"]["global_sentence_start"] == 0
+    assert created_note["anchor"]["global_sentence_end"] == 1
+    assert created_note["anchor"]["anchor_text"] == "Alpha sentence. Beta sentence."
+
+    list_response = client.get(f"/api/recall/documents/{document['id']}/notes")
+    assert list_response.status_code == 200
+    assert [note["id"] for note in list_response.json()] == [created_note["id"]]
+
+    update_response = client.patch(
+        f"/api/recall/notes/{created_note['id']}",
+        json={"body_text": "Updated note body."},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["body_text"] == "Updated note body."
+
+    search_response = client.get("/api/recall/notes/search", params={"query": "updated"})
+    assert search_response.status_code == 200
+    assert [hit["id"] for hit in search_response.json()] == [created_note["id"]]
+
+    delete_response = client.delete(f"/api/recall/notes/{created_note['id']}")
+    assert delete_response.status_code == 204
+
+    final_list_response = client.get(f"/api/recall/documents/{document['id']}/notes")
+    assert final_list_response.status_code == 200
+    assert final_list_response.json() == []
+
+    workspace_db = tmp_path / ".data" / "workspace.db"
+    with sqlite3.connect(workspace_db) as connection:
+        rows = connection.execute(
+            """
+            SELECT event_type
+            FROM change_events
+            WHERE entity_type = 'recall_note' AND entity_id = ?
+            ORDER BY created_at ASC
+            """,
+            (created_note["id"],),
+        ).fetchall()
+        assert [row[0] for row in rows] == ["created", "updated", "deleted"]
+
+
+def test_recall_notes_reject_non_reflowed_or_cross_block_anchors(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Invalid note guide",
+            "text": "First block sentence.\n\nSecond block sentence.",
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    reflowed_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert reflowed_response.status_code == 200
+    reflowed_view = reflowed_response.json()
+    invalid_cross_block_anchor = build_note_anchor(document["id"], reflowed_view)
+    invalid_cross_block_anchor["sentence_end"] = 1
+
+    cross_block_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={"anchor": invalid_cross_block_anchor, "body_text": "Should fail."},
+    )
+    assert cross_block_response.status_code == 400
+    assert "single block" in cross_block_response.json()["detail"]
+
+    original_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "original", "detail_level": "default"},
+    )
+    assert original_response.status_code == 200
+    original_view = original_response.json()
+    invalid_variant_anchor = build_note_anchor(document["id"], original_view)
+
+    invalid_variant_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={"anchor": invalid_variant_anchor, "body_text": "Wrong variant."},
+    )
+    assert invalid_variant_response.status_code == 400
+    assert "reflowed/default variant" in invalid_variant_response.json()["detail"]
+
+
+def test_recall_notes_search_filter_and_repair_rebuild_note_fts(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    first_document_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "First note doc", "text": "Graph memory sentence. Second sentence."},
+    )
+    second_document_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Second note doc", "text": "Graph memory reminder. Different sentence."},
+    )
+    assert first_document_response.status_code == 200
+    assert second_document_response.status_code == 200
+    first_document = first_document_response.json()
+    second_document = second_document_response.json()
+
+    first_view = client.get(
+        f"/api/documents/{first_document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    ).json()
+    second_view = client.get(
+        f"/api/documents/{second_document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    ).json()
+
+    first_create = client.post(
+        f"/api/recall/documents/{first_document['id']}/notes",
+        json={"anchor": build_note_anchor(first_document["id"], first_view), "body_text": "Graph memory"},
+    )
+    second_create = client.post(
+        f"/api/recall/documents/{second_document['id']}/notes",
+        json={"anchor": build_note_anchor(second_document["id"], second_view), "body_text": "Graph memory"},
+    )
+    assert first_create.status_code == 200
+    assert second_create.status_code == 200
+
+    search_response = client.get("/api/recall/notes/search", params={"query": "memory"})
+    assert search_response.status_code == 200
+    assert len(search_response.json()) == 2
+
+    filtered_search_response = client.get(
+        "/api/recall/notes/search",
+        params={"query": "memory", "document_id": first_document["id"]},
+    )
+    assert filtered_search_response.status_code == 200
+    filtered_hits = filtered_search_response.json()
+    assert len(filtered_hits) == 1
+    assert filtered_hits[0]["anchor"]["source_document_id"] == first_document["id"]
+
+    workspace_db = tmp_path / ".data" / "workspace.db"
+    with sqlite3.connect(workspace_db) as connection:
+        connection.execute("DELETE FROM recall_notes_fts")
+        connection.commit()
+
+    integrity_response = client.get("/api/workspace/integrity")
+    assert integrity_response.status_code == 200
+    integrity = integrity_response.json()
+    issue_codes = {issue["code"] for issue in integrity["issues"]}
+    assert "recall_notes_fts_drift" in issue_codes
+
+    repair_response = client.post("/api/workspace/repair")
+    assert repair_response.status_code == 200
+    repair = repair_response.json()
+    assert any(action.startswith("rebuild_recall_notes_fts:") for action in repair["actions"])
+
+    repaired_search_response = client.get("/api/recall/notes/search", params={"query": "memory"})
+    assert repaired_search_response.status_code == 200
+    assert len(repaired_search_response.json()) == 2
+
+
+def test_recall_retrieval_includes_note_hits_with_anchor_data(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Note retrieval guide", "text": "Alpha sentence. Beta sentence. Gamma sentence."},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    create_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(document["id"], view_response.json(), sentence_start=0, sentence_end=1),
+            "body_text": "Sticky memory cue.",
+        },
+    )
+    assert create_response.status_code == 200
+    created_note = create_response.json()
+
+    retrieval_response = client.get("/api/recall/retrieve", params={"query": "sticky memory"})
+    assert retrieval_response.status_code == 200
+    note_hit = next((hit for hit in retrieval_response.json() if hit["hit_type"] == "note"), None)
+    assert note_hit is not None
+    assert note_hit["note_id"] == created_note["id"]
+    assert note_hit["note_anchor"]["source_document_id"] == document["id"]
+    assert note_hit["note_anchor"]["global_sentence_start"] == 0
+    assert "saved note match" in note_hit["reasons"]
+    assert "note text overlap" in note_hit["reasons"]
+
+
+def test_delete_document_cleans_recall_notes_and_note_fts_rows(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Delete note guide", "text": "Delete me. Delete me later."},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={"anchor": build_note_anchor(document["id"], view_response.json()), "body_text": "Delete note body"},
+    )
+    assert note_response.status_code == 200
+
+    delete_response = client.delete(f"/api/documents/{document['id']}")
+    assert delete_response.status_code == 204
+
+    notes_response = client.get(f"/api/recall/documents/{document['id']}/notes")
+    assert notes_response.status_code == 404
+
+    search_response = client.get("/api/recall/notes/search", params={"query": "delete"})
+    assert search_response.status_code == 200
+    assert search_response.json() == []
+
+    workspace_db = tmp_path / ".data" / "workspace.db"
+    with sqlite3.connect(workspace_db) as connection:
+        note_count = connection.execute("SELECT COUNT(*) FROM recall_notes").fetchone()[0]
+        note_fts_count = connection.execute("SELECT COUNT(*) FROM recall_notes_fts").fetchone()[0]
+        assert note_count == 0
+        assert note_fts_count == 0
+
+
 def test_recall_browser_context_prompts_for_selected_text(tmp_path, monkeypatch) -> None:
     client = create_client(tmp_path, monkeypatch)
     import_response = client.post(
@@ -990,8 +1263,127 @@ def test_recall_browser_context_boosts_exact_saved_webpage_matches(tmp_path, mon
     payload = context_response.json()
     assert payload["should_prompt"] is True
     assert payload["summary"] == "Recall already knows this saved page."
+    assert payload["matched_document"]["source_document_id"] == document["id"]
     assert payload["hits"][0]["source_document_id"] == document["id"]
     assert "exact saved page" in payload["hits"][0]["reasons"]
+
+
+def test_recall_browser_context_reports_exact_saved_page_match_even_without_hits(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    article_html = b"""
+    <html>
+      <body>
+        <article>
+          <h1>Fixture browser article</h1>
+          <p>Knowledge Graphs support study review.</p>
+        </article>
+      </body>
+    </html>
+    """
+
+    with serve_fixture_routes({
+        "/browser-article": (200, "text/html; charset=utf-8", article_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/browser-article"},
+        )
+        assert import_response.status_code == 200
+        document = import_response.json()
+
+        context_response = client.post(
+            "/api/recall/browser/context",
+            json={
+                "page_url": f"{base_url}/browser-article",
+                "page_title": "Home",
+                "manual": False,
+            },
+        )
+
+    assert context_response.status_code == 200
+    payload = context_response.json()
+    assert payload["should_prompt"] is False
+    assert payload["hits"] == []
+    assert payload["summary"] == "Recall already knows this saved page."
+    assert payload["matched_document"]["source_document_id"] == document["id"]
+
+
+def test_browser_note_capture_creates_note_for_exact_saved_webpage_match(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    article_html = b"""
+    <html>
+      <body>
+        <article>
+          <h1>Fixture browser article</h1>
+          <p>Knowledge Graphs support study review.</p>
+          <p>Browser notes stay linked to saved sources.</p>
+        </article>
+      </body>
+    </html>
+    """
+
+    with serve_fixture_routes({
+        "/browser-article": (200, "text/html; charset=utf-8", article_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/browser-article"},
+        )
+        assert import_response.status_code == 200
+        document = import_response.json()
+
+        note_response = client.post(
+            "/api/recall/browser/notes",
+            json={
+                "page_url": f"{base_url}/browser-article",
+                "selection_text": "Knowledge Graphs support study review.",
+                "body_text": "Saved from the browser companion.",
+            },
+        )
+
+    assert note_response.status_code == 200
+    payload = note_response.json()
+    assert payload["anchor"]["source_document_id"] == document["id"]
+    assert payload["anchor"]["anchor_text"] == "Knowledge Graphs support study review."
+    assert payload["body_text"] == "Saved from the browser companion."
+
+    retrieval_response = client.get("/api/recall/retrieve", params={"query": "browser companion"})
+    assert retrieval_response.status_code == 200
+    assert any(hit["hit_type"] == "note" and hit["note_id"] == payload["id"] for hit in retrieval_response.json())
+
+
+def test_browser_note_capture_rejects_ambiguous_saved_page_selections(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    article_html = b"""
+    <html>
+      <body>
+        <article>
+          <p>Repeated idea.</p>
+          <p>Repeated idea.</p>
+        </article>
+      </body>
+    </html>
+    """
+
+    with serve_fixture_routes({
+        "/browser-article": (200, "text/html; charset=utf-8", article_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/browser-article"},
+        )
+        assert import_response.status_code == 200
+
+        note_response = client.post(
+            "/api/recall/browser/notes",
+            json={
+                "page_url": f"{base_url}/browser-article",
+                "selection_text": "Repeated idea.",
+            },
+        )
+
+    assert note_response.status_code == 400
+    assert "multiple saved passages" in note_response.json()["detail"]
 
 
 def test_recall_browser_context_suppresses_internal_workspace_pages(tmp_path, monkeypatch) -> None:

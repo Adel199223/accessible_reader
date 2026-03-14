@@ -10,7 +10,9 @@ interface LibraryPaneProps {
   hasAnyDocuments: boolean
   loading: boolean
   open: boolean
+  searchPlaceholder?: string
   searchValue: string
+  title?: string
   onDelete: (document: DocumentRecord) => Promise<void>
   onSearchChange: (value: string) => void
   onSelect: (document: DocumentRecord) => void
@@ -40,7 +42,9 @@ export function LibraryPane({
   hasAnyDocuments,
   loading,
   open,
+  searchPlaceholder = 'Search library',
   searchValue,
+  title = 'Library',
   onDelete,
   onSearchChange,
   onSelect,
@@ -87,7 +91,7 @@ export function LibraryPane({
     <section ref={rootRef} className="card card-compact stack-gap library-pane">
       <div className="toolbar library-pane-toolbar">
         <div className="section-header section-header-compact">
-          <h2>Library</h2>
+          <h2>{title}</h2>
           {libraryStatusLabel ? <p>{libraryStatusLabel}</p> : null}
         </div>
         <button
@@ -111,7 +115,7 @@ export function LibraryPane({
             <span>Search</span>
             <input
               type="search"
-              placeholder="Search library"
+              placeholder={searchPlaceholder}
               value={searchValue}
               onChange={(event) => onSearchChange(event.target.value)}
             />

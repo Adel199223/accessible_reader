@@ -19,6 +19,7 @@ cd extension
 npm install
 npm test -- --run
 npm run build
+npm run build:debug
 ```
 
 ## Load Unpacked In Edge
@@ -27,6 +28,11 @@ npm run build
 3. Enable `Developer mode`.
 4. Choose `Load unpacked`.
 5. Select the built `extension/dist` directory.
+
+## Debug Build
+- Use `npm run build:debug` to produce `extension/dist-debug`.
+- The debug build adds `debug.html`, an internal extension page for inspecting cached tab context, forcing a refresh, and validating browser-note capture without relying on the in-page chip alone.
+- Load `extension/dist-debug` unpacked when you need the Stage 10 validation harness or manual companion smoke pass.
 
 ## Default Backend
 - `http://127.0.0.1:8000`

@@ -1,44 +1,66 @@
 import { Fragment, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 
-import type { RenderableBlock } from '../lib/segment'
+import type { RenderSentence, RenderableBlock } from '../lib/segment'
 import type { ReaderSettings } from '../types'
 
 interface ReaderSurfaceProps {
   accessibleLabel?: string
   blocks: RenderableBlock[]
   activeSentenceIndex: number
+  anchoredSentenceIndexes?: Set<number>
   labelledBy?: string
+  notedSentenceIndexes?: Set<number>
+  selectedSentenceIndexes?: Set<number>
   settings: ReaderSettings
-  onSelectSentence: (sentenceIndex: number) => void
+  onSelectSentence: (sentence: RenderSentence) => void
 }
 
 function renderSentence(
-  text: string,
-  sentenceIndex: number,
+  sentence: RenderSentence,
   activeSentenceIndex: number,
-  onSelectSentence: (sentenceIndex: number) => void,
+  onSelectSentence: (sentence: RenderSentence) => void,
+  state: {
+    anchoredSentenceIndexes: Set<number>
+    notedSentenceIndexes: Set<number>
+    selectedSentenceIndexes: Set<number>
+  },
 ) {
   function handleKeyDown(event: KeyboardEvent<HTMLSpanElement>) {
     if (event.key !== 'Enter' && event.key !== ' ') {
       return
     }
     event.preventDefault()
-    onSelectSentence(sentenceIndex)
+    onSelectSentence(sentence)
+  }
+
+  const sentenceIndex = sentence.globalIndex
+  const classNames = ['reader-sentence']
+  if (sentenceIndex === activeSentenceIndex) {
+    classNames.push('reader-sentence-active')
+  }
+  if (state.notedSentenceIndexes.has(sentenceIndex)) {
+    classNames.push('reader-sentence-noted')
+  }
+  if (state.anchoredSentenceIndexes.has(sentenceIndex)) {
+    classNames.push('reader-sentence-anchored')
+  }
+  if (state.selectedSentenceIndexes.has(sentenceIndex)) {
+    classNames.push('reader-sentence-selected')
   }
 
   return (
-    <Fragment key={`${sentenceIndex}-${text}`}>
+    <Fragment key={sentence.key}>
       <span
         aria-current={sentenceIndex === activeSentenceIndex ? 'true' : undefined}
-        className={sentenceIndex === activeSentenceIndex ? 'reader-sentence reader-sentence-active' : 'reader-sentence'}
+        className={classNames.join(' ')}
         data-reader-sentence="true"
         data-sentence-index={sentenceIndex}
         role="button"
         tabIndex={0}
-        onClick={() => onSelectSentence(sentenceIndex)}
+        onClick={() => onSelectSentence(sentence)}
         onKeyDown={handleKeyDown}
       >
-        {text}
+        {sentence.text}
       </span>{' '}
     </Fragment>
   )
@@ -60,7 +82,12 @@ function isOrderedList(block: RenderableBlock) {
 function renderListSequence(
   blocks: RenderableBlock[],
   activeSentenceIndex: number,
-  onSelectSentence: (sentenceIndex: number) => void,
+  onSelectSentence: (sentence: RenderSentence) => void,
+  state: {
+    anchoredSentenceIndexes: Set<number>
+    notedSentenceIndexes: Set<number>
+    selectedSentenceIndexes: Set<number>
+  },
 ) {
   const content: ReactNode[] = []
   let blockIndex = 0
@@ -72,6 +99,7 @@ function renderListSequence(
       getListDepth(blocks[blockIndex]),
       activeSentenceIndex,
       onSelectSentence,
+      state,
     )
     content.push(node)
     blockIndex = nextIndex
@@ -85,7 +113,12 @@ function renderListBlockGroup(
   startIndex: number,
   depth: number,
   activeSentenceIndex: number,
-  onSelectSentence: (sentenceIndex: number) => void,
+  onSelectSentence: (sentence: RenderSentence) => void,
+  state: {
+    anchoredSentenceIndexes: Set<number>
+    notedSentenceIndexes: Set<number>
+    selectedSentenceIndexes: Set<number>
+  },
 ): {
   nextIndex: number
   node: ReactNode
@@ -103,7 +136,7 @@ function renderListBlockGroup(
 
     const nestedLists: ReactNode[] = []
     const sentenceNodes = block.sentences.map((sentence) =>
-      renderSentence(sentence.text, sentence.globalIndex, activeSentenceIndex, onSelectSentence),
+      renderSentence(sentence, activeSentenceIndex, onSelectSentence, state),
     )
     blockIndex += 1
 
@@ -115,6 +148,7 @@ function renderListBlockGroup(
         nestedDepth,
         activeSentenceIndex,
         onSelectSentence,
+        state,
       )
       nestedLists.push(nestedResult.node)
       blockIndex = nestedResult.nextIndex
@@ -147,10 +181,18 @@ export function ReaderSurface({
   accessibleLabel,
   blocks,
   activeSentenceIndex,
+  anchoredSentenceIndexes = new Set<number>(),
   labelledBy,
+  notedSentenceIndexes = new Set<number>(),
+  selectedSentenceIndexes = new Set<number>(),
   settings,
   onSelectSentence,
 }: ReaderSurfaceProps) {
+  const sentenceState = {
+    anchoredSentenceIndexes,
+    notedSentenceIndexes,
+    selectedSentenceIndexes,
+  }
   const articleStyle = {
     ['--reader-font-size' as string]: `${settings.text_size}px`,
     ['--reader-line-height' as string]: settings.line_spacing,
@@ -169,13 +211,13 @@ export function ReaderSurface({
         blockIndex += 1
       }
       content.push(
-        ...renderListSequence(listItems, activeSentenceIndex, onSelectSentence),
+        ...renderListSequence(listItems, activeSentenceIndex, onSelectSentence, sentenceState),
       )
       continue
     }
 
     const sentenceNodes = block.sentences.map((sentence) =>
-      renderSentence(sentence.text, sentence.globalIndex, activeSentenceIndex, onSelectSentence),
+      renderSentence(sentence, activeSentenceIndex, onSelectSentence, sentenceState),
     )
 
     if (block.kind === 'heading') {

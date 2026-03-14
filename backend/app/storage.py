@@ -30,6 +30,8 @@ from .models import (
     AttachmentRef,
     BrowserContextRequest,
     BrowserContextResponse,
+    BrowserRecallNoteCreateRequest,
+    BrowserSavedPageMatch,
     ChangeEvent,
     ContentChunk,
     DocumentRecord,
@@ -43,6 +45,11 @@ from .models import (
     KnowledgeNodeRecord,
     ReaderSessionState,
     ReaderSettings,
+    RecallNoteAnchor,
+    RecallNoteCreateRequest,
+    RecallNoteRecord,
+    RecallNoteSearchHit,
+    RecallNoteUpdateRequest,
     RecallRetrievalHit,
     RecallDocumentRecord,
     RecallSearchHit,
@@ -66,11 +73,14 @@ from .portability import (
 )
 from .recall import (
     CHUNK_SCHEMA_VERSION,
+    build_note_excerpt,
     build_chunk_excerpt,
     build_match_context,
     build_export_filename,
     build_reflow_chunks,
+    enrich_view_with_sentence_metadata,
     render_markdown_export,
+    sentence_texts_for_block,
 )
 from .text_utils import normalize_whitespace, now_iso, safe_query_terms, sha256_text
 from .study import (
@@ -87,7 +97,7 @@ from .study import (
 
 DEFAULT_DEVICE_ID = "desktop-local"
 DEFAULT_SESSION_KIND = "reader"
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 STUDY_SCHEMA_VERSION = "1"
 AUTO_SELECTION_PROMPT_THRESHOLD = 0.56
 AUTO_PAGE_PROMPT_THRESHOLD = 0.9
@@ -238,7 +248,7 @@ class Repository:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT view_json
+                SELECT id, view_json
                 FROM document_variants
                 WHERE source_document_id = ? AND mode = ? AND detail_level = ?
                 """,
@@ -246,7 +256,7 @@ class Repository:
             ).fetchone()
         if not row:
             return None
-        return DocumentView.model_validate_json(row["view_json"])
+        return self._view_from_variant_row(row)
 
     def save_view(self, document_id: str, view: DocumentView) -> DocumentView:
         should_refresh_recall = view.mode == "reflowed" and view.detail_level == "default"
@@ -298,6 +308,237 @@ class Repository:
             if not row:
                 return None
             return self._row_to_recall_record(connection, row)
+
+    def list_recall_notes(self, document_id: str) -> list[RecallNoteRecord]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT rn.*
+                FROM recall_notes rn
+                WHERE rn.source_document_id = ?
+                ORDER BY rn.updated_at DESC, rn.id DESC
+                """,
+                (document_id,),
+            ).fetchall()
+            return [self._row_to_recall_note_record(row) for row in rows]
+
+    def create_recall_note(
+        self,
+        document_id: str,
+        payload: RecallNoteCreateRequest,
+    ) -> RecallNoteRecord:
+        with self.connect() as connection:
+            anchor = self._validated_recall_note_anchor_with_connection(
+                connection,
+                document_id=document_id,
+                anchor=payload.anchor,
+            )
+            note_id = new_uuid7_str()
+            timestamp = now_iso()
+            body_text = self._normalize_note_body(payload.body_text)
+            connection.execute(
+                """
+                INSERT INTO recall_notes (
+                    id,
+                    source_document_id,
+                    variant_id,
+                    block_id,
+                    sentence_start,
+                    sentence_end,
+                    global_sentence_start,
+                    global_sentence_end,
+                    anchor_text,
+                    excerpt_text,
+                    body_text,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    note_id,
+                    anchor.source_document_id,
+                    anchor.variant_id,
+                    anchor.block_id,
+                    anchor.sentence_start,
+                    anchor.sentence_end,
+                    anchor.global_sentence_start,
+                    anchor.global_sentence_end,
+                    anchor.anchor_text,
+                    anchor.excerpt_text,
+                    body_text,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            self._upsert_recall_note_fts_with_connection(
+                connection,
+                note_id=note_id,
+                source_document_id=document_id,
+                anchor_text=anchor.anchor_text,
+                excerpt_text=anchor.excerpt_text,
+                body_text=body_text,
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="recall_note",
+                entity_id=note_id,
+                event_type="created",
+                payload={
+                    "source_document_id": document_id,
+                    "variant_id": anchor.variant_id,
+                    "block_id": anchor.block_id,
+                    "sentence_start": anchor.sentence_start,
+                    "sentence_end": anchor.sentence_end,
+                },
+                created_at=timestamp,
+            )
+            row = connection.execute(
+                "SELECT * FROM recall_notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            assert row is not None
+            return self._row_to_recall_note_record(row)
+
+    def create_browser_recall_note(self, payload: BrowserRecallNoteCreateRequest) -> RecallNoteRecord:
+        normalized_selection = normalize_whitespace(payload.selection_text)
+        if not normalized_selection:
+            raise ValueError("Select text on the saved page before adding a note.")
+        if not is_supported_page_url(payload.page_url) or is_internal_workspace_page(payload.page_url):
+            raise ValueError("Browser note capture only works on saved public webpages.")
+
+        with self.connect() as connection:
+            matched_row = self._find_exact_saved_page_row_with_connection(connection, payload.page_url)
+            if not matched_row:
+                raise ValueError("This public page is not saved in Recall yet. Import it before adding browser notes.")
+            anchor = self._resolve_browser_note_anchor_with_connection(
+                connection,
+                document_id=str(matched_row["id"]),
+                selection_text=normalized_selection,
+            )
+
+        return self.create_recall_note(
+            str(matched_row["id"]),
+            RecallNoteCreateRequest(anchor=anchor, body_text=payload.body_text),
+        )
+
+    def update_recall_note(
+        self,
+        note_id: str,
+        payload: RecallNoteUpdateRequest,
+    ) -> RecallNoteRecord | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM recall_notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            if not row:
+                return None
+
+            timestamp = now_iso()
+            body_text = self._normalize_note_body(payload.body_text)
+            connection.execute(
+                """
+                UPDATE recall_notes
+                SET body_text = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (body_text, timestamp, note_id),
+            )
+            self._upsert_recall_note_fts_with_connection(
+                connection,
+                note_id=note_id,
+                source_document_id=row["source_document_id"],
+                anchor_text=row["anchor_text"],
+                excerpt_text=row["excerpt_text"],
+                body_text=body_text,
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="recall_note",
+                entity_id=note_id,
+                event_type="updated",
+                payload={
+                    "source_document_id": row["source_document_id"],
+                    "body_text": body_text,
+                },
+                created_at=timestamp,
+            )
+            updated_row = connection.execute(
+                "SELECT * FROM recall_notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            assert updated_row is not None
+            return self._row_to_recall_note_record(updated_row)
+
+    def delete_recall_note(self, note_id: str) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT id, source_document_id FROM recall_notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            if not row:
+                return False
+
+            timestamp = now_iso()
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="recall_note",
+                entity_id=note_id,
+                event_type="deleted",
+                payload={"source_document_id": row["source_document_id"]},
+                created_at=timestamp,
+            )
+            connection.execute("DELETE FROM recall_notes_fts WHERE note_id = ?", (note_id,))
+            connection.execute("DELETE FROM recall_notes WHERE id = ?", (note_id,))
+            return True
+
+    def search_recall_notes(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        document_id: str | None = None,
+    ) -> list[RecallNoteSearchHit]:
+        terms = safe_query_terms(query)
+        if not terms:
+            return []
+
+        fts_query = " AND ".join(f"{term}*" for term in terms)
+        with self.connect() as connection:
+            if document_id:
+                rows = connection.execute(
+                    """
+                    SELECT
+                        rn.*,
+                        sd.title AS document_title,
+                        bm25(recall_notes_fts, 2.5, 1.5, 1.0) AS rank
+                    FROM recall_notes_fts
+                    INNER JOIN recall_notes rn ON rn.id = recall_notes_fts.note_id
+                    INNER JOIN source_documents sd ON sd.id = rn.source_document_id
+                    WHERE recall_notes_fts MATCH ?
+                      AND rn.source_document_id = ?
+                    ORDER BY rank ASC, rn.updated_at DESC, rn.id DESC
+                    LIMIT ?
+                    """,
+                    (fts_query, document_id, limit),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT
+                        rn.*,
+                        sd.title AS document_title,
+                        bm25(recall_notes_fts, 2.5, 1.5, 1.0) AS rank
+                    FROM recall_notes_fts
+                    INNER JOIN recall_notes rn ON rn.id = recall_notes_fts.note_id
+                    INNER JOIN source_documents sd ON sd.id = rn.source_document_id
+                    WHERE recall_notes_fts MATCH ?
+                    ORDER BY rank ASC, rn.updated_at DESC, rn.id DESC
+                    LIMIT ?
+                    """,
+                    (fts_query, limit),
+                ).fetchall()
+            return [self._row_to_recall_note_search_hit(row) for row in rows]
 
     def search_recall(self, query: str, *, limit: int = 20) -> list[RecallSearchHit]:
         terms = safe_query_terms(query)
@@ -562,6 +803,11 @@ class Repository:
                 rebuilt_count = self._rebuild_content_chunks_fts_with_connection(connection)
                 actions.append(f"rebuild_content_chunks_fts:{rebuilt_count}")
 
+            note_fts_issue = self._recall_notes_fts_issue_with_connection(connection)
+            if note_fts_issue:
+                rebuilt_count = self._rebuild_recall_notes_fts_with_connection(connection)
+                actions.append(f"rebuild_recall_notes_fts:{rebuilt_count}")
+
             if self._derived_recall_state_requires_refresh_with_connection(connection, chunk_sync_count=synced_chunk_count):
                 self._rebuild_knowledge_graph_with_connection(connection)
                 actions.append("rebuild_knowledge_graph")
@@ -699,6 +945,10 @@ class Repository:
         if content_fts_issue:
             issues.append(content_fts_issue)
 
+        note_fts_issue = self._recall_notes_fts_issue_with_connection(connection)
+        if note_fts_issue:
+            issues.append(note_fts_issue)
+
         missing_attachment_warnings = self._missing_attachment_warnings_with_connection(connection)
         if missing_attachment_warnings:
             issues.append(
@@ -763,6 +1013,8 @@ class Repository:
                 """,
                 (),
             ),
+            "note_count": ("SELECT COUNT(*) FROM recall_notes", ()),
+            "note_fts_count": ("SELECT COUNT(*) FROM recall_notes_fts", ()),
             "reading_session_count": ("SELECT COUNT(*) FROM reading_sessions", ()),
             "review_card_count": ("SELECT COUNT(*) FROM review_cards", ()),
             "review_event_count": ("SELECT COUNT(*) FROM review_events", ()),
@@ -812,6 +1064,26 @@ class Repository:
             code="content_chunks_fts_drift",
             severity="warning",
             message="The content-chunk FTS index drifted out of sync with the canonical chunk rows.",
+            metadata=details,
+        )
+
+    def _recall_notes_fts_issue_with_connection(
+        self,
+        connection: sqlite3.Connection,
+    ) -> WorkspaceIntegrityIssue | None:
+        details = self._fts_index_details_with_connection(
+            connection,
+            base_table="recall_notes",
+            base_id_column="id",
+            fts_table="recall_notes_fts",
+            fts_id_column="note_id",
+        )
+        if details["missing_count"] == 0 and details["orphaned_count"] == 0 and details["duplicate_count"] == 0:
+            return None
+        return WorkspaceIntegrityIssue(
+            code="recall_notes_fts_drift",
+            severity="warning",
+            message="The Recall-note FTS index drifted out of sync with saved note rows.",
             metadata=details,
         )
 
@@ -952,6 +1224,38 @@ class Repository:
         self._set_meta_value_with_connection(
             connection,
             "content_chunks_fts_rebuilt_at",
+            timestamp,
+            updated_at=timestamp,
+        )
+        return len(rows)
+
+    def _rebuild_recall_notes_fts_with_connection(self, connection: sqlite3.Connection) -> int:
+        rows = connection.execute(
+            """
+            SELECT id, source_document_id, anchor_text, excerpt_text, body_text
+            FROM recall_notes
+            ORDER BY created_at ASC, id ASC
+            """
+        ).fetchall()
+        connection.execute("DELETE FROM recall_notes_fts")
+        for row in rows:
+            connection.execute(
+                """
+                INSERT INTO recall_notes_fts (note_id, source_document_id, anchor_text, excerpt_text, body_text)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    row["id"],
+                    row["source_document_id"],
+                    row["anchor_text"],
+                    row["excerpt_text"],
+                    row["body_text"] or "",
+                ),
+            )
+        timestamp = now_iso()
+        self._set_meta_value_with_connection(
+            connection,
+            "recall_notes_fts_rebuilt_at",
             timestamp,
             updated_at=timestamp,
         )
@@ -1198,10 +1502,37 @@ class Repository:
                     "chunk_id": keyword_hit.chunk_id,
                     "node_id": None,
                     "card_id": None,
+                    "note_id": None,
+                    "note_anchor": None,
                 },
             )
             candidate["score"] += 0.62 * keyword_hit.score
             candidate["reasons"] = self._append_reason(candidate["reasons"], "keyword chunk match")
+
+        for note_hit in self.search_recall_notes(query, limit=max(limit * 3, 10)):
+            title = note_hit.anchor.anchor_text or note_hit.document_title
+            excerpt = note_hit.body_text or note_hit.anchor.excerpt_text or note_hit.anchor.anchor_text
+            key = ("note", note_hit.id)
+            candidate = candidate_hits.setdefault(
+                key,
+                {
+                    "id": f"note:{note_hit.id}",
+                    "hit_type": "note",
+                    "source_document_id": note_hit.anchor.source_document_id,
+                    "document_title": note_hit.document_title,
+                    "title": title,
+                    "score": 0.0,
+                    "excerpt": excerpt,
+                    "reasons": [],
+                    "chunk_id": None,
+                    "node_id": None,
+                    "card_id": None,
+                    "note_id": note_hit.id,
+                    "note_anchor": note_hit.anchor,
+                },
+            )
+            candidate["score"] += 0.74 * note_hit.score
+            candidate["reasons"] = self._append_reason(candidate["reasons"], "saved note match")
 
         with self.connect() as connection:
             embedding_rows = connection.execute(
@@ -1242,6 +1573,8 @@ class Repository:
                     "chunk_id": metadata.get("chunk_id"),
                     "node_id": metadata.get("node_id"),
                     "card_id": metadata.get("card_id"),
+                    "note_id": None,
+                    "note_anchor": None,
                 },
             )
             candidate["score"] += similarity * (0.38 if item_type == "chunk" else 0.44)
@@ -1255,6 +1588,15 @@ class Repository:
             if item_type == "card" and any(term in title_lower or term in excerpt_lower for term in terms):
                 candidate["score"] += 0.16
                 candidate["reasons"] = self._append_reason(candidate["reasons"], "study card overlap")
+
+        for candidate in candidate_hits.values():
+            if candidate["hit_type"] != "note":
+                continue
+            title_lower = str(candidate["title"]).lower()
+            excerpt_lower = str(candidate["excerpt"]).lower()
+            if any(term in title_lower or term in excerpt_lower for term in terms):
+                candidate["score"] += 0.18
+                candidate["reasons"] = self._append_reason(candidate["reasons"], "note text overlap")
 
         ranked_hits = sorted(
             candidate_hits.values(),
@@ -1277,6 +1619,8 @@ class Repository:
                 chunk_id=hit.get("chunk_id"),
                 node_id=hit.get("node_id"),
                 card_id=hit.get("card_id"),
+                note_id=hit.get("note_id"),
+                note_anchor=hit.get("note_anchor"),
             )
             for hit in ranked_hits
         ]
@@ -1284,6 +1628,16 @@ class Repository:
     def get_browser_context(self, payload: BrowserContextRequest) -> BrowserContextResponse:
         normalized_url = canonicalize_page_url(payload.page_url)
         suppression_reasons: list[str] = []
+        matched_document: BrowserSavedPageMatch | None = None
+        if normalized_url and is_supported_page_url(payload.page_url) and not is_internal_workspace_page(payload.page_url):
+            with self.connect() as connection:
+                matched_row = self._find_exact_saved_page_row_with_connection(connection, payload.page_url)
+            if matched_row:
+                matched_document = BrowserSavedPageMatch(
+                    source_document_id=str(matched_row["id"]),
+                    document_title=str(matched_row["title"]),
+                    source_locator=str(matched_row["source_locator"]),
+                )
         if not is_supported_page_url(payload.page_url):
             suppression_reasons.append("unsupported page URL")
         elif is_internal_workspace_page(payload.page_url):
@@ -1311,9 +1665,16 @@ class Repository:
                 query=query_plan.query,
                 trigger_mode=query_plan.trigger_mode,
                 should_prompt=False,
-                summary="Recall stayed quiet on this page.",
+                summary=summarize_context_result(
+                    hit_count=0,
+                    trigger_mode=query_plan.trigger_mode,
+                    exact_match=matched_document is not None,
+                    same_site=False,
+                    prompted=False,
+                ),
                 suppression_reasons=suppression_reasons or ["not enough page context"],
                 page_fingerprint=page_fingerprint,
+                matched_document=matched_document,
                 hits=[],
             )
 
@@ -1323,9 +1684,16 @@ class Repository:
                 query=query_plan.query,
                 trigger_mode=query_plan.trigger_mode,
                 should_prompt=False,
-                summary="Recall stayed quiet on this page.",
+                summary=summarize_context_result(
+                    hit_count=0,
+                    trigger_mode=query_plan.trigger_mode,
+                    exact_match=matched_document is not None,
+                    same_site=False,
+                    prompted=False,
+                ),
                 suppression_reasons=["no grounded local matches"],
                 page_fingerprint=page_fingerprint,
+                matched_document=matched_document,
                 hits=[],
             )
 
@@ -1349,7 +1717,7 @@ class Repository:
         page_title_terms = set(safe_query_terms(payload.page_title or ""))
         selection_terms = set(safe_query_terms(payload.selection_text or ""))
         reranked_hits: list[RecallRetrievalHit] = []
-        exact_match = False
+        exact_match = matched_document is not None
         same_site = False
 
         for hit in candidate_hits:
@@ -1458,6 +1826,7 @@ class Repository:
             summary=summary,
             suppression_reasons=response_suppression_reasons,
             page_fingerprint=page_fingerprint,
+            matched_document=matched_document,
             hits=response_hits,
         )
 
@@ -1713,6 +2082,10 @@ class Repository:
                 (document_id,),
             )
             connection.execute(
+                "DELETE FROM recall_notes_fts WHERE source_document_id = ?",
+                (document_id,),
+            )
+            connection.execute(
                 "DELETE FROM source_documents WHERE id = ?",
                 (document_id,),
             )
@@ -1874,6 +2247,24 @@ class Repository:
                 FOREIGN KEY (review_card_id) REFERENCES review_cards(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS recall_notes (
+                id TEXT PRIMARY KEY,
+                source_document_id TEXT NOT NULL,
+                variant_id TEXT NOT NULL,
+                block_id TEXT NOT NULL,
+                sentence_start INTEGER NOT NULL,
+                sentence_end INTEGER NOT NULL,
+                global_sentence_start INTEGER NOT NULL,
+                global_sentence_end INTEGER NOT NULL,
+                anchor_text TEXT NOT NULL,
+                excerpt_text TEXT NOT NULL,
+                body_text TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (source_document_id) REFERENCES source_documents(id) ON DELETE CASCADE,
+                FOREIGN KEY (variant_id) REFERENCES document_variants(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS embeddings (
                 id TEXT PRIMARY KEY,
                 source_document_id TEXT NOT NULL,
@@ -1900,6 +2291,17 @@ class Repository:
                 title,
                 body
             );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS recall_notes_fts USING fts5(
+                note_id UNINDEXED,
+                source_document_id UNINDEXED,
+                anchor_text,
+                excerpt_text,
+                body_text
+            );
+
+            CREATE INDEX IF NOT EXISTS recall_notes_source_document_idx
+            ON recall_notes (source_document_id, updated_at DESC);
             """
         )
         self._ensure_column_with_connection(
@@ -2884,6 +3286,248 @@ class Repository:
             updated_at=row["updated_at"],
             available_modes=[mode_row["mode"] for mode_row in mode_rows],
             chunk_count=row["chunk_count"],
+        )
+
+    def _view_from_variant_row(self, row: sqlite3.Row) -> DocumentView:
+        view = DocumentView.model_validate_json(row["view_json"])
+        return enrich_view_with_sentence_metadata(view, variant_id=row["id"])
+
+    def _normalize_note_body(self, body_text: str | None) -> str | None:
+        normalized = normalize_whitespace(body_text or "")
+        return normalized or None
+
+    def _validated_recall_note_anchor_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        document_id: str,
+        anchor: RecallNoteAnchor,
+    ) -> RecallNoteAnchor:
+        if anchor.source_document_id != document_id:
+            raise ValueError("Note anchor must match the requested document.")
+
+        variant_row = connection.execute(
+            """
+            SELECT id, view_json
+            FROM document_variants
+            WHERE source_document_id = ? AND mode = 'reflowed' AND detail_level = 'default'
+            """,
+            (document_id,),
+        ).fetchone()
+        if not variant_row:
+            raise ValueError("Notes require the reflowed/default view for this document.")
+        if anchor.variant_id != variant_row["id"]:
+            raise ValueError("Notes can only target the reflowed/default variant for this document.")
+        if anchor.sentence_start > anchor.sentence_end:
+            raise ValueError("Note anchors must use a contiguous sentence range.")
+
+        view = self._view_from_variant_row(variant_row)
+        block = next((candidate for candidate in view.blocks if candidate.id == anchor.block_id), None)
+        if not block:
+            raise ValueError("Note anchor block was not found in the reflowed/default view.")
+
+        sentence_texts = sentence_texts_for_block(block)
+        if not sentence_texts:
+            raise ValueError("Note anchor could not be matched to readable sentences.")
+        if anchor.sentence_start < 0 or anchor.sentence_end >= len(sentence_texts):
+            raise ValueError("Note anchors must stay within a single block.")
+
+        global_sentence_start, global_sentence_end = self._global_sentence_range_for_block(
+            view.blocks,
+            block_id=anchor.block_id,
+            sentence_start=anchor.sentence_start,
+            sentence_end=anchor.sentence_end,
+        )
+        anchor_text = " ".join(sentence_texts[anchor.sentence_start : anchor.sentence_end + 1]).strip()
+        excerpt_text = build_note_excerpt(sentence_texts, anchor.sentence_start, anchor.sentence_end) or anchor_text
+        return RecallNoteAnchor(
+            source_document_id=document_id,
+            variant_id=variant_row["id"],
+            block_id=anchor.block_id,
+            sentence_start=anchor.sentence_start,
+            sentence_end=anchor.sentence_end,
+            global_sentence_start=global_sentence_start,
+            global_sentence_end=global_sentence_end,
+            anchor_text=anchor_text,
+            excerpt_text=excerpt_text,
+        )
+
+    def _global_sentence_range_for_block(
+        self,
+        blocks: list[Any],
+        *,
+        block_id: str,
+        sentence_start: int,
+        sentence_end: int,
+    ) -> tuple[int, int]:
+        global_index = 0
+        for block in blocks:
+            sentence_count = len(sentence_texts_for_block(block))
+            if block.id == block_id:
+                return global_index + sentence_start, global_index + sentence_end
+            global_index += sentence_count
+        raise ValueError("Note anchor block was not found in the reflowed/default view.")
+
+    def _find_exact_saved_page_row_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        page_url: str,
+    ) -> sqlite3.Row | None:
+        normalized_url = canonicalize_page_url(page_url)
+        if not normalized_url:
+            return None
+        rows = connection.execute(
+            """
+            SELECT id, title, source_locator, updated_at
+            FROM source_documents
+            WHERE source_type = 'web' AND source_locator IS NOT NULL
+            ORDER BY updated_at DESC, id DESC
+            """
+        ).fetchall()
+        for row in rows:
+            if canonicalize_page_url(str(row["source_locator"])) == normalized_url:
+                return row
+        return None
+
+    def _resolve_browser_note_anchor_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        document_id: str,
+        selection_text: str,
+    ) -> RecallNoteAnchor:
+        normalized_selection = normalize_whitespace(selection_text)
+        if not normalized_selection:
+            raise ValueError("Select text on the saved page before adding a note.")
+
+        variant_row = connection.execute(
+            """
+            SELECT id, view_json
+            FROM document_variants
+            WHERE source_document_id = ? AND mode = 'reflowed' AND detail_level = 'default'
+            """,
+            (document_id,),
+        ).fetchone()
+        if not variant_row:
+            raise ValueError("That saved page is missing the reflowed/default view needed for note capture.")
+
+        selection_lower = normalized_selection.lower()
+        view = self._view_from_variant_row(variant_row)
+        candidates: list[tuple[int, int, int, str, int, int]] = []
+
+        for block in view.blocks:
+            sentence_texts = sentence_texts_for_block(block)
+            if not sentence_texts:
+                continue
+            for sentence_start in range(len(sentence_texts)):
+                combined_sentences: list[str] = []
+                for sentence_end in range(sentence_start, len(sentence_texts)):
+                    combined_sentences.append(sentence_texts[sentence_end])
+                    candidate_text = normalize_whitespace(" ".join(combined_sentences))
+                    candidate_lower = candidate_text.lower()
+                    if selection_lower not in candidate_lower:
+                        continue
+                    exactness_rank = 0 if candidate_lower == selection_lower else 1
+                    candidates.append(
+                        (
+                            exactness_rank,
+                            sentence_end - sentence_start,
+                            len(candidate_lower) - len(selection_lower),
+                            str(block.id),
+                            sentence_start,
+                            sentence_end,
+                        )
+                    )
+                    if exactness_rank == 0:
+                        break
+
+        if not candidates:
+            raise ValueError(
+                "Select one or more sentences from the saved page so Recall can anchor the note safely."
+            )
+
+        candidates.sort()
+        best_candidate = candidates[0]
+        ambiguous_best = [
+            candidate
+            for candidate in candidates
+            if candidate[:3] == best_candidate[:3] and candidate[3:] != best_candidate[3:]
+        ]
+        if ambiguous_best:
+            raise ValueError("That selection matches multiple saved passages. Select a more specific sentence range.")
+
+        _, _, _, block_id, sentence_start, sentence_end = best_candidate
+        return self._validated_recall_note_anchor_with_connection(
+            connection,
+            document_id=document_id,
+            anchor=RecallNoteAnchor(
+                source_document_id=document_id,
+                variant_id=str(variant_row["id"]),
+                block_id=block_id,
+                sentence_start=sentence_start,
+                sentence_end=sentence_end,
+                anchor_text=normalized_selection,
+                excerpt_text=normalized_selection,
+            ),
+        )
+
+    def _upsert_recall_note_fts_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        note_id: str,
+        source_document_id: str,
+        anchor_text: str,
+        excerpt_text: str,
+        body_text: str | None,
+    ) -> None:
+        connection.execute("DELETE FROM recall_notes_fts WHERE note_id = ?", (note_id,))
+        connection.execute(
+            """
+            INSERT INTO recall_notes_fts (note_id, source_document_id, anchor_text, excerpt_text, body_text)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                note_id,
+                source_document_id,
+                anchor_text,
+                excerpt_text,
+                body_text or "",
+            ),
+        )
+
+    def _row_to_recall_note_anchor(self, row: sqlite3.Row) -> RecallNoteAnchor:
+        return RecallNoteAnchor(
+            source_document_id=row["source_document_id"],
+            variant_id=row["variant_id"],
+            block_id=row["block_id"],
+            sentence_start=row["sentence_start"],
+            sentence_end=row["sentence_end"],
+            global_sentence_start=row["global_sentence_start"],
+            global_sentence_end=row["global_sentence_end"],
+            anchor_text=row["anchor_text"],
+            excerpt_text=row["excerpt_text"],
+        )
+
+    def _row_to_recall_note_record(self, row: sqlite3.Row) -> RecallNoteRecord:
+        return RecallNoteRecord(
+            id=row["id"],
+            anchor=self._row_to_recall_note_anchor(row),
+            body_text=row["body_text"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _row_to_recall_note_search_hit(self, row: sqlite3.Row) -> RecallNoteSearchHit:
+        rank = float(row["rank"] if row["rank"] is not None else 0.0)
+        return RecallNoteSearchHit(
+            id=row["id"],
+            anchor=self._row_to_recall_note_anchor(row),
+            document_title=row["document_title"],
+            score=1.0 / (1.0 + abs(rank)),
+            body_text=row["body_text"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )
 
     def _row_to_knowledge_node_record(self, row: sqlite3.Row) -> KnowledgeNodeRecord:

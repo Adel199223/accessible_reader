@@ -8,6 +8,8 @@ import type {
   DocumentView,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
+  RecallNoteRecord,
+  RecallNoteSearchHit,
   ReaderSettings,
   RecallRetrievalHit,
   StudyCardRecord,
@@ -50,7 +52,22 @@ const views: Record<string, DocumentView> = {
     mode: 'reflowed',
     detail_level: 'default',
     title: 'Search target only',
-    blocks: [{ id: 'search-1', kind: 'paragraph', text: 'Search sentence one. Search sentence two.' }],
+    blocks: [
+      {
+        id: 'search-1',
+        kind: 'paragraph',
+        text: 'Search sentence one. Search sentence two.',
+        metadata: {
+          sentence_count: 2,
+          sentence_metadata_version: '1',
+          sentence_texts: ['Search sentence one.', 'Search sentence two.'],
+        },
+      },
+    ],
+    variant_metadata: {
+      sentence_metadata_version: '1',
+      variant_id: 'variant-doc-search-reflowed',
+    },
     generated_by: 'local',
     cached: false,
     source_hash: 'search-hash',
@@ -70,7 +87,22 @@ const views: Record<string, DocumentView> = {
     mode: 'reflowed',
     detail_level: 'default',
     title: 'Reader stays here',
-    blocks: [{ id: 'reader-1', kind: 'paragraph', text: 'Reader sentence one. Reader sentence two.' }],
+    blocks: [
+      {
+        id: 'reader-1',
+        kind: 'paragraph',
+        text: 'Reader sentence one. Reader sentence two.',
+        metadata: {
+          sentence_count: 2,
+          sentence_metadata_version: '1',
+          sentence_texts: ['Reader sentence one.', 'Reader sentence two.'],
+        },
+      },
+    ],
+    variant_metadata: {
+      sentence_metadata_version: '1',
+      variant_id: 'variant-doc-reader-reflowed',
+    },
     generated_by: 'local',
     cached: false,
     source_hash: 'reader-hash',
@@ -182,6 +214,28 @@ const retrievalHits: RecallRetrievalHit[] = [
     reasons: ['lexical overlap', 'graph label match'],
     node_id: 'node-knowledge-graphs',
   },
+  {
+    id: 'note:note-search-1',
+    hit_type: 'note',
+    source_document_id: 'doc-search',
+    document_title: 'Search target only',
+    title: 'Search sentence one. Search sentence two.',
+    score: 0.86,
+    excerpt: 'Useful search note.',
+    reasons: ['saved note match', 'note text overlap'],
+    note_id: 'note-search-1',
+    note_anchor: {
+      source_document_id: 'doc-search',
+      variant_id: 'variant-doc-search-reflowed',
+      block_id: 'search-1',
+      sentence_start: 0,
+      sentence_end: 1,
+      global_sentence_start: 0,
+      global_sentence_end: 1,
+      anchor_text: 'Search sentence one. Search sentence two.',
+      excerpt_text: 'Search sentence one. Search sentence two.',
+    },
+  },
 ]
 
 const studyOverview: StudyOverview = {
@@ -209,6 +263,71 @@ const studyCards: StudyCardRecord[] = [
   },
 ]
 
+function makeRecallNote(
+  id: string,
+  documentId: string,
+  variantId: string,
+  blockId: string,
+  sentenceStart: number,
+  sentenceEnd: number,
+  globalSentenceStart: number,
+  globalSentenceEnd: number,
+  anchorText: string,
+  excerptText: string,
+  bodyText?: string | null,
+): RecallNoteRecord {
+  return {
+    id,
+    anchor: {
+      source_document_id: documentId,
+      variant_id: variantId,
+      block_id: blockId,
+      sentence_start: sentenceStart,
+      sentence_end: sentenceEnd,
+      global_sentence_start: globalSentenceStart,
+      global_sentence_end: globalSentenceEnd,
+      anchor_text: anchorText,
+      excerpt_text: excerptText,
+    },
+    body_text: bodyText ?? null,
+    created_at: '2026-03-13T00:00:00Z',
+    updated_at: '2026-03-13T00:00:00Z',
+  }
+}
+
+const baseRecallNotesByDocument: Record<string, RecallNoteRecord[]> = {
+  'doc-search': [
+    makeRecallNote(
+      'note-search-1',
+      'doc-search',
+      'variant-doc-search-reflowed',
+      'search-1',
+      0,
+      1,
+      0,
+      1,
+      'Search sentence one. Search sentence two.',
+      'Search sentence one. Search sentence two.',
+      'Useful search note.',
+    ),
+  ],
+  'doc-reader': [
+    makeRecallNote(
+      'note-reader-1',
+      'doc-reader',
+      'variant-doc-reader-reflowed',
+      'reader-1',
+      1,
+      1,
+      1,
+      1,
+      'Reader sentence two.',
+      'Reader sentence one. Reader sentence two.',
+      'Return to sentence two.',
+    ),
+  ],
+}
+
 const settings: ReaderSettings = {
   font_preset: 'system',
   text_size: 22,
@@ -223,9 +342,13 @@ const settings: ReaderSettings = {
 const localServiceUnavailableMessage =
   'Could not reach the local service at 127.0.0.1:8000. Retry after the backend is running again.'
 
+let recallNotesByDocument: Record<string, RecallNoteRecord[]> = {}
+
 const {
+  createRecallNoteMock,
   decideRecallGraphEdgeMock,
   decideRecallGraphNodeMock,
+  deleteRecallNoteMock,
   deleteDocumentRecordMock,
   fetchDocumentsMock,
   fetchDocumentViewMock,
@@ -233,6 +356,7 @@ const {
   fetchRecallDocumentsMock,
   fetchRecallGraphMock,
   fetchRecallGraphNodeMock,
+  fetchRecallNotesMock,
   fetchRecallStudyCardsMock,
   fetchRecallStudyOverviewMock,
   generateRecallStudyCardsMock,
@@ -241,11 +365,15 @@ const {
   reviewRecallStudyCardMock,
   saveProgressMock,
   saveSettingsMock,
+  searchRecallNotesMock,
+  updateRecallNoteMock,
   mockSpeechState,
 } =
   vi.hoisted(() => {
+    const createRecallNoteMock = vi.fn()
     const decideRecallGraphEdgeMock = vi.fn()
     const decideRecallGraphNodeMock = vi.fn()
+    const deleteRecallNoteMock = vi.fn()
     const deleteDocumentRecordMock = vi.fn<(documentId: string) => Promise<void>>()
     const fetchDocumentsMock = vi.fn<(query?: string) => Promise<DocumentRecord[]>>()
     const fetchDocumentViewMock = vi.fn<
@@ -255,6 +383,7 @@ const {
     const fetchRecallDocumentsMock = vi.fn()
     const fetchRecallGraphMock = vi.fn()
     const fetchRecallGraphNodeMock = vi.fn()
+    const fetchRecallNotesMock = vi.fn()
     const fetchRecallStudyCardsMock = vi.fn()
     const fetchRecallStudyOverviewMock = vi.fn()
     const generateRecallStudyCardsMock = vi.fn()
@@ -263,10 +392,14 @@ const {
     const reviewRecallStudyCardMock = vi.fn()
     const saveProgressMock = vi.fn()
     const saveSettingsMock = vi.fn<(nextSettings: ReaderSettings) => Promise<ReaderSettings>>()
+    const searchRecallNotesMock = vi.fn()
+    const updateRecallNoteMock = vi.fn()
 
     return {
+      createRecallNoteMock,
       decideRecallGraphEdgeMock,
       decideRecallGraphNodeMock,
+      deleteRecallNoteMock,
       deleteDocumentRecordMock,
       fetchDocumentsMock,
       fetchDocumentViewMock,
@@ -274,6 +407,7 @@ const {
       fetchRecallDocumentsMock,
       fetchRecallGraphMock,
       fetchRecallGraphNodeMock,
+      fetchRecallNotesMock,
       fetchRecallStudyCardsMock,
       fetchRecallStudyOverviewMock,
       generateRecallStudyCardsMock,
@@ -282,6 +416,8 @@ const {
       reviewRecallStudyCardMock,
       saveProgressMock,
       saveSettingsMock,
+      searchRecallNotesMock,
+      updateRecallNoteMock,
       mockSpeechState: {
         isSupported: true,
         isSpeaking: false,
@@ -301,14 +437,17 @@ const {
 
 vi.mock('./api', () => ({
   buildRecallExportUrl: vi.fn((documentId: string) => `/api/recall/documents/${documentId}/export.md`),
+  createRecallNote: createRecallNoteMock,
   decideRecallGraphEdge: decideRecallGraphEdgeMock,
   decideRecallGraphNode: decideRecallGraphNodeMock,
+  deleteRecallNote: deleteRecallNoteMock,
   deleteDocumentRecord: deleteDocumentRecordMock,
   fetchHealth: vi.fn(async () => ({ ok: true, openai_configured: false })),
   fetchRecallDocument: fetchRecallDocumentMock,
   fetchRecallDocuments: fetchRecallDocumentsMock,
   fetchRecallGraph: fetchRecallGraphMock,
   fetchRecallGraphNode: fetchRecallGraphNodeMock,
+  fetchRecallNotes: fetchRecallNotesMock,
   fetchSettings: vi.fn(async () => settings),
   fetchRecallStudyCards: fetchRecallStudyCardsMock,
   fetchRecallStudyOverview: fetchRecallStudyOverviewMock,
@@ -322,8 +461,10 @@ vi.mock('./api', () => ({
   generateDocumentView: vi.fn(),
   retrieveRecall: retrieveRecallMock,
   reviewRecallStudyCard: reviewRecallStudyCardMock,
+  searchRecallNotes: searchRecallNotesMock,
   searchRecall: vi.fn(),
   saveProgress: saveProgressMock,
+  updateRecallNote: updateRecallNoteMock,
 }))
 
 vi.mock('./hooks/useSpeech', () => ({
@@ -355,23 +496,29 @@ beforeEach(() => {
       },
     },
   })
+  recallNotesByDocument = structuredClone(baseRecallNotesByDocument)
+  createRecallNoteMock.mockReset()
   fetchDocumentsMock.mockReset()
   fetchDocumentViewMock.mockReset()
   fetchRecallDocumentMock.mockReset()
   fetchRecallDocumentsMock.mockReset()
   fetchRecallGraphMock.mockReset()
   fetchRecallGraphNodeMock.mockReset()
+  fetchRecallNotesMock.mockReset()
   fetchRecallStudyCardsMock.mockReset()
   fetchRecallStudyOverviewMock.mockReset()
   generateRecallStudyCardsMock.mockReset()
   decideRecallGraphEdgeMock.mockReset()
   decideRecallGraphNodeMock.mockReset()
+  deleteRecallNoteMock.mockReset()
   deleteDocumentRecordMock.mockReset()
   importUrlDocumentMock.mockReset()
   retrieveRecallMock.mockReset()
   reviewRecallStudyCardMock.mockReset()
   saveProgressMock.mockReset()
   saveSettingsMock.mockReset()
+  searchRecallNotesMock.mockReset()
+  updateRecallNoteMock.mockReset()
   window.history.pushState({}, '', '/reader')
   deleteDocumentRecordMock.mockImplementation(async (documentId: string) => {
     void documentId
@@ -397,6 +544,7 @@ beforeEach(() => {
     }
     return document
   })
+  fetchRecallNotesMock.mockImplementation(async (documentId: string) => recallNotesByDocument[documentId] ?? [])
   fetchRecallGraphMock.mockImplementation(async () => recallGraph)
   fetchRecallGraphNodeMock.mockImplementation(async () => nodeDetail)
   fetchRecallStudyOverviewMock.mockImplementation(async () => studyOverview)
@@ -422,6 +570,63 @@ beforeEach(() => {
     status: 'scheduled',
     last_rating: 'good',
   }))
+  createRecallNoteMock.mockImplementation(async (documentId: string, payload: { anchor: RecallNoteRecord['anchor']; body_text?: string | null }) => {
+    const nextNote = {
+      id: `note-${documentId}-${(recallNotesByDocument[documentId]?.length ?? 0) + 1}`,
+      anchor: payload.anchor,
+      body_text: payload.body_text ?? null,
+      created_at: '2026-03-13T00:10:00Z',
+      updated_at: '2026-03-13T00:10:00Z',
+    }
+    recallNotesByDocument[documentId] = [nextNote, ...(recallNotesByDocument[documentId] ?? [])]
+    return nextNote
+  })
+  updateRecallNoteMock.mockImplementation(async (noteId: string, payload: { body_text?: string | null }) => {
+    const [documentId, existingNote] =
+      Object.entries(recallNotesByDocument)
+        .flatMap(([candidateDocumentId, notes]) =>
+          notes
+            .filter((note) => note.id === noteId)
+            .map((note) => [candidateDocumentId, note] as const),
+        )[0] ?? []
+    if (!documentId || !existingNote) {
+      throw new Error('Note not found.')
+    }
+    const updatedNote = {
+      ...existingNote,
+      body_text: payload.body_text ?? null,
+      updated_at: '2026-03-13T00:15:00Z',
+    }
+    recallNotesByDocument[documentId] = recallNotesByDocument[documentId].map((note) =>
+      note.id === noteId ? updatedNote : note,
+    )
+    return updatedNote
+  })
+  deleteRecallNoteMock.mockImplementation(async (noteId: string) => {
+    recallNotesByDocument = Object.fromEntries(
+      Object.entries(recallNotesByDocument).map(([documentId, notes]) => [
+        documentId,
+        notes.filter((note) => note.id !== noteId),
+      ]),
+    )
+  })
+  searchRecallNotesMock.mockImplementation(async (query: string, limit = 20, documentId?: string | null) => {
+    void limit
+    const normalized = query.toLowerCase()
+    return Object.entries(recallNotesByDocument)
+      .filter(([candidateDocumentId]) => !documentId || candidateDocumentId === documentId)
+      .flatMap(([, notes]) => notes)
+      .filter((note) =>
+        `${note.anchor.anchor_text} ${note.anchor.excerpt_text} ${note.body_text ?? ''}`
+          .toLowerCase()
+          .includes(normalized),
+      )
+      .map<RecallNoteSearchHit>((note) => ({
+        ...note,
+        document_title: recallDocuments.find((document) => document.id === note.anchor.source_document_id)?.title ?? 'Saved note',
+        score: 0.91,
+      }))
+  })
   saveProgressMock.mockImplementation(async () => ({ ok: true }))
   saveSettingsMock.mockImplementation(async (nextSettings: ReaderSettings) => nextSettings)
   Object.defineProperty(window, 'confirm', {
@@ -443,7 +648,7 @@ beforeEach(() => {
 })
 
 async function ensureLibraryOpen() {
-  const librarySection = screen.getByRole('heading', { name: 'Library', level: 2 }).closest('section')
+  const librarySection = screen.getByRole('heading', { name: 'Source library', level: 2 }).closest('section')
   expect(librarySection).not.toBeNull()
 
   const showButton = within(librarySection as HTMLElement).queryByRole('button', { name: 'Show' })
@@ -456,7 +661,10 @@ async function ensureLibraryOpen() {
 }
 
 async function ensureImportPanelOpen() {
-  const importButton = screen.queryByRole('button', { name: 'Import' })
+  const importSection = screen.getByRole('heading', { name: 'Add source', level: 2 }).closest('section')
+  expect(importSection).not.toBeNull()
+
+  const importButton = within(importSection as HTMLElement).queryByRole('button', { name: 'Show' })
   if (importButton) {
     fireEvent.click(importButton)
   }
@@ -495,8 +703,10 @@ test('Recall shows unavailable states when its initial API loads fail', async ()
   })
 
   expect(screen.getAllByText('Library unavailable').length).toBeGreaterThan(0)
-  expect(screen.getAllByText('Graph unavailable').length).toBeGreaterThan(0)
-  expect(screen.getByText('Study unavailable')).toBeInTheDocument()
+  await waitFor(() => {
+    expect(screen.getAllByText('Graph unavailable').length).toBeGreaterThan(0)
+    expect(screen.getByText('Study unavailable')).toBeInTheDocument()
+  })
   expect(screen.getAllByRole('button', { name: 'Retry loading' }).length).toBeGreaterThan(0)
 })
 
@@ -610,6 +820,134 @@ test('Recall handoff opens the selected document in Reader', async () => {
   })
 })
 
+test('returning from Reader restores the prior Recall section', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Graph', selected: false })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Graph' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Node detail', level: 2 })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Reader' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+    expect(screen.getByRole('tab', { name: 'Reader', selected: true })).toBeInTheDocument()
+  })
+
+  window.history.back()
+  window.dispatchEvent(new PopStateEvent('popstate'))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Node detail', level: 2 })).toBeInTheDocument()
+  })
+})
+
+test('Recall retrieval note hits open the Notes section with the selected note', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('searchbox', { name: 'Search saved knowledge' })).toBeInTheDocument()
+  })
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search saved knowledge' }), {
+    target: { value: 'Useful search note' },
+  })
+
+  await waitFor(() => {
+    expect(retrieveRecallMock).toHaveBeenCalledWith('Useful search note')
+  })
+
+  fireEvent.click(screen.getByText('Useful search note.').closest('button')!)
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+  expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
+})
+
+test('Recall notes search and Open in Reader restore the anchored sentence range', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Notes', selected: false })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+  })
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search notes' }), {
+    target: { value: 'Useful search note' },
+  })
+
+  await waitFor(() => {
+    expect(searchRecallNotesMock).toHaveBeenCalledWith('Useful search note', 20, 'doc-search')
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open in Reader' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+  })
+
+  expect(window.location.search).toContain('document=doc-search')
+  expect(window.location.search).toContain('sentenceStart=0')
+  expect(window.location.search).toContain('sentenceEnd=1')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Search sentence one.' })).toHaveClass('reader-sentence-anchored')
+  })
+  expect(screen.getByRole('button', { name: 'Search sentence two.' })).toHaveClass('reader-sentence-anchored')
+})
+
+test('Recall notes can be edited and deleted from the Notes tab', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Notes', selected: false })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+
+  await waitFor(() => {
+    expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
+  })
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Note text' }), {
+    target: { value: 'Updated note text.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+  await waitFor(() => {
+    expect(updateRecallNoteMock).toHaveBeenCalledWith('note-search-1', {
+      body_text: 'Updated note text.',
+    })
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+  await waitFor(() => {
+    expect(deleteRecallNoteMock).toHaveBeenCalledWith('note-search-1')
+  })
+
+  await waitFor(() => {
+    expect(screen.getByText('Note deleted.')).toBeInTheDocument()
+  })
+})
+
 test('library selection updates the reader and search does not replace the active document', async () => {
   render(<App />)
 
@@ -654,7 +992,49 @@ test('Reader shows a service unavailable state when initial document loading fai
   expect(screen.getByText(localServiceUnavailableMessage)).toBeInTheDocument()
   expect(screen.getByPlaceholderText('Paste text here')).toBeInTheDocument()
   expect(screen.getAllByRole('button', { name: 'Retry loading' }).length).toBeGreaterThan(0)
-  expect(screen.queryByRole('heading', { name: 'Add something to start reading', level: 2 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Open a source to start reading', level: 2 })).not.toBeInTheDocument()
+})
+
+test('Reader note capture saves a source-linked note and keeps normal jump behavior outside note mode', async () => {
+  render(<App />)
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Add note' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Search sentence one.' }))
+
+  expect(mockSpeechState.jumpTo).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Search sentence two.' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Optional note' }), {
+    target: { value: 'Second saved note.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+
+  await waitFor(() => {
+    expect(createRecallNoteMock).toHaveBeenCalledWith(
+      'doc-search',
+      expect.objectContaining({
+        anchor: expect.objectContaining({
+          block_id: 'search-1',
+          sentence_start: 0,
+          sentence_end: 1,
+          variant_id: 'variant-doc-search-reflowed',
+        }),
+        body_text: 'Second saved note.',
+      }),
+    )
+  })
+
+  await waitFor(() => {
+    expect(screen.getAllByText('2 notes').length).toBeGreaterThan(0)
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Search sentence one.' }))
+
+  expect(mockSpeechState.jumpTo).toHaveBeenCalledWith(0)
 })
 
 test('settings stay off the page until the settings drawer is opened and default to Appearance without a document', async () => {
@@ -790,14 +1170,14 @@ test('sidebar uses compact import and library wording while preserving the same 
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Import', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Add source', level: 2 })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('heading', { name: 'Library', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Import text' })).toBeInTheDocument()
   expect(screen.getByText('Choose file')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Web page' })).toBeInTheDocument()
-  expect(screen.getByPlaceholderText('Search library')).toBeInTheDocument()
+  expect(screen.getByPlaceholderText('Search saved sources')).toBeInTheDocument()
   expect(screen.queryByText('Info')).not.toBeInTheDocument()
 })
 
@@ -895,11 +1275,14 @@ test('active reading collapses import by default and lets the user expand it on 
   await ensureLibraryOpen()
   fireEvent.click(screen.getByTitle('Reader stays here'))
 
+  const importSection = screen.getByRole('heading', { name: 'Add source', level: 2 }).closest('section')
+  expect(importSection).not.toBeNull()
+
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument()
+    expect(within(importSection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('heading', { name: 'Add document', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Add source', level: 2 })).toBeInTheDocument()
   expect(screen.queryByPlaceholderText('Paste text here')).not.toBeInTheDocument()
 
   await ensureImportPanelOpen()
@@ -914,15 +1297,13 @@ test('active reading collapses the library by default and lets the user expand i
     expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument()
-  expect(screen.queryByPlaceholderText('Search library')).not.toBeInTheDocument()
+  const librarySection = screen.getByRole('heading', { name: 'Source library', level: 2 }).closest('section')
+  expect(librarySection).not.toBeNull()
+  expect(within(librarySection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
+  expect(screen.queryByPlaceholderText('Search saved sources')).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show' }))
-
-  await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Hide' })).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Search library')).toBeInTheDocument()
-  })
+  await ensureLibraryOpen()
+  expect(screen.getByPlaceholderText('Search saved sources')).toBeInTheDocument()
 })
 
 test('no-document mode shows a compact onboarding shell instead of full reader chrome', async () => {
@@ -931,7 +1312,7 @@ test('no-document mode shows a compact onboarding shell instead of full reader c
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Add something to start reading', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Open a source to start reading', level: 2 })).toBeInTheDocument()
   })
 
   expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
@@ -940,18 +1321,22 @@ test('no-document mode shows a compact onboarding shell instead of full reader c
   expect(screen.queryByText('Current document')).not.toBeInTheDocument()
 })
 
-test('sidebar brand uses the compact title and tagline copy', async () => {
+test('reader hero uses Recall-first copy instead of standalone reader branding', async () => {
   fetchDocumentsMock.mockImplementation(async () => [])
 
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Accessible Reader', level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Reconnect what you already saved.', level: 1 })).toBeInTheDocument()
   })
 
-  expect(screen.getByText('Read clearly. Keep your place.')).toBeInTheDocument()
-  expect(screen.queryByText(/Local-first reader/i)).not.toBeInTheDocument()
-  expect(screen.queryByText(/Local-first reading/i)).not.toBeInTheDocument()
+  expect(
+    screen.getByText(
+      'Inspect shared source documents, validate graph suggestions, retrieve grounded context, and study from local source-backed cards.',
+    ),
+  ).toBeInTheDocument()
+  expect(screen.queryByText('Accessible Reader')).not.toBeInTheDocument()
+  expect(screen.queryByText('Read clearly. Keep your place.')).not.toBeInTheDocument()
 })
 
 test('reader area keeps one visible title and uses the compact header as the article label', async () => {

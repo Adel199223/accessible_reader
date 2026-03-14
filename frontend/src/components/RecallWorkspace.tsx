@@ -2,8 +2,10 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 
 import {
   buildRecallExportUrl,
+  deleteRecallNote,
   decideRecallGraphEdge,
   decideRecallGraphNode,
+  fetchRecallNotes,
   fetchRecallDocument,
   fetchRecallDocuments,
   fetchRecallGraph,
@@ -12,27 +14,39 @@ import {
   fetchRecallStudyOverview,
   generateRecallStudyCards,
   retrieveRecall,
+  searchRecallNotes,
   reviewRecallStudyCard,
+  updateRecallNote,
 } from '../api'
+import type { RecallSection } from '../lib/appRoute'
 import type {
   KnowledgeEdgeRecord,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
   RecallDocumentRecord,
+  RecallNoteRecord,
+  RecallNoteSearchHit,
   RecallRetrievalHit,
   StudyCardRecord,
   StudyCardStatus,
   StudyOverview,
   StudyReviewRating,
 } from '../types'
+import type { WorkspaceHeroProps } from './WorkspaceHero'
 
 
 interface RecallWorkspaceProps {
-  onOpenReader: (documentId: string) => void
+  onSectionChange: (section: RecallSection) => void
+  onShellHeroChange: (hero: WorkspaceHeroProps) => void
+  onOpenReader: (
+    documentId: string,
+    options?: {
+      sentenceEnd?: number | null
+      sentenceStart?: number | null
+    },
+  ) => void
+  section: RecallSection
 }
-
-
-type RecallSection = 'library' | 'graph' | 'study'
 type LoadState = 'idle' | 'loading' | 'success' | 'error'
 
 
@@ -53,6 +67,9 @@ function formatHitType(hitType: RecallRetrievalHit['hit_type']) {
   if (hitType === 'node') {
     return 'Node'
   }
+  if (hitType === 'note') {
+    return 'Note'
+  }
   return 'Card'
 }
 
@@ -65,9 +82,38 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
+function upsertNoteRecord<T extends RecallNoteRecord | RecallNoteSearchHit>(items: T[], updatedNote: RecallNoteRecord) {
+  return items.map((item) => (item.id === updatedNote.id ? { ...item, ...updatedNote } : item))
+}
 
-export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
-  const [section, setSection] = useState<RecallSection>('library')
+function removeNoteRecord<T extends { id: string }>(items: T[], noteId: string) {
+  return items.filter((item) => item.id !== noteId)
+}
+
+function buildReaderAnchorOptions(note: RecallNoteRecord | RecallNoteSearchHit) {
+  return {
+    sentenceEnd: note.anchor.global_sentence_end ?? note.anchor.sentence_end,
+    sentenceStart: note.anchor.global_sentence_start ?? note.anchor.sentence_start,
+  }
+}
+
+function getNoteDocumentTitle(
+  note: RecallNoteRecord | RecallNoteSearchHit,
+  selectedDocument: RecallDocumentRecord | null,
+) {
+  if (selectedDocument && selectedDocument.id === note.anchor.source_document_id) {
+    return selectedDocument.title
+  }
+  return 'document_title' in note ? note.document_title : selectedDocument?.title ?? 'Saved note'
+}
+
+
+export function RecallWorkspace({
+  onOpenReader,
+  onSectionChange,
+  onShellHeroChange,
+  section,
+}: RecallWorkspaceProps) {
   const [documents, setDocuments] = useState<RecallDocumentRecord[]>([])
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [selectedDocument, setSelectedDocument] = useState<RecallDocumentRecord | null>(null)
@@ -95,9 +141,21 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
   const [showAnswer, setShowAnswer] = useState(false)
   const [studyMessage, setStudyMessage] = useState<string | null>(null)
+  const [documentNotes, setDocumentNotes] = useState<RecallNoteRecord[]>([])
+  const [notesStatus, setNotesStatus] = useState<LoadState>('idle')
+  const [notesError, setNotesError] = useState<string | null>(null)
+  const [noteSearchQuery, setNoteSearchQuery] = useState('')
+  const [noteSearchResults, setNoteSearchResults] = useState<RecallNoteSearchHit[]>([])
+  const [noteSearchStatus, setNoteSearchStatus] = useState<LoadState>('idle')
+  const [noteSearchError, setNoteSearchError] = useState<string | null>(null)
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
+  const [noteDraftBody, setNoteDraftBody] = useState('')
+  const [noteBusyKey, setNoteBusyKey] = useState<string | null>(null)
+  const [notesMessage, setNotesMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
   const deferredSearch = useDeferredValue(searchQuery)
+  const deferredNoteSearch = useDeferredValue(noteSearchQuery)
 
   const dateFormatter = useMemo(
     () =>
@@ -111,6 +169,14 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
   )
 
   const activeStudyCard = studyCards.find((card) => card.id === activeCardId) ?? studyCards[0] ?? null
+  const showingNoteSearch = deferredNoteSearch.trim().length > 0
+  const visibleNotes = showingNoteSearch ? noteSearchResults : documentNotes
+  const activeNote =
+    visibleNotes.find((note) => note.id === selectedNoteId) ??
+    documentNotes.find((note) => note.id === selectedNoteId) ??
+    noteSearchResults.find((note) => note.id === selectedNoteId) ??
+    visibleNotes[0] ??
+    null
 
   useEffect(() => {
     let active = true
@@ -210,6 +276,48 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
   }, [deferredSearch])
 
   useEffect(() => {
+    if (!selectedDocumentId) {
+      setDocumentNotes([])
+      setNotesStatus('idle')
+      setNotesError(null)
+      return
+    }
+
+    void loadNotes(selectedDocumentId)
+  }, [selectedDocumentId, reloadToken])
+
+  useEffect(() => {
+    if (!showingNoteSearch) {
+      setNoteSearchResults([])
+      setNoteSearchStatus('idle')
+      setNoteSearchError(null)
+      return
+    }
+
+    let active = true
+    setNoteSearchStatus('loading')
+    setNoteSearchError(null)
+    void searchRecallNotes(deferredNoteSearch, 20, selectedDocumentId)
+      .then((hits) => {
+        if (active) {
+          setNoteSearchResults(hits)
+          setNoteSearchStatus('success')
+        }
+      })
+      .catch((loadError: Error) => {
+        if (active) {
+          setNoteSearchResults([])
+          setNoteSearchStatus('error')
+          setNoteSearchError(getErrorMessage(loadError, 'Could not search notes.'))
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [deferredNoteSearch, selectedDocumentId, showingNoteSearch])
+
+  useEffect(() => {
     void loadGraph()
   }, [reloadToken])
 
@@ -256,6 +364,23 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
     })
   }, [studyCards])
 
+  useEffect(() => {
+    setSelectedNoteId((current) => {
+      if (current && visibleNotes.some((note) => note.id === current)) {
+        return current
+      }
+      return visibleNotes[0]?.id ?? null
+    })
+  }, [visibleNotes])
+
+  useEffect(() => {
+    setNoteDraftBody(activeNote?.body_text ?? '')
+  }, [activeNote?.body_text, activeNote?.id])
+
+  useEffect(() => {
+    setNotesMessage(null)
+  }, [noteSearchQuery, section, selectedDocumentId, selectedNoteId])
+
   function handleSelectDocument(documentId: string) {
     setDetailStatus('loading')
     setDetailError(null)
@@ -264,18 +389,25 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
 
   function handleSelectRetrievalHit(hit: RecallRetrievalHit) {
     handleSelectDocument(hit.source_document_id)
+    if (hit.hit_type === 'note') {
+      onSectionChange('notes')
+      if (hit.note_id) {
+        setSelectedNoteId(hit.note_id)
+      }
+      return
+    }
     if (hit.node_id) {
       setSelectedNodeId(hit.node_id)
     }
     if (hit.hit_type === 'card') {
-      setSection('study')
+      onSectionChange('study')
       if (hit.card_id) {
         setActiveCardId(hit.card_id)
       }
       return
     }
     if (hit.hit_type === 'node') {
-      setSection('graph')
+      onSectionChange('graph')
     }
   }
 
@@ -320,10 +452,46 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
     setStudyStatus('success')
   }
 
+  async function loadNotes(documentId: string) {
+    setNotesStatus('loading')
+    setNotesError(null)
+    try {
+      const loadedNotes = await fetchRecallNotes(documentId)
+      setDocumentNotes(loadedNotes)
+      setNotesStatus('success')
+      return loadedNotes
+    } catch (loadError) {
+      setDocumentNotes([])
+      setNotesError(getErrorMessage(loadError, 'Could not load notes for that document.'))
+      setNotesStatus('error')
+      return []
+    }
+  }
+
   function handleRetryRecallLoading() {
     setError(null)
     setRetrievalError(null)
     setReloadToken((current) => current + 1)
+  }
+
+  function handleRetryNotesLoading() {
+    setNotesMessage(null)
+    if (showingNoteSearch) {
+      setNoteSearchStatus('loading')
+      setNoteSearchError(null)
+      void searchRecallNotes(deferredNoteSearch, 20, selectedDocumentId)
+        .then((hits) => {
+          setNoteSearchResults(hits)
+          setNoteSearchStatus('success')
+        })
+        .catch((loadError) => {
+          setNoteSearchResults([])
+          setNoteSearchStatus('error')
+          setNoteSearchError(getErrorMessage(loadError, 'Could not search notes.'))
+        })
+    } else if (selectedDocumentId) {
+      void loadNotes(selectedDocumentId)
+    }
   }
 
   async function handleDecideNode(decision: 'confirmed' | 'rejected') {
@@ -374,6 +542,71 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
     }
   }
 
+  async function handleSaveNoteChanges() {
+    if (!activeNote) {
+      return
+    }
+    setNoteBusyKey(`save:${activeNote.id}`)
+    setNotesMessage(null)
+    setNotesError(null)
+    setNoteSearchError(null)
+    try {
+      const updatedNote = await updateRecallNote(activeNote.id, {
+        body_text: noteDraftBody.trim().length > 0 ? noteDraftBody.trim() : null,
+      })
+      setDocumentNotes((currentNotes) => upsertNoteRecord(currentNotes, updatedNote))
+      setNoteSearchResults((currentResults) => upsertNoteRecord(currentResults, updatedNote))
+      setNoteDraftBody(updatedNote.body_text ?? '')
+      setNotesMessage('Note updated locally.')
+    } catch (saveError) {
+      const message = getErrorMessage(saveError, 'Could not update that note.')
+      if (showingNoteSearch) {
+        setNoteSearchError(message)
+      } else {
+        setNotesError(message)
+      }
+    } finally {
+      setNoteBusyKey(null)
+    }
+  }
+
+  async function handleDeleteNote() {
+    if (!activeNote) {
+      return
+    }
+    const confirmed = window.confirm('Delete this note from local Recall?')
+    if (!confirmed) {
+      return
+    }
+
+    setNoteBusyKey(`delete:${activeNote.id}`)
+    setNotesMessage(null)
+    setNotesError(null)
+    setNoteSearchError(null)
+    try {
+      await deleteRecallNote(activeNote.id)
+      setDocumentNotes((currentNotes) => removeNoteRecord(currentNotes, activeNote.id))
+      setNoteSearchResults((currentResults) => removeNoteRecord(currentResults, activeNote.id))
+      setSelectedNoteId((current) => (current === activeNote.id ? null : current))
+      setNoteDraftBody('')
+      setNotesMessage('Note deleted.')
+    } catch (deleteError) {
+      const message = getErrorMessage(deleteError, 'Could not delete that note.')
+      if (showingNoteSearch) {
+        setNoteSearchError(message)
+      } else {
+        setNotesError(message)
+      }
+    } finally {
+      setNoteBusyKey(null)
+    }
+  }
+
+  function handleOpenNoteInReader(note: RecallNoteRecord | RecallNoteSearchHit) {
+    handleSelectDocument(note.anchor.source_document_id)
+    onOpenReader(note.anchor.source_document_id, buildReaderAnchorOptions(note))
+  }
+
   async function handleReviewCard(rating: StudyReviewRating) {
     if (!activeStudyCard) {
       return
@@ -398,6 +631,8 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
   const detailLoading = detailStatus === 'loading'
   const graphLoading = graphStatus === 'loading'
   const studyLoading = studyStatus === 'loading'
+  const notesLoading = notesStatus === 'loading'
+  const noteSearchLoading = noteSearchStatus === 'loading'
   const documentCountLabel =
     documentsStatus === 'error'
       ? 'Library unavailable'
@@ -427,42 +662,28 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
   const overallError = error ?? documentsError ?? detailError ?? graphError ?? studyError
   const canRetryRecallLoading = Boolean(documentsError || detailError || graphError || studyError)
 
+  useEffect(() => {
+    onShellHeroChange({
+      eyebrow: 'Recall',
+      title: 'Reconnect what you already saved.',
+      description:
+        'Inspect shared source documents, validate graph suggestions, retrieve grounded context, and study from local source-backed cards.',
+      metrics: [
+        { label: documentsLoading ? 'Loading library…' : documentCountLabel },
+        { label: graphNodeCountLabel, tone: 'muted' },
+        { label: studyCountLabel, tone: 'muted' },
+      ],
+    })
+  }, [
+    documentCountLabel,
+    documentsLoading,
+    graphNodeCountLabel,
+    onShellHeroChange,
+    studyCountLabel,
+  ])
+
   return (
-    <div className="recall-workspace stack-gap">
-      <section className="card recall-hero">
-        <div className="section-header">
-          <p className="eyebrow">Recall</p>
-          <h1>Reconnect what you already saved.</h1>
-          <p>
-            Inspect shared source documents, validate graph suggestions, retrieve grounded context, and study from local source-backed cards.
-          </p>
-        </div>
-        <div className="recall-hero-metrics" role="list" aria-label="Recall metrics">
-          <span className="status-chip" role="listitem">{documentsLoading ? 'Loading library…' : documentCountLabel}</span>
-          <span className="status-chip status-muted" role="listitem">{graphNodeCountLabel}</span>
-          <span className="status-chip status-muted" role="listitem">{studyCountLabel}</span>
-        </div>
-      </section>
-
-      <div className="recall-stage-tabs" aria-label="Recall sections" role="tablist">
-        {([
-          ['library', 'Library'],
-          ['graph', 'Graph'],
-          ['study', 'Study'],
-        ] as const).map(([path, label]) => (
-          <button
-            key={path}
-            aria-selected={section === path}
-            className={section === path ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-            role="tab"
-            type="button"
-            onClick={() => setSection(path)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
+    <div className="stack-gap">
       {overallError ? (
         <div className="inline-error stack-gap" role="alert">
           <p>{overallError}</p>
@@ -622,15 +843,15 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
               </label>
 
             <div className="recall-search-results" role="list">
-              {retrievalLoading ? <p className="small-note">Searching chunks, nodes, and cards…</p> : null}
+              {retrievalLoading ? <p className="small-note">Searching chunks, nodes, cards, and notes…</p> : null}
               {!retrievalLoading && retrievalError ? <p className="small-note">{retrievalError}</p> : null}
               {!retrievalLoading && !retrievalError && !searchQuery.trim() ? (
                 <p className="small-note">
-                  Search across chunk text, graph suggestions, and study prompts without leaving Recall.
+                  Search across chunk text, graph suggestions, study prompts, and saved notes without leaving Recall.
                 </p>
               ) : null}
               {!retrievalLoading && !retrievalError && searchQuery.trim() && retrievalResults.length === 0 ? (
-                <p className="small-note">No saved chunks, nodes, or cards match that query yet.</p>
+                <p className="small-note">No saved chunks, nodes, cards, or notes match that query yet.</p>
               ) : null}
 
                 {retrievalResults.map((hit) => (
@@ -975,6 +1196,190 @@ export function RecallWorkspace({ onOpenReader }: RecallWorkspaceProps) {
                       <span>{String(activeStudyCard.source_spans[0].excerpt)}</span>
                     </div>
                   ) : null}
+                </div>
+              ) : null}
+            </section>
+          </div>
+        </div>
+      ) : null}
+
+      {section === 'notes' ? (
+        <div className="recall-grid">
+          <section className="card stack-gap">
+            <div className="section-header section-header-compact">
+              <h2>Notes</h2>
+              <p>
+                Search and manage source-linked highlights captured from Reader in reflowed view.
+              </p>
+            </div>
+
+            <label className="field">
+              <span>Selected document</span>
+              <select
+                disabled={documentsStatus === 'error' || documents.length === 0}
+                value={selectedDocumentId ?? ''}
+                onChange={(event) => handleSelectDocument(event.target.value)}
+              >
+                {documents.length === 0 ? <option value="">No documents yet</option> : null}
+                {documents.map((document) => (
+                  <option key={document.id} value={document.id}>
+                    {document.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Search notes</span>
+              <input
+                type="search"
+                placeholder="Search highlights and note text"
+                value={noteSearchQuery}
+                onChange={(event) => setNoteSearchQuery(event.target.value)}
+              />
+            </label>
+
+            <div className="recall-document-list" role="list">
+              {documentsStatus === 'error' ? (
+                <div className="stack-gap">
+                  <p className="small-note">Notes are unavailable until the local library reconnects.</p>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                      Retry loading
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {documentsStatus !== 'error' && notesLoading ? <p className="small-note">Loading notes…</p> : null}
+              {documentsStatus !== 'error' && !showingNoteSearch && notesStatus === 'error' ? (
+                <div className="stack-gap">
+                  <p className="small-note">{notesError}</p>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryNotesLoading}>
+                      Retry notes
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {documentsStatus !== 'error' && showingNoteSearch && noteSearchLoading ? (
+                <p className="small-note">Searching notes…</p>
+              ) : null}
+              {documentsStatus !== 'error' && showingNoteSearch && noteSearchStatus === 'error' ? (
+                <div className="stack-gap">
+                  <p className="small-note">{noteSearchError}</p>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryNotesLoading}>
+                      Retry notes
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {documentsStatus !== 'error' &&
+              !notesLoading &&
+              !noteSearchLoading &&
+              visibleNotes.length === 0 &&
+              !(showingNoteSearch ? noteSearchStatus === 'error' : notesStatus === 'error') ? (
+                <p className="small-note">
+                  {showingNoteSearch
+                    ? 'No notes match that query in the selected document.'
+                    : 'No notes for this document yet. Add one from Reader to save a local source-linked highlight.'}
+                </p>
+              ) : null}
+
+              {visibleNotes.map((note) => (
+                <button
+                  key={note.id}
+                  aria-pressed={activeNote?.id === note.id}
+                  className={
+                    activeNote?.id === note.id
+                      ? 'recall-document-item recall-document-item-active'
+                      : 'recall-document-item'
+                  }
+                  type="button"
+                  onClick={() => setSelectedNoteId(note.id)}
+                >
+                  <span className="recall-document-title">{note.anchor.anchor_text}</span>
+                  <span className="recall-document-meta">
+                    {getNoteDocumentTitle(note, selectedDocument)} • {dateFormatter.format(new Date(note.updated_at))}
+                  </span>
+                  <span className="recall-search-hit-excerpt">{note.anchor.excerpt_text}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div className="recall-main-column stack-gap">
+            <section className="card stack-gap">
+              <div className="toolbar">
+                <div className="section-header section-header-compact">
+                  <h2>Note detail</h2>
+                  <p>
+                    {activeNote
+                      ? 'Edit the note text, reopen the exact passage in Reader, or delete the highlight.'
+                      : 'Choose a note to inspect its anchored passage and text.'}
+                  </p>
+                </div>
+                {activeNote ? (
+                  <div className="recall-actions">
+                    <button type="button" onClick={() => handleOpenNoteInReader(activeNote)}>
+                      Open in Reader
+                    </button>
+                    <button
+                      disabled={noteBusyKey === `save:${activeNote.id}`}
+                      type="button"
+                      onClick={handleSaveNoteChanges}
+                    >
+                      {noteBusyKey === `save:${activeNote.id}` ? 'Saving…' : 'Save changes'}
+                    </button>
+                    <button
+                      className="ghost-button"
+                      disabled={noteBusyKey === `delete:${activeNote.id}`}
+                      type="button"
+                      onClick={handleDeleteNote}
+                    >
+                      {noteBusyKey === `delete:${activeNote.id}` ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              {notesMessage ? <p className="small-note">{notesMessage}</p> : null}
+              {!activeNote ? <p className="small-note">No active note yet.</p> : null}
+              {activeNote ? (
+                <div className="stack-gap recall-note-detail">
+                  <div className="recall-detail-grid">
+                    <div className="recall-detail-panel">
+                      <strong>Document</strong>
+                      <span>{getNoteDocumentTitle(activeNote, selectedDocument)}</span>
+                    </div>
+                    <div className="recall-detail-panel">
+                      <strong>Updated</strong>
+                      <span>{dateFormatter.format(new Date(activeNote.updated_at))}</span>
+                    </div>
+                    <div className="recall-detail-panel">
+                      <strong>Anchor range</strong>
+                      <span>
+                        Sentences {activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start}
+                        {' '}to{' '}
+                        {activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="recall-note-preview">
+                    <strong>Highlighted text</strong>
+                    <p>{activeNote.anchor.anchor_text}</p>
+                    <span>{activeNote.anchor.excerpt_text}</span>
+                  </div>
+
+                  <label className="field">
+                    <span>Note text</span>
+                    <textarea
+                      placeholder="Add context, a reminder, or a follow-up question"
+                      value={noteDraftBody}
+                      onChange={(event) => setNoteDraftBody(event.target.value)}
+                    />
+                  </label>
                 </div>
               ) : null}
             </section>
