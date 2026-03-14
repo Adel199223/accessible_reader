@@ -25,10 +25,15 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Windows Edge is the primary browser validation target.
 - Local TTS is deferred and should remain `coming soon`.
 - AI is opt-in only and limited to `Simplify` and `Summary`.
-- Stage 14 is the active milestone: Recall density and contextual Reader polish.
+- Stage 15 is complete: Library and Notes now use denser collection rails, tighter detail panels, and a repo-owned real Edge collection-density smoke harness.
+- Stage 16 is complete: Graph and Study now use denser review surfaces, evidence-first detail panels, and a repo-owned real Edge graph/study smoke harness.
+- Stage 17 is complete: the UX audit confirmed the next bottleneck is workspace continuity rather than another generic density pass.
+- Stage 18 is complete: Library, Notes, Graph, and Study continuity now survive Reader handoff, browser back, and search-backed landings, and the repo-owned real Edge continuity smoke is green.
+- Stage 19 is complete: the shared shell now surfaces current context and bounded recent work, and the repo-owned real Edge shell-context smoke is green.
+- Stage 20 is the active milestone: adaptive context compression and detail consolidation.
 - Future work should preserve local-first behavior, routes, note anchors, browser-companion handoff, and reading continuity, but should not preserve the current UI arrangement when a better Recall-quality workflow is available.
 - Treat the original Recall app as a directional benchmark for workflow and information hierarchy, not as a pixel-perfect copy target.
-- The current highest-priority UX gaps are reducing persistent shell chrome, making Reader context more useful at a glance, and tightening narrower-screen fallbacks without losing Stage 13's workflow gains.
+- The current highest-priority task is to keep that shell-level working-set visibility while reducing repeated context and reclaiming space, especially in Reader and Notes.
 
 ## Main Entry Points
 - Frontend shell: `frontend/src/App.tsx`
