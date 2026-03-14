@@ -5,7 +5,7 @@
     "BUILD_BRIEF.md",
     "docs/ROADMAP.md",
     "docs/ROADMAP_ANCHOR.md",
-    "docs/exec_plans/active/2026-03-14_stage11_portable_annotation_apply_and_manual_knowledge_promotion.md"
+    "docs/exec_plans/active/2026-03-14_stage14_recall_density_and_contextual_reader_polish.md"
   ],
   "bridges": [
     "agent.md",
@@ -21,7 +21,7 @@
         "BUILD_BRIEF.md",
         "docs/ROADMAP.md",
         "docs/ROADMAP_ANCHOR.md",
-        "docs/exec_plans/active/2026-03-14_stage11_portable_annotation_apply_and_manual_knowledge_promotion.md"
+        "docs/exec_plans/active/2026-03-14_stage14_recall_density_and_contextual_reader_polish.md"
       ],
       "validation_commands": [
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'",
@@ -64,6 +64,7 @@
     "speech_path": "Browser-native speechSynthesis is the shipped read-aloud path for v1.",
     "local_tts_status": "Local TTS remains deferred and should be described as coming soon unless the user reprioritizes it.",
     "ai_scope": "AI is opt-in only and limited to Simplify and Summary.",
+    "ux_priority": "Prefer the best Recall-quality workflow over preserving the current UI structure; preserve local-first behavior, routes, anchors, and reading continuity instead of freezing layout.",
     "validation_strategy": "Run targeted validation before broad checks; keep backend pytest targeted when backend code is untouched.",
     "push_policy": "Do not push unless the user explicitly asks.",
     "execplan_policy": "Major or multi-file work must start by creating or updating an ExecPlan in docs/exec_plans/active/."

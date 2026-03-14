@@ -25,7 +25,10 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Windows Edge is the primary browser validation target.
 - Local TTS is deferred and should remain `coming soon`.
 - AI is opt-in only and limited to `Simplify` and `Summary`.
-- Stage 11 is the active milestone: portable annotation apply and manual knowledge promotion.
+- Stage 14 is the active milestone: Recall density and contextual Reader polish.
+- Future work should preserve local-first behavior, routes, note anchors, browser-companion handoff, and reading continuity, but should not preserve the current UI arrangement when a better Recall-quality workflow is available.
+- Treat the original Recall app as a directional benchmark for workflow and information hierarchy, not as a pixel-perfect copy target.
+- The current highest-priority UX gaps are reducing persistent shell chrome, making Reader context more useful at a glance, and tightening narrower-screen fallbacks without losing Stage 13's workflow gains.
 
 ## Main Entry Points
 - Frontend shell: `frontend/src/App.tsx`
