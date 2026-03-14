@@ -1,6 +1,7 @@
 export type AppSection = 'recall' | 'reader'
 export type RecallSection = 'library' | 'graph' | 'study' | 'notes'
 export type RecallStudyFilter = 'all' | 'new' | 'due' | 'scheduled'
+export type SourceWorkspaceTab = 'overview' | 'reader' | 'notes' | 'graph' | 'study'
 export type WorkspaceSection = RecallSection | 'reader'
 
 export interface WorkspaceDockTarget {
@@ -48,6 +49,12 @@ export interface RecallWorkspaceFocusRequest {
 }
 
 export interface RecallWorkspaceContinuityState {
+  browseDrawers: {
+    graph: boolean
+    library: boolean
+    notes: boolean
+    study: boolean
+  }
   graph: {
     selectedNodeId: string | null
   }
@@ -64,6 +71,10 @@ export interface RecallWorkspaceContinuityState {
     activeCardId: string | null
     filter: RecallStudyFilter
   }
+  sourceWorkspace: {
+    activeDocumentId: string | null
+    activeTab: SourceWorkspaceTab
+  }
 }
 
 export interface AppRoute {
@@ -74,6 +85,12 @@ export interface AppRoute {
 }
 
 export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuityState = {
+  browseDrawers: {
+    graph: true,
+    library: true,
+    notes: true,
+    study: true,
+  },
   graph: {
     selectedNodeId: null,
   },
@@ -89,6 +106,10 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
   study: {
     activeCardId: null,
     filter: 'all',
+  },
+  sourceWorkspace: {
+    activeDocumentId: null,
+    activeTab: 'overview',
   },
 }
 

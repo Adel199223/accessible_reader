@@ -130,17 +130,54 @@ Keep this repository as one local-first workspace.
   - recent work now supports bounded quick returns into the correct section/detail target without wiping continuity
   - targeted frontend validation plus a repo-owned real Edge current-context smoke are green
   - the next slice is now adaptive context compression so the shell keeps the Stage 19 visibility gains without repeating too much local detail
+- Stage 20 adaptive context compression and detail consolidation is complete:
+  - the shared dock now compresses by section, Reader no longer repeats a dedicated current-source block, and Notes detail keeps lighter metadata without losing the note/edit/promotion flow
+  - targeted frontend validation plus a repo-owned real Edge context-compression smoke are green
+- Stage 21 post-Stage-20 Recall UX refresh is complete:
+  - the audit confirmed the next bottleneck is duplicated and sessionless search rather than another generic shell pass
+  - the next slice is now unified workspace-search continuity and result handoffs
+- Stage 22 unified workspace search continuity and result handoffs is complete:
+  - the shell Search dialog and the Library search panel now share one remembered workspace-search session
+  - query, grouped results, and focused-result context now survive dialog close/reopen, Notes handoff, anchored Reader reopen, and return to Library during the same session
+  - Library no longer keeps a disconnected retrieval-only search path; search is now selection-first with explicit focused-result actions
+  - frontend validation plus a repo-owned real Edge search-continuity smoke harness are green
+- Stage 23 post-Stage-22 Recall UX refresh is complete:
+  - the audit confirmed search continuity is no longer the primary workflow break
+  - the highest-friction remaining gap is that saved-note editing and promotion still sit too far away from active reading
+  - the next slice is now a Reader notebook-adjacency correction instead of another generic shell or search pass
+- Stage 24 Reader notebook adjacency and in-place note workflows is complete:
+  - Reader now keeps selected saved-note editing, deletion, Graph promotion, and Study promotion beside the source
+  - saved notes stay focused in Reader after capture and when reopened from `Notes` or shared search
+  - targeted frontend validation plus a repo-owned real Edge notebook-adjacency smoke are green
+  - the next slice is now a fresh UX audit so the following milestone is chosen from the live post-Stage-24 workspace instead of from older note-distance assumptions
+- Stage 25 post-Stage-24 Recall UX refresh is complete:
+  - the audit confirmed Reader notebook adjacency fixed the previous note-distance bottleneck
+  - the next highest-friction break is that one source still gets split across Library, Reader, Notes, Graph, and Study instead of feeling like one source-centered Recall workspace
+  - the next slice is now a source-centered detail and tabbed-handoff correction rather than another section-local polish pass
+- Stage 26 source-centered workspace detail and tabbed handoffs is complete:
+  - one selected source now keeps a shared source-workspace frame with nearby `Overview`, `Reader`, `Notes`, `Graph`, and `Study` handoffs across Recall and Reader
+  - `/reader` deep links stay stable while acting as a compatibility entry into the shared source-focused workflow
+  - the live Edge smoke exposed and fixed a real continuity bug where stale Graph or Study detail could override the active source during source-tab handoff
+  - targeted frontend validation plus a repo-owned real Edge source-workspace smoke are green
+- Stage 27 post-Stage-26 Recall UX refresh is complete:
+  - the audit confirmed source identity is no longer the main problem
+  - the largest remaining friction is that source tabs still land inside section-first layouts with duplicated detail panels and always-visible collection rails
+  - the next slice is now a true shared source-pane and contextual collection-drawer correction instead of more handoff-only polish
+- Stage 28 shared source panes and contextual collection drawers is complete:
+  - `Overview` now acts as a real source summary surface with nearby saved-note, graph, and study context plus direct next actions
+  - source-focused landings now collapse Library, Notes, Graph, and Study browsing into lighter contextual drawers while manual section clicks still reopen full browse mode
+  - targeted frontend validation plus a repo-owned real Edge shared-source-pane smoke are green
 
 ## Active Milestone
 
-1. Stage 20: Adaptive Context Compression and Detail Consolidation
-   - keep the new current-context and recent-work shell visible while reducing redundant metadata and repeated context
-   - reclaim space and improve scan speed, especially in Reader and Notes, without losing Stage 18 and 19 continuity behavior
+1. Stage 29: Post-Stage-28 Recall UX Refresh
+   - reassess the live workspace after the shared source-pane and contextual drawer correction
+   - choose the next bounded milestone from the current product state and Recall benchmark
 
 ## Next Milestone
 
-1. Post-Stage-20 follow-up to be defined after the adaptive-compression correction lands
-   - use Stage 20 outcomes to choose the next bounded slice without reopening deferred systems by default
+1. Stage 29: Post-Stage-28 Recall UX Refresh
+   - confirm the highest-friction remaining workflow break after Stage 28 before widening scope again
 
 ## Stage Map
 
@@ -211,6 +248,33 @@ Keep this repository as one local-first workspace.
 20. Stage 20: Adaptive Context Compression and Detail Consolidation
    - compress repeated shell and section context now that current context and recent work are visible
    - keep orientation strong while reducing duplication and reclaiming working space
+21. Stage 21: Post-Stage-20 Recall UX Refresh
+   - reassess the live workspace after the Stage 20 compression pass
+   - choose the next bounded milestone from current artifacts and the original Recall benchmark
+22. Stage 22: Unified Workspace Search Continuity and Result Handoffs
+   - unify workspace search into one continuity-aware surface
+   - preserve result context while moving between Recall sections and Reader
+23. Stage 23: Post-Stage-22 Recall UX Refresh
+   - reassess the live workspace after the shared-search continuity correction
+   - choose the next bounded milestone from the current product state and the Recall benchmark
+24. Stage 24: Reader Notebook Adjacency and In-Place Note Workflows
+   - make saved-note work adjacent to reading instead of forcing routine jumps into the standalone `Notes` section
+   - keep note editing, promotion, and anchored reopen continuity close to the source
+25. Stage 25: Post-Stage-24 Recall UX Refresh
+   - reassess the live workspace after the Reader notebook-adjacency correction
+   - choose the next bounded milestone from the current product state and Recall benchmark
+26. Stage 26: Source-Centered Workspace Detail and Tabbed Handoffs
+   - make a selected source feel like one shared Recall workspace instead of a set of disconnected section detail panes
+   - keep adjacent Reader, notes, graph, and study transitions close to the active source
+27. Stage 27: Post-Stage-26 Recall UX Refresh
+   - reassess the live workspace after the source-centered handoff correction
+   - choose the next bounded milestone from the current product state and Recall benchmark
+28. Stage 28: Shared Source Panes and Contextual Collection Drawers
+   - make one source feel like the primary working surface with shared panes instead of repeated section-local detail cards
+   - keep collection browsing available but secondary during source-focused work
+29. Stage 29: Post-Stage-28 Recall UX Refresh
+   - reassess the live workspace after the shared source-pane and contextual drawer correction
+   - choose the next bounded milestone from the current product state and Recall benchmark
 
 ## Deferred Follow-Ups
 
@@ -252,3 +316,12 @@ Keep this repository as one local-first workspace.
 - 2026-03-14: completed the Stage 17 UX refresh audit using the existing Stage 13-16 live artifacts, current shell/state architecture, the product brief, and the original Recall workflow benchmark, then opened Stage 18 to fix continuity and navigation memory instead of widening scope prematurely
 - 2026-03-14: completed Stage 18 with app-level workspace continuity for Library, Notes, Graph, and Study, a repo-owned real Edge continuity smoke harness, and preserved section context across Reader handoff, browser-back flows, and search-backed landings, then opened Stage 19 to surface current context and recent-work switching in the shared Recall shell
 - 2026-03-14: completed Stage 19 with a shared current-context dock, bounded recent-work switching, targeted frontend coverage, and a repo-owned real Edge shell-context smoke harness, then opened Stage 20 to compress redundant shell/detail context now that the right working-set information is visible
+- 2026-03-14: completed Stage 20 with a section-aware shell dock compression pass, lighter Reader and Notes detail context, targeted frontend coverage, and a repo-owned real Edge context-compression smoke harness, then opened Stage 21 to reassess the live workspace before picking the next bounded implementation slice
+- 2026-03-14: completed the Stage 21 UX refresh audit, identified duplicated and sessionless search as the highest-friction remaining workflow break, and opened Stage 22 to unify workspace search continuity before another shell or feature pass
+- 2026-03-14: completed Stage 22 with one shared workspace-search session across the shell dialog and Library panel, selection-first focused-result actions, targeted frontend validation, and a repo-owned real Edge search-continuity smoke harness, then opened Stage 23 for a fresh post-search UX audit
+- 2026-03-14: completed the Stage 23 UX refresh audit using the live post-search workspace, current shell/state architecture, the product brief, and current Recall benchmark material, then opened Stage 24 to bring saved-note work closer to Reader instead of widening search or shell scope again
+- 2026-03-14: completed Stage 24 with a Reader notebook-style note workbench, in-place note editing and promotion, targeted frontend validation, and a repo-owned real Edge notebook-adjacency smoke harness, then opened Stage 25 for a fresh post-Stage-24 UX audit
+- 2026-03-14: completed the Stage 25 UX refresh audit using the live post-Stage-24 workspace, current shell/state architecture, official Recall benchmark material, and current artifacts, then opened Stage 26 to unify source-focused work inside a source-centered detail frame instead of continuing section-local polish
+- 2026-03-14: completed Stage 26 with a shared source-workspace frame across Recall and Reader, source-tab handoffs for `Overview`/`Reader`/`Notes`/`Graph`/`Study`, a continuity fix so stale Graph or Study detail no longer overrides the active source during source-focused transitions, targeted frontend validation, and a repo-owned real Edge source-workspace smoke harness
+- 2026-03-14: completed the Stage 27 UX refresh audit using the live post-Stage-26 artifacts, the product brief, and current Recall docs/changelog direction, then opened Stage 28 to consolidate source tab content into a true shared source-pane system with lighter contextual collection browsing
+- 2026-03-14: completed Stage 28 with a stronger source `Overview`, lighter contextual browse drawers for Library/Notes/Graph/Study during source-focused work, targeted frontend validation, and a repo-owned real Edge shared-source-pane smoke harness, then opened Stage 29 for a fresh post-Stage-28 UX audit

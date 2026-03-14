@@ -53,3 +53,17 @@
 ## Notes
 - This is a UX refinement slice that follows directly from the Stage 19 artifacts.
 - The goal is not to remove the dock, but to make the shell feel lighter and more precise now that the right information is finally visible.
+
+## Closeout
+- Completed on 2026-03-14.
+- Delivered:
+  - a section-aware shell dock that now compresses more aggressively in Reader and Notes while keeping current-context actions and recent-work switching visible
+  - a lighter Reader sidecar that no longer repeats a dedicated current-source summary block now that the shell already carries that context
+  - a lighter Notes detail surface that replaces the old repeated metadata grid with compact chips, keeps the anchor preview and note editor primary, and moves promotion controls behind the actual note work
+  - targeted frontend regression coverage that protects the compressed dock, lighter Reader sidecar, and condensed Notes detail behavior
+  - a repo-owned real Edge context-compression smoke harness covering Reader note capture, dock compression, condensed Notes detail, and anchored Reader reopen
+- Validation:
+  - `frontend npm test -- --run`
+  - `frontend npm run lint`
+  - `frontend npm run build`
+  - real Edge smoke: `scripts/playwright/stage20_context_compression_edge.mjs`

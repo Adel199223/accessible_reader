@@ -156,7 +156,24 @@ As of 2026-03-14, this workspace includes:
 - Stage 17 is complete after the UX audit and next-slice decision landed.
 - Stage 18 is complete after the workspace continuity correction landed.
 - Stage 19 is complete after the shared shell dock and recent-work correction landed.
-- Stage 20 adaptive context compression and detail consolidation is now the active milestone.
+- Stage 20 is complete after the adaptive shell compression and detail-consolidation correction landed.
+- Stage 21 is complete after the post-Stage-20 UX audit landed.
+- Stage 22 is complete after the unified workspace-search continuity correction landed.
+- Stage 23 is complete after the post-search UX audit identified note adjacency as the next workflow bottleneck.
+- Stage 24 is complete after the Reader notebook-adjacency correction landed.
+- Stage 25 is complete after the post-Stage-24 UX audit identified source fragmentation as the next workflow bottleneck.
+- Stage 26 source-centered workspace detail and tabbed handoffs is complete:
+  - Recall and Reader now share a source-workspace frame with nearby `Overview`, `Reader`, `Notes`, `Graph`, and `Study` handoffs
+  - source-focused transitions now preserve the active source instead of letting stale Graph or Study detail override it
+  - targeted frontend validation plus a repo-owned real Edge source-workspace smoke are green
+- Stage 27 post-Stage-26 Recall UX refresh is complete:
+  - the audit confirmed the remaining bottleneck is not source identity, but that source tabs still land inside section-first layouts with duplicated detail panels and always-visible collection rails
+  - the next slice is now shared source-pane consolidation with lighter contextual browsing
+- Stage 28 shared source panes and contextual collection drawers is complete:
+  - `Overview` now acts as a real source summary surface with nearby saved-note, graph, and study context plus direct next actions
+  - source-focused landings now collapse Library, Notes, Graph, and Study browsing into lighter contextual drawers while manual section clicks still reopen full browse mode
+  - targeted frontend validation plus a repo-owned real Edge shared-source-pane smoke are green
+- Stage 29 post-Stage-28 Recall UX refresh is now the active milestone.
 
 ## Recent Detours
 
@@ -186,14 +203,23 @@ As of 2026-03-14, this workspace includes:
 - 2026-03-14: completed the Stage 17 UX refresh audit using the existing Stage 13-16 live artifacts, current shell/state architecture, the product brief, and the original Recall workflow benchmark, then opened Stage 18 to repair workspace continuity and navigation memory before adding more surface area
 - 2026-03-14: completed Stage 18 with app-level workspace continuity for Library, Notes, Graph, and Study plus a repo-owned real Edge continuity smoke harness, then opened Stage 19 to make the remembered working set visible and faster to revisit through a shared current-context dock and recent-work switching
 - 2026-03-14: completed Stage 19 with a shared shell current-context dock, bounded recent-work switching, targeted frontend coverage, and a repo-owned real Edge current-context smoke harness, then opened Stage 20 to compress duplicated shell and section context now that visibility is in place
+- 2026-03-14: completed Stage 20 with a section-aware shell dock compression pass, lighter Reader sidecar and Notes detail context, targeted frontend coverage, and a repo-owned real Edge context-compression smoke harness, then opened Stage 21 to reassess the live workspace before choosing the next bounded slice
+- 2026-03-14: completed the Stage 21 UX refresh audit using the current shell/state architecture, the live Stage 13-20 artifacts, the product brief, and the Recall benchmark, then opened Stage 22 to unify workspace search continuity and result/detail handoffs before another shell or feature pass
+- 2026-03-14: completed Stage 22 with one shared workspace-search session across the shell dialog and Library panel, selection-first focused-result actions, targeted frontend validation, and a repo-owned real Edge search-continuity smoke harness, then opened Stage 23 for a fresh post-search UX audit
+- 2026-03-14: completed the Stage 23 UX refresh audit using the live post-search workspace, current shell/state architecture, the product brief, and current Recall benchmark material, then opened Stage 24 to pull saved-note work closer to Reader through notebook-style adjacency instead of widening search or shell scope again
+- 2026-03-14: completed Stage 24 with a Reader notebook-style note workbench, in-place note editing and promotion, targeted frontend validation, and a repo-owned real Edge notebook-adjacency smoke harness, then opened Stage 25 for a fresh post-Stage-24 UX audit
+- 2026-03-14: completed the Stage 25 UX refresh audit using the live post-Stage-24 workspace, current shell/state architecture, the product brief, and official Recall benchmark material, then opened Stage 26 to consolidate source-focused work into a source-centered detail frame with nearby tabbed handoffs
+- 2026-03-14: completed Stage 26 with a shared source-workspace frame across Recall and Reader, source-tab handoffs for `Overview`/`Reader`/`Notes`/`Graph`/`Study`, a continuity fix so stale Graph or Study detail no longer overrides the active source, targeted frontend validation, and a repo-owned real Edge source-workspace smoke harness, then opened Stage 27 for a fresh post-Stage-26 UX audit
+- 2026-03-14: completed the Stage 27 UX refresh audit using the live post-Stage-26 artifacts, the product brief, and current Recall docs/changelog direction, then opened Stage 28 to turn source tabs into a true shared source-pane system with lighter contextual collection browsing
+- 2026-03-14: completed Stage 28 with a stronger source `Overview`, lighter contextual browse drawers for Library/Notes/Graph/Study during source-focused work, targeted frontend validation, and a repo-owned real Edge shared-source-pane smoke harness, then opened Stage 29 for a fresh post-Stage-28 UX audit
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Open the active Stage 20 ExecPlan in `docs/exec_plans/active/`.
+3. Open the active Stage 29 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while making the shared shell lighter and less repetitive.
-7. Implement Stage 20 without reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems by default.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while choosing the next milestone from the current post-search product state.
+7. Use the Stage 29 plan to audit the post-Stage-28 workspace before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

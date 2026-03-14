@@ -80,6 +80,7 @@ export function RecallShellFrame({
           </div>
 
           <WorkspaceContextDock
+            activeSection={activeSection}
             compact={compactShell}
             currentContext={currentContext}
             onActivateTarget={onActivateTarget}

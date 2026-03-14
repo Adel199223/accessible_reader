@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useDeferredValue, useEffect, useRef, useState, type CSSProperties } from 'react'
 
 import {
+  fetchDocuments,
   fetchHealth,
   fetchSettings,
   importFileDocument,
   importTextDocument,
   importUrlDocument,
+  retrieveRecall,
   saveSettings,
+  searchRecallNotes,
 } from './api'
 import { ImportPanel } from './components/ImportPanel'
 import { RecallShellFrame } from './components/RecallShellFrame'
@@ -20,6 +23,7 @@ import {
   parseAppRoute,
   type AppRoute,
   type AppSection,
+  type SourceWorkspaceTab,
   type WorkspaceDockContext,
   type WorkspaceDockTarget,
   type WorkspaceRecentItem,
@@ -29,6 +33,11 @@ import {
   type WorkspaceSection,
 } from './lib/appRoute'
 import { defaultReaderSettings, fontPresetToStack } from './lib/readerTheme'
+import {
+  defaultWorkspaceSearchSessionState,
+  getWorkspaceSearchResultKeys,
+  type WorkspaceSearchSessionState,
+} from './lib/workspaceSearch'
 import type { HealthResponse, ReaderSettings } from './types'
 import type { WorkspaceHeroProps } from './components/WorkspaceHero'
 
@@ -58,6 +67,20 @@ const defaultShellHero: WorkspaceHeroProps = {
   ],
 }
 
+function mapWorkspaceSectionToSourceTab(section: WorkspaceSection): SourceWorkspaceTab {
+  if (section === 'library') {
+    return 'overview'
+  }
+  return section
+}
+
+function mapRecallSectionToSourceTab(section: RecallSection): SourceWorkspaceTab {
+  if (section === 'library') {
+    return 'overview'
+  }
+  return section
+}
+
 
 export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseAppRoute(window.location))
@@ -73,11 +96,14 @@ export default function App() {
   const [addSourceBusy, setAddSourceBusy] = useState(false)
   const [addSourceError, setAddSourceError] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [searchSessionToken, setSearchSessionToken] = useState(0)
+  const [workspaceSearchSession, setWorkspaceSearchSession] = useState<WorkspaceSearchSessionState>(
+    defaultWorkspaceSearchSessionState,
+  )
   const [recallFocusRequest, setRecallFocusRequest] = useState<RecallWorkspaceFocusRequest | null>(null)
   const [shellContext, setShellContext] = useState<WorkspaceDockContext | null>(null)
   const [recentItems, setRecentItems] = useState<WorkspaceRecentItem[]>([])
   const lastRecentItemKeyRef = useRef<string | null>(null)
+  const deferredWorkspaceSearchQuery = useDeferredValue(workspaceSearchSession.query)
 
   useEffect(() => {
     syncRouteFromLocation(setRoute)
@@ -113,11 +139,24 @@ export default function App() {
   }, [settings, settingsLoaded])
 
   useEffect(() => {
+    if (route.path !== 'reader' || !route.documentId) {
+      return
+    }
+    setRecallContinuityState((current) => ({
+      ...current,
+      sourceWorkspace: {
+        ...current.sourceWorkspace,
+        activeDocumentId: route.documentId,
+        activeTab: 'reader',
+      },
+    }))
+  }, [route.documentId, route.path])
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         if (!searchOpen) {
-          setSearchSessionToken((current) => current + 1)
           setSearchOpen(true)
         }
       }
@@ -146,7 +185,19 @@ export default function App() {
   }
 
   function openRecallSection(section: RecallSection, options?: Omit<RecallWorkspaceFocusRequest, 'section' | 'token'>) {
+    const hasFocusedTarget = Boolean(options?.documentId || options?.noteId || options?.nodeId || options?.cardId)
     setActiveRecallSection(section)
+    setRecallContinuityState((current) => ({
+      ...current,
+      browseDrawers: {
+        ...current.browseDrawers,
+        [section]: !hasFocusedTarget,
+      },
+      sourceWorkspace: {
+        activeDocumentId: options?.documentId ?? current.sourceWorkspace.activeDocumentId,
+        activeTab: mapRecallSectionToSourceTab(section),
+      },
+    }))
     setRecallFocusRequest({
       section,
       token: Date.now(),
@@ -167,9 +218,24 @@ export default function App() {
 
   function handleOpenSearch() {
     if (!searchOpen) {
-      setSearchSessionToken((current) => current + 1)
       setSearchOpen(true)
     }
+  }
+
+  function handleWorkspaceSearchQueryChange(query: string) {
+    setWorkspaceSearchSession((current) => ({
+      ...current,
+      error: null,
+      loading: Boolean(query.trim()) || (!query.trim() && searchOpen),
+      query,
+    }))
+  }
+
+  function handleSelectWorkspaceSearchResult(resultKey: string) {
+    setWorkspaceSearchSession((current) => ({
+      ...current,
+      selectedResultKey: resultKey,
+    }))
   }
 
   async function handleImportText(title: string, text: string) {
@@ -220,10 +286,35 @@ export default function App() {
 
   function handleSelectWorkspaceSection(section: WorkspaceSection) {
     if (section === 'reader') {
+      const activeSourceDocumentId =
+        recallContinuityState.sourceWorkspace.activeDocumentId ?? route.documentId ?? recallContinuityState.library.selectedDocumentId
+      if (activeSourceDocumentId) {
+        setRecallContinuityState((current) => ({
+          ...current,
+          sourceWorkspace: {
+            ...current.sourceWorkspace,
+            activeDocumentId: activeSourceDocumentId,
+            activeTab: 'reader',
+          },
+        }))
+        navigate('reader', activeSourceDocumentId)
+        return
+      }
       navigate('reader')
       return
     }
     setActiveRecallSection(section)
+    setRecallContinuityState((current) => ({
+      ...current,
+      browseDrawers: {
+        ...current.browseDrawers,
+        [section]: true,
+      },
+      sourceWorkspace: {
+        ...current.sourceWorkspace,
+        activeTab: mapWorkspaceSectionToSourceTab(section),
+      },
+    }))
     if (route.path !== 'recall') {
       navigate('recall')
     }
@@ -262,6 +353,134 @@ export default function App() {
   }, [shellContext])
 
   const activeWorkspaceSection: WorkspaceSection = route.path === 'reader' ? 'reader' : activeRecallSection
+  const searchSurfaceVisible = searchOpen || (route.path === 'recall' && activeRecallSection === 'library')
+
+  useEffect(() => {
+    const trimmedQuery = deferredWorkspaceSearchQuery.trim()
+    if (!trimmedQuery) {
+      if (!searchOpen) {
+        setWorkspaceSearchSession((current) => ({
+          ...current,
+          error: null,
+          hits: [],
+          loading: false,
+          notes: [],
+          sourceResults: [],
+        }))
+        return
+      }
+
+      let active = true
+      setWorkspaceSearchSession((current) => ({
+        ...current,
+        error: null,
+        loading: true,
+      }))
+
+      void fetchDocuments('')
+        .then((documents) => {
+          if (!active) {
+            return
+          }
+          setWorkspaceSearchSession((current) => ({
+            ...current,
+            error: null,
+            hits: [],
+            loading: false,
+            notes: [],
+            recentDocuments: documents.slice(0, 8),
+            sourceResults: [],
+          }))
+        })
+        .catch((loadError) => {
+          if (!active) {
+            return
+          }
+          setWorkspaceSearchSession((current) => ({
+            ...current,
+            error: loadError instanceof Error ? loadError.message : 'Could not load recent sources.',
+            hits: [],
+            loading: false,
+            notes: [],
+            recentDocuments: [],
+            sourceResults: [],
+          }))
+        })
+
+      return () => {
+        active = false
+      }
+    }
+
+    if (!searchSurfaceVisible) {
+      return
+    }
+
+    let active = true
+    setWorkspaceSearchSession((current) => ({
+      ...current,
+      error: null,
+      loading: true,
+    }))
+
+    void Promise.all([
+      fetchDocuments(trimmedQuery),
+      searchRecallNotes(trimmedQuery, 8, null),
+      retrieveRecall(trimmedQuery, 8),
+    ])
+      .then(([sourceResults, notes, hits]) => {
+        if (!active) {
+          return
+        }
+        setWorkspaceSearchSession((current) => ({
+          ...current,
+          error: null,
+          hits,
+          loading: false,
+          notes,
+          sourceResults: sourceResults.slice(0, 8),
+        }))
+      })
+      .catch((loadError) => {
+        if (!active) {
+          return
+        }
+        setWorkspaceSearchSession((current) => ({
+          ...current,
+          error: loadError instanceof Error ? loadError.message : 'Could not search your workspace yet.',
+          hits: [],
+          loading: false,
+          notes: [],
+          sourceResults: [],
+        }))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [deferredWorkspaceSearchQuery, searchOpen, searchSurfaceVisible])
+
+  useEffect(() => {
+    const activeKeys = getWorkspaceSearchResultKeys(workspaceSearchSession, {
+      includeRecentDocuments: searchOpen && !workspaceSearchSession.query.trim(),
+    })
+    if (!activeKeys.length) {
+      if (workspaceSearchSession.selectedResultKey !== null) {
+        setWorkspaceSearchSession((current) => ({
+          ...current,
+          selectedResultKey: null,
+        }))
+      }
+      return
+    }
+
+    if (!workspaceSearchSession.selectedResultKey || !activeKeys.includes(workspaceSearchSession.selectedResultKey)) {
+      setWorkspaceSearchSession((current) => ({
+        ...current,
+        selectedResultKey: activeKeys[0],
+      }))
+    }
+  }, [searchOpen, workspaceSearchSession])
 
   return (
     <div
@@ -295,19 +514,25 @@ export default function App() {
             continuityState={recallContinuityState}
             focusRequest={recallFocusRequest}
             onContinuityStateChange={setRecallContinuityState}
+            onSearchQueryChange={handleWorkspaceSearchQueryChange}
             onShellContextChange={setShellContext}
-            section={activeRecallSection}
+            onSelectSearchResult={handleSelectWorkspaceSearchResult}
             onSectionChange={setActiveRecallSection}
             onShellHeroChange={setShellHero}
             onOpenReader={(documentId, options) => navigate('reader', documentId, options)}
+            searchSession={workspaceSearchSession}
+            section={activeRecallSection}
           />
         ) : (
           <ReaderWorkspace
             key={`reader-${route.documentId ?? 'session'}-${route.sentenceStart ?? 'none'}-${route.sentenceEnd ?? 'none'}`}
             health={health}
+            onOpenRecallGraph={(documentId) => openRecallSection('graph', { documentId })}
+            onOpenRecallLibrary={(documentId) => openRecallSection('library', { documentId })}
             onShellHeroChange={setShellHero}
             onShellContextChange={setShellContext}
             onOpenRecallNotes={(documentId, noteId) => openRecallSection('notes', { documentId, noteId })}
+            onOpenRecallStudy={(documentId) => openRecallSection('study', { documentId })}
             onRequestNewSource={handleRequestNewSource}
             routeDocumentId={route.documentId}
             routeSentenceEnd={route.sentenceEnd}
@@ -343,13 +568,15 @@ export default function App() {
         />
       </WorkspaceDialogFrame>
       <WorkspaceSearchDialog
-        key={`workspace-search-${searchSessionToken}`}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onOpenGraph={(nodeId) => openRecallSection('graph', { nodeId })}
         onOpenNote={(documentId, noteId) => openRecallSection('notes', { documentId, noteId })}
         onOpenReader={(documentId, options) => navigate('reader', documentId, options)}
         onOpenStudy={(cardId) => openRecallSection('study', { cardId })}
+        onQueryChange={handleWorkspaceSearchQueryChange}
+        onSelectResult={handleSelectWorkspaceSearchResult}
+        searchSession={workspaceSearchSession}
       />
     </div>
   )

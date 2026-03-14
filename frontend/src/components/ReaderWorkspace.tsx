@@ -12,18 +12,24 @@ import {
 
 import {
   createRecallNote,
+  deleteRecallNote,
   deleteDocumentRecord,
   fetchDocumentView,
   fetchDocuments,
   fetchRecallNotes,
   generateDocumentView,
+  promoteRecallNoteToGraphNode,
+  promoteRecallNoteToStudyCard,
   saveProgress,
+  updateRecallNote,
 } from '../api'
 import type {
   DocumentRecord,
   DocumentView,
   HealthResponse,
+  RecallNoteGraphPromotionRequest,
   RecallNoteRecord,
+  RecallNoteStudyPromotionRequest,
   ReaderSettings,
   SummaryDetail,
   ViewMode,
@@ -33,6 +39,7 @@ import { ControlsOverflow } from './ControlsOverflow'
 import { LibraryPane } from './LibraryPane'
 import { ReaderSurface } from './ReaderSurface'
 import { SettingsPanel } from './SettingsPanel'
+import { SourceWorkspaceFrame } from './SourceWorkspaceFrame'
 import { useSpeech } from '../hooks/useSpeech'
 import type { WorkspaceDockContext } from '../lib/appRoute'
 import { loadReaderSession, resolveReaderSession, saveReaderSession } from '../lib/readerSession'
@@ -41,7 +48,10 @@ import { buildRenderableBlocks, type RenderSentence, type RenderableBlock } from
 
 interface ReaderWorkspaceProps {
   health: HealthResponse | null
+  onOpenRecallGraph: (documentId: string) => void
+  onOpenRecallLibrary: (documentId: string) => void
   onOpenRecallNotes: (documentId: string, noteId?: string | null) => void
+  onOpenRecallStudy: (documentId: string) => void
   onRequestNewSource: () => void
   onShellContextChange: (context: WorkspaceDockContext | null) => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
@@ -224,6 +234,34 @@ function normalizeNoteBody(bodyText: string) {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function upsertNoteRecord(notes: RecallNoteRecord[], updatedNote: RecallNoteRecord) {
+  return notes.map((note) => (note.id === updatedNote.id ? updatedNote : note))
+}
+
+function removeNoteRecord(notes: RecallNoteRecord[], noteId: string) {
+  return notes.filter((note) => note.id !== noteId)
+}
+
+function findMatchingNoteByRange(notes: RecallNoteRecord[], range: SentenceRange | null) {
+  if (!range) {
+    return null
+  }
+  return (
+    notes.find((note) => {
+      const start = note.anchor.global_sentence_start ?? note.anchor.sentence_start
+      const end = note.anchor.global_sentence_end ?? note.anchor.sentence_end
+      return start === range.start && end === range.end
+    }) ?? null
+  )
+}
+
+function buildInitialNoteStudyDraft(note: RecallNoteRecord | null): RecallNoteStudyPromotionRequest {
+  return {
+    prompt: note?.body_text?.trim() || 'What should you remember from this note?',
+    answer: note?.anchor.anchor_text ?? '',
+  }
+}
+
 function buildNoteSelection(
   sentence: RenderSentence,
   block: RenderableBlock | undefined,
@@ -272,7 +310,10 @@ function findRenderableBlock(blocks: RenderableBlock[], blockId: string) {
 
 export function ReaderWorkspace({
   health,
+  onOpenRecallGraph,
+  onOpenRecallLibrary,
   onOpenRecallNotes,
+  onOpenRecallStudy,
   onRequestNewSource,
   onShellContextChange,
   onShellHeroChange,
@@ -313,6 +354,18 @@ export function ReaderWorkspace({
   const [noteSelection, setNoteSelection] = useState<NoteSelection | null>(null)
   const [noteDraftBody, setNoteDraftBody] = useState('')
   const [noteSaveBusy, setNoteSaveBusy] = useState(false)
+  const [selectedReaderNoteId, setSelectedReaderNoteId] = useState<string | null>(null)
+  const [selectedReaderNoteDraftBody, setSelectedReaderNoteDraftBody] = useState('')
+  const [notePromotionMode, setNotePromotionMode] = useState<'graph' | 'study' | null>(null)
+  const [noteGraphDraft, setNoteGraphDraft] = useState<RecallNoteGraphPromotionRequest>({
+    label: '',
+    description: '',
+  })
+  const [noteStudyDraft, setNoteStudyDraft] = useState<RecallNoteStudyPromotionRequest>({
+    prompt: 'What should you remember from this note?',
+    answer: '',
+  })
+  const [noteBusyKey, setNoteBusyKey] = useState<string | null>(null)
   const [noteMessage, setNoteMessage] = useState<string | null>(null)
   const [readerContextTab, setReaderContextTab] = useState<'source' | 'notes'>(() =>
     routeSentenceStart !== null ? 'notes' : 'source',
@@ -327,6 +380,7 @@ export function ReaderWorkspace({
   )
   const deferredSearch = useDeferredValue(search)
   const pendingRouteAnchorScrollRef = useRef(Boolean(routeSentenceStart !== null))
+  const handledRouteAnchorNoteKeyRef = useRef<string | null>(null)
 
   async function loadDocuments(
     nextQuery = deferredSearch,
@@ -468,15 +522,23 @@ export function ReaderWorkspace({
     () => (canAnnotateCurrentView ? buildSentenceRangeSet(routeAnchorRange) : new Set<number>()),
     [canAnnotateCurrentView, routeAnchorRange],
   )
-  const dateFormatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat(undefined, {
-        day: 'numeric',
-        month: 'short',
-      }),
-    [],
-  )
+  const activeReaderNote =
+    notes.find((note) => note.id === selectedReaderNoteId) ??
+    findMatchingNoteByRange(notes, routeAnchorRange) ??
+    notes[0] ??
+    null
   const currentModeOption = viewModeOptions.find((option) => option.mode === activeMode)
+  const sourceWorkspaceCounts = selectedDocument
+    ? [
+        {
+          label: notes.length === 1 ? '1 saved note' : `${notes.length} saved notes`,
+        },
+        {
+          label: currentModeOption?.label ? `${currentModeOption.label} view` : 'Reader view',
+          tone: 'muted' as const,
+        },
+      ]
+    : []
 
   useEffect(() => {
     if (!selectedDocument) {
@@ -503,6 +565,50 @@ export function ReaderWorkspace({
   useEffect(() => {
     setNoteMessage(null)
   }, [activeDocumentId, activeMode])
+
+  useEffect(() => {
+    handledRouteAnchorNoteKeyRef.current = null
+  }, [activeDocumentId])
+
+  useEffect(() => {
+    if (!routeAnchorRange) {
+      handledRouteAnchorNoteKeyRef.current = null
+      return
+    }
+    const routeAnchorKey = `${routeAnchorRange.start}:${routeAnchorRange.end}`
+    if (handledRouteAnchorNoteKeyRef.current === routeAnchorKey) {
+      return
+    }
+    const matchingNote = findMatchingNoteByRange(notes, routeAnchorRange)
+    if (!matchingNote) {
+      return
+    }
+    handledRouteAnchorNoteKeyRef.current = routeAnchorKey
+    setSelectedReaderNoteId(matchingNote.id)
+  }, [notes, routeAnchorRange])
+
+  useEffect(() => {
+    if (noteCaptureActive) {
+      return
+    }
+    if (selectedReaderNoteId && notes.some((note) => note.id === selectedReaderNoteId)) {
+      return
+    }
+    const nextNoteId = notes[0]?.id ?? null
+    if (nextNoteId !== selectedReaderNoteId) {
+      setSelectedReaderNoteId(nextNoteId)
+    }
+  }, [noteCaptureActive, notes, selectedReaderNoteId])
+
+  useEffect(() => {
+    setSelectedReaderNoteDraftBody(activeReaderNote?.body_text ?? '')
+    setNotePromotionMode(null)
+    setNoteGraphDraft({
+      label: '',
+      description: '',
+    })
+    setNoteStudyDraft(buildInitialNoteStudyDraft(activeReaderNote))
+  }, [activeReaderNote])
 
   const speech = useSpeech({
     sentences: flatSentences,
@@ -677,6 +783,7 @@ export function ReaderWorkspace({
     setRouteAnchorRange(null)
     setNoteMessage(null)
     setNotesError(null)
+    setNotePromotionMode(null)
     setNoteCaptureActive(true)
     setNoteSelection(null)
     setNoteDraftBody('')
@@ -717,6 +824,10 @@ export function ReaderWorkspace({
       setNotes((currentNotes) => [savedNote, ...currentNotes])
       setNotesStatus('success')
       setNoteMessage('Note saved locally.')
+      setSelectedReaderNoteId(savedNote.id)
+      setSelectedReaderNoteDraftBody(savedNote.body_text ?? '')
+      setNotePromotionMode(null)
+      setNoteStudyDraft(buildInitialNoteStudyDraft(savedNote))
       resetNoteComposer()
     } catch (error) {
       setNotesStatus('error')
@@ -782,6 +893,8 @@ export function ReaderWorkspace({
     resetNoteComposer()
     pendingRouteAnchorScrollRef.current = true
     setReaderContextTab('notes')
+    setSelectedReaderNoteId(note.id)
+    setNoteMessage(null)
     startTransition(() => {
       setActiveMode('reflowed')
     })
@@ -791,10 +904,98 @@ export function ReaderWorkspace({
     })
   }
 
+  async function handleSaveSelectedNoteChanges() {
+    if (!activeReaderNote) {
+      return
+    }
+    setNoteBusyKey(`save:${activeReaderNote.id}`)
+    setNotesError(null)
+    setNoteMessage(null)
+    try {
+      const updatedNote = await updateRecallNote(activeReaderNote.id, {
+        body_text: normalizeNoteBody(selectedReaderNoteDraftBody),
+      })
+      setNotes((currentNotes) => upsertNoteRecord(currentNotes, updatedNote))
+      setSelectedReaderNoteDraftBody(updatedNote.body_text ?? '')
+      setNoteMessage('Note saved locally.')
+    } catch (error) {
+      setNotesError(getErrorMessage(error, 'Could not save that note.'))
+    } finally {
+      setNoteBusyKey(null)
+    }
+  }
+
+  async function handleDeleteSelectedNote() {
+    if (!activeReaderNote) {
+      return
+    }
+    const confirmed = window.confirm('Delete this note from local Recall?')
+    if (!confirmed) {
+      return
+    }
+    setNoteBusyKey(`delete:${activeReaderNote.id}`)
+    setNotesError(null)
+    setNoteMessage(null)
+    try {
+      await deleteRecallNote(activeReaderNote.id)
+      setNotes((currentNotes) => removeNoteRecord(currentNotes, activeReaderNote.id))
+      setNoteMessage('Note deleted.')
+      setSelectedReaderNoteId((currentId) => (currentId === activeReaderNote.id ? null : currentId))
+      setNotePromotionMode(null)
+    } catch (error) {
+      setNotesError(getErrorMessage(error, 'Could not delete that note.'))
+    } finally {
+      setNoteBusyKey(null)
+    }
+  }
+
+  async function handlePromoteSelectedNoteToGraph() {
+    if (!activeReaderNote) {
+      return
+    }
+    setNoteBusyKey(`graph:${activeReaderNote.id}`)
+    setNotesError(null)
+    setNoteMessage(null)
+    try {
+      await promoteRecallNoteToGraphNode(activeReaderNote.id, {
+        label: noteGraphDraft.label,
+        description: noteGraphDraft.description?.trim().length ? noteGraphDraft.description.trim() : null,
+      })
+      setNotePromotionMode(null)
+      setNoteMessage('Graph node created from the note.')
+    } catch (error) {
+      setNotesError(getErrorMessage(error, 'Could not promote that note into the graph.'))
+    } finally {
+      setNoteBusyKey(null)
+    }
+  }
+
+  async function handlePromoteSelectedNoteToStudyCard() {
+    if (!activeReaderNote) {
+      return
+    }
+    setNoteBusyKey(`study:${activeReaderNote.id}`)
+    setNotesError(null)
+    setNoteMessage(null)
+    try {
+      await promoteRecallNoteToStudyCard(activeReaderNote.id, {
+        prompt: noteStudyDraft.prompt,
+        answer: noteStudyDraft.answer,
+      })
+      setNotePromotionMode(null)
+      setNoteMessage('Study card created from the note.')
+    } catch (error) {
+      setNotesError(getErrorMessage(error, 'Could not create a study card from that note.'))
+    } finally {
+      setNoteBusyKey(null)
+    }
+  }
+
   const hasActiveDocument = Boolean(selectedDocument)
   const canUseSpeechTransport = speech.isSupported && flatSentences.length > 0
   const notesLoading = notesStatus === 'loading'
   const noteSaveDisabled = !noteSelection || noteSaveBusy
+  const selectedReaderNoteSaveDisabled = !activeReaderNote || noteBusyKey === `save:${activeReaderNote.id}`
   const currentSentenceLabel = `Sentence ${flatSentences.length === 0 ? 0 : speech.currentSentenceIndex + 1} of ${flatSentences.length}`
   const readerTitleId = 'reader-document-title'
   const transportAction =
@@ -855,10 +1056,6 @@ export function ReaderWorkspace({
     : documentsError
       ? 'Reader could not reconnect to the local library yet. Retry loading after the backend is running again.'
       : 'Use New to add a source from anywhere in Recall, or reopen something from the source library.'
-  const currentSourceUpdatedLabel = selectedDocument
-    ? `Updated ${dateFormatter.format(new Date(selectedDocument.updated_at))}`
-    : null
-  const currentSourceTypeLabel = selectedDocument ? `${selectedDocument.source_type.toUpperCase()} source` : 'No source open'
   const currentContextNoteLabel = notesLoading
     ? 'Loading notes…'
     : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'}`
@@ -874,7 +1071,9 @@ export function ReaderWorkspace({
       ? 'Loading saved notes for the active source.'
       : notesStatus === 'error'
         ? 'Saved notes are temporarily unavailable for this source.'
-        : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} for ${selectedDocument.title}.`
+        : activeReaderNote
+          ? `Working note: ${activeReaderNote.anchor.anchor_text}`
+          : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} for ${selectedDocument.title}.`
     : 'Open a source to keep saved highlights close by.'
   const shellContext = useMemo<WorkspaceDockContext | null>(() => {
     if (!selectedDocument) {
@@ -888,7 +1087,7 @@ export function ReaderWorkspace({
     const subtitle = hasAnchorRange
       ? `${formatSentenceSpanLabel(routeAnchorRange?.start, routeAnchorRange?.end)} in ${readerViewLabel}`
       : `${readerViewLabel} view · ${currentSentenceLabel}`
-    const noteActionLabel = notes.length === 1 ? 'View note' : 'View notes'
+    const noteActionLabel = activeReaderNote ? 'Open note' : notes.length === 1 ? 'View note' : 'View notes'
 
     return {
       actions: [
@@ -897,7 +1096,7 @@ export function ReaderWorkspace({
           label: noteActionLabel,
           target: {
             documentId: selectedDocument.id,
-            noteId: notes[0]?.id ?? null,
+            noteId: activeReaderNote?.id ?? notes[0]?.id ?? null,
             section: 'notes',
           },
         },
@@ -933,6 +1132,7 @@ export function ReaderWorkspace({
     currentContextNoteLabel,
     currentContextReadinessLabel,
     currentSentenceLabel,
+    activeReaderNote,
     notes,
     readerViewLabel,
     routeAnchorRange,
@@ -1053,6 +1253,36 @@ export function ReaderWorkspace({
         <main className="main-panel">
           {selectedDocument ? (
             <>
+              <SourceWorkspaceFrame
+                activeTab="reader"
+                counts={sourceWorkspaceCounts}
+                description="Keep one source in focus while moving between overview, reading, notes, graph context, and study."
+                document={{
+                  availableModes: selectedDocument.available_modes,
+                  fileName: selectedDocument.file_name ?? null,
+                  id: selectedDocument.id,
+                  sourceType: selectedDocument.source_type,
+                  title: selectedDocument.title,
+                }}
+                onSelectTab={(tab) => {
+                  if (tab === 'reader') {
+                    return
+                  }
+                  if (tab === 'overview') {
+                    onOpenRecallLibrary(selectedDocument.id)
+                    return
+                  }
+                  if (tab === 'notes') {
+                    onOpenRecallNotes(selectedDocument.id, activeReaderNote?.id ?? notes[0]?.id ?? null)
+                    return
+                  }
+                  if (tab === 'graph') {
+                    onOpenRecallGraph(selectedDocument.id)
+                    return
+                  }
+                  onOpenRecallStudy(selectedDocument.id)
+                }}
+              />
               <section className="card reader-mode-card stack-gap" aria-label="Reader views">
                 <div className="toolbar">
                   <div className="section-header section-header-compact">
@@ -1281,31 +1511,18 @@ export function ReaderWorkspace({
             <div className="toolbar">
               <div className="section-header section-header-compact">
                 <h2>Reading context</h2>
-                <p>Keep sources and notes nearby without pushing the document down the page.</p>
+                <p>Keep nearby source and note work close while the shell carries the broader context.</p>
               </div>
               <button type="button" onClick={onRequestNewSource}>
                 New source
               </button>
             </div>
             {selectedDocument ? (
-              <div className="reader-context-glance stack-gap">
-                <div className="section-header section-header-compact">
-                  <h3>Current source</h3>
-                  <p>{selectedDocument.title}</p>
-                </div>
-                <div className="reader-context-glance-chips" role="list" aria-label="Current source summary">
-                  <span className="status-chip status-muted" role="listitem">
-                    {currentSourceTypeLabel}
-                  </span>
-                  <span className="status-chip status-muted" role="listitem">
-                    {currentContextNoteLabel}
-                  </span>
-                  <span className="status-chip status-muted" role="listitem">
-                    {currentContextReadinessLabel}
-                  </span>
-                </div>
-                {currentSourceUpdatedLabel ? <p className="small-note">{currentSourceUpdatedLabel}</p> : null}
-                <div className="inline-actions">
+              <>
+                <p className="small-note reader-context-helper">
+                  The shell keeps the active source visible, so this sidecar can stay focused on nearby source and note work.
+                </p>
+                <div className="inline-actions reader-context-inline-actions">
                   <button
                     className="ghost-button"
                     type="button"
@@ -1324,7 +1541,7 @@ export function ReaderWorkspace({
                     {noteCaptureActive ? 'Capture note' : 'View notes'}
                   </button>
                 </div>
-              </div>
+              </>
             ) : (
               <p className="small-note">
                 Use Search or New to bring a source into Reader. Current source details and saved notes will stay nearby here.
@@ -1396,9 +1613,9 @@ export function ReaderWorkspace({
                   <button
                     className="ghost-button"
                     type="button"
-                    onClick={() => onOpenRecallNotes(selectedDocument.id, notes[0]?.id ?? null)}
+                    onClick={() => onOpenRecallNotes(selectedDocument.id, activeReaderNote?.id ?? notes[0]?.id ?? null)}
                   >
-                    Manage in Notes
+                    Open in Notes
                   </button>
                 ) : null}
               </div>
@@ -1466,7 +1683,12 @@ export function ReaderWorkspace({
                   {notes.map((note) => (
                     <button
                       key={note.id}
-                      className="reader-saved-note"
+                      aria-pressed={activeReaderNote?.id === note.id}
+                      className={
+                        activeReaderNote?.id === note.id
+                          ? 'reader-saved-note reader-saved-note-active'
+                          : 'reader-saved-note'
+                      }
                       type="button"
                       onClick={() => handleOpenSavedNote(note)}
                     >
@@ -1476,6 +1698,166 @@ export function ReaderWorkspace({
                     </button>
                   ))}
                 </div>
+              ) : null}
+
+              {!noteCaptureActive && activeReaderNote ? (
+                <section className="reader-note-workbench stack-gap" aria-label="Selected note">
+                  <div className="toolbar">
+                    <div className="section-header section-header-compact">
+                      <h3>Selected note</h3>
+                      <p>Edit the note text and promote grounded knowledge without leaving Reader.</p>
+                    </div>
+                    <div className="recall-actions recall-actions-inline">
+                      <button
+                        disabled={selectedReaderNoteSaveDisabled}
+                        type="button"
+                        onClick={handleSaveSelectedNoteChanges}
+                      >
+                        {noteBusyKey === `save:${activeReaderNote.id}` ? 'Saving…' : 'Save changes'}
+                      </button>
+                      <button
+                        className="ghost-button"
+                        disabled={noteBusyKey === `delete:${activeReaderNote.id}`}
+                        type="button"
+                        onClick={handleDeleteSelectedNote}
+                      >
+                        {noteBusyKey === `delete:${activeReaderNote.id}` ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="reader-meta-row recall-note-detail-meta reader-note-detail-meta" role="list" aria-label="Selected note metadata">
+                    <span className="status-chip reader-meta-chip" role="listitem">
+                      {formatSentenceSpanLabel(
+                        activeReaderNote.anchor.global_sentence_start ?? activeReaderNote.anchor.sentence_start,
+                        activeReaderNote.anchor.global_sentence_end ?? activeReaderNote.anchor.sentence_end,
+                      )}
+                    </span>
+                    <span className="status-chip reader-meta-chip" role="listitem">
+                      Export ready
+                    </span>
+                  </div>
+
+                  <div className="recall-note-preview">
+                    <strong>Highlighted text</strong>
+                    <p>{activeReaderNote.anchor.anchor_text}</p>
+                    <span>{activeReaderNote.anchor.excerpt_text}</span>
+                  </div>
+
+                  <label className="field">
+                    <span>Note text</span>
+                    <textarea
+                      placeholder="Add context, a reminder, or a follow-up question"
+                      value={selectedReaderNoteDraftBody}
+                      onChange={(event) => setSelectedReaderNoteDraftBody(event.target.value)}
+                    />
+                  </label>
+
+                  <div className="recall-detail-panel stack-gap recall-note-promotion-card">
+                    <div className="section-header section-header-compact">
+                      <h3>Promote note</h3>
+                      <p>Turn this note into graph or study knowledge while the source stays in view.</p>
+                    </div>
+                    <div className="recall-actions recall-actions-inline">
+                      <button
+                        className="ghost-button"
+                        disabled={noteBusyKey === `graph:${activeReaderNote.id}`}
+                        type="button"
+                        onClick={() => setNotePromotionMode('graph')}
+                      >
+                        Promote to Graph
+                      </button>
+                      <button
+                        className="ghost-button"
+                        disabled={noteBusyKey === `study:${activeReaderNote.id}`}
+                        type="button"
+                        onClick={() => setNotePromotionMode('study')}
+                      >
+                        Create Study Card
+                      </button>
+                    </div>
+                  </div>
+
+                  {notePromotionMode === 'graph' ? (
+                    <div className="recall-detail-panel stack-gap">
+                      <div className="section-header section-header-compact">
+                        <h3>Promote to graph</h3>
+                        <p>Create a confirmed concept node backed by this note anchor.</p>
+                      </div>
+                      <label className="field">
+                        <span>Graph label</span>
+                        <input
+                          type="text"
+                          value={noteGraphDraft.label}
+                          onChange={(event) =>
+                            setNoteGraphDraft((current) => ({ ...current, label: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Graph description</span>
+                        <textarea
+                          placeholder="Optional context for the promoted concept"
+                          value={noteGraphDraft.description ?? ''}
+                          onChange={(event) =>
+                            setNoteGraphDraft((current) => ({ ...current, description: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <div className="recall-actions recall-actions-inline">
+                        <button
+                          disabled={noteBusyKey === `graph:${activeReaderNote.id}`}
+                          type="button"
+                          onClick={handlePromoteSelectedNoteToGraph}
+                        >
+                          {noteBusyKey === `graph:${activeReaderNote.id}` ? 'Promoting…' : 'Promote node'}
+                        </button>
+                        <button className="ghost-button" type="button" onClick={() => setNotePromotionMode(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {notePromotionMode === 'study' ? (
+                    <div className="recall-detail-panel stack-gap">
+                      <div className="section-header section-header-compact">
+                        <h3>Create study card</h3>
+                        <p>Turn this note into a manual review card that keeps its own scheduling state.</p>
+                      </div>
+                      <label className="field">
+                        <span>Study prompt</span>
+                        <textarea
+                          value={noteStudyDraft.prompt}
+                          onChange={(event) =>
+                            setNoteStudyDraft((current) => ({ ...current, prompt: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Study answer</span>
+                        <textarea
+                          value={noteStudyDraft.answer}
+                          onChange={(event) =>
+                            setNoteStudyDraft((current) => ({ ...current, answer: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <div className="recall-actions recall-actions-inline">
+                        <button
+                          disabled={noteBusyKey === `study:${activeReaderNote.id}`}
+                          type="button"
+                          onClick={handlePromoteSelectedNoteToStudyCard}
+                        >
+                          {noteBusyKey === `study:${activeReaderNote.id}` ? 'Creating…' : 'Create card'}
+                        </button>
+                        <button className="ghost-button" type="button" onClick={() => setNotePromotionMode(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
               ) : null}
             </section>
           )}

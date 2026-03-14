@@ -1,7 +1,13 @@
-import type { WorkspaceDockContext, WorkspaceDockTarget, WorkspaceRecentItem } from '../lib/appRoute'
+import type {
+  WorkspaceDockContext,
+  WorkspaceDockTarget,
+  WorkspaceRecentItem,
+  WorkspaceSection,
+} from '../lib/appRoute'
 
 
 interface WorkspaceContextDockProps {
+  activeSection: WorkspaceSection
   compact?: boolean
   currentContext: WorkspaceDockContext | null
   onActivateTarget: (target: WorkspaceDockTarget) => void
@@ -9,11 +15,14 @@ interface WorkspaceContextDockProps {
 }
 
 export function WorkspaceContextDock({
+  activeSection,
   compact = false,
   currentContext,
   onActivateTarget,
   recentItems,
 }: WorkspaceContextDockProps) {
+  const denseSection = activeSection === 'reader' || activeSection === 'notes'
+  const condensed = compact || denseSection
   const visibleRecentItems = currentContext?.recentItem
     ? recentItems.filter((item) => item.key !== currentContext.recentItem?.key)
     : recentItems
@@ -21,25 +30,33 @@ export function WorkspaceContextDock({
   return (
     <section
       aria-label="Workspace context"
-      className={compact ? 'workspace-context-dock workspace-context-dock-compact' : 'workspace-context-dock'}
+      className={[
+        'workspace-context-dock',
+        compact ? 'workspace-context-dock-compact' : '',
+        denseSection ? 'workspace-context-dock-dense' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
-      <div className="workspace-context-panel">
+      <div className={condensed ? 'workspace-context-panel workspace-context-panel-condensed' : 'workspace-context-panel'}>
         <div className="section-header section-header-compact">
           <h2>Current context</h2>
-          <p>Keep your active focus and the next useful jump visible in the shell.</p>
+          {!denseSection || !currentContext ? <p>Keep your active focus and the next useful jump visible in the shell.</p> : null}
         </div>
 
         {currentContext ? (
-          <div className="workspace-context-body">
+          <div className={condensed ? 'workspace-context-body workspace-context-body-condensed' : 'workspace-context-body'}>
             <div className="workspace-context-copy">
-              <span className="status-chip reader-meta-chip">{currentContext.badge}</span>
-              <strong className="workspace-context-title">{currentContext.title}</strong>
+              <div className="workspace-context-heading-row">
+                <span className="status-chip reader-meta-chip">{currentContext.badge}</span>
+                <strong className="workspace-context-title">{currentContext.title}</strong>
+              </div>
               <p className="workspace-context-subtitle">{currentContext.subtitle}</p>
               {currentContext.meta ? <span className="workspace-context-meta">{currentContext.meta}</span> : null}
             </div>
 
             {currentContext.actions.length > 0 ? (
-              <div className="workspace-context-actions">
+              <div className={condensed ? 'workspace-context-actions workspace-context-actions-condensed' : 'workspace-context-actions'}>
                 {currentContext.actions.map((action) => (
                   <button key={action.key} type="button" onClick={() => onActivateTarget(action.target)}>
                     {action.label}
@@ -55,10 +72,12 @@ export function WorkspaceContextDock({
         )}
       </div>
 
-      <div className="workspace-context-panel">
+      <div className={condensed ? 'workspace-context-panel workspace-context-panel-condensed' : 'workspace-context-panel'}>
         <div className="section-header section-header-compact">
           <h2>Recent work</h2>
-          <p>Return to the items you just touched without restarting the search flow.</p>
+          {!denseSection || visibleRecentItems.length === 0 ? (
+            <p>Return to the items you just touched without restarting the search flow.</p>
+          ) : null}
         </div>
 
         {visibleRecentItems.length > 0 ? (
