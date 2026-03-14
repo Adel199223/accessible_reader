@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "last_updated": "2026-03-13",
+  "last_updated": "2026-03-14",
   "canonical": [
     "BUILD_BRIEF.md",
     "docs/ROADMAP.md",
     "docs/ROADMAP_ANCHOR.md",
-    "docs/exec_plans/active/2026-03-13_stage9_source_linked_highlights_and_notes.md"
+    "docs/exec_plans/active/2026-03-14_stage11_portable_annotation_apply_and_manual_knowledge_promotion.md"
   ],
   "bridges": [
     "agent.md",
@@ -21,7 +21,7 @@
         "BUILD_BRIEF.md",
         "docs/ROADMAP.md",
         "docs/ROADMAP_ANCHOR.md",
-        "docs/exec_plans/active/2026-03-13_stage9_source_linked_highlights_and_notes.md"
+        "docs/exec_plans/active/2026-03-14_stage11_portable_annotation_apply_and_manual_knowledge_promotion.md"
       ],
       "validation_commands": [
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'",
