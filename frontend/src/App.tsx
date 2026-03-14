@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 
 import {
   fetchHealth,
@@ -16,9 +16,14 @@ import { WorkspaceDialogFrame } from './components/WorkspaceDialogFrame'
 import { WorkspaceSearchDialog } from './components/WorkspaceSearchDialog'
 import {
   buildAppHref,
+  defaultRecallWorkspaceContinuityState,
   parseAppRoute,
   type AppRoute,
   type AppSection,
+  type WorkspaceDockContext,
+  type WorkspaceDockTarget,
+  type WorkspaceRecentItem,
+  type RecallWorkspaceContinuityState,
   type RecallWorkspaceFocusRequest,
   type RecallSection,
   type WorkspaceSection,
@@ -42,10 +47,10 @@ function syncRouteFromLocation(setRoute: (route: AppRoute) => void) {
 }
 
 const defaultShellHero: WorkspaceHeroProps = {
+  compact: true,
   eyebrow: 'Recall',
   title: 'Reconnect what you already saved.',
-  description:
-    'Inspect shared source documents, validate graph suggestions, retrieve grounded context, and study from local source-backed cards.',
+  description: 'Search, reopen, validate, and study from one local workspace.',
   metrics: [
     { label: 'Loading library…' },
     { label: 'Loading graph…', tone: 'muted' },
@@ -57,6 +62,9 @@ const defaultShellHero: WorkspaceHeroProps = {
 export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseAppRoute(window.location))
   const [activeRecallSection, setActiveRecallSection] = useState<RecallSection>('library')
+  const [recallContinuityState, setRecallContinuityState] = useState<RecallWorkspaceContinuityState>(
+    defaultRecallWorkspaceContinuityState,
+  )
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [shellHero, setShellHero] = useState<WorkspaceHeroProps>(defaultShellHero)
   const [settings, setSettings] = useState<ReaderSettings>(defaultReaderSettings)
@@ -67,6 +75,9 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchSessionToken, setSearchSessionToken] = useState(0)
   const [recallFocusRequest, setRecallFocusRequest] = useState<RecallWorkspaceFocusRequest | null>(null)
+  const [shellContext, setShellContext] = useState<WorkspaceDockContext | null>(null)
+  const [recentItems, setRecentItems] = useState<WorkspaceRecentItem[]>([])
+  const lastRecentItemKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     syncRouteFromLocation(setRoute)
@@ -125,6 +136,11 @@ export default function App() {
     },
   ) {
     const href = buildAppHref(path, documentId, options)
+    const currentHref = `${window.location.pathname}${window.location.search}`
+    if (currentHref === href) {
+      setRoute(parseAppRoute(window.location))
+      return
+    }
     window.history.pushState({}, '', href)
     setRoute(parseAppRoute(window.location))
   }
@@ -213,6 +229,38 @@ export default function App() {
     }
   }
 
+  function handleActivateDockTarget(target: WorkspaceDockTarget) {
+    if (target.section === 'reader') {
+      if (!target.documentId) {
+        return
+      }
+      navigate('reader', target.documentId, {
+        sentenceEnd: target.sentenceEnd,
+        sentenceStart: target.sentenceStart,
+      })
+      return
+    }
+
+    openRecallSection(target.section, {
+      cardId: target.cardId,
+      documentId: target.documentId,
+      nodeId: target.nodeId,
+      noteId: target.noteId,
+    })
+  }
+
+  useEffect(() => {
+    const recentItem = shellContext?.recentItem
+    if (!recentItem) {
+      return
+    }
+    if (recentItem.key === lastRecentItemKeyRef.current) {
+      return
+    }
+    lastRecentItemKeyRef.current = recentItem.key
+    setRecentItems((currentItems) => [recentItem, ...currentItems.filter((item) => item.key !== recentItem.key)].slice(0, 6))
+  }, [shellContext])
+
   const activeWorkspaceSection: WorkspaceSection = route.path === 'reader' ? 'reader' : activeRecallSection
 
   return (
@@ -224,6 +272,7 @@ export default function App() {
     >
       <RecallShellFrame
         activeSection={activeWorkspaceSection}
+        currentContext={shellContext}
         hero={shellHero}
         headerActions={
           <>
@@ -237,11 +286,16 @@ export default function App() {
           </>
         }
         layoutMode={route.path === 'reader' ? 'reader' : 'default'}
+        onActivateTarget={handleActivateDockTarget}
         onSelectSection={handleSelectWorkspaceSection}
+        recentItems={recentItems}
       >
         {route.path === 'recall' ? (
           <RecallWorkspace
+            continuityState={recallContinuityState}
             focusRequest={recallFocusRequest}
+            onContinuityStateChange={setRecallContinuityState}
+            onShellContextChange={setShellContext}
             section={activeRecallSection}
             onSectionChange={setActiveRecallSection}
             onShellHeroChange={setShellHero}
@@ -252,6 +306,7 @@ export default function App() {
             key={`reader-${route.documentId ?? 'session'}-${route.sentenceStart ?? 'none'}-${route.sentenceEnd ?? 'none'}`}
             health={health}
             onShellHeroChange={setShellHero}
+            onShellContextChange={setShellContext}
             onOpenRecallNotes={(documentId, noteId) => openRecallSection('notes', { documentId, noteId })}
             onRequestNewSource={handleRequestNewSource}
             routeDocumentId={route.documentId}

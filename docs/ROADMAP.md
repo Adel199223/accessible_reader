@@ -103,18 +103,44 @@ Keep this repository as one local-first workspace.
 - A user-directed product correction is now fully implemented:
   - Reader adapts to the Recall-first shell structure instead of pulling Recall toward a separate app identity
   - the shared Recall shell now treats Reader as a section while keeping `/reader` deep links and anchor restore stable
+- Stage 14 density and contextual Reader polish is complete:
+  - shared shell header, hero, and section tabs now compact further during active working states
+  - Reader context now exposes a richer current-source glance with note state, capture readiness, direct actions, and a sticky desktop presentation
+  - narrower-width Reader fallbacks now keep context reachable with denser two-column and stacked arrangements instead of dropping back to loose card spacing
+  - frontend validation plus a repo-owned real Edge density smoke harness are green
+- Stage 15 recall collection density and detail handoffs is complete:
+  - `Library` now uses a denser collection rail with local filtering, compact source rows, and a selected-document brief that keeps reopen/export/note handoffs closer to the list
+  - `Notes` now use a tighter filter row, compact note rows with anchor/body/document context, and a selected-note detail layout that groups note-promotion actions without crowding the primary edit/open controls
+  - frontend validation plus a repo-owned real Edge collection-density smoke covering Library filter, Notes handoff, and anchored Reader reopen are green
+- Stage 16 recall graph and study density plus evidence handoffs is complete:
+  - `Graph` now uses a denser node review rail plus evidence-first node detail with nearby Reader reopen actions for mentions and relations
+  - `Study` now uses a denser queue, source-evidence-first active-card detail, and anchored Reader reopen from note-promoted card evidence
+  - the Stage 16 live Edge smoke exposed and fixed a real Study handoff bug where targeted cards could fall out of the loaded queue window, and the final frontend validation plus repo-owned real Edge graph/study smoke are green
+- Stage 17 post-Stage-16 Recall UX refresh is complete:
+  - the refreshed audit confirmed the next bottleneck is workspace continuity, not another generic density pass
+  - the highest-friction break is that section filters, selected items, and detail context remain too ephemeral across Reader handoff, search landings, and route changes
+  - the next slice is now a bounded continuity and navigation-memory correction rather than a new backend or AI tier
+- Stage 18 Recall workspace continuity and navigation memory is complete:
+  - Library, Notes, Graph, and Study now preserve their working filters, selections, and detail focus across Reader handoff, browser back, and search-backed landings
+  - the continuity model now lives above `RecallWorkspace`, so Reader route changes no longer wipe the user's working set
+  - targeted frontend validation plus a repo-owned real Edge continuity smoke are green
+  - the next slice is now a current-context and quick-switching correction so the remembered working set becomes more visible and easier to revisit
+- Stage 19 current context dock and quick switching is complete:
+  - the shared Recall shell now surfaces the active source, note, node, card, or Reader focus below the section row
+  - recent work now supports bounded quick returns into the correct section/detail target without wiping continuity
+  - targeted frontend validation plus a repo-owned real Edge current-context smoke are green
+  - the next slice is now adaptive context compression so the shell keeps the Stage 19 visibility gains without repeating too much local detail
 
 ## Active Milestone
 
-1. Stage 14: Recall Density and Contextual Reader Polish
-   - reduce persistent shell and hero chrome so the working surface starts sooner on both Recall and Reader
-   - make Reader context more glanceable and useful without giving back the focused split-view gains from Stage 13
-   - tighten mobile and narrower-width fallbacks so source and note context stay reachable without crowding the reading surface
+1. Stage 20: Adaptive Context Compression and Detail Consolidation
+   - keep the new current-context and recent-work shell visible while reducing redundant metadata and repeated context
+   - reclaim space and improve scan speed, especially in Reader and Notes, without losing Stage 18 and 19 continuity behavior
 
 ## Next Milestone
 
-1. Post-Stage-14 follow-up to be defined after density/context polish lands
-   - use Stage 14 outcomes to choose the next bounded slice without reopening deferred systems by default
+1. Post-Stage-20 follow-up to be defined after the adaptive-compression correction lands
+   - use Stage 20 outcomes to choose the next bounded slice without reopening deferred systems by default
 
 ## Stage Map
 
@@ -167,6 +193,24 @@ Keep this repository as one local-first workspace.
 14. Stage 14: Recall Density and Contextual Reader Polish
    - compress persistent shell chrome and section scaffolding after the Stage 13 workflow gains
    - improve the information density and usefulness of Reader-side context plus narrower-screen fallbacks
+15. Stage 15: Recall Collection Density and Detail Handoffs
+   - tighten Library and Notes into denser list/detail surfaces with closer next actions
+   - preserve reopen, export, edit, promotion, and anchored Reader handoffs while reducing browse friction
+16. Stage 16: Recall Graph and Study Density plus Evidence Handoffs
+   - tighten Graph and Study into denser review surfaces with clearer provenance and lower-friction actions
+   - keep evidence, source context, and Reader handoffs adjacent while preserving current local-first behavior
+17. Stage 17: Post-Stage-16 Recall UX Refresh
+   - reassess the current Recall workspace after the Stage 13-16 UX passes
+   - choose the next bounded milestone from a fresh workflow audit instead of from stale pre-polish assumptions
+18. Stage 18: Recall Workspace Continuity and Navigation Memory
+   - preserve per-section working context across Reader handoff, search landings, and section switches
+   - improve "return to where I was" behavior without changing core routes or reopening deferred systems
+19. Stage 19: Recall Current Context Dock and Quick Switching
+   - surface active working context and recent work directly in the Recall shell
+   - reduce navigation overhead by making the next useful jump obvious
+20. Stage 20: Adaptive Context Compression and Detail Consolidation
+   - compress repeated shell and section context now that current context and recent work are visible
+   - keep orientation strong while reducing duplication and reclaiming working space
 
 ## Deferred Follow-Ups
 
@@ -204,3 +248,7 @@ Keep this repository as one local-first workspace.
 - 2026-03-14: approved a UX-first guidance correction so future roadmap work preserves local-first behavior, routes, anchors, and reading continuity while explicitly allowing shell, layout, and workflow changes whenever that improves Recall-quality UX
 - 2026-03-14: completed the Stage 12 roadmap refresh with a live localhost UX audit, identified workflow polish as the highest-leverage gap, and opened Stage 13 for global add/search flow plus focused Reader split-view work
 - 2026-03-14: completed Stage 13 with shell-level add/search actions, a unified workspace search dialog, a focused Reader split view with adjacent source/note context, a defensive Reader keyboard-shortcut fix, frontend validation reruns, live Edge import/search smokes, and a green rerun of the repo-owned Edge extension harness
+- 2026-03-14: completed Stage 14 with denser shared shell chrome, richer sticky Reader current-source context, narrower-width layout tightening, a second-banner accessibility correction in the Reader toolbar, frontend validation reruns, and a repo-owned real Edge density smoke harness plus visual artifacts
+- 2026-03-14: completed the Stage 17 UX refresh audit using the existing Stage 13-16 live artifacts, current shell/state architecture, the product brief, and the original Recall workflow benchmark, then opened Stage 18 to fix continuity and navigation memory instead of widening scope prematurely
+- 2026-03-14: completed Stage 18 with app-level workspace continuity for Library, Notes, Graph, and Study, a repo-owned real Edge continuity smoke harness, and preserved section context across Reader handoff, browser-back flows, and search-backed landings, then opened Stage 19 to surface current context and recent-work switching in the shared Recall shell
+- 2026-03-14: completed Stage 19 with a shared current-context dock, bounded recent-work switching, targeted frontend coverage, and a repo-owned real Edge shell-context smoke harness, then opened Stage 20 to compress redundant shell/detail context now that the right working-set information is visible

@@ -97,6 +97,23 @@ As of 2026-03-14, this workspace includes:
   - global search now hands source and note results back into Recall sections and anchored Reader reopen flows
   - Reader now keeps source and note context adjacent in a focused split-view layout instead of stacking support chrome above the document
   - frontend validation, live Edge import/search smokes, and the repo-owned Edge extension harness are green after the shell change
+- Stage 14 density and contextual Reader polish is complete:
+  - shared shell chrome now compacts further during active working states, so the working surface begins higher on the page
+  - Reader context now includes a richer current-source glance with note state, capture readiness, direct actions, and stickier desktop behavior
+  - narrower-width Reader layouts now keep context reachable with denser two-column and stacked fallbacks
+  - frontend validation plus a repo-owned real Edge density smoke harness are green
+- Stage 15 collection density and detail handoffs are complete:
+  - `Library` now uses a denser collection rail with local filtering, compact source rows, and selected-document briefs that keep reopen/export/note handoffs close to the list
+  - `Notes` now use a tighter filter row, compact note rows with anchor/body/document context, and a selected-note detail layout that separates note-promotion actions from the main edit/open controls
+  - frontend validation plus a repo-owned real Edge collection-density smoke covering Library filter, Notes handoff, and anchored Reader reopen are green
+- Stage 16 graph and study density plus evidence handoffs are complete:
+  - `Graph` now uses a denser node review rail plus evidence-first node detail with nearby Reader reopen actions
+  - `Study` now uses a denser queue, source-evidence-first active-card detail, and anchored Reader reopen from note-promoted evidence
+  - the live Edge smoke exposed and fixed a real Study handoff bug where targeted cards could fall out of the loaded queue window; final frontend validation and the repo-owned real Edge graph/study smoke are green
+- Stage 17 post-Stage-16 Recall UX refresh is complete:
+  - the audit confirmed the next bottleneck is workspace continuity rather than another generic density pass
+  - the highest-friction remaining break is that section filters, selected items, and detail context are still too ephemeral across Reader handoff, search landings, and route changes
+  - the next slice is now a bounded continuity and navigation-memory correction
 - A product-direction correction is now fully implemented:
   - Recall remains the product shell
   - Reader keeps its reading behaviors while now presenting as a Recall section instead of a separate app identity
@@ -133,7 +150,13 @@ As of 2026-03-14, this workspace includes:
 - Stage 11 is complete.
 - Stage 12 is complete after the UX audit and next-slice decision landed.
 - Stage 13 is complete.
-- Stage 14 recall density and contextual Reader polish is now the active milestone.
+- Stage 14 is complete.
+- Stage 15 is complete.
+- Stage 16 is complete.
+- Stage 17 is complete after the UX audit and next-slice decision landed.
+- Stage 18 is complete after the workspace continuity correction landed.
+- Stage 19 is complete after the shared shell dock and recent-work correction landed.
+- Stage 20 adaptive context compression and detail consolidation is now the active milestone.
 
 ## Recent Detours
 
@@ -157,14 +180,20 @@ As of 2026-03-14, this workspace includes:
 - 2026-03-14: approved a UX-first guidance correction so future roadmap work preserves behaviors and local-first guarantees while explicitly allowing shell, layout, and workflow changes whenever that improves Recall-quality UX
 - 2026-03-14: completed the Stage 12 roadmap refresh with a live localhost UX audit, identified workflow polish as the highest-leverage gap, and opened Stage 13 for global add/search flow plus focused Reader split-view work
 - 2026-03-14: completed Stage 13 with shell-level add/search actions, a fresh-session workspace search dialog, focused Reader split view, a defensive keyboard-shortcut guard fix, frontend validation reruns, live Edge import/search smokes, and a green rerun of the repo-owned Edge extension harness
+- 2026-03-14: completed Stage 14 with denser shared shell chrome, richer sticky Reader current-source context, narrower-width layout tightening, a Reader-toolbar accessibility landmark correction, frontend validation reruns, and a repo-owned real Edge density smoke harness plus visual artifacts
+- 2026-03-14: completed Stage 15 with denser Library and Notes collection rails, tighter selected-item detail panels, a `View notes` Library handoff, grouped note-promotion controls, frontend validation reruns, and a green repo-owned real Edge collection-density smoke covering Library filter and anchored Reader reopen
+- 2026-03-14: completed Stage 16 with denser Graph and Study review surfaces, evidence-adjacent Reader reopen actions, a repo-owned real Edge graph/study smoke harness, and a frontend fix so targeted Study card handoffs no longer fall back to some unrelated visible card when the queue window is truncated
+- 2026-03-14: completed the Stage 17 UX refresh audit using the existing Stage 13-16 live artifacts, current shell/state architecture, the product brief, and the original Recall workflow benchmark, then opened Stage 18 to repair workspace continuity and navigation memory before adding more surface area
+- 2026-03-14: completed Stage 18 with app-level workspace continuity for Library, Notes, Graph, and Study plus a repo-owned real Edge continuity smoke harness, then opened Stage 19 to make the remembered working set visible and faster to revisit through a shared current-context dock and recent-work switching
+- 2026-03-14: completed Stage 19 with a shared shell current-context dock, bounded recent-work switching, targeted frontend coverage, and a repo-owned real Edge current-context smoke harness, then opened Stage 20 to compress duplicated shell and section context now that visibility is in place
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Open the active Stage 14 ExecPlan in `docs/exec_plans/active/`.
+3. Open the active Stage 20 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while further tightening shell density, contextual usefulness, and narrower-screen flow.
-7. Implement Stage 14 without reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems by default.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while making the shared shell lighter and less repetitive.
+7. Implement Stage 20 without reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems by default.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

@@ -1,6 +1,42 @@
 export type AppSection = 'recall' | 'reader'
 export type RecallSection = 'library' | 'graph' | 'study' | 'notes'
+export type RecallStudyFilter = 'all' | 'new' | 'due' | 'scheduled'
 export type WorkspaceSection = RecallSection | 'reader'
+
+export interface WorkspaceDockTarget {
+  cardId?: string | null
+  documentId?: string | null
+  nodeId?: string | null
+  noteId?: string | null
+  section: WorkspaceSection
+  sentenceEnd?: number | null
+  sentenceStart?: number | null
+}
+
+export interface WorkspaceDockAction {
+  key: string
+  label: string
+  target: WorkspaceDockTarget
+}
+
+export interface WorkspaceRecentItem {
+  badge: string
+  key: string
+  subtitle?: string | null
+  target: WorkspaceDockTarget
+  title: string
+}
+
+export interface WorkspaceDockContext {
+  actions: WorkspaceDockAction[]
+  badge: string
+  key: string
+  meta?: string | null
+  recentItem?: WorkspaceRecentItem | null
+  section: WorkspaceSection
+  subtitle: string
+  title: string
+}
 
 export interface RecallWorkspaceFocusRequest {
   cardId?: string | null
@@ -11,11 +47,49 @@ export interface RecallWorkspaceFocusRequest {
   token: number
 }
 
+export interface RecallWorkspaceContinuityState {
+  graph: {
+    selectedNodeId: string | null
+  }
+  library: {
+    filterQuery: string
+    selectedDocumentId: string | null
+  }
+  notes: {
+    searchQuery: string
+    selectedDocumentId: string | null
+    selectedNoteId: string | null
+  }
+  study: {
+    activeCardId: string | null
+    filter: RecallStudyFilter
+  }
+}
+
 export interface AppRoute {
   documentId: string | null
   path: AppSection
   sentenceEnd: number | null
   sentenceStart: number | null
+}
+
+export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuityState = {
+  graph: {
+    selectedNodeId: null,
+  },
+  library: {
+    filterQuery: '',
+    selectedDocumentId: null,
+  },
+  notes: {
+    searchQuery: '',
+    selectedDocumentId: null,
+    selectedNoteId: null,
+  },
+  study: {
+    activeCardId: null,
+    filter: 'all',
+  },
 }
 
 

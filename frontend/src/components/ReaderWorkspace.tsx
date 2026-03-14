@@ -34,6 +34,7 @@ import { LibraryPane } from './LibraryPane'
 import { ReaderSurface } from './ReaderSurface'
 import { SettingsPanel } from './SettingsPanel'
 import { useSpeech } from '../hooks/useSpeech'
+import type { WorkspaceDockContext } from '../lib/appRoute'
 import { loadReaderSession, resolveReaderSession, saveReaderSession } from '../lib/readerSession'
 import { buildRenderableBlocks, type RenderSentence, type RenderableBlock } from '../lib/segment'
 
@@ -42,6 +43,7 @@ interface ReaderWorkspaceProps {
   health: HealthResponse | null
   onOpenRecallNotes: (documentId: string, noteId?: string | null) => void
   onRequestNewSource: () => void
+  onShellContextChange: (context: WorkspaceDockContext | null) => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
   routeDocumentId?: string | null
   routeSentenceEnd?: number | null
@@ -183,6 +185,14 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
+function formatSentenceSpanLabel(start: number | null | undefined, end: number | null | undefined) {
+  if (start === null || start === undefined || end === null || end === undefined) {
+    return 'Anchored passage'
+  }
+  const sentenceCount = end - start + 1
+  return `${sentenceCount} ${sentenceCount === 1 ? 'anchored sentence' : 'anchored sentences'}`
+}
+
 function buildSentenceRangeSet(range: SentenceRange | null) {
   const indexes = new Set<number>()
   if (!range) {
@@ -264,6 +274,7 @@ export function ReaderWorkspace({
   health,
   onOpenRecallNotes,
   onRequestNewSource,
+  onShellContextChange,
   onShellHeroChange,
   onSettingsChange,
   routeDocumentId = null,
@@ -304,7 +315,7 @@ export function ReaderWorkspace({
   const [noteSaveBusy, setNoteSaveBusy] = useState(false)
   const [noteMessage, setNoteMessage] = useState<string | null>(null)
   const [readerContextTab, setReaderContextTab] = useState<'source' | 'notes'>(() =>
-    initialSession.documentId ? 'notes' : 'source',
+    routeSentenceStart !== null ? 'notes' : 'source',
   )
   const [routeAnchorRange, setRouteAnchorRange] = useState<SentenceRange | null>(() =>
     routeSentenceStart === null
@@ -456,6 +467,14 @@ export function ReaderWorkspace({
   const anchoredSentenceIndexes = useMemo(
     () => (canAnnotateCurrentView ? buildSentenceRangeSet(routeAnchorRange) : new Set<number>()),
     [canAnnotateCurrentView, routeAnchorRange],
+  )
+  const dateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(undefined, {
+        day: 'numeric',
+        month: 'short',
+      }),
+    [],
   )
   const currentModeOption = viewModeOptions.find((option) => option.mode === activeMode)
 
@@ -836,6 +855,89 @@ export function ReaderWorkspace({
     : documentsError
       ? 'Reader could not reconnect to the local library yet. Retry loading after the backend is running again.'
       : 'Use New to add a source from anywhere in Recall, or reopen something from the source library.'
+  const currentSourceUpdatedLabel = selectedDocument
+    ? `Updated ${dateFormatter.format(new Date(selectedDocument.updated_at))}`
+    : null
+  const currentSourceTypeLabel = selectedDocument ? `${selectedDocument.source_type.toUpperCase()} source` : 'No source open'
+  const currentContextNoteLabel = notesLoading
+    ? 'Loading notes…'
+    : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'}`
+  const currentContextReadinessLabel = selectedDocument
+    ? canAnnotateCurrentView
+      ? noteCaptureActive
+        ? 'Capture active'
+        : 'Capture ready'
+      : 'Switch to Reflowed for capture'
+    : 'Ready when a source opens'
+  const notesPanelSummary = selectedDocument
+    ? notesLoading
+      ? 'Loading saved notes for the active source.'
+      : notesStatus === 'error'
+        ? 'Saved notes are temporarily unavailable for this source.'
+        : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} for ${selectedDocument.title}.`
+    : 'Open a source to keep saved highlights close by.'
+  const shellContext = useMemo<WorkspaceDockContext | null>(() => {
+    if (!selectedDocument) {
+      return null
+    }
+
+    const hasAnchorRange = Boolean(routeAnchorRange)
+    const recentKey = hasAnchorRange
+      ? `reader-anchor:${selectedDocument.id}:${routeAnchorRange?.start ?? 0}:${routeAnchorRange?.end ?? 0}`
+      : `document:${selectedDocument.id}`
+    const subtitle = hasAnchorRange
+      ? `${formatSentenceSpanLabel(routeAnchorRange?.start, routeAnchorRange?.end)} in ${readerViewLabel}`
+      : `${readerViewLabel} view · ${currentSentenceLabel}`
+    const noteActionLabel = notes.length === 1 ? 'View note' : 'View notes'
+
+    return {
+      actions: [
+        {
+          key: `reader-notes:${selectedDocument.id}`,
+          label: noteActionLabel,
+          target: {
+            documentId: selectedDocument.id,
+            noteId: notes[0]?.id ?? null,
+            section: 'notes',
+          },
+        },
+        {
+          key: `reader-library:${selectedDocument.id}`,
+          label: 'Source',
+          target: {
+            documentId: selectedDocument.id,
+            section: 'library',
+          },
+        },
+      ],
+      badge: 'Reader',
+      key: recentKey,
+      meta: `${currentContextNoteLabel} · ${currentContextReadinessLabel}`,
+      recentItem: {
+        badge: hasAnchorRange ? 'Reader anchor' : 'Reader',
+        key: recentKey,
+        subtitle,
+        target: {
+          documentId: selectedDocument.id,
+          section: 'reader',
+          sentenceEnd: routeAnchorRange?.end ?? null,
+          sentenceStart: routeAnchorRange?.start ?? null,
+        },
+        title: selectedDocument.title,
+      },
+      section: 'reader',
+      subtitle,
+      title: selectedDocument.title,
+    }
+  }, [
+    currentContextNoteLabel,
+    currentContextReadinessLabel,
+    currentSentenceLabel,
+    notes,
+    readerViewLabel,
+    routeAnchorRange,
+    selectedDocument,
+  ])
 
   useEffect(() => {
     setLibraryOpen(!hasActiveDocument)
@@ -849,6 +951,12 @@ export function ReaderWorkspace({
       setReaderContextTab('notes')
     }
   }, [noteCaptureActive])
+
+  useEffect(() => {
+    if (routeAnchorRange) {
+      setReaderContextTab('notes')
+    }
+  }, [routeAnchorRange])
 
   async function handleDeleteDocument(documentToDelete: DocumentRecord) {
     const confirmed = window.confirm(`Delete "${documentToDelete.title}" from this device?`)
@@ -906,8 +1014,8 @@ export function ReaderWorkspace({
       eyebrow: hasActiveDocument ? 'Reader' : 'Recall',
       title: hasActiveDocument ? 'Read without losing context.' : 'Read what you saved.',
       description: hasActiveDocument
-        ? 'Keep the document primary, switch views quickly, and keep source and note context close at hand.'
-        : 'Open a saved source or use New to bring something into Recall without leaving the workspace.',
+        ? 'Document first, context beside it, and Reader controls nearby.'
+        : 'Open a saved source or use New without leaving the Recall workspace.',
       metrics: [
         { label: libraryMetricLabel },
         { label: readerStatusMetricLabel, tone: 'muted' },
@@ -921,6 +1029,10 @@ export function ReaderWorkspace({
     onShellHeroChange,
     readerStatusMetricLabel,
   ])
+
+  useEffect(() => {
+    onShellContextChange(shellContext)
+  }, [onShellContextChange, shellContext])
 
   return (
     <div className="reader-workspace stack-gap">
@@ -1045,7 +1157,7 @@ export function ReaderWorkspace({
               </section>
 
               <section className="card reader-card">
-                <header className="reader-toolbar">
+                <div className="reader-toolbar">
                   <div className="reader-toolbar-main">
                     <h2 id={readerTitleId}>{selectedDocument.title}</h2>
                     <div className="reader-meta-row" role="list" aria-label="Reader metadata">
@@ -1087,7 +1199,7 @@ export function ReaderWorkspace({
                       </button>
                     ) : null}
                   </div>
-                </header>
+                </div>
 
                 {viewLoading ? <p className="placeholder">Loading view…</p> : null}
                 {selectedDocument && !view && !viewLoading && (activeMode === 'simplified' || activeMode === 'summary') ? (
@@ -1175,6 +1287,49 @@ export function ReaderWorkspace({
                 New source
               </button>
             </div>
+            {selectedDocument ? (
+              <div className="reader-context-glance stack-gap">
+                <div className="section-header section-header-compact">
+                  <h3>Current source</h3>
+                  <p>{selectedDocument.title}</p>
+                </div>
+                <div className="reader-context-glance-chips" role="list" aria-label="Current source summary">
+                  <span className="status-chip status-muted" role="listitem">
+                    {currentSourceTypeLabel}
+                  </span>
+                  <span className="status-chip status-muted" role="listitem">
+                    {currentContextNoteLabel}
+                  </span>
+                  <span className="status-chip status-muted" role="listitem">
+                    {currentContextReadinessLabel}
+                  </span>
+                </div>
+                {currentSourceUpdatedLabel ? <p className="small-note">{currentSourceUpdatedLabel}</p> : null}
+                <div className="inline-actions">
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => {
+                      setReaderContextTab('source')
+                      setLibraryOpen((current) => !(readerContextTab === 'source' && current))
+                    }}
+                  >
+                    {readerContextTab === 'source' && libraryOpen ? 'Hide sources' : 'Browse sources'}
+                  </button>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => setReaderContextTab('notes')}
+                  >
+                    {noteCaptureActive ? 'Capture note' : 'View notes'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="small-note">
+                Use Search or New to bring a source into Reader. Current source details and saved notes will stay nearby here.
+              </p>
+            )}
             <div className="recall-stage-tabs" aria-label="Reader context" role="tablist">
               <button
                 aria-selected={readerContextTab === 'source'}
@@ -1235,7 +1390,7 @@ export function ReaderWorkspace({
               <div className="toolbar">
                 <div className="section-header section-header-compact">
                   <h2>Notes</h2>
-                  <p>Keep saved highlights and note capture adjacent to the active document.</p>
+                  <p>{notesPanelSummary}</p>
                 </div>
                 {selectedDocument ? (
                   <button
