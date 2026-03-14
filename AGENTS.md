@@ -24,5 +24,7 @@ Harness quick links:
 - local TTS is deferred and should be treated as `coming soon` unless the user explicitly reprioritizes it
 - AI is opt-in only and currently limited to `Simplify` and `Summary`
 - optimize for Microsoft Edge on Windows 11 while using WSL for the repo/toolchain
+- optimize for the best overall UX and Recall-quality workflow, not for preserving the current UI structure when a staged redesign would materially improve the experience
+- treat the original Recall app as a directional UX benchmark for flow and hierarchy, not as a pixel-perfect copy target
 - run targeted validation before broad changes
 - keep push explicit; do not push unless the user asks

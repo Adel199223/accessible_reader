@@ -185,7 +185,7 @@ def build_review_card_candidates(
             used_chunk_ids.add(used_chunk_id)
         cards.append(
             {
-                "id": _build_card_id("relation", source_document_id, edge.id),
+                "id": build_review_card_id("relation", source_document_id, edge.id),
                 "source_document_id": source_document_id,
                 "prompt": prompt,
                 "answer": answer,
@@ -214,7 +214,7 @@ def build_review_card_candidates(
             continue
         cards.append(
             {
-                "id": _build_card_id("cloze", chunk.source_document_id, chunk.id),
+                "id": build_review_card_id("cloze", chunk.source_document_id, chunk.id),
                 "source_document_id": chunk.source_document_id,
                 "prompt": prompt,
                 "answer": best_label,
@@ -293,7 +293,7 @@ def _build_cloze_prompt(text: str, answer: str) -> str:
     return pattern.sub("____", normalize_whitespace(text), count=1)
 
 
-def _build_card_id(card_type: str, source_document_id: str, source_key: str) -> str:
+def build_review_card_id(card_type: str, source_document_id: str, source_key: str) -> str:
     return f"card:{sha256(f'{card_type}|{source_document_id}|{source_key}'.encode('utf-8')).hexdigest()[:16]}"
 
 

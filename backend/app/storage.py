@@ -24,6 +24,8 @@ from .knowledge import (
     GRAPH_SCHEMA_VERSION,
     KnowledgeSourceDocument,
     build_knowledge_records,
+    build_node_id,
+    normalize_entity_label,
 )
 from .models import (
     AccessibilitySnapshot,
@@ -47,8 +49,10 @@ from .models import (
     ReaderSettings,
     RecallNoteAnchor,
     RecallNoteCreateRequest,
+    RecallNoteGraphPromotionRequest,
     RecallNoteRecord,
     RecallNoteSearchHit,
+    RecallNoteStudyPromotionRequest,
     RecallNoteUpdateRequest,
     RecallRetrievalHit,
     RecallDocumentRecord,
@@ -88,6 +92,7 @@ from .study import (
     build_embedding_id,
     build_initial_scheduling_state,
     build_review_card_candidates,
+    build_review_card_id,
     build_sparse_vector,
     cosine_similarity,
     review_scheduling_state,
@@ -491,6 +496,175 @@ class Repository:
             connection.execute("DELETE FROM recall_notes_fts WHERE note_id = ?", (note_id,))
             connection.execute("DELETE FROM recall_notes WHERE id = ?", (note_id,))
             return True
+
+    def promote_recall_note_to_graph_node(
+        self,
+        note_id: str,
+        payload: RecallNoteGraphPromotionRequest,
+    ) -> KnowledgeNodeDetail | None:
+        label = normalize_whitespace(payload.label)
+        if not label:
+            raise ValueError("Enter a graph label before promoting this note.")
+        canonical_key = normalize_entity_label(label)
+        if not canonical_key:
+            raise ValueError("Graph labels need at least one letter or number.")
+        description = normalize_whitespace(payload.description or "") or None
+
+        with self.connect() as connection:
+            note_row = connection.execute(
+                """
+                SELECT rn.*, sd.title AS document_title
+                FROM recall_notes rn
+                INNER JOIN source_documents sd ON sd.id = rn.source_document_id
+                WHERE rn.id = ?
+                """,
+                (note_id,),
+            ).fetchone()
+            if not note_row:
+                return None
+
+            timestamp = now_iso()
+            node_id = build_node_id(canonical_key)
+            self._upsert_manual_note_knowledge_node_with_connection(
+                connection,
+                note_row=note_row,
+                note_id=note_id,
+                node_id=node_id,
+                label=label,
+                canonical_key=canonical_key,
+                description=description,
+                updated_at=timestamp,
+            )
+            self._refresh_knowledge_node_aggregates_with_connection(connection, updated_at=timestamp)
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="knowledge_node",
+                entity_id=node_id,
+                event_type="promoted_from_note",
+                payload={
+                    "note_id": note_id,
+                    "source_document_id": note_row["source_document_id"],
+                    "canonical_key": canonical_key,
+                },
+                created_at=timestamp,
+            )
+            self._rebuild_lexical_embeddings_with_connection(connection)
+
+        return self.get_knowledge_node_detail(node_id)
+
+    def promote_recall_note_to_study_card(
+        self,
+        note_id: str,
+        payload: RecallNoteStudyPromotionRequest,
+    ) -> StudyCardRecord | None:
+        prompt = normalize_whitespace(payload.prompt)
+        answer = normalize_whitespace(payload.answer)
+        if not prompt:
+            raise ValueError("Enter a study prompt before creating a card.")
+        if not answer:
+            raise ValueError("Enter a study answer before creating a card.")
+
+        with self.connect() as connection:
+            note_row = connection.execute(
+                """
+                SELECT rn.*, sd.title AS document_title
+                FROM recall_notes rn
+                INNER JOIN source_documents sd ON sd.id = rn.source_document_id
+                WHERE rn.id = ?
+                """,
+                (note_id,),
+            ).fetchone()
+            if not note_row:
+                return None
+
+            card_id = build_review_card_id("manual_note", note_row["source_document_id"], note_id)
+            existing_row = connection.execute(
+                """
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.id = ?
+                """,
+                (card_id,),
+            ).fetchone()
+            timestamp = now_iso()
+            scheduling_state = (
+                json.loads(existing_row["scheduling_state_json"] or "{}")
+                if existing_row
+                else build_initial_scheduling_state(card_id, created_at=timestamp)
+            )
+            scheduling_state["status"] = study_card_status(scheduling_state)
+            source_spans = [
+                {
+                    "note_id": note_id,
+                    "block_id": note_row["block_id"],
+                    "sentence_start": note_row["sentence_start"],
+                    "sentence_end": note_row["sentence_end"],
+                    "global_sentence_start": note_row["global_sentence_start"],
+                    "global_sentence_end": note_row["global_sentence_end"],
+                    "anchor_text": note_row["anchor_text"],
+                    "excerpt": note_row["excerpt_text"],
+                }
+            ]
+            connection.execute(
+                """
+                INSERT INTO review_cards (
+                    id,
+                    source_document_id,
+                    prompt,
+                    answer,
+                    card_type,
+                    source_spans_json,
+                    scheduling_state_json,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    source_document_id = excluded.source_document_id,
+                    prompt = excluded.prompt,
+                    answer = excluded.answer,
+                    card_type = excluded.card_type,
+                    source_spans_json = excluded.source_spans_json,
+                    scheduling_state_json = excluded.scheduling_state_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    card_id,
+                    note_row["source_document_id"],
+                    prompt,
+                    answer,
+                    "manual_note",
+                    json.dumps(source_spans, sort_keys=True),
+                    json.dumps(scheduling_state, sort_keys=True),
+                    existing_row["created_at"] if existing_row else timestamp,
+                    timestamp,
+                ),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="review_card",
+                entity_id=card_id,
+                event_type="promoted_from_note",
+                payload={
+                    "note_id": note_id,
+                    "source_document_id": note_row["source_document_id"],
+                    "card_type": "manual_note",
+                },
+                created_at=timestamp,
+            )
+            self._rebuild_lexical_embeddings_with_connection(connection)
+            updated_row = connection.execute(
+                """
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.id = ?
+                """,
+                (card_id,),
+            ).fetchone()
+        if not updated_row:
+            return None
+        return self._row_to_study_card_record(updated_row)
 
     def search_recall_notes(
         self,
@@ -2673,9 +2847,12 @@ class Repository:
                 "SELECT id, provenance, metadata_json, created_at FROM knowledge_edges"
             ).fetchall()
         }
+        preserved_manual_note_nodes = self._preserved_manual_note_nodes_with_connection(connection)
+        preserved_manual_note_mentions = self._preserved_manual_note_mentions_with_connection(connection)
 
         documents = self._load_recall_sources_with_connection(connection)
         mentions, nodes, edges = build_knowledge_records(documents)
+        generated_node_ids = {node.id for node in nodes}
         timestamp = now_iso()
 
         connection.execute("DELETE FROM entity_mentions")
@@ -2724,6 +2901,34 @@ class Repository:
                 ),
             )
 
+        for preserved_node in preserved_manual_note_nodes:
+            if preserved_node["id"] in generated_node_ids:
+                continue
+            connection.execute(
+                """
+                INSERT INTO knowledge_nodes (
+                    id,
+                    label,
+                    node_type,
+                    description,
+                    confidence,
+                    metadata_json,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    preserved_node["id"],
+                    preserved_node["label"],
+                    preserved_node["node_type"],
+                    preserved_node["description"],
+                    preserved_node["confidence"],
+                    json.dumps(preserved_node["metadata"], sort_keys=True),
+                    preserved_node["created_at"],
+                    timestamp,
+                ),
+            )
+
         for mention in mentions:
             connection.execute(
                 """
@@ -2756,6 +2961,47 @@ class Repository:
                     mention.confidence,
                     json.dumps(mention.metadata, sort_keys=True),
                     timestamp,
+                    timestamp,
+                ),
+            )
+
+        for preserved_mention in preserved_manual_note_mentions:
+            if preserved_mention["normalized_text"] and not connection.execute(
+                "SELECT 1 FROM knowledge_nodes WHERE id = ?",
+                (build_node_id(preserved_mention["normalized_text"]),),
+            ).fetchone():
+                continue
+            connection.execute(
+                """
+                INSERT INTO entity_mentions (
+                    id,
+                    source_document_id,
+                    variant_id,
+                    block_id,
+                    text,
+                    normalized_text,
+                    entity_type,
+                    start_offset,
+                    end_offset,
+                    confidence,
+                    metadata_json,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    preserved_mention["id"],
+                    preserved_mention["source_document_id"],
+                    preserved_mention["variant_id"],
+                    preserved_mention["block_id"],
+                    preserved_mention["text"],
+                    preserved_mention["normalized_text"],
+                    preserved_mention["entity_type"],
+                    preserved_mention["start_offset"],
+                    preserved_mention["end_offset"],
+                    preserved_mention["confidence"],
+                    json.dumps(preserved_mention["metadata"], sort_keys=True),
+                    preserved_mention["created_at"],
                     timestamp,
                 ),
             )
@@ -2814,6 +3060,7 @@ class Repository:
                 ),
             )
 
+        self._refresh_knowledge_node_aggregates_with_connection(connection, updated_at=timestamp)
         self._append_change_event_with_connection(
             connection,
             entity_type="knowledge_graph",
@@ -2910,7 +3157,11 @@ class Repository:
             ).fetchall()
         }
         expected_ids = {candidate["id"] for candidate in card_candidates}
-        obsolete_ids = [card_id for card_id in existing_rows if card_id not in expected_ids]
+        obsolete_ids = [
+            card_id
+            for card_id, row in existing_rows.items()
+            if card_id not in expected_ids and row["card_type"] != "manual_note"
+        ]
         for card_id in obsolete_ids:
             connection.execute(
                 "DELETE FROM review_cards WHERE id = ?",
@@ -3471,6 +3722,286 @@ class Repository:
             ),
         )
 
+    def _chunk_id_for_note_row_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        note_row: sqlite3.Row,
+    ) -> str | None:
+        chunk_rows = connection.execute(
+            """
+            SELECT id, metadata_json
+            FROM content_chunks
+            WHERE source_document_id = ? AND block_id = ?
+            ORDER BY ordinal ASC
+            """,
+            (note_row["source_document_id"], note_row["block_id"]),
+        ).fetchall()
+        for chunk_row in chunk_rows:
+            metadata = json.loads(chunk_row["metadata_json"] or "{}")
+            sentence_start = int(metadata.get("sentence_start_in_block", -1))
+            sentence_end = int(metadata.get("sentence_end_in_block", -1))
+            if sentence_start <= int(note_row["sentence_start"]) <= int(note_row["sentence_end"]) <= sentence_end:
+                return str(chunk_row["id"])
+        return None
+
+    def _upsert_manual_note_knowledge_node_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        note_row: sqlite3.Row,
+        note_id: str,
+        node_id: str,
+        label: str,
+        canonical_key: str,
+        description: str | None,
+        updated_at: str,
+    ) -> None:
+        existing_node_row = connection.execute(
+            "SELECT * FROM knowledge_nodes WHERE id = ?",
+            (node_id,),
+        ).fetchone()
+        existing_metadata = self._metadata_from_row(existing_node_row) if existing_node_row else {}
+        aliases = {
+            label,
+            *(str(alias) for alias in existing_metadata.get("aliases", [])),
+        }
+        if existing_node_row and existing_node_row["label"] and existing_node_row["label"] != label:
+            aliases.add(str(existing_node_row["label"]))
+        source_document_ids = sorted(
+            {
+                *(str(document_id) for document_id in existing_metadata.get("source_document_ids", [])),
+                str(note_row["source_document_id"]),
+            }
+        )
+        promoted_note_ids = sorted(
+            {
+                *(str(candidate_note_id) for candidate_note_id in existing_metadata.get("promoted_note_ids", [])),
+                note_id,
+            }
+        )
+        node_description = (
+            description
+            or (str(existing_node_row["description"]) if existing_node_row and existing_node_row["description"] else None)
+            or (normalize_whitespace(note_row["body_text"]) if note_row["body_text"] else None)
+            or str(note_row["anchor_text"])
+        )
+        connection.execute(
+            """
+            INSERT INTO knowledge_nodes (
+                id,
+                label,
+                node_type,
+                description,
+                confidence,
+                metadata_json,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                label = excluded.label,
+                node_type = excluded.node_type,
+                description = excluded.description,
+                confidence = excluded.confidence,
+                metadata_json = excluded.metadata_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                node_id,
+                label,
+                existing_node_row["node_type"] if existing_node_row else "concept",
+                node_description,
+                max(float(existing_node_row["confidence"] or 0.0), 0.99) if existing_node_row else 0.99,
+                json.dumps(
+                    {
+                        **existing_metadata,
+                        "aliases": sorted(alias for alias in aliases if alias)[:6],
+                        "canonical_key": canonical_key,
+                        "graph_schema_version": GRAPH_SCHEMA_VERSION,
+                        "mention_count": int(existing_metadata.get("mention_count", 0)),
+                        "promoted_note_ids": promoted_note_ids,
+                        "source_document_ids": source_document_ids,
+                        "status": "confirmed",
+                    },
+                    sort_keys=True,
+                ),
+                existing_node_row["created_at"] if existing_node_row else updated_at,
+                updated_at,
+            ),
+        )
+
+        mention_metadata = {
+            "chunk_id": self._chunk_id_for_note_row_with_connection(connection, note_row),
+            "document_title": note_row["document_title"],
+            "excerpt": note_row["excerpt_text"],
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
+            "manual_source": "note",
+            "note_anchor_text": note_row["anchor_text"],
+            "note_id": note_id,
+        }
+        mention_id = f"mention:{sha256_text(f'manual_note|{note_id}|{canonical_key}')[:16]}"
+        connection.execute(
+            """
+            INSERT INTO entity_mentions (
+                id,
+                source_document_id,
+                variant_id,
+                block_id,
+                text,
+                normalized_text,
+                entity_type,
+                start_offset,
+                end_offset,
+                confidence,
+                metadata_json,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                source_document_id = excluded.source_document_id,
+                variant_id = excluded.variant_id,
+                block_id = excluded.block_id,
+                text = excluded.text,
+                normalized_text = excluded.normalized_text,
+                entity_type = excluded.entity_type,
+                start_offset = excluded.start_offset,
+                end_offset = excluded.end_offset,
+                confidence = excluded.confidence,
+                metadata_json = excluded.metadata_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                mention_id,
+                note_row["source_document_id"],
+                note_row["variant_id"],
+                note_row["block_id"],
+                label,
+                canonical_key,
+                "concept",
+                None,
+                None,
+                0.99,
+                json.dumps(mention_metadata, sort_keys=True),
+                updated_at,
+                updated_at,
+            ),
+        )
+
+    def _preserved_manual_note_nodes_with_connection(
+        self,
+        connection: sqlite3.Connection,
+    ) -> list[dict[str, Any]]:
+        current_document_ids = {
+            str(row["id"])
+            for row in connection.execute("SELECT id FROM source_documents").fetchall()
+        }
+        preserved_nodes: list[dict[str, Any]] = []
+        for row in connection.execute("SELECT * FROM knowledge_nodes").fetchall():
+            metadata = self._metadata_from_row(row)
+            promoted_note_ids = [str(note_id) for note_id in metadata.get("promoted_note_ids", []) if str(note_id)]
+            source_document_ids = [
+                str(document_id)
+                for document_id in metadata.get("source_document_ids", [])
+                if str(document_id) in current_document_ids
+            ]
+            if not promoted_note_ids or not source_document_ids:
+                continue
+            preserved_nodes.append(
+                {
+                    "id": row["id"],
+                    "label": row["label"],
+                    "node_type": row["node_type"],
+                    "description": row["description"],
+                    "confidence": max(float(row["confidence"] or 0.0), 0.99),
+                    "metadata": {
+                        **metadata,
+                        "graph_schema_version": GRAPH_SCHEMA_VERSION,
+                        "promoted_note_ids": promoted_note_ids,
+                        "source_document_ids": source_document_ids,
+                        "status": metadata.get("status", "confirmed"),
+                    },
+                    "created_at": row["created_at"],
+                }
+            )
+        return preserved_nodes
+
+    def _preserved_manual_note_mentions_with_connection(
+        self,
+        connection: sqlite3.Connection,
+    ) -> list[dict[str, Any]]:
+        current_document_ids = {
+            str(row["id"])
+            for row in connection.execute("SELECT id FROM source_documents").fetchall()
+        }
+        preserved_mentions: list[dict[str, Any]] = []
+        for row in connection.execute("SELECT * FROM entity_mentions").fetchall():
+            metadata = self._metadata_from_row(row)
+            if metadata.get("manual_source") != "note":
+                continue
+            if str(row["source_document_id"]) not in current_document_ids:
+                continue
+            preserved_mentions.append(
+                {
+                    "id": row["id"],
+                    "source_document_id": row["source_document_id"],
+                    "variant_id": row["variant_id"],
+                    "block_id": row["block_id"],
+                    "text": row["text"],
+                    "normalized_text": row["normalized_text"],
+                    "entity_type": row["entity_type"],
+                    "start_offset": row["start_offset"],
+                    "end_offset": row["end_offset"],
+                    "confidence": max(float(row["confidence"] or 0.0), 0.99),
+                    "metadata": metadata,
+                    "created_at": row["created_at"],
+                }
+            )
+        return preserved_mentions
+
+    def _refresh_knowledge_node_aggregates_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        updated_at: str,
+    ) -> None:
+        mention_rows = connection.execute(
+            "SELECT normalized_text, source_document_id FROM entity_mentions WHERE normalized_text IS NOT NULL"
+        ).fetchall()
+        mention_counts: dict[str, int] = {}
+        source_document_ids_by_key: dict[str, set[str]] = {}
+        for row in mention_rows:
+            canonical_key = str(row["normalized_text"] or "")
+            if not canonical_key:
+                continue
+            mention_counts[canonical_key] = mention_counts.get(canonical_key, 0) + 1
+            source_document_ids_by_key.setdefault(canonical_key, set()).add(str(row["source_document_id"]))
+
+        node_rows = connection.execute("SELECT id, confidence, metadata_json FROM knowledge_nodes").fetchall()
+        for row in node_rows:
+            metadata = self._metadata_from_row(row)
+            canonical_key = str(metadata.get("canonical_key", ""))
+            if not canonical_key:
+                continue
+            source_document_ids = sorted(source_document_ids_by_key.get(canonical_key, set()))
+            metadata["graph_schema_version"] = GRAPH_SCHEMA_VERSION
+            metadata["mention_count"] = mention_counts.get(canonical_key, 0)
+            metadata["source_document_ids"] = source_document_ids
+            confidence = float(row["confidence"] or 0.0)
+            if metadata.get("status") == "confirmed":
+                confidence = max(confidence, 0.99)
+            connection.execute(
+                """
+                UPDATE knowledge_nodes
+                SET confidence = ?, metadata_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    confidence,
+                    json.dumps(metadata, sort_keys=True),
+                    updated_at,
+                    row["id"],
+                ),
+            )
+
     def _upsert_recall_note_fts_with_connection(
         self,
         connection: sqlite3.Connection,
@@ -3856,6 +4387,59 @@ class Repository:
                     updated_at=row["updated_at"],
                     payload_digest=build_payload_digest(payload),
                     metadata={"namespace": row["namespace"]},
+                )
+            )
+
+        note_rows = connection.execute(
+            """
+            SELECT
+                rn.id,
+                rn.source_document_id,
+                sd.content_hash,
+                rn.block_id,
+                rn.sentence_start,
+                rn.sentence_end,
+                rn.global_sentence_start,
+                rn.global_sentence_end,
+                rn.anchor_text,
+                rn.excerpt_text,
+                rn.body_text,
+                rn.created_at,
+                rn.updated_at
+            FROM recall_notes rn
+            INNER JOIN source_documents sd ON sd.id = rn.source_document_id
+            ORDER BY rn.updated_at ASC, rn.id ASC
+            """
+        ).fetchall()
+        for row in note_rows:
+            identity_payload = {
+                "block_id": row["block_id"],
+                "created_at": row["created_at"],
+                "sentence_end": row["sentence_end"],
+                "sentence_start": row["sentence_start"],
+                "source_document_content_hash": row["content_hash"],
+            }
+            payload = {
+                **identity_payload,
+                "anchor_text": row["anchor_text"],
+                "body_text": row["body_text"],
+                "excerpt_text": row["excerpt_text"],
+                "global_sentence_end": row["global_sentence_end"],
+                "global_sentence_start": row["global_sentence_start"],
+            }
+            entities.append(
+                PortableEntityDigest(
+                    entity_type="recall_note",
+                    entity_key=f"recall_note:{build_payload_digest(identity_payload)}",
+                    entity_id=row["id"],
+                    updated_at=row["updated_at"],
+                    payload_digest=build_payload_digest(payload),
+                    source_document_id=row["source_document_id"],
+                    metadata={
+                        "block_id": row["block_id"],
+                        "created_at": row["created_at"],
+                        "excerpt_text": row["excerpt_text"],
+                    },
                 )
             )
 

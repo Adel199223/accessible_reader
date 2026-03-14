@@ -320,6 +320,16 @@ class RecallNoteSearchHit(BaseModel):
     updated_at: str
 
 
+class RecallNoteGraphPromotionRequest(BaseModel):
+    label: str = Field(min_length=1)
+    description: str | None = None
+
+
+class RecallNoteStudyPromotionRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    answer: str = Field(min_length=1)
+
+
 class RecallSearchHit(BaseModel):
     id: str
     source_document_id: str

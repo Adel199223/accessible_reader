@@ -2,6 +2,15 @@ export type AppSection = 'recall' | 'reader'
 export type RecallSection = 'library' | 'graph' | 'study' | 'notes'
 export type WorkspaceSection = RecallSection | 'reader'
 
+export interface RecallWorkspaceFocusRequest {
+  cardId?: string | null
+  documentId?: string | null
+  nodeId?: string | null
+  noteId?: string | null
+  section: RecallSection
+  token: number
+}
+
 export interface AppRoute {
   documentId: string | null
   path: AppSection

@@ -17,9 +17,6 @@ import {
   fetchDocuments,
   fetchRecallNotes,
   generateDocumentView,
-  importFileDocument,
-  importTextDocument,
-  importUrlDocument,
   saveProgress,
 } from '../api'
 import type {
@@ -33,7 +30,6 @@ import type {
 } from '../types'
 import type { WorkspaceHeroProps } from './WorkspaceHero'
 import { ControlsOverflow } from './ControlsOverflow'
-import { ImportPanel } from './ImportPanel'
 import { LibraryPane } from './LibraryPane'
 import { ReaderSurface } from './ReaderSurface'
 import { SettingsPanel } from './SettingsPanel'
@@ -44,6 +40,8 @@ import { buildRenderableBlocks, type RenderSentence, type RenderableBlock } from
 
 interface ReaderWorkspaceProps {
   health: HealthResponse | null
+  onOpenRecallNotes: (documentId: string, noteId?: string | null) => void
+  onRequestNewSource: () => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
   routeDocumentId?: string | null
   routeSentenceEnd?: number | null
@@ -264,6 +262,8 @@ function findRenderableBlock(blocks: RenderableBlock[], blockId: string) {
 
 export function ReaderWorkspace({
   health,
+  onOpenRecallNotes,
+  onRequestNewSource,
   onShellHeroChange,
   onSettingsChange,
   routeDocumentId = null,
@@ -291,9 +291,7 @@ export function ReaderWorkspace({
   const [viewLoading, setViewLoading] = useState(false)
   const [viewError, setViewError] = useState<string | null>(null)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
-  const [importBusy, setImportBusy] = useState(false)
   const [transformBusy, setTransformBusy] = useState(false)
-  const [importPanelOpen, setImportPanelOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(() => !initialSession.documentId)
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -305,6 +303,9 @@ export function ReaderWorkspace({
   const [noteDraftBody, setNoteDraftBody] = useState('')
   const [noteSaveBusy, setNoteSaveBusy] = useState(false)
   const [noteMessage, setNoteMessage] = useState<string | null>(null)
+  const [readerContextTab, setReaderContextTab] = useState<'source' | 'notes'>(() =>
+    initialSession.documentId ? 'notes' : 'source',
+  )
   const [routeAnchorRange, setRouteAnchorRange] = useState<SentenceRange | null>(() =>
     routeSentenceStart === null
       ? null
@@ -579,12 +580,13 @@ export function ReaderWorkspace({
       if (noteCaptureActive) {
         return
       }
-      const target = event.target as HTMLElement | null
+      const target = event.target instanceof HTMLElement ? event.target : null
+      const targetElement = event.target instanceof Element ? event.target : null
       if (
         target &&
         (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName) ||
           target.isContentEditable ||
-          Boolean(target.closest('[data-reader-sentence="true"]')))
+          Boolean(targetElement?.closest('[data-reader-sentence="true"]')))
       ) {
         return
       }
@@ -616,63 +618,6 @@ export function ReaderWorkspace({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [noteCaptureActive, speech])
-
-  async function handleImportText(title: string, text: string) {
-    setImportBusy(true)
-    setViewError(null)
-    try {
-      const importedDocument = await importTextDocument(text, title || undefined)
-      setActiveDocument(importedDocument)
-      await loadDocuments('', importedDocument.id, 'reflowed')
-      startTransition(() => {
-        setSearch('')
-        setActiveMode('reflowed')
-      })
-      setImportPanelOpen(false)
-    } catch (error) {
-      setViewError(error instanceof Error ? error.message : 'Could not import pasted text.')
-    } finally {
-      setImportBusy(false)
-    }
-  }
-
-  async function handleImportFile(file: File) {
-    setImportBusy(true)
-    setViewError(null)
-    try {
-      const importedDocument = await importFileDocument(file)
-      setActiveDocument(importedDocument)
-      await loadDocuments('', importedDocument.id, 'reflowed')
-      startTransition(() => {
-        setSearch('')
-        setActiveMode('reflowed')
-      })
-      setImportPanelOpen(false)
-    } catch (error) {
-      setViewError(error instanceof Error ? error.message : 'Could not import that file.')
-    } finally {
-      setImportBusy(false)
-    }
-  }
-
-  async function handleImportUrl(url: string) {
-    setImportBusy(true)
-    setViewError(null)
-    try {
-      const importedDocument = await importUrlDocument(url)
-      setActiveDocument(importedDocument)
-      await loadDocuments('', importedDocument.id, 'reflowed')
-      startTransition(() => {
-        setSearch('')
-        setActiveMode('reflowed')
-      })
-      setImportPanelOpen(false)
-    } catch (error) {
-      setViewError(error instanceof Error ? error.message : 'Could not import that webpage.')
-    } finally {
-      setImportBusy(false)
-    }
-  }
 
   async function handleGenerate(mode: 'simplified' | 'summary') {
     if (!activeDocumentId) {
@@ -813,8 +758,21 @@ export function ReaderWorkspace({
     })
   }
 
+  function handleOpenSavedNote(note: RecallNoteRecord) {
+    speech.stop()
+    resetNoteComposer()
+    pendingRouteAnchorScrollRef.current = true
+    setReaderContextTab('notes')
+    startTransition(() => {
+      setActiveMode('reflowed')
+    })
+    setRouteAnchorRange({
+      end: note.anchor.global_sentence_end ?? note.anchor.sentence_end,
+      start: note.anchor.global_sentence_start ?? note.anchor.sentence_start,
+    })
+  }
+
   const hasActiveDocument = Boolean(selectedDocument)
-  const importPanelCollapsed = hasActiveDocument && !importPanelOpen
   const canUseSpeechTransport = speech.isSupported && flatSentences.length > 0
   const notesLoading = notesStatus === 'loading'
   const noteSaveDisabled = !noteSelection || noteSaveBusy
@@ -877,11 +835,20 @@ export function ReaderWorkspace({
     ? 'Your local library is loading. Reading controls appear after a document opens.'
     : documentsError
       ? 'Reader could not reconnect to the local library yet. Retry loading after the backend is running again.'
-      : 'Add local text, choose a file, import a public article link, or reopen a saved source from the Recall library on the left.'
+      : 'Use New to add a source from anywhere in Recall, or reopen something from the source library.'
 
   useEffect(() => {
     setLibraryOpen(!hasActiveDocument)
+    if (!hasActiveDocument) {
+      setReaderContextTab('source')
+    }
   }, [hasActiveDocument])
+
+  useEffect(() => {
+    if (noteCaptureActive) {
+      setReaderContextTab('notes')
+    }
+  }, [noteCaptureActive])
 
   async function handleDeleteDocument(documentToDelete: DocumentRecord) {
     const confirmed = window.confirm(`Delete "${documentToDelete.title}" from this device?`)
@@ -935,10 +902,12 @@ export function ReaderWorkspace({
 
   useEffect(() => {
     onShellHeroChange({
-      eyebrow: 'Recall',
-      title: 'Reconnect what you already saved.',
-      description:
-        'Inspect shared source documents, validate graph suggestions, retrieve grounded context, and study from local source-backed cards.',
+      compact: true,
+      eyebrow: hasActiveDocument ? 'Reader' : 'Recall',
+      title: hasActiveDocument ? 'Read without losing context.' : 'Read what you saved.',
+      description: hasActiveDocument
+        ? 'Keep the document primary, switch views quickly, and keep source and note context close at hand.'
+        : 'Open a saved source or use New to bring something into Recall without leaving the workspace.',
       metrics: [
         { label: libraryMetricLabel },
         { label: readerStatusMetricLabel, tone: 'muted' },
@@ -946,6 +915,7 @@ export function ReaderWorkspace({
       ],
     })
   }, [
+    hasActiveDocument,
     libraryMetricLabel,
     notesMetricLabel,
     onShellHeroChange,
@@ -968,60 +938,6 @@ export function ReaderWorkspace({
       ) : null}
 
       <div className="reader-shell-grid">
-        <aside className="sidebar">
-          <div className="sidebar-inner">
-            <ImportPanel
-              busy={importBusy}
-              collapsed={importPanelCollapsed}
-              collapsedActionLabel="Show"
-              collapsedTitle="Add source"
-              description="Bring local text, files, or public article links into Recall."
-              title="Add source"
-              onToggleCollapsed={
-                hasActiveDocument
-                  ? () => {
-                      setImportPanelOpen((current) => !current)
-                    }
-                  : undefined
-              }
-              onImportFile={handleImportFile}
-              onImportText={handleImportText}
-              onImportUrl={handleImportUrl}
-            />
-            <LibraryPane
-              activeDocumentId={activeDocumentId}
-              deletingDocumentId={deletingDocumentId}
-              documents={documents}
-              errorMessage={libraryErrorMessage}
-              hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
-              open={libraryOpen}
-              loading={documentsLoading}
-              searchPlaceholder="Search saved sources"
-              searchValue={search}
-              title="Source library"
-              onDelete={handleDeleteDocument}
-              onSearchChange={setSearch}
-              onSelect={(document) => {
-                speech.stop()
-                setRouteAnchorRange(null)
-                resetNoteComposer()
-                setImportPanelOpen(false)
-                startTransition(() => {
-                  setActiveDocument(document)
-                  setActiveDocumentId(document.id)
-                  setActiveMode('reflowed')
-                })
-              }}
-              onToggleOpen={() => setLibraryOpen((current) => !current)}
-            />
-            <p className="sidebar-footnote">
-              {health?.openai_configured
-                ? 'Simplify and Summary stay available as optional Recall transforms.'
-                : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
-            </p>
-          </div>
-        </aside>
-
         <main className="main-panel">
           {selectedDocument ? (
             <>
@@ -1143,11 +1059,24 @@ export function ReaderWorkspace({
                   <div className="reader-toolbar-actions">
                     {canAnnotateCurrentView ? (
                       noteCaptureActive ? (
-                        <button className="ghost-button" type="button" onClick={handleCancelNoteCapture}>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => {
+                            setReaderContextTab('notes')
+                            handleCancelNoteCapture()
+                          }}
+                        >
                           Cancel note
                         </button>
                       ) : (
-                        <button type="button" onClick={handleStartNoteCapture}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReaderContextTab('notes')
+                            handleStartNoteCapture()
+                          }}
+                        >
                           Add note
                         </button>
                       )
@@ -1159,64 +1088,6 @@ export function ReaderWorkspace({
                     ) : null}
                   </div>
                 </header>
-
-                {canAnnotateCurrentView ? (
-                  <div className="reader-note-status">
-                    {notesLoading ? <p className="small-note">Loading saved notes…</p> : null}
-                    {!notesLoading && notesStatus === 'error' ? (
-                      <div className="inline-actions">
-                        <p className="small-note">{notesError}</p>
-                        <button className="ghost-button" type="button" onClick={handleRetryNotesLoading}>
-                          Retry notes
-                        </button>
-                      </div>
-                    ) : null}
-                    {!notesLoading && notesStatus !== 'error' && noteMessage ? <p className="small-note">{noteMessage}</p> : null}
-                    {!notesLoading && notesStatus === 'success' && !notes.length ? (
-                      <p className="small-note">Add a note to keep a local, source-linked highlight in this reflowed view.</p>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {noteCaptureActive ? (
-                  <section className="reader-note-composer stack-gap" aria-label="Note capture">
-                    <div className="section-header section-header-compact">
-                      <h3>Capture note</h3>
-                      <p>
-                        Click one sentence to start, then click another sentence in the same block to extend the highlight.
-                      </p>
-                    </div>
-                    {noteSelection ? (
-                      <>
-                        <div className="reader-note-preview">
-                          <strong>Highlighted text</strong>
-                          <p>{noteSelection.anchorText}</p>
-                          <span>{noteSelection.excerptText}</span>
-                        </div>
-                        <label className="field">
-                          <span>Optional note</span>
-                          <textarea
-                            placeholder="Add a short reminder, question, or takeaway"
-                            value={noteDraftBody}
-                            onChange={(event) => setNoteDraftBody(event.target.value)}
-                          />
-                        </label>
-                        <div className="inline-actions">
-                          <button disabled={noteSaveDisabled} type="button" onClick={handleSaveNote}>
-                            {noteSaveBusy ? 'Saving…' : 'Save note'}
-                          </button>
-                          <button className="ghost-button" type="button" onClick={handleCancelNoteCapture}>
-                            Cancel
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="small-note">
-                        Select a sentence in the reading surface to start the note anchor.
-                      </p>
-                    )}
-                  </section>
-                ) : null}
 
                 {viewLoading ? <p className="placeholder">Loading view…</p> : null}
                 {selectedDocument && !view && !viewLoading && (activeMode === 'simplified' || activeMode === 'summary') ? (
@@ -1240,10 +1111,10 @@ export function ReaderWorkspace({
                 ) : null}
               </section>
             </>
-          ) : (
-            <section className="card empty-state-card stack-gap">
-              <div className="toolbar">
-                <div className="section-header">
+              ) : (
+                <section className="card empty-state-card stack-gap">
+                  <div className="toolbar">
+                    <div className="section-header">
                   <p className="eyebrow">{showUnavailableEmptyState ? 'Local service unavailable' : 'Ready when you are'}</p>
                   <h2>{emptyStateTitle}</h2>
                   <p>{emptyStateDescription}</p>
@@ -1265,30 +1136,195 @@ export function ReaderWorkspace({
                     <button className="ghost-button" type="button" onClick={handleRetryReaderLoading}>
                       Retry loading
                     </button>
+                    <button type="button" onClick={onRequestNewSource}>
+                      New source
+                    </button>
                   </div>
                   <p className="small-note">
-                    Import controls on the left still work for local text, files, and public article links while Reader reconnects.
+                    The New action in the shell still works for local text, files, and public article links while Reader reconnects.
                   </p>
                 </>
               ) : (
                 <div className="empty-state-steps" role="list" aria-label="How to begin">
                   <div className="empty-state-step" role="listitem">
                     <strong>1. Add or reopen something</strong>
-                    <span>Paste text, choose a file, import a public article link, or reopen a saved source from the library.</span>
+                    <span>Use New for fresh sources, or reopen something from the source library.</span>
                   </div>
                   <div className="empty-state-step" role="listitem">
                     <strong>2. Read in calmer view</strong>
                     <span>Reflowed opens first so spacing and line breaks stay easier to scan.</span>
                   </div>
                   <div className="empty-state-step" role="listitem">
-                    <strong>3. Open Settings only if needed</strong>
-                    <span>Theme and layout stay available from the Settings button.</span>
+                    <strong>3. Keep context nearby</strong>
+                    <span>Use Search, Notes, and Source context without losing your place in Reader.</span>
                   </div>
                 </div>
               )}
             </section>
           )}
         </main>
+
+        <aside className="reader-context-panel stack-gap">
+          <section className="card card-compact stack-gap reader-context-switcher">
+            <div className="toolbar">
+              <div className="section-header section-header-compact">
+                <h2>Reading context</h2>
+                <p>Keep sources and notes nearby without pushing the document down the page.</p>
+              </div>
+              <button type="button" onClick={onRequestNewSource}>
+                New source
+              </button>
+            </div>
+            <div className="recall-stage-tabs" aria-label="Reader context" role="tablist">
+              <button
+                aria-selected={readerContextTab === 'source'}
+                className={readerContextTab === 'source' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                role="tab"
+                type="button"
+                onClick={() => setReaderContextTab('source')}
+              >
+                Source
+              </button>
+              <button
+                aria-selected={readerContextTab === 'notes'}
+                className={readerContextTab === 'notes' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                role="tab"
+                type="button"
+                onClick={() => setReaderContextTab('notes')}
+              >
+                Notes
+              </button>
+            </div>
+          </section>
+
+          {readerContextTab === 'source' ? (
+            <>
+              <LibraryPane
+                activeDocumentId={activeDocumentId}
+                deletingDocumentId={deletingDocumentId}
+                documents={documents}
+                errorMessage={libraryErrorMessage}
+                hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
+                open={libraryOpen}
+                loading={documentsLoading}
+                searchPlaceholder="Search saved sources"
+                searchValue={search}
+                title="Source library"
+                onDelete={handleDeleteDocument}
+                onSearchChange={setSearch}
+                onSelect={(document) => {
+                  speech.stop()
+                  setRouteAnchorRange(null)
+                  resetNoteComposer()
+                  startTransition(() => {
+                    setActiveDocument(document)
+                    setActiveDocumentId(document.id)
+                    setActiveMode('reflowed')
+                  })
+                }}
+                onToggleOpen={() => setLibraryOpen((current) => !current)}
+              />
+              <p className="sidebar-footnote">
+                {health?.openai_configured
+                  ? 'Simplify and Summary stay available as optional Recall transforms.'
+                  : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
+              </p>
+            </>
+          ) : (
+            <section className="card card-compact stack-gap reader-notes-panel">
+              <div className="toolbar">
+                <div className="section-header section-header-compact">
+                  <h2>Notes</h2>
+                  <p>Keep saved highlights and note capture adjacent to the active document.</p>
+                </div>
+                {selectedDocument ? (
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => onOpenRecallNotes(selectedDocument.id, notes[0]?.id ?? null)}
+                  >
+                    Manage in Notes
+                  </button>
+                ) : null}
+              </div>
+
+              {!canAnnotateCurrentView && selectedDocument ? (
+                <p className="small-note">Switch back to Reflowed to capture new notes or jump to anchored highlights in place.</p>
+              ) : null}
+
+              {canAnnotateCurrentView ? (
+                <div className="reader-note-status">
+                  {notesLoading ? <p className="small-note">Loading saved notes…</p> : null}
+                  {!notesLoading && notesStatus === 'error' ? (
+                    <div className="inline-actions">
+                      <p className="small-note">{notesError}</p>
+                      <button className="ghost-button" type="button" onClick={handleRetryNotesLoading}>
+                        Retry notes
+                      </button>
+                    </div>
+                  ) : null}
+                  {!notesLoading && notesStatus !== 'error' && noteMessage ? <p className="small-note">{noteMessage}</p> : null}
+                  {!notesLoading && notesStatus === 'success' && !notes.length ? (
+                    <p className="small-note">Add a note to keep a local, source-linked highlight in this reflowed view.</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {noteCaptureActive ? (
+                <section className="reader-note-composer stack-gap" aria-label="Note capture">
+                  <div className="section-header section-header-compact">
+                    <h3>Capture note</h3>
+                    <p>Click one sentence to start, then click another sentence in the same block to extend the highlight.</p>
+                  </div>
+                  {noteSelection ? (
+                    <>
+                      <div className="reader-note-preview">
+                        <strong>Highlighted text</strong>
+                        <p>{noteSelection.anchorText}</p>
+                        <span>{noteSelection.excerptText}</span>
+                      </div>
+                      <label className="field">
+                        <span>Optional note</span>
+                        <textarea
+                          placeholder="Add a short reminder, question, or takeaway"
+                          value={noteDraftBody}
+                          onChange={(event) => setNoteDraftBody(event.target.value)}
+                        />
+                      </label>
+                      <div className="inline-actions">
+                        <button disabled={noteSaveDisabled} type="button" onClick={handleSaveNote}>
+                          {noteSaveBusy ? 'Saving…' : 'Save note'}
+                        </button>
+                        <button className="ghost-button" type="button" onClick={handleCancelNoteCapture}>
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="small-note">Select a sentence in the reading surface to start the note anchor.</p>
+                  )}
+                </section>
+              ) : null}
+
+              {notes.length ? (
+                <div className="reader-saved-notes" role="list">
+                  {notes.map((note) => (
+                    <button
+                      key={note.id}
+                      className="reader-saved-note"
+                      type="button"
+                      onClick={() => handleOpenSavedNote(note)}
+                    >
+                      <strong>{note.anchor.anchor_text}</strong>
+                      {note.body_text ? <span>{note.body_text}</span> : null}
+                      <small>{note.anchor.excerpt_text}</small>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          )}
+        </aside>
       </div>
       <SettingsPanel
         key={`settings-${settingsOpen ? 'open' : 'closed'}-${activeDocumentId ?? 'empty'}`}

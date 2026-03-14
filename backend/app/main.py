@@ -27,8 +27,10 @@ from .models import (
     KnowledgeNodeRecord,
     ProgressUpdate,
     RecallNoteCreateRequest,
+    RecallNoteGraphPromotionRequest,
     RecallNoteRecord,
     RecallNoteSearchHit,
+    RecallNoteStudyPromotionRequest,
     RecallNoteUpdateRequest,
     RecallRetrievalHit,
     ReaderSettings,
@@ -225,6 +227,34 @@ def delete_recall_note(note_id: str) -> None:
     deleted = repository.delete_recall_note(note_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Note not found.")
+
+
+@app.post("/api/recall/notes/{note_id}/promote/graph-node", response_model=KnowledgeNodeDetail)
+def promote_recall_note_to_graph_node(
+    note_id: str,
+    payload: RecallNoteGraphPromotionRequest,
+) -> KnowledgeNodeDetail:
+    try:
+        node_detail = repository.promote_recall_note_to_graph_node(note_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not node_detail:
+        raise HTTPException(status_code=404, detail="Note not found.")
+    return node_detail
+
+
+@app.post("/api/recall/notes/{note_id}/promote/study-card", response_model=StudyCardRecord)
+def promote_recall_note_to_study_card(
+    note_id: str,
+    payload: RecallNoteStudyPromotionRequest,
+) -> StudyCardRecord:
+    try:
+        card = repository.promote_recall_note_to_study_card(note_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not card:
+        raise HTTPException(status_code=404, detail="Note not found.")
+    return card
 
 
 @app.get("/api/recall/search", response_model=list[RecallSearchHit])

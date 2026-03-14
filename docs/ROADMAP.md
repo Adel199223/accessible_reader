@@ -5,9 +5,10 @@
 Keep this repository as one local-first workspace.
 
 - `Recall` is the product shell and workspace identity.
-- `Reader` remains an integrated section inside that shell, preserving reading behavior while converging onto Recall structure and language.
+- `Reader` remains an integrated section inside that shell, but the current layout is not frozen; preserve reading behavior, deep links, and data contracts while changing UI structure whenever that materially improves Recall-quality UX.
 - `backend/` remains the single local service host for Reader, Recall, and future shared workspace surfaces.
 - Shared storage and domain contracts must support current reading behavior first, then expand toward Recall graph/study/export features without a rewrite.
+- The original Recall app is the workflow benchmark for navigation clarity, reading focus, note adjacency, split-view usefulness, and obvious next actions; use it directionally without requiring pixel-perfect visual parity.
 
 ## Status As Of 2026-03-14
 
@@ -85,20 +86,35 @@ Keep this repository as one local-first workspace.
   - Stage 9 will add source-linked highlights and notes inside Reader and Recall
   - Stage 10 will extend note capture through the browser companion and fold notes into retrieval
   - Stage 11 will carry notes through portable apply flows and support manual promotion into graph/study workflows
+- Stage 11 is complete:
+  - workspace export manifests and merge-preview decisions now include portable `recall_note` entities
+  - Recall Notes detail now supports explicit promotion into confirmed graph nodes and manual study cards
+  - promoted manual graph/study artifacts now survive derived graph refreshes and deterministic study-card regeneration
+  - backend/frontend/extension validation plus a live localhost browser smoke are green
+  - the live smoke uncovered and fixed one Study handoff issue where promoted manual cards could fall outside the visible-card window
+- Stage 12 roadmap refresh is complete:
+  - a live localhost UX audit across Library, Study, Notes, and Reader confirmed the largest remaining gap is workflow polish rather than another backend feature tier
+  - the next slice is now focused on global add/search flow, focused Reader layout, and adjacent reading context instead of new storage or AI scope
+- Stage 13 workflow polish is complete:
+  - shell-level `New` and `Search` actions are now live across Recall and Reader, with the workspace search dialog reopening fresh on each use
+  - global search now blends sources, notes, and Recall retrieval hits, and hands off correctly into `Notes` and anchored `Reader` reopen flows
+  - Reader now uses a focused split-view layout with adjacent source/note context instead of stacking import and support chrome above the document
+  - frontend tests/lint/build, a live Edge import smoke, a live Edge global-search reopen smoke, and the repo-owned real Edge extension harness are green
 - A user-directed product correction is now fully implemented:
   - Reader adapts to the Recall-first shell structure instead of pulling Recall toward a separate app identity
   - the shared Recall shell now treats Reader as a section while keeping `/reader` deep links and anchor restore stable
 
 ## Active Milestone
 
-1. Stage 11: Portable Annotation Apply and Manual Knowledge Promotion
-   - note entities in export/merge/apply flows
-   - manual promotion from notes into graph evidence or study-card seeds
+1. Stage 14: Recall Density and Contextual Reader Polish
+   - reduce persistent shell and hero chrome so the working surface starts sooner on both Recall and Reader
+   - make Reader context more glanceable and useful without giving back the focused split-view gains from Stage 13
+   - tighten mobile and narrower-width fallbacks so source and note context stay reachable without crowding the reading surface
 
 ## Next Milestone
 
-1. Post-Stage-11 roadmap refresh
-   - confirm the next bounded slice after note portability and manual promotion land
+1. Post-Stage-14 follow-up to be defined after density/context polish lands
+   - use Stage 14 outcomes to choose the next bounded slice without reopening deferred systems by default
 
 ## Stage Map
 
@@ -142,6 +158,15 @@ Keep this repository as one local-first workspace.
 11. Stage 11: Portable Annotation Apply and Manual Knowledge Promotion
    - note entities in export/merge/apply flows
    - manual promotion from notes into graph evidence or study-card seeds
+12. Stage 12: Post-Stage-11 Roadmap Refresh
+   - confirm the next bounded implementation slice from the current product state through a Recall-benchmark UX audit
+   - turn that choice into the next active ExecPlan
+13. Stage 13: Recall Workflow Polish and Focused Reader Split View
+   - global add-source and search entry points across the Recall shell
+   - focused Reader layout with adjacent source/note context and lower-friction handoff loops
+14. Stage 14: Recall Density and Contextual Reader Polish
+   - compress persistent shell chrome and section scaffolding after the Stage 13 workflow gains
+   - improve the information density and usefulness of Reader-side context plus narrower-screen fallbacks
 
 ## Deferred Follow-Ups
 
@@ -154,7 +179,7 @@ Keep this repository as one local-first workspace.
 
 - `roadmap`, `master plan`, and `next milestone` mean this file unless explicitly redirected
 - log detours in `docs/ROADMAP_ANCHOR.md`
-- prefer shared-core and Recall-shell work; Reader shell convergence toward Recall is now an intentional roadmap correction, not churn
+- prefer shared-core work plus staged UX corrections when the current shell or flow gets in the way; preserve behaviors and local-first guarantees, not mediocre layout decisions
 - return to the roadmap after blockers or corrections are resolved
 
 ## Recent Detours
@@ -175,3 +200,7 @@ Keep this repository as one local-first workspace.
 - 2026-03-14: approved a bounded Stage 10 closeout extension to add a debug-only extension harness path, finish manual Edge companion validation, and then converge Reader onto the Recall-first shell before resuming the roadmap
 - 2026-03-14: completed the Stage 10 closeout with bounded browser note capture, note-aware retrieval, a debug-only extension harness, and a real Edge unpacked-extension validation pass, then completed the Reader shell convergence correction with Recall-first UI realignment and product-label cleanup
 - 2026-03-14: completed a Reader-as-section parity follow-up that removed the remaining top-level `Recall | Reader` split, unified workspace tabs under Recall, restored prior-section return behavior after Reader handoff, kept no-document Settings reachable, and reran the full validation matrix plus the real Edge debug harness
+- 2026-03-14: completed Stage 11 with portable `recall_note` manifest coverage, note-to-graph and note-to-study promotion flows, preservation of promoted manual knowledge across rebuilds, and a live localhost browser smoke that exposed and fixed the promoted-card Study landing bug
+- 2026-03-14: approved a UX-first guidance correction so future roadmap work preserves local-first behavior, routes, anchors, and reading continuity while explicitly allowing shell, layout, and workflow changes whenever that improves Recall-quality UX
+- 2026-03-14: completed the Stage 12 roadmap refresh with a live localhost UX audit, identified workflow polish as the highest-leverage gap, and opened Stage 13 for global add/search flow plus focused Reader split-view work
+- 2026-03-14: completed Stage 13 with shell-level add/search actions, a unified workspace search dialog, a focused Reader split view with adjacent source/note context, a defensive Reader keyboard-shortcut fix, frontend validation reruns, live Edge import/search smokes, and a green rerun of the repo-owned Edge extension harness

@@ -75,6 +75,16 @@ export interface RecallNoteUpdateRequest {
   body_text?: string | null
 }
 
+export interface RecallNoteGraphPromotionRequest {
+  label: string
+  description?: string | null
+}
+
+export interface RecallNoteStudyPromotionRequest {
+  prompt: string
+  answer: string
+}
+
 export interface RecallNoteSearchHit {
   id: string
   anchor: RecallNoteAnchor

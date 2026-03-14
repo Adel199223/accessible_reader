@@ -7,7 +7,9 @@ import { WorkspaceHero, type WorkspaceHeroProps } from './WorkspaceHero'
 interface RecallShellFrameProps {
   activeSection: WorkspaceSection
   children: ReactNode
+  headerActions?: ReactNode
   hero: WorkspaceHeroProps
+  layoutMode?: 'default' | 'reader'
   onSelectSection: (section: WorkspaceSection) => void
 }
 
@@ -25,21 +27,24 @@ const workspaceSections: Array<{
 export function RecallShellFrame({
   activeSection,
   children,
+  headerActions,
   hero,
+  layoutMode = 'default',
   onSelectSection,
 }: RecallShellFrameProps) {
   return (
     <>
-      <header className="shell-header">
+      <header className={layoutMode === 'reader' ? 'shell-header shell-header-compact' : 'shell-header'}>
         <div className="shell-brand">
           <p className="eyebrow">Local knowledge workspace</p>
           <h1>Recall</h1>
           <p>Search what you saved, reopen it in Reader, and keep the flow local-first.</p>
         </div>
+        {headerActions ? <div className="shell-nav">{headerActions}</div> : null}
       </header>
 
       <main className="shell-main">
-        <div className="recall-workspace stack-gap">
+        <div className={layoutMode === 'reader' ? 'recall-workspace recall-workspace-reader stack-gap' : 'recall-workspace stack-gap'}>
           <WorkspaceHero {...hero} />
 
           <div className="recall-stage-tabs" aria-label="Workspace sections" role="tablist">

@@ -84,12 +84,26 @@ As of 2026-03-14, this workspace includes:
   - the shared workspace section row now owns `Library`, `Graph`, `Study`, `Notes`, and `Reader`
   - returning from Reader preserves the prior Recall section instead of defaulting back to `Library`
   - compact no-document Reader onboarding still exposes `Settings` without reviving the old standalone Reader shell
-- Stage 11 remains the next roadmap milestone:
-  - portable annotation apply
-  - manual knowledge promotion from notes into graph/study flows
+- Stage 11 is complete:
+  - portable `recall_note` entities now participate in workspace export manifests and merge-preview decisions
+  - Notes detail now promotes notes into confirmed graph nodes and manual study cards
+  - promoted manual graph/study artifacts survive derived graph refreshes and deterministic study-card regeneration
+  - a live localhost browser smoke is green after catching and fixing the promoted-card Study landing edge case
+- Stage 12 roadmap refresh is complete:
+  - a live localhost UX audit confirmed the largest remaining gap is workflow polish in the add/search/read/note loop, not another backend feature tier
+  - the next milestone is now a frontend-first shell and Reader workflow polish slice
+- Stage 13 workflow polish is complete:
+  - Recall now exposes global `New` and `Search` actions with a reusable add-source dialog and a fresh-session workspace search surface
+  - global search now hands source and note results back into Recall sections and anchored Reader reopen flows
+  - Reader now keeps source and note context adjacent in a focused split-view layout instead of stacking support chrome above the document
+  - frontend validation, live Edge import/search smokes, and the repo-owned Edge extension harness are green after the shell change
 - A product-direction correction is now fully implemented:
   - Recall remains the product shell
   - Reader keeps its reading behaviors while now presenting as a Recall section instead of a separate app identity
+- A UX-priority correction is now the active guidance baseline:
+  - preserve local-first behavior, routes, anchors, browser-companion handoff, and reading continuity
+  - change layout, shell hierarchy, and interaction patterns whenever that materially improves Recall-quality UX
+  - treat the original Recall app as a directional benchmark for workflow and hierarchy rather than a pixel-perfect copy target
 
 ## Current Limits
 
@@ -116,7 +130,10 @@ As of 2026-03-14, this workspace includes:
 - Stage 9 is complete after the shared note-storage slice, Reader note capture/jump-back, Recall note management, validation reruns, and the live Playwright temp-workspace smoke run landed.
 - Stage 10 is complete after the browser note-capture, note-aware retrieval, debug harness, and real Edge unpacked-extension validation pass landed.
 - The Reader shell convergence correction is complete after the Recall-first UI realignment and product-label cleanup landed.
-- Stage 11 is now the active roadmap milestone.
+- Stage 11 is complete.
+- Stage 12 is complete after the UX audit and next-slice decision landed.
+- Stage 13 is complete.
+- Stage 14 recall density and contextual Reader polish is now the active milestone.
 
 ## Recent Detours
 
@@ -136,14 +153,18 @@ As of 2026-03-14, this workspace includes:
 - 2026-03-14: approved a bounded Stage 10 closeout extension for a debug-only extension validation harness plus a manual Edge unpacked-extension smoke, followed immediately by Reader shell convergence into the Recall-first workspace
 - 2026-03-14: completed the Stage 10 closeout with browser note capture, note-aware retrieval, a debug-only extension inspection build, and a real Edge unpacked-extension harness pass, then completed the Reader shell convergence correction with Recall-first UI alignment and runtime label cleanup
 - 2026-03-14: completed a Reader-as-section parity follow-up that removed the remaining top-level `Recall | Reader` split, unified the workspace section row, restored prior-section return behavior after Reader navigation, kept no-document Settings reachable, and reran the full validation matrix plus the real Edge debug harness
+- 2026-03-14: completed Stage 11 with portable `recall_note` manifest coverage, note-to-graph and note-to-study promotion flows, preservation of promoted manual knowledge across rebuilds, and a live localhost browser smoke that exposed and fixed the promoted-card Study landing bug
+- 2026-03-14: approved a UX-first guidance correction so future roadmap work preserves behaviors and local-first guarantees while explicitly allowing shell, layout, and workflow changes whenever that improves Recall-quality UX
+- 2026-03-14: completed the Stage 12 roadmap refresh with a live localhost UX audit, identified workflow polish as the highest-leverage gap, and opened Stage 13 for global add/search flow plus focused Reader split-view work
+- 2026-03-14: completed Stage 13 with shell-level add/search actions, a fresh-session workspace search dialog, focused Reader split view, a defensive keyboard-shortcut guard fix, frontend validation reruns, live Edge import/search smokes, and a green rerun of the repo-owned Edge extension harness
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Open the active Stage 11 ExecPlan in `docs/exec_plans/active/`.
+3. Open the active Stage 14 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current Recall-first shell, unified workspace section row, and current Reader behavior while extending note portability and manual promotion paths.
-7. Implement Stage 11 without reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, tags, notebooks, or free-text span anchors.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while further tightening shell density, contextual usefulness, and narrower-screen flow.
+7. Implement Stage 14 without reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems by default.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

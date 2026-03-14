@@ -1,14 +1,25 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 
-import { fetchHealth, fetchSettings, saveSettings } from './api'
+import {
+  fetchHealth,
+  fetchSettings,
+  importFileDocument,
+  importTextDocument,
+  importUrlDocument,
+  saveSettings,
+} from './api'
+import { ImportPanel } from './components/ImportPanel'
 import { RecallShellFrame } from './components/RecallShellFrame'
 import { RecallWorkspace } from './components/RecallWorkspace'
 import { ReaderWorkspace } from './components/ReaderWorkspace'
+import { WorkspaceDialogFrame } from './components/WorkspaceDialogFrame'
+import { WorkspaceSearchDialog } from './components/WorkspaceSearchDialog'
 import {
   buildAppHref,
   parseAppRoute,
   type AppRoute,
   type AppSection,
+  type RecallWorkspaceFocusRequest,
   type RecallSection,
   type WorkspaceSection,
 } from './lib/appRoute'
@@ -50,6 +61,12 @@ export default function App() {
   const [shellHero, setShellHero] = useState<WorkspaceHeroProps>(defaultShellHero)
   const [settings, setSettings] = useState<ReaderSettings>(defaultReaderSettings)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const [addSourceOpen, setAddSourceOpen] = useState(false)
+  const [addSourceBusy, setAddSourceBusy] = useState(false)
+  const [addSourceError, setAddSourceError] = useState<string | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchSessionToken, setSearchSessionToken] = useState(0)
+  const [recallFocusRequest, setRecallFocusRequest] = useState<RecallWorkspaceFocusRequest | null>(null)
 
   useEffect(() => {
     syncRouteFromLocation(setRoute)
@@ -84,6 +101,21 @@ export default function App() {
     return () => window.clearTimeout(timeout)
   }, [settings, settingsLoaded])
 
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        if (!searchOpen) {
+          setSearchSessionToken((current) => current + 1)
+          setSearchOpen(true)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [searchOpen])
+
   function navigate(
     path: AppSection,
     documentId?: string | null,
@@ -95,6 +127,75 @@ export default function App() {
     const href = buildAppHref(path, documentId, options)
     window.history.pushState({}, '', href)
     setRoute(parseAppRoute(window.location))
+  }
+
+  function openRecallSection(section: RecallSection, options?: Omit<RecallWorkspaceFocusRequest, 'section' | 'token'>) {
+    setActiveRecallSection(section)
+    setRecallFocusRequest({
+      section,
+      token: Date.now(),
+      ...options,
+    })
+    if (route.path !== 'recall') {
+      navigate('recall')
+    }
+  }
+
+  function handleRequestNewSource() {
+    setAddSourceError(null)
+    setAddSourceOpen(true)
+    if (route.path !== 'reader') {
+      navigate('reader')
+    }
+  }
+
+  function handleOpenSearch() {
+    if (!searchOpen) {
+      setSearchSessionToken((current) => current + 1)
+      setSearchOpen(true)
+    }
+  }
+
+  async function handleImportText(title: string, text: string) {
+    setAddSourceBusy(true)
+    setAddSourceError(null)
+    try {
+      const importedDocument = await importTextDocument(text, title || undefined)
+      setAddSourceOpen(false)
+      navigate('reader', importedDocument.id)
+    } catch (error) {
+      setAddSourceError(error instanceof Error ? error.message : 'Could not import pasted text.')
+    } finally {
+      setAddSourceBusy(false)
+    }
+  }
+
+  async function handleImportFile(file: File) {
+    setAddSourceBusy(true)
+    setAddSourceError(null)
+    try {
+      const importedDocument = await importFileDocument(file)
+      setAddSourceOpen(false)
+      navigate('reader', importedDocument.id)
+    } catch (error) {
+      setAddSourceError(error instanceof Error ? error.message : 'Could not import that file.')
+    } finally {
+      setAddSourceBusy(false)
+    }
+  }
+
+  async function handleImportUrl(url: string) {
+    setAddSourceBusy(true)
+    setAddSourceError(null)
+    try {
+      const importedDocument = await importUrlDocument(url)
+      setAddSourceOpen(false)
+      navigate('reader', importedDocument.id)
+    } catch (error) {
+      setAddSourceError(error instanceof Error ? error.message : 'Could not import that webpage.')
+    } finally {
+      setAddSourceBusy(false)
+    }
   }
 
   const appStyle = {
@@ -124,10 +225,23 @@ export default function App() {
       <RecallShellFrame
         activeSection={activeWorkspaceSection}
         hero={shellHero}
+        headerActions={
+          <>
+            <button className="shell-nav-button" type="button" onClick={handleOpenSearch}>
+              Search
+              <span className="shell-nav-hint">Ctrl+K</span>
+            </button>
+            <button className="shell-nav-button shell-nav-button-active" type="button" onClick={handleRequestNewSource}>
+              New
+            </button>
+          </>
+        }
+        layoutMode={route.path === 'reader' ? 'reader' : 'default'}
         onSelectSection={handleSelectWorkspaceSection}
       >
         {route.path === 'recall' ? (
           <RecallWorkspace
+            focusRequest={recallFocusRequest}
             section={activeRecallSection}
             onSectionChange={setActiveRecallSection}
             onShellHeroChange={setShellHero}
@@ -138,6 +252,8 @@ export default function App() {
             key={`reader-${route.documentId ?? 'session'}-${route.sentenceStart ?? 'none'}-${route.sentenceEnd ?? 'none'}`}
             health={health}
             onShellHeroChange={setShellHero}
+            onOpenRecallNotes={(documentId, noteId) => openRecallSection('notes', { documentId, noteId })}
+            onRequestNewSource={handleRequestNewSource}
             routeDocumentId={route.documentId}
             routeSentenceEnd={route.sentenceEnd}
             routeSentenceStart={route.sentenceStart}
@@ -146,6 +262,40 @@ export default function App() {
           />
         )}
       </RecallShellFrame>
+      <WorkspaceDialogFrame
+        description="Capture local text, files, or public article links from anywhere in Recall."
+        onClose={() => {
+          setAddSourceError(null)
+          setAddSourceOpen(false)
+        }}
+        open={addSourceOpen}
+        title="Add source"
+        wide
+      >
+        {addSourceError ? (
+          <div className="inline-error" role="alert">
+            <p>{addSourceError}</p>
+          </div>
+        ) : null}
+        <ImportPanel
+          busy={addSourceBusy}
+          description="Bring local text, files, or public article links into Recall."
+          helperText="TXT, Markdown, HTML, DOCX, text-based PDF, and public article links."
+          onImportFile={handleImportFile}
+          onImportText={handleImportText}
+          onImportUrl={handleImportUrl}
+          title="New source"
+        />
+      </WorkspaceDialogFrame>
+      <WorkspaceSearchDialog
+        key={`workspace-search-${searchSessionToken}`}
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onOpenGraph={(nodeId) => openRecallSection('graph', { nodeId })}
+        onOpenNote={(documentId, noteId) => openRecallSection('notes', { documentId, noteId })}
+        onOpenReader={(documentId, options) => navigate('reader', documentId, options)}
+        onOpenStudy={(cardId) => openRecallSection('study', { cardId })}
+      />
     </div>
   )
 }

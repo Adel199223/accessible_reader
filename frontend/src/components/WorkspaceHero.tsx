@@ -8,6 +8,7 @@ export interface WorkspaceHeroMetric {
 
 export interface WorkspaceHeroProps {
   actions?: ReactNode
+  compact?: boolean
   description: string
   eyebrow: string
   metrics?: WorkspaceHeroMetric[]
@@ -17,13 +18,14 @@ export interface WorkspaceHeroProps {
 
 export function WorkspaceHero({
   actions,
+  compact = false,
   description,
   eyebrow,
   metrics = [],
   title,
 }: WorkspaceHeroProps) {
   return (
-    <section className="card recall-hero">
+    <section className={compact ? 'card recall-hero recall-hero-compact' : 'card recall-hero'}>
       <div className={actions ? 'toolbar workspace-hero-toolbar' : 'section-header'}>
         <div className="section-header">
           <p className="eyebrow">{eyebrow}</p>

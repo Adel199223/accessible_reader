@@ -12,6 +12,9 @@ Build one localhost-first Recall workspace for Windows 11 that turns pasted text
 - Keep the app useful without AI for import, parsing, reflow, reading controls, storage, search, and reopen support.
 - Defaults should favor low friction, calm structure, strong scan order, and readability for dyslexic and ADHD-prone users.
 - Reader must adapt to the Recall-first shell and shared workspace structure, not the other way around.
+- If the current UI structure conflicts with a better Recall-quality workflow, change the UI in staged passes instead of preserving the layout for consistency alone.
+- Treat the current in-repo shell as a baseline for continuity, not as a constraint on better UX.
+- Use the original Recall app as a directional benchmark for workflow, information hierarchy, reading focus, note adjacency, split-view usefulness, and obvious next actions; do not chase pixel-perfect visual cloning.
 - The shared workspace section row is `Library`, `Graph`, `Study`, `Notes`, and `Reader`; `/reader` remains a compatibility route into the `Reader` section.
 - Public webpage support should stay article-first and snapshot-based: fetch once, store locally, and reopen from the local snapshot instead of live syncing.
 

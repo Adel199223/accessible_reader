@@ -122,7 +122,7 @@ const recallDocuments = documents.map((document, index) => ({
   chunk_count: index + 2,
 }))
 
-const recallGraph: KnowledgeGraphSnapshot = {
+const baseRecallGraph: KnowledgeGraphSnapshot = {
   nodes: [
     {
       id: 'node-knowledge-graphs',
@@ -172,8 +172,8 @@ const recallGraph: KnowledgeGraphSnapshot = {
   confirmed_edges: 0,
 }
 
-const nodeDetail: KnowledgeNodeDetail = {
-  node: recallGraph.nodes[0],
+const baseNodeDetail: KnowledgeNodeDetail = {
+  node: baseRecallGraph.nodes[0],
   mentions: [
     {
       id: 'mention-1',
@@ -187,7 +187,7 @@ const nodeDetail: KnowledgeNodeDetail = {
       excerpt: 'Knowledge Graphs support Study Cards.',
     },
   ],
-  outgoing_edges: [recallGraph.edges[0]],
+  outgoing_edges: [baseRecallGraph.edges[0]],
   incoming_edges: [],
 }
 
@@ -238,7 +238,7 @@ const retrievalHits: RecallRetrievalHit[] = [
   },
 ]
 
-const studyOverview: StudyOverview = {
+const baseStudyOverview: StudyOverview = {
   due_count: 1,
   new_count: 1,
   scheduled_count: 0,
@@ -246,7 +246,7 @@ const studyOverview: StudyOverview = {
   next_due_at: '2026-03-13T00:20:00Z',
 }
 
-const studyCards: StudyCardRecord[] = [
+const baseStudyCards: StudyCardRecord[] = [
   {
     id: 'card-1',
     source_document_id: 'doc-search',
@@ -343,6 +343,20 @@ const localServiceUnavailableMessage =
   'Could not reach the local service at 127.0.0.1:8000. Retry after the backend is running again.'
 
 let recallNotesByDocument: Record<string, RecallNoteRecord[]> = {}
+let recallGraphState: KnowledgeGraphSnapshot
+let nodeDetailById: Record<string, KnowledgeNodeDetail>
+let studyOverviewState: StudyOverview
+let studyCardsState: StudyCardRecord[]
+
+function buildStudyOverview(cards: StudyCardRecord[]): StudyOverview {
+  return {
+    due_count: cards.filter((card) => card.status === 'due').length,
+    new_count: cards.filter((card) => card.status === 'new').length,
+    scheduled_count: cards.filter((card) => card.status === 'scheduled').length,
+    review_event_count: 0,
+    next_due_at: cards[0]?.due_at ?? null,
+  }
+}
 
 const {
   createRecallNoteMock,
@@ -361,6 +375,8 @@ const {
   fetchRecallStudyOverviewMock,
   generateRecallStudyCardsMock,
   importUrlDocumentMock,
+  promoteRecallNoteToGraphNodeMock,
+  promoteRecallNoteToStudyCardMock,
   retrieveRecallMock,
   reviewRecallStudyCardMock,
   saveProgressMock,
@@ -388,6 +404,8 @@ const {
     const fetchRecallStudyOverviewMock = vi.fn()
     const generateRecallStudyCardsMock = vi.fn()
     const importUrlDocumentMock = vi.fn<(url: string) => Promise<DocumentRecord>>()
+    const promoteRecallNoteToGraphNodeMock = vi.fn()
+    const promoteRecallNoteToStudyCardMock = vi.fn()
     const retrieveRecallMock = vi.fn()
     const reviewRecallStudyCardMock = vi.fn()
     const saveProgressMock = vi.fn()
@@ -412,6 +430,8 @@ const {
       fetchRecallStudyOverviewMock,
       generateRecallStudyCardsMock,
       importUrlDocumentMock,
+      promoteRecallNoteToGraphNodeMock,
+      promoteRecallNoteToStudyCardMock,
       retrieveRecallMock,
       reviewRecallStudyCardMock,
       saveProgressMock,
@@ -459,6 +479,8 @@ vi.mock('./api', () => ({
   importTextDocument: vi.fn(),
   importFileDocument: vi.fn(),
   generateDocumentView: vi.fn(),
+  promoteRecallNoteToGraphNode: promoteRecallNoteToGraphNodeMock,
+  promoteRecallNoteToStudyCard: promoteRecallNoteToStudyCardMock,
   retrieveRecall: retrieveRecallMock,
   reviewRecallStudyCard: reviewRecallStudyCardMock,
   searchRecallNotes: searchRecallNotesMock,
@@ -497,6 +519,12 @@ beforeEach(() => {
     },
   })
   recallNotesByDocument = structuredClone(baseRecallNotesByDocument)
+  recallGraphState = structuredClone(baseRecallGraph)
+  nodeDetailById = {
+    [baseNodeDetail.node.id]: structuredClone(baseNodeDetail),
+  }
+  studyCardsState = structuredClone(baseStudyCards)
+  studyOverviewState = structuredClone(baseStudyOverview)
   createRecallNoteMock.mockReset()
   fetchDocumentsMock.mockReset()
   fetchDocumentViewMock.mockReset()
@@ -513,6 +541,8 @@ beforeEach(() => {
   deleteRecallNoteMock.mockReset()
   deleteDocumentRecordMock.mockReset()
   importUrlDocumentMock.mockReset()
+  promoteRecallNoteToGraphNodeMock.mockReset()
+  promoteRecallNoteToStudyCardMock.mockReset()
   retrieveRecallMock.mockReset()
   reviewRecallStudyCardMock.mockReset()
   saveProgressMock.mockReset()
@@ -545,26 +575,32 @@ beforeEach(() => {
     return document
   })
   fetchRecallNotesMock.mockImplementation(async (documentId: string) => recallNotesByDocument[documentId] ?? [])
-  fetchRecallGraphMock.mockImplementation(async () => recallGraph)
-  fetchRecallGraphNodeMock.mockImplementation(async () => nodeDetail)
-  fetchRecallStudyOverviewMock.mockImplementation(async () => studyOverview)
-  fetchRecallStudyCardsMock.mockImplementation(async () => studyCards)
+  fetchRecallGraphMock.mockImplementation(async () => recallGraphState)
+  fetchRecallGraphNodeMock.mockImplementation(async (nodeId: string) => {
+    const detail = nodeDetailById[nodeId]
+    if (!detail) {
+      throw new Error('Node not found.')
+    }
+    return detail
+  })
+  fetchRecallStudyOverviewMock.mockImplementation(async () => studyOverviewState)
+  fetchRecallStudyCardsMock.mockImplementation(async () => studyCardsState)
   generateRecallStudyCardsMock.mockImplementation(async () => ({
     generated_count: 1,
-    total_count: studyCards.length,
+    total_count: studyCardsState.length,
   }))
   decideRecallGraphNodeMock.mockImplementation(async () => ({
-    ...recallGraph.nodes[0],
+    ...recallGraphState.nodes[0],
     status: 'confirmed',
   }))
   decideRecallGraphEdgeMock.mockImplementation(async () => ({
-    ...recallGraph.edges[0],
+    ...recallGraphState.edges[0],
     status: 'confirmed',
     provenance: 'manual',
   }))
   retrieveRecallMock.mockImplementation(async (query: string) => (query ? retrievalHits : []))
   reviewRecallStudyCardMock.mockImplementation(async (cardId: string) => ({
-    ...studyCards[0],
+    ...studyCardsState[0],
     id: cardId,
     review_count: 1,
     status: 'scheduled',
@@ -609,6 +645,89 @@ beforeEach(() => {
         notes.filter((note) => note.id !== noteId),
       ]),
     )
+  })
+  promoteRecallNoteToGraphNodeMock.mockImplementation(async (noteId: string, payload: { label: string; description?: string | null }) => {
+    const [documentId, note] =
+      Object.entries(recallNotesByDocument)
+        .flatMap(([candidateDocumentId, notes]) =>
+          notes
+            .filter((candidateNote) => candidateNote.id === noteId)
+            .map((candidateNote) => [candidateDocumentId, candidateNote] as const),
+        )[0] ?? []
+    if (!documentId || !note) {
+      throw new Error('Note not found.')
+    }
+    const nodeId = `node-promoted-${noteId}`
+    const promotedNode = {
+      id: nodeId,
+      label: payload.label,
+      node_type: 'concept' as const,
+      description: payload.description ?? null,
+      confidence: 0.99,
+      mention_count: 1,
+      document_count: 1,
+      status: 'confirmed' as const,
+      aliases: [],
+      source_document_ids: [documentId],
+    }
+    const promotedDetail: KnowledgeNodeDetail = {
+      node: promotedNode,
+      mentions: [
+        {
+          id: `mention-${noteId}`,
+          source_document_id: documentId,
+          document_title: recallDocuments.find((document) => document.id === documentId)?.title ?? 'Saved note',
+          text: payload.label,
+          entity_type: 'concept',
+          confidence: 0.99,
+          block_id: note.anchor.block_id,
+          chunk_id: `${documentId}:chunk:0`,
+          excerpt: note.anchor.excerpt_text,
+        },
+      ],
+      outgoing_edges: [],
+      incoming_edges: [],
+    }
+    recallGraphState = {
+      ...recallGraphState,
+      nodes: [promotedNode, ...recallGraphState.nodes.filter((node) => node.id !== nodeId)],
+      confirmed_nodes:
+        [promotedNode, ...recallGraphState.nodes.filter((node) => node.id !== nodeId)].filter(
+          (node) => node.status === 'confirmed',
+        ).length,
+    }
+    nodeDetailById[nodeId] = promotedDetail
+    return promotedDetail
+  })
+  promoteRecallNoteToStudyCardMock.mockImplementation(async (noteId: string, payload: { prompt: string; answer: string }) => {
+    const [documentId, note] =
+      Object.entries(recallNotesByDocument)
+        .flatMap(([candidateDocumentId, notes]) =>
+          notes
+            .filter((candidateNote) => candidateNote.id === noteId)
+            .map((candidateNote) => [candidateDocumentId, candidateNote] as const),
+        )[0] ?? []
+    if (!documentId || !note) {
+      throw new Error('Note not found.')
+    }
+    const cardId = `card-promoted-${noteId}`
+    const promotedCard: StudyCardRecord = {
+      id: cardId,
+      source_document_id: documentId,
+      document_title: recallDocuments.find((document) => document.id === documentId)?.title ?? 'Saved note',
+      prompt: payload.prompt,
+      answer: payload.answer,
+      card_type: 'manual_note',
+      source_spans: [{ excerpt: note.anchor.excerpt_text, note_id: note.id }],
+      scheduling_state: { due_at: '2026-03-13T00:40:00Z', review_count: 0 },
+      due_at: '2026-03-13T00:40:00Z',
+      review_count: 0,
+      status: 'new',
+      last_rating: null,
+    }
+    studyCardsState = [promotedCard, ...studyCardsState.filter((card) => card.id !== cardId)]
+    studyOverviewState = buildStudyOverview(studyCardsState)
+    return promotedCard
   })
   searchRecallNotesMock.mockImplementation(async (query: string, limit = 20, documentId?: string | null) => {
     void limit
@@ -660,15 +779,10 @@ async function ensureLibraryOpen() {
   })
 }
 
-async function ensureImportPanelOpen() {
-  const importSection = screen.getByRole('heading', { name: 'Add source', level: 2 }).closest('section')
-  expect(importSection).not.toBeNull()
-
-  const importButton = within(importSection as HTMLElement).queryByRole('button', { name: 'Show' })
-  if (importButton) {
-    fireEvent.click(importButton)
-  }
+async function ensureAddSourceDialogOpen() {
+  fireEvent.click(screen.getByRole('button', { name: 'New' }))
   await waitFor(() => {
+    expect(screen.getByRole('dialog', { name: 'Add source' })).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Paste text here')).toBeInTheDocument()
   })
 }
@@ -948,6 +1062,69 @@ test('Recall notes can be edited and deleted from the Notes tab', async () => {
   })
 })
 
+test('Recall notes can promote manual graph nodes and study cards', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Notes', selected: false })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Promote to Graph' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Promote to Graph' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Graph label' }), {
+    target: { value: 'Search Concept' },
+  })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Graph description' }), {
+    target: { value: 'Manual graph note.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Promote node' }))
+
+  await waitFor(() => {
+    expect(promoteRecallNoteToGraphNodeMock).toHaveBeenCalledWith('note-search-1', {
+      label: 'Search Concept',
+      description: 'Manual graph note.',
+    })
+  })
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getAllByText('Search Concept').length).toBeGreaterThan(0)
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Create Study Card' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Create Study Card' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Study prompt' }), {
+    target: { value: 'What should you remember from the search note?' },
+  })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Study answer' }), {
+    target: { value: 'Search Concept' },
+  })
+  fetchRecallStudyCardsMock.mockImplementationOnce(async () => structuredClone(baseStudyCards))
+  fireEvent.click(screen.getByRole('button', { name: 'Create card' }))
+
+  await waitFor(() => {
+    expect(promoteRecallNoteToStudyCardMock).toHaveBeenCalledWith('note-search-1', {
+      prompt: 'What should you remember from the search note?',
+      answer: 'Search Concept',
+    })
+  })
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getAllByText('What should you remember from the search note?').length).toBeGreaterThan(0)
+  })
+})
+
 test('library selection updates the reader and search does not replace the active document', async () => {
   render(<App />)
 
@@ -983,14 +1160,15 @@ test('library selection updates the reader and search does not replace the activ
 test('Reader shows a service unavailable state when initial document loading fails', async () => {
   fetchDocumentsMock.mockRejectedValueOnce(new Error(localServiceUnavailableMessage))
 
-  render(<App />)
+  renderRecallApp('/reader')
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Reader is temporarily unavailable', level: 2 })).toBeInTheDocument()
   })
 
   expect(screen.getByText(localServiceUnavailableMessage)).toBeInTheDocument()
-  expect(screen.getByPlaceholderText('Paste text here')).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: 'New source' }).length).toBeGreaterThan(0)
+  expect(screen.queryByPlaceholderText('Paste text here')).not.toBeInTheDocument()
   expect(screen.getAllByRole('button', { name: 'Retry loading' }).length).toBeGreaterThan(0)
   expect(screen.queryByRole('heading', { name: 'Open a source to start reading', level: 2 })).not.toBeInTheDocument()
 })
@@ -1166,19 +1344,121 @@ test('theme switching still changes the whole app shell from inside the settings
   expect(appShell).toHaveClass('theme-high')
 })
 
-test('sidebar uses compact import and library wording while preserving the same actions', async () => {
-  render(<App />)
+test('shell exposes global New and Search while source library remains in reader context', async () => {
+  renderRecallApp('/reader')
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Add source', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
   })
 
+  expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Reading context', level: 2 })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Import text' })).toBeInTheDocument()
-  expect(screen.getByText('Choose file')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Web page' })).toBeInTheDocument()
-  expect(screen.getByPlaceholderText('Search saved sources')).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Add source', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByText('Info')).not.toBeInTheDocument()
+})
+
+test('global Search dialog reopens fresh and supports the keyboard shortcut', async () => {
+  renderRecallApp('/reader')
+
+  fireEvent.click(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
+  })
+
+  const searchDialog = screen.getByRole('dialog', { name: 'Search your workspace' })
+
+  expect(within(searchDialog).getByRole('heading', { name: 'Recent sources', level: 3 })).toBeInTheDocument()
+  fireEvent.change(within(searchDialog).getByRole('searchbox', { name: 'Search' }), {
+    target: { value: 'Useful search note' },
+  })
+
+  await waitFor(() => {
+    expect(searchRecallNotesMock).toHaveBeenCalledWith('Useful search note', 8, null)
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+  await waitFor(() => {
+    expect(screen.queryByRole('dialog', { name: 'Search your workspace' })).not.toBeInTheDocument()
+  })
+
+  fireEvent.keyDown(window, { ctrlKey: true, key: 'k' })
+
+  await waitFor(() => {
+    expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
+  })
+
+  const reopenedSearchDialog = screen.getByRole('dialog', { name: 'Search your workspace' })
+  expect(within(reopenedSearchDialog).getByRole('searchbox', { name: 'Search' })).toHaveValue('')
+  expect(within(reopenedSearchDialog).getByRole('heading', { name: 'Recent sources', level: 3 })).toBeInTheDocument()
+})
+
+test('global Search dialog hands note results off to Notes and anchored Reader reopening', async () => {
+  renderRecallApp('/reader')
+
+  fireEvent.click(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
+  })
+
+  const searchDialog = screen.getByRole('dialog', { name: 'Search your workspace' })
+
+  fireEvent.change(within(searchDialog).getByRole('searchbox', { name: 'Search' }), {
+    target: { value: 'Useful search note' },
+  })
+
+  await waitFor(() => {
+    expect(searchRecallNotesMock).toHaveBeenCalledWith('Useful search note', 8, null)
+  })
+
+  const notesSection = within(searchDialog).getByRole('heading', { name: 'Notes', level: 3 }).closest('section')
+  expect(notesSection).not.toBeNull()
+
+  fireEvent.click(within(notesSection as HTMLElement).getByText('Useful search note.').closest('button')!)
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
+  })
+
+  const reopenedSearchDialog = screen.getByRole('dialog', { name: 'Search your workspace' })
+
+  fireEvent.change(within(reopenedSearchDialog).getByRole('searchbox', { name: 'Search' }), {
+    target: { value: 'Useful search note' },
+  })
+
+  await waitFor(() => {
+    expect(searchRecallNotesMock).toHaveBeenCalledWith('Useful search note', 8, null)
+  })
+
+  const notesSectionForReader = within(reopenedSearchDialog).getByRole('heading', { name: 'Notes', level: 3 }).closest('section')
+  expect(notesSectionForReader).not.toBeNull()
+
+  fireEvent.click(within(notesSectionForReader as HTMLElement).getByRole('button', { name: 'Open in Reader' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+  })
+
+  expect(window.location.search).toContain('document=doc-search')
+  expect(window.location.search).toContain('sentenceStart=0')
+  expect(window.location.search).toContain('sentenceEnd=1')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Search sentence one.' })).toHaveClass('reader-sentence-anchored')
+  })
+  expect(screen.getByRole('button', { name: 'Search sentence two.' })).toHaveClass('reader-sentence-anchored')
 })
 
 test('web page import stays behind a compact disclosure and imports into the reader', async () => {
@@ -1213,7 +1493,7 @@ test('web page import stays behind a compact disclosure and imports into the rea
     return webDocument
   })
 
-  render(<App />)
+  renderRecallApp('/reader')
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
@@ -1221,7 +1501,7 @@ test('web page import stays behind a compact disclosure and imports into the rea
 
   expect(screen.queryByLabelText('Article URL')).not.toBeInTheDocument()
 
-  await ensureImportPanelOpen()
+  await ensureAddSourceDialogOpen()
   fireEvent.click(screen.getByRole('button', { name: 'Web page' }))
   fireEvent.change(screen.getByLabelText('Article URL'), {
     target: { value: 'example.com/article' },
@@ -1244,13 +1524,13 @@ test('web page import stays behind a compact disclosure and imports into the rea
 test('web page import shows a bounded error without breaking the rest of the import panel', async () => {
   importUrlDocumentMock.mockRejectedValueOnce(new Error('Only public webpage articles are supported here.'))
 
-  render(<App />)
+  renderRecallApp('/reader')
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
   })
 
-  await ensureImportPanelOpen()
+  await ensureAddSourceDialogOpen()
   fireEvent.click(screen.getByRole('button', { name: 'Web page' }))
   fireEvent.change(screen.getByLabelText('Article URL'), {
     target: { value: 'https://example.com/app' },
@@ -1265,8 +1545,8 @@ test('web page import shows a bounded error without breaking the rest of the imp
   expect(screen.getByText('Choose file')).toBeInTheDocument()
 })
 
-test('active reading collapses import by default and lets the user expand it on demand', async () => {
-  render(<App />)
+test('active reading routes add source through the global New dialog instead of an inline import column', async () => {
+  renderRecallApp('/reader')
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
@@ -1275,17 +1555,10 @@ test('active reading collapses import by default and lets the user expand it on 
   await ensureLibraryOpen()
   fireEvent.click(screen.getByTitle('Reader stays here'))
 
-  const importSection = screen.getByRole('heading', { name: 'Add source', level: 2 }).closest('section')
-  expect(importSection).not.toBeNull()
-
-  await waitFor(() => {
-    expect(within(importSection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
-  })
-
-  expect(screen.getByRole('heading', { name: 'Add source', level: 2 })).toBeInTheDocument()
   expect(screen.queryByPlaceholderText('Paste text here')).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Add source', level: 2 })).not.toBeInTheDocument()
 
-  await ensureImportPanelOpen()
+  await ensureAddSourceDialogOpen()
   expect(screen.getByPlaceholderText('Paste text here')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Web page' })).toBeInTheDocument()
 })
@@ -1324,15 +1597,15 @@ test('no-document mode shows a compact onboarding shell instead of full reader c
 test('reader hero uses Recall-first copy instead of standalone reader branding', async () => {
   fetchDocumentsMock.mockImplementation(async () => [])
 
-  render(<App />)
+  renderRecallApp('/reader')
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Reconnect what you already saved.', level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Read what you saved.', level: 1 })).toBeInTheDocument()
   })
 
   expect(
     screen.getByText(
-      'Inspect shared source documents, validate graph suggestions, retrieve grounded context, and study from local source-backed cards.',
+      'Open a saved source or use New to bring something into Recall without leaving the workspace.',
     ),
   ).toBeInTheDocument()
   expect(screen.queryByText('Accessible Reader')).not.toBeInTheDocument()
@@ -1340,7 +1613,7 @@ test('reader hero uses Recall-first copy instead of standalone reader branding',
 })
 
 test('reader area keeps one visible title and uses the compact header as the article label', async () => {
-  render(<App />)
+  renderRecallApp('/reader')
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()

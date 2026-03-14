@@ -763,6 +763,17 @@ def test_workspace_merge_preview_returns_deterministic_decisions(tmp_path, monke
     )
     assert progress_response.status_code == 200
 
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={"anchor": build_note_anchor(document["id"], view_response.json()), "body_text": "Portable merge note."},
+    )
+    assert note_response.status_code == 200
+
     manifest_response = client.get("/api/workspace/export.manifest.json")
     assert manifest_response.status_code == 200
     remote_manifest = json.loads(json.dumps(manifest_response.json()))
@@ -775,6 +786,10 @@ def test_workspace_merge_preview_returns_deterministic_decisions(tmp_path, monke
     variant_entity["payload_digest"] = "0" * 64
     variant_entity["updated_at"] = "2020-01-01T00:00:00+00:00"
 
+    note_entity = next(entity for entity in remote_manifest["entities"] if entity["entity_type"] == "recall_note")
+    note_entity["payload_digest"] = "b" * 64
+    note_entity["updated_at"] = "2030-01-01T00:00:00+00:00"
+
     setting_entity = next(entity for entity in remote_manifest["entities"] if entity["entity_type"] == "app_setting")
     imported_entity = {
         "entity_type": "app_setting",
@@ -786,6 +801,20 @@ def test_workspace_merge_preview_returns_deterministic_decisions(tmp_path, monke
         "metadata": {"namespace": "reader-remote"},
     }
     remote_manifest["entities"].append(imported_entity)
+    imported_note_entity = {
+        "entity_type": "recall_note",
+        "entity_key": "recall_note:remote-portable",
+        "entity_id": "note-remote",
+        "updated_at": "2030-01-04T00:00:00+00:00",
+        "payload_digest": "d" * 64,
+        "source_document_id": document["id"],
+        "metadata": {
+            "block_id": "block-remote",
+            "created_at": "2030-01-04T00:00:00+00:00",
+            "excerpt_text": "Remote portable note.",
+        },
+    }
+    remote_manifest["entities"].append(imported_note_entity)
 
     remote_manifest["attachments"][0]["content_digest"] = "e" * 64
     remote_manifest["attachments"][0]["updated_at"] = "2030-01-03T00:00:00+00:00"
@@ -800,8 +829,10 @@ def test_workspace_merge_preview_returns_deterministic_decisions(tmp_path, monke
     }
     assert operations[(source_entity["entity_type"], source_entity["entity_key"])]["decision"] == "prefer_remote"
     assert operations[(variant_entity["entity_type"], variant_entity["entity_key"])]["decision"] == "keep_local"
+    assert operations[(note_entity["entity_type"], note_entity["entity_key"])]["decision"] == "prefer_remote"
     assert operations[(setting_entity["entity_type"], setting_entity["entity_key"])]["decision"] == "skip_equal"
     assert operations[(imported_entity["entity_type"], imported_entity["entity_key"])]["decision"] == "import_remote"
+    assert operations[(imported_note_entity["entity_type"], imported_note_entity["entity_key"])]["decision"] == "import_remote"
     attachment_key = remote_manifest["attachments"][0]["logical_key"]
     assert operations[("attachment", attachment_key)]["decision"] == "prefer_remote"
 
@@ -1009,6 +1040,76 @@ def test_recall_notes_create_list_update_delete_and_change_events(tmp_path, monk
             (created_note["id"],),
         ).fetchall()
         assert [row[0] for row in rows] == ["created", "updated", "deleted"]
+
+
+def test_recall_note_promotions_survive_refresh_and_manual_card_regeneration(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Promotion guide",
+            "text": "Alpha sentence. Beta sentence. Gamma sentence.",
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    anchor = build_note_anchor(document["id"], view_response.json(), sentence_start=0, sentence_end=1)
+    create_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={"anchor": anchor, "body_text": "Remember alpha support."},
+    )
+    assert create_response.status_code == 200
+    note = create_response.json()
+
+    promote_graph_response = client.post(
+        f"/api/recall/notes/{note['id']}/promote/graph-node",
+        json={"label": "Alpha Concept", "description": "A manual note-backed concept."},
+    )
+    assert promote_graph_response.status_code == 200
+    node_detail = promote_graph_response.json()
+    assert node_detail["node"]["label"] == "Alpha Concept"
+    assert node_detail["node"]["status"] == "confirmed"
+    assert any(mention["excerpt"] == note["anchor"]["excerpt_text"] for mention in node_detail["mentions"])
+
+    promote_card_response = client.post(
+        f"/api/recall/notes/{note['id']}/promote/study-card",
+        json={
+            "prompt": "What concept should you remember from the alpha note?",
+            "answer": "Alpha Concept",
+        },
+    )
+    assert promote_card_response.status_code == 200
+    manual_card = promote_card_response.json()
+    assert manual_card["card_type"] == "manual_note"
+    assert manual_card["source_spans"][0]["note_id"] == note["id"]
+
+    second_import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Refresh trigger", "text": "Delta sentence. Epsilon sentence."},
+    )
+    assert second_import_response.status_code == 200
+
+    refreshed_node_response = client.get(f"/api/recall/graph/nodes/{node_detail['node']['id']}")
+    assert refreshed_node_response.status_code == 200
+    refreshed_node = refreshed_node_response.json()
+    assert refreshed_node["node"]["status"] == "confirmed"
+    assert any(mention["excerpt"] == note["anchor"]["excerpt_text"] for mention in refreshed_node["mentions"])
+
+    regenerate_response = client.post("/api/recall/study/cards/generate")
+    assert regenerate_response.status_code == 200
+
+    cards_response = client.get("/api/recall/study/cards", params={"status": "all"})
+    assert cards_response.status_code == 200
+    cards = cards_response.json()
+    promoted_card = next(card for card in cards if card["id"] == manual_card["id"])
+    assert promoted_card["card_type"] == "manual_note"
+    assert promoted_card["prompt"] == "What concept should you remember from the alpha note?"
 
 
 def test_recall_notes_reject_non_reflowed_or_cross_block_anchors(tmp_path, monkeypatch) -> None:

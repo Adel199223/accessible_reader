@@ -8,8 +8,10 @@ import type {
   KnowledgeNodeDetail,
   KnowledgeNodeRecord,
   RecallNoteCreateRequest,
+  RecallNoteGraphPromotionRequest,
   RecallNoteRecord,
   RecallNoteSearchHit,
+  RecallNoteStudyPromotionRequest,
   RecallNoteUpdateRequest,
   RecallRetrievalHit,
   ReaderSettings,
@@ -138,6 +140,22 @@ export function updateRecallNote(noteId: string, payload: RecallNoteUpdateReques
 export function deleteRecallNote(noteId: string) {
   return request<void>(`/api/recall/notes/${noteId}`, {
     method: 'DELETE',
+  })
+}
+
+export function promoteRecallNoteToGraphNode(noteId: string, payload: RecallNoteGraphPromotionRequest) {
+  return request<KnowledgeNodeDetail>(`/api/recall/notes/${noteId}/promote/graph-node`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function promoteRecallNoteToStudyCard(noteId: string, payload: RecallNoteStudyPromotionRequest) {
+  return request<StudyCardRecord>(`/api/recall/notes/${noteId}/promote/study-card`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   })
 }
 

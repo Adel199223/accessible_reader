@@ -13,22 +13,26 @@ import {
   fetchRecallStudyCards,
   fetchRecallStudyOverview,
   generateRecallStudyCards,
+  promoteRecallNoteToGraphNode,
+  promoteRecallNoteToStudyCard,
   retrieveRecall,
   searchRecallNotes,
   reviewRecallStudyCard,
   updateRecallNote,
 } from '../api'
-import type { RecallSection } from '../lib/appRoute'
+import type { RecallSection, RecallWorkspaceFocusRequest } from '../lib/appRoute'
 import type {
   KnowledgeEdgeRecord,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
   RecallDocumentRecord,
+  RecallNoteGraphPromotionRequest,
   RecallNoteRecord,
   RecallNoteSearchHit,
   RecallRetrievalHit,
   StudyCardRecord,
   StudyCardStatus,
+  RecallNoteStudyPromotionRequest,
   StudyOverview,
   StudyReviewRating,
 } from '../types'
@@ -36,6 +40,7 @@ import type { WorkspaceHeroProps } from './WorkspaceHero'
 
 
 interface RecallWorkspaceProps {
+  focusRequest?: RecallWorkspaceFocusRequest | null
   onSectionChange: (section: RecallSection) => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
   onOpenReader: (
@@ -109,6 +114,7 @@ function getNoteDocumentTitle(
 
 
 export function RecallWorkspace({
+  focusRequest = null,
   onOpenReader,
   onSectionChange,
   onShellHeroChange,
@@ -150,6 +156,15 @@ export function RecallWorkspace({
   const [noteSearchError, setNoteSearchError] = useState<string | null>(null)
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
   const [noteDraftBody, setNoteDraftBody] = useState('')
+  const [notePromotionMode, setNotePromotionMode] = useState<'graph' | 'study' | null>(null)
+  const [noteGraphDraft, setNoteGraphDraft] = useState<RecallNoteGraphPromotionRequest>({
+    label: '',
+    description: '',
+  })
+  const [noteStudyDraft, setNoteStudyDraft] = useState<RecallNoteStudyPromotionRequest>({
+    prompt: '',
+    answer: '',
+  })
   const [noteBusyKey, setNoteBusyKey] = useState<string | null>(null)
   const [notesMessage, setNotesMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -177,6 +192,9 @@ export function RecallWorkspace({
     noteSearchResults.find((note) => note.id === selectedNoteId) ??
     visibleNotes[0] ??
     null
+  const activeNoteId = activeNote?.id ?? null
+  const activeNoteAnchorText = activeNote?.anchor.anchor_text ?? ''
+  const activeNoteBodyText = activeNote?.body_text ?? ''
 
   useEffect(() => {
     let active = true
@@ -378,8 +396,47 @@ export function RecallWorkspace({
   }, [activeNote?.body_text, activeNote?.id])
 
   useEffect(() => {
+    if (!activeNoteId) {
+      setNotePromotionMode(null)
+      setNoteGraphDraft({ label: '', description: '' })
+      setNoteStudyDraft({ prompt: '', answer: '' })
+      return
+    }
+    setNotePromotionMode(null)
+    setNoteGraphDraft({
+      label: activeNoteAnchorText,
+      description: activeNoteBodyText,
+    })
+    setNoteStudyDraft({
+      prompt: activeNoteBodyText.trim() || 'What should you remember from this note?',
+      answer: activeNoteAnchorText,
+    })
+  }, [activeNoteAnchorText, activeNoteBodyText, activeNoteId])
+
+  useEffect(() => {
     setNotesMessage(null)
   }, [noteSearchQuery, section, selectedDocumentId, selectedNoteId])
+
+  useEffect(() => {
+    if (!focusRequest || focusRequest.section !== section) {
+      return
+    }
+
+    if (focusRequest.documentId) {
+      setSelectedDocumentId(focusRequest.documentId)
+    }
+    if (focusRequest.noteId) {
+      setNoteSearchQuery('')
+      setSelectedNoteId(focusRequest.noteId)
+    }
+    if (focusRequest.nodeId) {
+      setSelectedNodeId(focusRequest.nodeId)
+    }
+    if (focusRequest.cardId) {
+      setStudyFilter('all')
+      setActiveCardId(focusRequest.cardId)
+    }
+  }, [focusRequest, section])
 
   function handleSelectDocument(documentId: string) {
     setDetailStatus('loading')
@@ -441,15 +498,16 @@ export function RecallWorkspace({
       ])
       setStudyOverview(overview)
       setStudyCards(cards)
+      setStudyStatus('success')
+      return cards
     } catch (loadError) {
       setStudyOverview(null)
       setStudyCards([])
       setActiveCardId(null)
       setStudyError(getErrorMessage(loadError, 'Could not load study cards.'))
       setStudyStatus('error')
-      return
+      return []
     }
-    setStudyStatus('success')
   }
 
   async function loadNotes(documentId: string) {
@@ -592,6 +650,75 @@ export function RecallWorkspace({
       setNotesMessage('Note deleted.')
     } catch (deleteError) {
       const message = getErrorMessage(deleteError, 'Could not delete that note.')
+      if (showingNoteSearch) {
+        setNoteSearchError(message)
+      } else {
+        setNotesError(message)
+      }
+    } finally {
+      setNoteBusyKey(null)
+    }
+  }
+
+  async function handlePromoteNoteToGraph() {
+    if (!activeNote) {
+      return
+    }
+    setNoteBusyKey(`graph:${activeNote.id}`)
+    setNotesMessage(null)
+    setNotesError(null)
+    setNoteSearchError(null)
+    try {
+      const nodeDetail = await promoteRecallNoteToGraphNode(activeNote.id, {
+        label: noteGraphDraft.label,
+        description: noteGraphDraft.description?.trim().length ? noteGraphDraft.description.trim() : null,
+      })
+      await loadGraph()
+      setSelectedNodeId(nodeDetail.node.id)
+      setSelectedNodeDetail(nodeDetail)
+      setNotePromotionMode(null)
+      setNotesMessage('Note promoted to the graph.')
+      onSectionChange('graph')
+    } catch (promotionError) {
+      const message = getErrorMessage(promotionError, 'Could not promote that note into the graph.')
+      if (showingNoteSearch) {
+        setNoteSearchError(message)
+      } else {
+        setNotesError(message)
+      }
+    } finally {
+      setNoteBusyKey(null)
+    }
+  }
+
+  async function handlePromoteNoteToStudyCard() {
+    if (!activeNote) {
+      return
+    }
+    setNoteBusyKey(`study:${activeNote.id}`)
+    setNotesMessage(null)
+    setNotesError(null)
+    setNoteSearchError(null)
+    try {
+      const promotedCard = await promoteRecallNoteToStudyCard(activeNote.id, {
+        prompt: noteStudyDraft.prompt,
+        answer: noteStudyDraft.answer,
+      })
+      setStudyFilter('all')
+      const loadedCards = await loadStudy('all')
+      if (!loadedCards.some((card) => card.id === promotedCard.id)) {
+        setStudyCards((currentCards) => {
+          const withoutPromoted = currentCards.filter((card) => card.id !== promotedCard.id)
+          return [promotedCard, ...withoutPromoted]
+        })
+      }
+      setActiveCardId(promotedCard.id)
+      setShowAnswer(false)
+      setNotePromotionMode(null)
+      setNotesMessage('Study card created from the note.')
+      onSectionChange('study')
+    } catch (promotionError) {
+      const message = getErrorMessage(promotionError, 'Could not create a study card from that note.')
       if (showingNoteSearch) {
         setNoteSearchError(message)
       } else {
@@ -1315,7 +1442,7 @@ export function RecallWorkspace({
                   <h2>Note detail</h2>
                   <p>
                     {activeNote
-                      ? 'Edit the note text, reopen the exact passage in Reader, or delete the highlight.'
+                      ? 'Edit note text, reopen the passage in Reader, or promote the note into manual graph and study knowledge.'
                       : 'Choose a note to inspect its anchored passage and text.'}
                   </p>
                 </div>
@@ -1338,6 +1465,22 @@ export function RecallWorkspace({
                       onClick={handleDeleteNote}
                     >
                       {noteBusyKey === `delete:${activeNote.id}` ? 'Deleting…' : 'Delete'}
+                    </button>
+                    <button
+                      className="ghost-button"
+                      disabled={noteBusyKey === `graph:${activeNote.id}`}
+                      type="button"
+                      onClick={() => setNotePromotionMode('graph')}
+                    >
+                      Promote to Graph
+                    </button>
+                    <button
+                      className="ghost-button"
+                      disabled={noteBusyKey === `study:${activeNote.id}`}
+                      type="button"
+                      onClick={() => setNotePromotionMode('study')}
+                    >
+                      Create Study Card
                     </button>
                   </div>
                 ) : null}
@@ -1364,6 +1507,10 @@ export function RecallWorkspace({
                         {activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end}
                       </span>
                     </div>
+                    <div className="recall-detail-panel">
+                      <strong>Workspace portability</strong>
+                      <span>Included in workspace exports and merge previews.</span>
+                    </div>
                   </div>
 
                   <div className="recall-note-preview">
@@ -1380,6 +1527,94 @@ export function RecallWorkspace({
                       onChange={(event) => setNoteDraftBody(event.target.value)}
                     />
                   </label>
+
+                  {notePromotionMode === 'graph' ? (
+                    <div className="recall-detail-panel stack-gap">
+                      <div className="section-header section-header-compact">
+                        <h3>Promote to graph</h3>
+                        <p>Create a confirmed concept node backed by this note anchor.</p>
+                      </div>
+                      <label className="field">
+                        <span>Graph label</span>
+                        <input
+                          type="text"
+                          value={noteGraphDraft.label}
+                          onChange={(event) =>
+                            setNoteGraphDraft((current) => ({ ...current, label: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Graph description</span>
+                        <textarea
+                          placeholder="Optional context for the promoted concept"
+                          value={noteGraphDraft.description ?? ''}
+                          onChange={(event) =>
+                            setNoteGraphDraft((current) => ({ ...current, description: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <div className="recall-actions recall-actions-inline">
+                        <button
+                          disabled={noteBusyKey === `graph:${activeNote.id}`}
+                          type="button"
+                          onClick={handlePromoteNoteToGraph}
+                        >
+                          {noteBusyKey === `graph:${activeNote.id}` ? 'Promoting…' : 'Promote node'}
+                        </button>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => setNotePromotionMode(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {notePromotionMode === 'study' ? (
+                    <div className="recall-detail-panel stack-gap">
+                      <div className="section-header section-header-compact">
+                        <h3>Create study card</h3>
+                        <p>Turn this note into a manual review card that keeps its own scheduling state.</p>
+                      </div>
+                      <label className="field">
+                        <span>Study prompt</span>
+                        <textarea
+                          value={noteStudyDraft.prompt}
+                          onChange={(event) =>
+                            setNoteStudyDraft((current) => ({ ...current, prompt: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Study answer</span>
+                        <textarea
+                          value={noteStudyDraft.answer}
+                          onChange={(event) =>
+                            setNoteStudyDraft((current) => ({ ...current, answer: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <div className="recall-actions recall-actions-inline">
+                        <button
+                          disabled={noteBusyKey === `study:${activeNote.id}`}
+                          type="button"
+                          onClick={handlePromoteNoteToStudyCard}
+                        >
+                          {noteBusyKey === `study:${activeNote.id}` ? 'Creating…' : 'Create card'}
+                        </button>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => setNotePromotionMode(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </section>
