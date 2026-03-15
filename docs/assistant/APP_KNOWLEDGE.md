@@ -10,16 +10,16 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 
 ## Current Product Shape
 - Imports pasted text, public article webpage URLs, and local TXT, Markdown, HTML, DOCX, and text-based PDF files.
-- Stores a small local library with search, reopen support, settings, and reading-progress memory.
+- Stores a small local saved-source collection with search, reopen support, settings, and reading-progress memory.
 - Stores webpage imports as local HTML snapshots and reopens them from the saved snapshot rather than refetching live.
 - Uses `Recall` as the product shell with `Reader` presented as a shared workspace section rather than a sibling app.
 - Uses a collection-first Recall shell with a slimmer left rail, slimmer top bar, primary canvas, and lighter browse chrome by default.
-- Uses a browse-first Library landing with a two-zone sidebar + collection canvas, grouped recency sections, lighter older-source reopen rows, search, and a lightweight inline resume affordance instead of auto-opening focused source mode on populated workspaces.
-- Keeps global workspace navigation centered on `Library`, `Graph`, `Study`, `Notes`, and `Reader`.
+- Uses a browse-first Home landing with a two-zone sidebar + collection canvas, grouped recency sections, lighter older-source reopen rows, search, and a lightweight inline resume affordance instead of auto-opening focused source mode on populated workspaces.
+- Keeps global workspace navigation centered on `Home`, `Graph`, `Study`, `Notes`, and `Reader`.
 - Uses a compact focused-source strip during active source work, and focused `Notes`, `Graph`, and `Study` now keep embedded Reader content as the steady primary pane.
 - Uses one clear `Add content` dialog with grouped `Paste text`, `Web page`, and `Choose file` modes.
-- Uses quieter browse-mode `Graph` and `Study` surfaces that drop the extra utility dock and lead with a more task-centered surface.
-- Uses one shared workspace-search session across the shell `Search` dialog and the Library search panel.
+- Uses a graph-first browse-mode `Graph` surface with a dominant canvas, lighter support rail, and a floating detail overlay, and a browse-mode `Study` surface with a centered review/start frame plus lighter supporting queue chrome.
+- Uses one shared workspace-search session across the shell `Search` dialog and the Home search panel.
 - Reopens the last document and reading mode from browser-local storage, with backend last-session fallback when local state is missing.
 - Supports `Original`, `Reflowed`, `Simplified`, and `Summary` document modes.
 - Keeps `Original` and `Reflowed` local and deterministic.
@@ -29,6 +29,7 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 
 ## Active Constraints
 - Windows Edge is the primary browser validation target.
+- Run repo commands through WSL; Windows-side UNC `npm`/`node` calls are less reliable than `wsl.exe bash -lc ...`, except for the repo-owned Windows Edge screenshot harnesses.
 - Local TTS is deferred and should remain `coming soon`.
 - AI is opt-in only and limited to `Simplify` and `Summary`.
 - Stage 15 is complete: Library and Notes now use denser collection rails, tighter detail panels, and a repo-owned real Edge collection-density smoke harness.
@@ -60,10 +61,15 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stage 41 is complete: the shared shell is calmer, Library now uses a two-zone sidebar + collection canvas, the add-source flow now groups explicit import modes, and browse-mode Graph/Study frame their main task more intentionally.
 - Stage 42 is complete: the audit confirmed the shared shell direction is now right, but the largest remaining benchmark miss is the populated Library/home surface; Add Content is close enough to ride with that next slice, while Graph and Study stay queued behind it.
 - Stage 43 is complete: Library now groups recent material into clearer sections, older sources reopen from lighter rows, and the add-content dialog now uses one clear heading.
-- Stage 44 is the active milestone: audit the refreshed Library/add-content surfaces and choose the next bounded benchmark pass between Graph and Study.
+- Stage 44 is complete: the audit confirmed Graph browse mode as the stronger remaining benchmark mismatch and locked the user-requested `Home` terminology cleanup into the next bounded implementation slice.
+- Stage 45 is complete: the shared shell now uses `Home` instead of `Library` in the user-facing navigation, and browse-mode Graph now leads with a graph-first canvas plus lighter support chrome.
+- Stage 46 is complete: the audit confirmed that Study is now the clearest remaining top-level benchmark mismatch, while Home is secondary and Graph is materially closer after Stage 45.
+- Stage 47 is complete: browse-mode Study now centers the review/start flow, demotes the queue chrome, and keeps source evidence plus Reader reopen secondary to the main review task.
+- Stage 48 is the active milestone: audit the post-Stage-47 Home, Graph, Study, and focused-study surfaces against the benchmark before choosing the next bounded implementation slice.
+- The broad `frontend/src/App.test.tsx` file still has a long-standing stall mode, so the trusted UI-validation path is targeted tests plus real Edge screenshot artifacts rather than one giant whole-file pass.
 - Future work should preserve local-first behavior, routes, note anchors, browser-companion handoff, and reading continuity, but should not preserve the current UI arrangement when a better Recall-quality workflow is available.
 - Treat the original Recall app as a directional benchmark for workflow and information hierarchy, not as a pixel-perfect copy target.
-- The current highest-priority task is to use the refreshed Stage 43 screenshots plus the benchmark matrix to decide whether Graph or Study is now the higher-value next surface pass, because Library/home is no longer the dominant roadmap gap.
+- The current highest-priority task is to use the Stage 47 screenshots plus the benchmark matrix to decide whether Home density/selectivity or a second bounded Study pass is now the higher-value correction.
 
 ## Main Entry Points
 - Frontend shell: `frontend/src/App.tsx`

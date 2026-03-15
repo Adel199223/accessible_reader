@@ -11,13 +11,15 @@ Use this folder as a lightweight routing layer. Do not treat it as the canonical
 6. this index
 
 ## Operating Defaults
-- Run repo commands from WSL.
+- Run repo commands from WSL, preferably through `wsl.exe bash -lc ...` when working from Windows-side shells.
 - Validate browser behavior in Windows Edge.
 - Keep the app local-first.
 - Treat browser-native speech as the shipped read-aloud path.
 - Treat local TTS as `coming soon`.
 - Keep AI opt-in and limited to `Simplify` and `Summary`.
 - Use targeted validation before broad sweeps.
+- Treat the benchmark matrix plus fresh screenshots as required when changing Recall shell or top-level surface UI.
+- Prefer targeted component tests plus the repo-owned Edge screenshot harness when the large `frontend/src/App.test.tsx` file shows its long-standing stall behavior.
 - Keep push explicit.
 
 ## Use When

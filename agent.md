@@ -12,7 +12,7 @@ Short runbook for future Codex chats in this repo. Treat `BUILD_BRIEF.md`, `docs
 7. `docs/assistant/INDEX.md` for harness routing
 
 ## Operating Rules
-- Work from WSL for repo commands and toolchains.
+- Work from WSL for repo commands and toolchains, preferably through `wsl.exe bash -lc ...` when starting from Windows-side shells.
 - Use Windows Edge as the browser validation target.
 - Keep parsing, storage, search, settings, progress, and reflow local-first.
 - Public webpage import is snapshot-based: fetch once, store locally, and reopen from the local snapshot.
@@ -21,6 +21,7 @@ Short runbook for future Codex chats in this repo. Treat `BUILD_BRIEF.md`, `docs
 - Major or multi-file work starts by creating or updating an ExecPlan in `docs/exec_plans/active/`.
 - Run targeted validation before broader checks.
 - Treat screenshot-based benchmark comparison as required when changing Recall shell or top-level surface UI.
+- Treat `frontend/src/App.test.tsx` as a known unstable broad-runner: prefer isolated `-t` checks, targeted component tests, and the repo-owned Edge screenshot harness when that file stalls.
 - Do not push unless the user explicitly asks.
 
 ## Routing

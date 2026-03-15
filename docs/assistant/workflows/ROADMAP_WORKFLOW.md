@@ -8,6 +8,7 @@ Use this workflow for roadmap-driven product work, milestone continuation, and b
 - Roadmap and anchor reflect any detour or milestone state change.
 - Targeted validation list matches the files and behavior touched.
 - When the milestone is UI-benchmark-sensitive, the benchmark matrix and screenshot artifacts are current enough to guide the next slice.
+- Assistant routing docs stay aligned with the current milestone and validation strategy after the product/docs work lands.
 
 ## When To Use
 - The user says `roadmap`, `master plan`, or `next milestone`.
@@ -27,7 +28,6 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 
 ## Minimal Commands
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git status --short --branch'`
-- `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'`
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'`
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'`
@@ -38,14 +38,18 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - Backend `pytest` only when backend files are touched.
 - Manual Windows Edge validation when the milestone includes speech or reading behavior.
 - Screenshot-based browser validation when the milestone changes Recall shell or top-level surface UI.
+- Prefer targeted Vitest coverage before broad `npm test -- --run` sweeps when UI slices touch Recall shell or surface work.
+- If `frontend/src/App.test.tsx` stalls in its known long-running mode, use isolated `-t` checks plus component-level coverage and the Edge screenshot harness instead of treating the stall as a product regression.
 
 ## Failure Modes and Fallback Steps
 - If the active plan is already complete, move it to `docs/exec_plans/completed/` and create a new active plan before proceeding.
 - If a blocker forces a detour, log it in the active ExecPlan and `docs/ROADMAP_ANCHOR.md`, then return to the next milestone item.
 - If roadmap docs conflict with source code, trust the source code and update the docs.
+- If Windows-side `npm` or `node` calls behave unreliably on the UNC workspace path, rerun them through `wsl.exe bash -lc ...` or use the repo-owned Windows Playwright harness only for Edge screenshots.
 
 ## Handoff Checklist
 - Active ExecPlan points at the current milestone.
 - Roadmap docs reflect current state and next work.
 - Validation status is recorded in the user-facing handoff.
 - If the work is benchmark-driven UI work, the benchmark matrix and latest screenshot artifacts are referenced in the handoff docs.
+- `docs/assistant/APP_KNOWLEDGE.md`, `docs/assistant/manifest.json`, `docs/assistant/INDEX.md`, and `agent.md` stay in sync with the current milestone and workflow constraints after assistant-doc sync.
