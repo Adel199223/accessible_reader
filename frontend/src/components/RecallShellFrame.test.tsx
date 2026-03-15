@@ -95,11 +95,11 @@ function renderShell(overrides?: {
   return { onSelectSection }
 }
 
-test('RecallShellFrame renders the collection-first rail and topbar without the library utility dock', () => {
+test('RecallShellFrame renders the collection-first rail and topbar without the Home utility dock', () => {
   const { onSelectSection } = renderShell()
 
   expect(screen.getByRole('tablist', { name: 'Workspace sections' })).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: 'Library', selected: true })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()
   expect(screen.queryByText('Reader workspace')).not.toBeInTheDocument()

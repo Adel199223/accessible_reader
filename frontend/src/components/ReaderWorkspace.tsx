@@ -1036,9 +1036,9 @@ export function ReaderWorkspace({
     view?.cached ? 'Cached' : null,
   ].filter(Boolean)
   const libraryMetricLabel = documentsLoading
-    ? 'Loading library…'
+    ? 'Loading Home…'
     : documentsError
-      ? 'Library unavailable'
+      ? 'Home unavailable'
       : `${documents.length} ${documents.length === 1 ? 'source document' : 'source documents'}`
   const readerStatusMetricLabel = hasActiveDocument ? `${readerViewLabel} view` : 'Reader ready'
   const notesMetricLabel = hasActiveDocument
@@ -1061,7 +1061,7 @@ export function ReaderWorkspace({
     ? 'Your local library is loading. Reading controls appear after a document opens.'
     : documentsError
       ? 'Reader could not reconnect to the local library yet. Retry loading after the backend is running again.'
-      : 'Use New to add a source from anywhere in Recall, or reopen something from the source library.'
+      : 'Use New to add a source from anywhere in Recall, or reopen something from Home.'
   const currentContextNoteLabel = notesLoading
     ? 'Loading notes…'
     : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'}`
@@ -1514,7 +1514,7 @@ export function ReaderWorkspace({
                 <div className="empty-state-steps" role="list" aria-label="How to begin">
                   <div className="empty-state-step" role="listitem">
                     <strong>1. Add or reopen something</strong>
-                    <span>Use New for fresh sources, or reopen something from the source library.</span>
+                    <span>Use New for fresh sources, or reopen something from Home.</span>
                   </div>
                   <div className="empty-state-step" role="listitem">
                     <strong>2. Read in calmer view</strong>
@@ -1605,7 +1605,7 @@ export function ReaderWorkspace({
                 loading={documentsLoading}
                 searchPlaceholder="Search saved sources"
                 searchValue={search}
-                title="Source library"
+                title="Home"
                 onDelete={handleDeleteDocument}
                 onSearchChange={setSearch}
                 onSelect={(document) => {

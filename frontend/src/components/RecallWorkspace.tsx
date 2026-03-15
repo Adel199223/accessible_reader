@@ -148,6 +148,19 @@ interface LibraryBrowseSection {
   label: string
 }
 
+interface GraphCanvasNodeLayout {
+  emphasis: 'ambient' | 'focus' | 'linked'
+  node: KnowledgeNodeRecord
+  x: number
+  y: number
+}
+
+interface GraphCanvasLayout {
+  edges: KnowledgeEdgeRecord[]
+  focusNodeId: string | null
+  nodes: GraphCanvasNodeLayout[]
+}
+
 function buildLibraryBrowseSections(documents: RecallDocumentRecord[], now: Date = new Date()): LibraryBrowseSection[] {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const mondayOffset = (now.getDay() + 6) % 7
@@ -196,6 +209,107 @@ function getGraphEdgeCounterpartLabel(edge: KnowledgeEdgeRecord, nodeId: string)
 
 function getGraphEdgeDirectionLabel(edge: KnowledgeEdgeRecord, nodeId: string) {
   return edge.source_id === nodeId ? `Points to ${formatRelationLabel(edge.relation_type)}` : `Linked from ${formatRelationLabel(edge.relation_type)}`
+}
+
+function sortGraphNodesForBrowse(
+  nodes: KnowledgeNodeRecord[],
+  selectedNodeId: string | null,
+  activeSourceDocumentId: string | null,
+) {
+  return [...nodes].sort((left, right) => {
+    const leftSelected = left.id === selectedNodeId ? 1 : 0
+    const rightSelected = right.id === selectedNodeId ? 1 : 0
+    if (leftSelected !== rightSelected) {
+      return rightSelected - leftSelected
+    }
+
+    const leftActiveSource = activeSourceDocumentId && left.source_document_ids.includes(activeSourceDocumentId) ? 1 : 0
+    const rightActiveSource = activeSourceDocumentId && right.source_document_ids.includes(activeSourceDocumentId) ? 1 : 0
+    if (leftActiveSource !== rightActiveSource) {
+      return rightActiveSource - leftActiveSource
+    }
+
+    if (left.mention_count !== right.mention_count) {
+      return right.mention_count - left.mention_count
+    }
+
+    if (left.document_count !== right.document_count) {
+      return right.document_count - left.document_count
+    }
+
+    if (left.confidence !== right.confidence) {
+      return right.confidence - left.confidence
+    }
+
+    return left.label.localeCompare(right.label)
+  })
+}
+
+function placeGraphOrbit(nodes: KnowledgeNodeRecord[], emphasis: GraphCanvasNodeLayout['emphasis'], radiusX: number, radiusY: number) {
+  if (!nodes.length) {
+    return []
+  }
+
+  return nodes.map<GraphCanvasNodeLayout>((node, index) => {
+    const angle = (-Math.PI / 2) + (index * (2 * Math.PI)) / nodes.length
+    return {
+      emphasis,
+      node,
+      x: 50 + Math.cos(angle) * radiusX,
+      y: 52 + Math.sin(angle) * radiusY,
+    }
+  })
+}
+
+function buildGraphCanvasLayout(
+  nodes: KnowledgeNodeRecord[],
+  edges: KnowledgeEdgeRecord[],
+  selectedNodeId: string | null,
+  activeSourceDocumentId: string | null,
+): GraphCanvasLayout {
+  if (!nodes.length) {
+    return {
+      edges: [],
+      focusNodeId: null,
+      nodes: [],
+    }
+  }
+
+  const orderedNodes = sortGraphNodesForBrowse(nodes, selectedNodeId, activeSourceDocumentId)
+  const visibleNodes = orderedNodes.slice(0, 11)
+  const focusNode = visibleNodes.find((node) => node.id === selectedNodeId) ?? visibleNodes[0]
+  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id))
+  const visibleEdges = edges.filter((edge) => visibleNodeIds.has(edge.source_id) && visibleNodeIds.has(edge.target_id))
+  const directlyConnectedNodeIds = new Set(
+    visibleEdges.flatMap((edge) => {
+      if (edge.source_id === focusNode.id) {
+        return [edge.target_id]
+      }
+      if (edge.target_id === focusNode.id) {
+        return [edge.source_id]
+      }
+      return []
+    }),
+  )
+
+  const orbitNodes = visibleNodes.filter((node) => node.id !== focusNode.id)
+  const linkedNodes = orbitNodes.filter((node) => directlyConnectedNodeIds.has(node.id)).slice(0, 5)
+  const ambientNodes = orbitNodes.filter((node) => !directlyConnectedNodeIds.has(node.id))
+
+  return {
+    edges: visibleEdges,
+    focusNodeId: focusNode.id,
+    nodes: [
+      {
+        emphasis: 'focus',
+        node: focusNode,
+        x: 50,
+        y: 52,
+      },
+      ...placeGraphOrbit(linkedNodes, 'linked', 28, 22),
+      ...placeGraphOrbit(ambientNodes, 'ambient', 42, 34),
+    ],
+  }
 }
 
 function getNoteRowPreview(note: RecallNoteRecord | RecallNoteSearchHit) {
@@ -341,6 +455,7 @@ export function RecallWorkspace({
   const [graphStatus, setGraphStatus] = useState<LoadState>('loading')
   const [graphError, setGraphError] = useState<string | null>(null)
   const [graphBusyKey, setGraphBusyKey] = useState<string | null>(null)
+  const [graphFilterQuery, setGraphFilterQuery] = useState('')
   const [selectedNodeDetail, setSelectedNodeDetail] = useState<KnowledgeNodeDetail | null>(null)
   const [nodeDetailLoading, setNodeDetailLoading] = useState(false)
   const [studyOverview, setStudyOverview] = useState<StudyOverview | null>(null)
@@ -403,6 +518,7 @@ export function RecallWorkspace({
   const showFocusedStudySplitView =
     section === 'study' && sourceWorkspaceFocused && !studyBrowseDrawerOpen && Boolean(activeSourceDocumentId)
   const deferredLibraryFilter = useDeferredValue(libraryFilterQuery)
+  const deferredGraphFilter = useDeferredValue(graphFilterQuery)
   const deferredNoteSearch = useDeferredValue(noteSearchQuery)
 
   const updateContinuityState = useCallback((updater: (current: RecallWorkspaceContinuityState) => RecallWorkspaceContinuityState) => {
@@ -555,6 +671,32 @@ export function RecallWorkspace({
     () => (selectedNodeDetail ? [...selectedNodeDetail.outgoing_edges, ...selectedNodeDetail.incoming_edges] : []),
     [selectedNodeDetail],
   )
+  const filteredGraphNodes = useMemo(() => {
+    const normalized = deferredGraphFilter.trim().toLowerCase()
+    const nodes = graphSnapshot?.nodes ?? []
+    const filtered = !normalized
+      ? nodes
+      : nodes.filter((node) =>
+          [node.label, node.node_type, node.description ?? '', node.aliases.join(' ')]
+            .join(' ')
+            .toLowerCase()
+            .includes(normalized),
+        )
+    return sortGraphNodesForBrowse(filtered, selectedNodeId, activeSourceDocumentId)
+  }, [activeSourceDocumentId, deferredGraphFilter, graphSnapshot?.nodes, selectedNodeId])
+  const graphCanvasLayout = useMemo(
+    () => buildGraphCanvasLayout(filteredGraphNodes, graphSnapshot?.edges ?? [], selectedNodeId, activeSourceDocumentId),
+    [activeSourceDocumentId, filteredGraphNodes, graphSnapshot?.edges, selectedNodeId],
+  )
+  const graphCanvasNodes = graphCanvasLayout.nodes
+  const graphCanvasEdges = graphCanvasLayout.edges
+  const graphCanvasFocusNodeId = graphCanvasLayout.focusNodeId
+  const graphQuickPickNodes = useMemo(() => filteredGraphNodes.slice(0, 8), [filteredGraphNodes])
+  const graphCanvasNodePositionById = useMemo(
+    () => new Map(graphCanvasNodes.map(({ node, x, y }) => [node.id, { x, y }])),
+    [graphCanvasNodes],
+  )
+  const graphFilterActive = deferredGraphFilter.trim().length > 0
   const activeStudySourceSpans = useMemo(() => activeStudyCard?.source_spans ?? [], [activeStudyCard])
   const focusedGraphEvidence = useMemo(() => {
     if (!selectedNodeDetail || !activeSourceDocumentId) {
@@ -687,7 +829,7 @@ export function RecallWorkspace({
             },
           },
         ],
-        badge: 'Library',
+        badge: 'Home',
         key: `document:${selectedDocument.id}`,
         meta: getDocumentSourcePreview(selectedDocument),
         recentItem: {
@@ -1550,6 +1692,19 @@ export function RecallWorkspace({
     updateLibraryState((current) => ({ ...current, selectedDocumentId: documentId }))
   }, [updateLibraryState])
 
+  const handleSelectGraphNode = useCallback((node: KnowledgeNodeRecord) => {
+    updateGraphState((current) => ({ ...current, selectedNodeId: node.id }))
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeDocumentId: node.source_document_ids[0] ?? current.activeDocumentId,
+      activeTab: 'graph',
+      readerAnchor:
+        current.activeDocumentId === (node.source_document_ids[0] ?? current.activeDocumentId)
+          ? current.readerAnchor
+          : null,
+    }))
+  }, [updateGraphState, updateSourceWorkspaceState])
+
   function handleSelectNotesDocument(documentId: string) {
     updateNotesState((current) => ({
       ...current,
@@ -1621,6 +1776,19 @@ export function RecallWorkspace({
     if (anchorRange) {
       setSourceWorkspaceReaderAnchor(anchorRange)
     }
+  }
+
+  function handleSelectStudyCard(card: StudyCardRecord) {
+    updateStudyState((current) => ({ ...current, activeCardId: card.id }))
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeDocumentId: card.source_document_id,
+      activeTab: 'study',
+      readerAnchor:
+        current.activeDocumentId === card.source_document_id ? current.readerAnchor : null,
+    }))
+    setShowAnswer(false)
+    setFocusedStudySourceSpanIndex(0)
   }
 
   function handleRetryRecallLoading() {
@@ -1871,7 +2039,7 @@ export function RecallWorkspace({
   const noteSearchLoading = noteSearchStatus === 'loading'
   const documentCountLabel =
     documentsStatus === 'error'
-      ? 'Library unavailable'
+      ? 'Home unavailable'
       : documents.length === 1
         ? '1 source document'
         : `${documents.length} source documents`
@@ -1904,7 +2072,7 @@ export function RecallWorkspace({
   const sourceOverviewLoading = section === 'library' ? detailLoading : sourceWorkspaceStatus === 'loading' && !sourceOverviewDocument
   const sourceOverviewError =
     documentsStatus === 'error'
-      ? 'Source overview is unavailable until the local library reconnects.'
+      ? 'Source overview is unavailable until the local collection reconnects.'
       : section === 'library'
         ? detailStatus === 'error'
           ? detailError
@@ -2218,7 +2386,7 @@ export function RecallWorkspace({
       title: 'Reconnect what you already saved.',
       description: 'Search, reopen, validate, and study from one local workspace.',
       metrics: [
-        { label: documentsLoading ? 'Loading library…' : documentCountLabel },
+        { label: documentsLoading ? 'Loading saved sources…' : documentCountLabel },
         { label: graphNodeCountLabel, tone: 'muted' },
         { label: studyCountLabel, tone: 'muted' },
       ],
@@ -2359,6 +2527,652 @@ export function RecallWorkspace({
     )
   }
 
+  function renderGraphQuickPick(node: KnowledgeNodeRecord) {
+    return (
+      <button
+        key={node.id}
+        aria-pressed={selectedNodeId === node.id}
+        className={
+          selectedNodeId === node.id
+            ? 'recall-graph-quick-pick recall-graph-quick-pick-active'
+            : 'recall-graph-quick-pick'
+        }
+        type="button"
+        onClick={() => handleSelectGraphNode(node)}
+      >
+        <span className="recall-collection-row-head">
+          <strong>{node.label}</strong>
+          <span>{Math.round(node.confidence * 100)}%</span>
+        </span>
+        <span className="recall-collection-row-preview">{getGraphNodePreview(node)}</span>
+        <span className="recall-collection-row-meta">
+          <span className="status-chip">{node.node_type}</span>
+          <span className="status-chip">{node.status}</span>
+          <span className="status-chip">{formatCountLabel(node.mention_count, 'mention', 'mentions')}</span>
+        </span>
+      </button>
+    )
+  }
+
+  function renderBrowseGraphDetailOverlay() {
+    const primarySourceDocumentId =
+      selectedNodeDetail?.mentions[0]?.source_document_id ?? selectedNodeDetail?.node.source_document_ids[0] ?? null
+    const primarySourceDocumentTitle = primarySourceDocumentId
+      ? documentTitleById.get(primarySourceDocumentId) ?? 'Saved source'
+      : null
+
+    return (
+      <aside
+        className={
+          selectedNodeDetail
+            ? 'recall-graph-detail-overlay'
+            : 'recall-graph-detail-overlay recall-graph-detail-overlay-empty'
+        }
+      >
+        <div className="toolbar recall-collection-toolbar recall-graph-detail-toolbar">
+          <div className="section-header section-header-compact">
+            <h3>{selectedNodeDetail ? selectedNodeDetail.node.label : 'Select a node'}</h3>
+            <p>
+              {nodeDetailLoading
+                ? 'Loading source-grounded graph evidence.'
+                : selectedNodeDetail
+                  ? selectedNodeDetail.node.description ?? 'Review the supporting mentions and linked concepts.'
+                  : 'Choose a node from the graph or the quick list to inspect its evidence and relations.'}
+            </p>
+          </div>
+          {selectedNodeDetail ? (
+            <div className="recall-actions recall-actions-inline">
+              <button
+                disabled={graphBusyKey === `node:${selectedNodeDetail.node.id}:confirmed`}
+                type="button"
+                onClick={() => handleDecideNode('confirmed')}
+              >
+                Confirm
+              </button>
+              <button
+                className="ghost-button"
+                disabled={graphBusyKey === `node:${selectedNodeDetail.node.id}:rejected`}
+                type="button"
+                onClick={() => handleDecideNode('rejected')}
+              >
+                Reject
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        {nodeDetailLoading ? <p className="small-note">Loading node detail…</p> : null}
+        {!nodeDetailLoading && !selectedNodeDetail ? (
+          <p className="small-note">
+            The graph stays browse-first here. Open a source intentionally only when you want to switch into focused work.
+          </p>
+        ) : null}
+        {!nodeDetailLoading && selectedNodeDetail ? (
+          <div className="recall-graph-detail-body stack-gap">
+            <div className="recall-graph-detail-summary">
+              <div className="recall-detail-panel">
+                <strong>Status</strong>
+                <span>{selectedNodeDetail.node.status}</span>
+              </div>
+              <div className="recall-detail-panel">
+                <strong>Confidence</strong>
+                <span>{Math.round(selectedNodeDetail.node.confidence * 100)}%</span>
+              </div>
+              <div className="recall-detail-panel">
+                <strong>Source docs</strong>
+                <span>{selectedNodeDetail.node.source_document_ids.length || selectedNodeDetail.node.document_count}</span>
+              </div>
+            </div>
+
+            {primarySourceDocumentId && primarySourceDocumentTitle ? (
+              <div className="recall-actions recall-actions-inline">
+                <button type="button" onClick={() => handleOpenDocumentInReader(primarySourceDocumentId)}>
+                  {buildOpenReaderLabel(primarySourceDocumentTitle)}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => focusSourceGraph(primarySourceDocumentId, selectedNodeDetail.node.id)}
+                >
+                  Focus source
+                </button>
+              </div>
+            ) : null}
+
+            <div className="stack-gap">
+              <div className="section-header section-header-compact">
+                <h4>Mentions</h4>
+                <p>Every mention remains tied to the source that created it.</p>
+              </div>
+              <div className="recall-search-results" role="list">
+                {selectedNodeDetail.mentions.map((mention) => (
+                  <div key={mention.id} className="recall-search-hit recall-evidence-card" role="listitem">
+                    <span className="recall-collection-row-head">
+                      <strong>{mention.document_title}</strong>
+                      <span>{Math.round(mention.confidence * 100)}%</span>
+                    </span>
+                    <span className="recall-collection-row-preview">{mention.excerpt}</span>
+                    <span className="recall-collection-row-meta">
+                      <span className="status-chip">{mention.entity_type}</span>
+                      <span className="status-chip">{mention.text}</span>
+                    </span>
+                    <div className="recall-actions recall-actions-inline">
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() => handleOpenMentionInReader(mention.source_document_id)}
+                      >
+                        {buildOpenReaderLabel(mention.document_title)}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="stack-gap">
+              <div className="section-header section-header-compact">
+                <h4>Relations</h4>
+                <p>Confirm inferred links while keeping the graph itself dominant.</p>
+              </div>
+              <div className="recall-search-results" role="list">
+                {selectedNodeEdges.length ? (
+                  selectedNodeEdges.map((edge) => (
+                    <div
+                      key={`${selectedNodeDetail.node.id}:${edge.id}`}
+                      className="recall-search-hit recall-edge-card recall-evidence-card"
+                      role="listitem"
+                    >
+                      <span className="recall-collection-row-head">
+                        <strong>{edge.source_label} {formatRelationLabel(edge.relation_type)} {edge.target_label}</strong>
+                        <span>{Math.round(edge.confidence * 100)}%</span>
+                      </span>
+                      {edge.excerpt ? <span className="recall-collection-row-preview">{edge.excerpt}</span> : null}
+                      <span className="recall-collection-row-meta">
+                        <span className="status-chip">{edge.status}</span>
+                        <span className="status-chip">{edge.provenance}</span>
+                        <span className="status-chip">{formatCountLabel(edge.evidence_count, 'evidence span', 'evidence spans')}</span>
+                      </span>
+                      <div className="recall-actions recall-actions-inline">
+                        <button
+                          disabled={graphBusyKey === `edge:${edge.id}:confirmed`}
+                          type="button"
+                          onClick={() => handleDecideEdge(edge, 'confirmed')}
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          className="ghost-button"
+                          disabled={graphBusyKey === `edge:${edge.id}:rejected`}
+                          type="button"
+                          onClick={() => handleDecideEdge(edge, 'rejected')}
+                        >
+                          Reject
+                        </button>
+                        {edge.source_document_ids[0] ? (
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() => handleOpenEdgeInReader(edge)}
+                          >
+                            {buildOpenReaderLabel(documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source')}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="recall-detail-panel">
+                    <strong>No linked concepts yet</strong>
+                    <span>Import more source material or confirm mentions to strengthen this node.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </aside>
+    )
+  }
+
+  function renderFocusedGraphSection() {
+    return (
+      <div className="recall-grid recall-grid-browse-condensed">
+        <section className="card stack-gap recall-collection-rail recall-collection-rail-condensed">
+          <div className="toolbar recall-collection-toolbar">
+            <div className="section-header section-header-compact">
+              <h2>Graph</h2>
+              <p>Keep one source in focus while graph evidence stays beside the live Reader.</p>
+            </div>
+            <button className="ghost-button" type="button" onClick={() => setBrowseDrawerOpen('graph', true)}>
+              Browse
+            </button>
+          </div>
+          <div className="recall-browse-drawer-summary stack-gap">
+            <p className="small-note">
+              {selectedNodeDetail
+                ? 'Stay with the active node here, or reopen browse mode when you want to compare more graph context.'
+                : 'Browse mode reopens the wider graph canvas and node picker.'}
+            </p>
+            <div className="recall-detail-panel recall-browse-summary-card">
+              <strong>{selectedNodeDetail?.node.label ?? 'No active node for this source'}</strong>
+              <span>
+                {selectedNodeDetail
+                  ? selectedNodeDetail.node.description ?? formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')
+                  : 'Select graph evidence from this source to bring it into the focused split.'}
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <div className="recall-main-column recall-source-split-layout">
+          {renderFocusedReaderPane()}
+          <section className="card stack-gap">
+            <div className="toolbar recall-collection-toolbar">
+              <div className="section-header section-header-compact">
+                <h2>Node detail</h2>
+                <p>
+                  {selectedNodeDetail
+                    ? 'Review source evidence and relation suggestions before they become trusted knowledge.'
+                    : 'Choose a node to inspect its provenance and relations.'}
+                </p>
+              </div>
+              {selectedNodeDetail ? (
+                <div className="recall-actions">
+                  <button
+                    disabled={graphBusyKey === `node:${selectedNodeDetail.node.id}:confirmed`}
+                    type="button"
+                    onClick={() => handleDecideNode('confirmed')}
+                  >
+                    Confirm node
+                  </button>
+                  <button
+                    className="ghost-button"
+                    disabled={graphBusyKey === `node:${selectedNodeDetail.node.id}:rejected`}
+                    type="button"
+                    onClick={() => handleDecideNode('rejected')}
+                  >
+                    Reject node
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            {nodeDetailLoading ? <p className="small-note">Loading node detail…</p> : null}
+            {!nodeDetailLoading && selectedNodeDetail ? (
+              <div className="stack-gap">
+                <section className="recall-graph-stage" aria-label="Graph stage">
+                  <div className="recall-graph-stage-copy">
+                    <span className="status-chip">Selected node</span>
+                    <h3>{selectedNodeDetail.node.label}</h3>
+                    <p>
+                      {selectedNodeDetail.node.description ??
+                        'Inspect the closest concepts and supporting relations before confirming this node.'}
+                    </p>
+                  </div>
+                  <div className="recall-hero-metrics" role="list" aria-label="Selected node summary">
+                    <span className="status-chip" role="listitem">{selectedNodeDetail.node.status}</span>
+                    <span className="status-chip status-muted" role="listitem">
+                      {Math.round(selectedNodeDetail.node.confidence * 100)}% confidence
+                    </span>
+                    <span className="status-chip status-muted" role="listitem">
+                      {formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions')}
+                    </span>
+                    <span className="status-chip status-muted" role="listitem">
+                      {formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')}
+                    </span>
+                  </div>
+                  <div className="recall-graph-stage-network">
+                    <div className="recall-graph-stage-node recall-graph-stage-node-active">
+                      <strong>{selectedNodeDetail.node.label}</strong>
+                      <span>{selectedNodeDetail.node.node_type}</span>
+                    </div>
+                    <div className="recall-graph-stage-orbit" role="list">
+                      {selectedNodeEdges.slice(0, 4).map((edge) => (
+                        <div key={`graph-stage:${edge.id}`} className="recall-graph-stage-node" role="listitem">
+                          <strong>{getGraphEdgeCounterpartLabel(edge, selectedNodeDetail.node.id)}</strong>
+                          <span>{getGraphEdgeDirectionLabel(edge, selectedNodeDetail.node.id)}</span>
+                        </div>
+                      ))}
+                      {!selectedNodeEdges.length ? (
+                        <div className="recall-graph-stage-node recall-graph-stage-node-empty" role="listitem">
+                          <strong>No linked concepts yet</strong>
+                          <span>Import more source material or confirm mentions to strengthen this node.</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+
+                <div className="recall-graph-stage-metadata">
+                  <div className="recall-detail-panel">
+                    <strong>Type</strong>
+                    <span>{selectedNodeDetail.node.node_type}</span>
+                  </div>
+                  <div className="recall-detail-panel">
+                    <strong>Aliases</strong>
+                    <span>{selectedNodeDetail.node.aliases.join(', ') || 'No alternate labels yet'}</span>
+                  </div>
+                  <div className="recall-detail-panel">
+                    <strong>Source docs</strong>
+                    <span>{selectedNodeDetail.node.source_document_ids.length || selectedNodeDetail.node.document_count}</span>
+                  </div>
+                </div>
+
+                <div className="stack-gap">
+                  <div className="section-header section-header-compact">
+                    <h3>Mentions</h3>
+                    <p>Each mention stays attached to the source document that produced it, with in-place Reader evidence beside it.</p>
+                  </div>
+                  <div className="recall-search-results" role="list">
+                    {selectedNodeDetail.mentions.map((mention) => (
+                      <div key={mention.id} className="recall-search-hit recall-evidence-card" role="listitem">
+                        <span className="recall-collection-row-head">
+                          <strong>{mention.document_title}</strong>
+                          <span>{Math.round(mention.confidence * 100)}%</span>
+                        </span>
+                        <span className="recall-collection-row-preview">{mention.excerpt}</span>
+                        <span className="recall-collection-row-meta">
+                          <span className="status-chip">{mention.entity_type}</span>
+                          <span className="status-chip">{mention.text}</span>
+                          {mention.chunk_id ? <span className="status-chip">Chunk evidence</span> : null}
+                        </span>
+                        <div className="recall-actions recall-actions-inline">
+                          {mention.source_document_id === activeSourceDocumentId ? (
+                            <button
+                              type="button"
+                              onClick={() => handleShowGraphEvidenceInFocusedReader(`mention:${mention.id}`, mention.source_document_id)}
+                            >
+                              {buildShowReaderLabel(mention.document_title)}
+                            </button>
+                          ) : null}
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() => handleOpenMentionInReader(mention.source_document_id)}
+                          >
+                            {buildOpenReaderLabel(mention.document_title)}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="stack-gap">
+                  <div className="section-header section-header-compact">
+                    <h3>Relations</h3>
+                    <p>Confirm or reject inferred links while keeping the supporting source evidence beside live reading.</p>
+                  </div>
+                  <div className="recall-search-results" role="list">
+                    {selectedNodeEdges.map((edge) => (
+                      <div key={`${selectedNodeDetail.node.id}:${edge.id}`} className="recall-search-hit recall-edge-card recall-evidence-card" role="listitem">
+                        <span className="recall-collection-row-head">
+                          <strong>{edge.source_label} {formatRelationLabel(edge.relation_type)} {edge.target_label}</strong>
+                          <span>{Math.round(edge.confidence * 100)}%</span>
+                        </span>
+                        {edge.excerpt ? <span className="recall-collection-row-preview">{edge.excerpt}</span> : null}
+                        <span className="recall-collection-row-meta">
+                          <span className="status-chip">{edge.status}</span>
+                          <span className="status-chip">{edge.provenance}</span>
+                          <span className="status-chip">{formatCountLabel(edge.evidence_count, 'evidence span', 'evidence spans')}</span>
+                          {edge.source_document_ids[0] ? (
+                            <span className="status-chip">
+                              {documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source'}
+                            </span>
+                          ) : null}
+                        </span>
+                        <div className="recall-actions recall-actions-inline">
+                          <button
+                            disabled={graphBusyKey === `edge:${edge.id}:confirmed`}
+                            type="button"
+                            onClick={() => handleDecideEdge(edge, 'confirmed')}
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            className="ghost-button"
+                            disabled={graphBusyKey === `edge:${edge.id}:rejected`}
+                            type="button"
+                            onClick={() => handleDecideEdge(edge, 'rejected')}
+                          >
+                            Reject
+                          </button>
+                          {activeSourceDocumentId && edge.source_document_ids.includes(activeSourceDocumentId) ? (
+                            <button
+                              type="button"
+                              onClick={() => handleShowGraphEvidenceInFocusedReader(`edge:${edge.id}`, activeSourceDocumentId)}
+                            >
+                              {buildShowReaderLabel(documentTitleById.get(activeSourceDocumentId) ?? 'Saved source')}
+                            </button>
+                          ) : null}
+                          {edge.source_document_ids[0] ? (
+                            <button
+                              className="ghost-button"
+                              type="button"
+                              onClick={() => handleOpenEdgeInReader(edge)}
+                            >
+                              {buildOpenReaderLabel(documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source')}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      </div>
+    )
+  }
+
+  function renderGraphBrowseSection() {
+    return (
+      <div className={graphBrowseDrawerOpen ? 'recall-graph-browser-layout' : 'recall-graph-browser-layout recall-graph-browser-layout-condensed'}>
+        <aside
+          className={
+            graphBrowseDrawerOpen
+              ? 'card stack-gap recall-graph-sidebar'
+              : 'card stack-gap recall-graph-sidebar recall-graph-sidebar-condensed'
+          }
+        >
+          <div className="toolbar recall-collection-toolbar">
+            <div className="section-header section-header-compact">
+              <h2>Graph</h2>
+              <p>Validate saved concepts and relations from one calmer graph-first surface.</p>
+            </div>
+            <button className="ghost-button" type="button" onClick={() => setBrowseDrawerOpen('graph', !graphBrowseDrawerOpen)}>
+              {graphBrowseDrawerOpen ? 'Hide' : 'Show'}
+            </button>
+          </div>
+
+          {graphBrowseDrawerOpen ? (
+            <>
+              <label className="field recall-inline-field">
+                <span>Find nodes</span>
+                <input
+                  type="search"
+                  placeholder="Search node, type, or alias"
+                  value={graphFilterQuery}
+                  onChange={(event) => setGraphFilterQuery(event.target.value)}
+                />
+              </label>
+
+              <div className="recall-hero-metrics recall-graph-sidebar-metrics" role="list" aria-label="Graph metrics">
+                <span className="status-chip" role="listitem">
+                  {graphStatus === 'error' ? 'Graph unavailable' : graphLoading ? 'Loading graph…' : `${graphSnapshot?.nodes.length ?? 0} nodes`}
+                </span>
+                <span className="status-chip status-muted" role="listitem">{graphPendingEdgesLabel}</span>
+                <span className="status-chip status-muted" role="listitem">{graphConfirmedEdgesLabel}</span>
+              </div>
+
+              {activeSourceDocumentId ? (
+                <div className="recall-detail-panel">
+                  <strong>Last focused source</strong>
+                  <span>{documentTitleById.get(activeSourceDocumentId) ?? 'Saved source'}</span>
+                </div>
+              ) : null}
+
+              <div className="section-header section-header-compact">
+                <h3>{graphFilterActive ? 'Matching nodes' : 'Quick picks'}</h3>
+                <p>
+                  {graphFilterActive
+                    ? `Showing ${filteredGraphNodes.length} matching ${filteredGraphNodes.length === 1 ? 'node' : 'nodes'}.`
+                    : 'Start from the strongest nodes, then inspect the wider graph in the canvas.'}
+                </p>
+              </div>
+
+              <div className="recall-graph-quick-picks" role="list">
+                {graphLoading ? <p className="small-note">Building the local knowledge graph…</p> : null}
+                {!graphLoading && graphStatus === 'error' ? (
+                  <div className="stack-gap">
+                    <p className="small-note">The knowledge graph is unavailable until the local service reconnects.</p>
+                    <div className="inline-actions">
+                      <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                        Retry loading
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {!graphLoading && graphStatus !== 'error' && !graphSnapshot?.nodes.length ? (
+                  <p className="small-note">Import more source material to give the graph stronger concepts and relations.</p>
+                ) : null}
+                {!graphLoading && graphStatus !== 'error' && graphSnapshot?.nodes.length && !filteredGraphNodes.length ? (
+                  <p className="small-note">No nodes match that filter yet.</p>
+                ) : null}
+                {graphQuickPickNodes.map((node) => renderGraphQuickPick(node))}
+              </div>
+            </>
+          ) : (
+            <div className="recall-browse-drawer-summary stack-gap">
+              <p className="small-note">
+                Hide the support rail when you want the graph canvas and selected-node evidence to take over.
+              </p>
+              <div className="recall-detail-panel recall-browse-summary-card">
+                <strong>{selectedNodeDetail?.node.label ?? 'Graph canvas ready'}</strong>
+                <span>
+                  {selectedNodeDetail
+                    ? selectedNodeDetail.node.description ?? formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')
+                    : `${graphSnapshot?.nodes.length ?? 0} nodes ready for review.`}
+                </span>
+              </div>
+            </div>
+          )}
+        </aside>
+
+        <section className="card stack-gap recall-graph-browser-surface">
+          <div className="toolbar recall-collection-toolbar">
+            <div className="section-header">
+              <p className="eyebrow">Knowledge graph</p>
+              <h2>See the graph before you validate it.</h2>
+              <p>
+                One dominant canvas, one lighter support rail, and selected-node evidence that stays close without taking over the page.
+              </p>
+            </div>
+          </div>
+
+          {graphLoading ? <div className="recall-library-inline-state" role="status">Loading graph canvas…</div> : null}
+          {!graphLoading && graphStatus === 'error' ? (
+            <div className="recall-library-inline-state" role="alert">
+              <p>The knowledge graph is unavailable until the local service reconnects.</p>
+              <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                Retry loading
+              </button>
+            </div>
+          ) : null}
+          {!graphLoading && graphStatus !== 'error' && !graphSnapshot?.nodes.length ? (
+            <div className="recall-library-inline-state">
+              <p>Import more source material to give the graph stronger concepts and relations.</p>
+            </div>
+          ) : null}
+          {!graphLoading && graphStatus !== 'error' && (graphSnapshot?.nodes.length ?? 0) > 0 && !filteredGraphNodes.length ? (
+            <div className="recall-library-inline-state">
+              <p>No nodes match that filter. Try another label, type, or alias.</p>
+            </div>
+          ) : null}
+
+          {!graphLoading && graphStatus !== 'error' && graphCanvasNodes.length > 0 ? (
+            <div className="recall-graph-browser-stage">
+              <div className="recall-graph-canvas" aria-label="Knowledge graph canvas" role="region">
+                <div className="recall-graph-canvas-grid" aria-hidden="true" />
+                <svg
+                  aria-hidden="true"
+                  className="recall-graph-canvas-svg"
+                  preserveAspectRatio="none"
+                  viewBox="0 0 100 100"
+                >
+                  {graphCanvasEdges.map((edge) => {
+                    const sourcePosition = graphCanvasNodePositionById.get(edge.source_id)
+                    const targetPosition = graphCanvasNodePositionById.get(edge.target_id)
+                    if (!sourcePosition || !targetPosition) {
+                      return null
+                    }
+                    const edgeFocused = edge.source_id === graphCanvasFocusNodeId || edge.target_id === graphCanvasFocusNodeId
+                    return (
+                      <line
+                        key={edge.id}
+                        className={edgeFocused ? 'recall-graph-edge recall-graph-edge-focused' : 'recall-graph-edge'}
+                        x1={sourcePosition.x}
+                        x2={targetPosition.x}
+                        y1={sourcePosition.y}
+                        y2={targetPosition.y}
+                      />
+                    )
+                  })}
+                </svg>
+                <div className="recall-graph-node-layer">
+                  {graphCanvasNodes.map(({ emphasis, node, x, y }) => {
+                    const className = [
+                      'recall-graph-node-button',
+                      emphasis === 'focus'
+                        ? 'recall-graph-node-button-focus'
+                        : emphasis === 'linked'
+                          ? 'recall-graph-node-button-linked'
+                          : 'recall-graph-node-button-ambient',
+                      selectedNodeId === node.id ? 'recall-graph-node-button-active' : '',
+                      activeSourceDocumentId && node.source_document_ids.includes(activeSourceDocumentId)
+                        ? 'recall-graph-node-button-source-backed'
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')
+                    return (
+                      <button
+                        key={node.id}
+                        aria-label={`Select node ${node.label}`}
+                        aria-pressed={selectedNodeId === node.id}
+                        className={className}
+                        style={{ left: `${x}%`, top: `${y}%` }}
+                        type="button"
+                        onClick={() => handleSelectGraphNode(node)}
+                      >
+                        <strong>{node.label}</strong>
+                        <span>{node.node_type}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                {renderBrowseGraphDetailOverlay()}
+              </div>
+
+              <div className="recall-graph-browser-legend" role="list" aria-label="Graph legend">
+                <span className="status-chip" role="listitem">Center node: active focus</span>
+                <span className="status-chip status-muted" role="listitem">Inner orbit: directly linked</span>
+                <span className="status-chip status-muted" role="listitem">Outer orbit: nearby concepts</span>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      </div>
+    )
+  }
+
+  function renderGraphSection() {
+    return showFocusedGraphSplitView ? renderFocusedGraphSection() : renderGraphBrowseSection()
+  }
+
   return (
     <div className="stack-gap">
       {overallError ? (
@@ -2387,7 +3201,7 @@ export function RecallWorkspace({
             >
               <div className="toolbar recall-collection-toolbar">
                 <div className="section-header section-header-compact">
-                  <h2>Source library</h2>
+                  <h2>Home</h2>
                   <p>
                     {documentsLoading
                       ? 'Loading…'
@@ -2491,7 +3305,7 @@ export function RecallWorkspace({
                   ) : (
                     <div className="recall-detail-panel recall-browse-summary-card">
                       <strong>No active source yet</strong>
-                      <span>Open the library drawer when you want to choose a saved source.</span>
+                      <span>Open the Home panel when you want to choose a saved source.</span>
                     </div>
                   )}
                 </div>
@@ -2506,7 +3320,7 @@ export function RecallWorkspace({
               <aside className="recall-library-sidebar stack-gap">
                 <div className="recall-library-sidebar-panel recall-library-sidebar-panel-accent stack-gap">
                   <div className="section-header section-header-compact">
-                    <h2>Library</h2>
+                    <h2>Home</h2>
                     <p>
                       {documentsLoading
                         ? 'Loading local collection.'
@@ -2612,7 +3426,7 @@ export function RecallWorkspace({
                 ) : null}
                 {!documentsLoading && documentsStatus !== 'error' && documents.length === 0 ? (
                   <div className="recall-library-inline-state">
-                    <p>Your library is empty. Add a source to start reading, saving notes, and building graph or study context.</p>
+                    <p>Your Home is empty. Add a source to start reading, saving notes, and building graph or study context.</p>
                   </div>
                 ) : null}
                 {!documentsLoading && documentsStatus !== 'error' && documents.length > 0 && visibleDocuments.length === 0 ? (
@@ -2671,320 +3485,39 @@ export function RecallWorkspace({
         )
       ) : null}
 
-      {section === 'graph' ? (
-        <div className={graphBrowseDrawerOpen ? 'recall-grid' : 'recall-grid recall-grid-browse-condensed'}>
-          <section
-            className={
-              graphBrowseDrawerOpen
-                ? 'card stack-gap recall-collection-rail'
-                : 'card stack-gap recall-collection-rail recall-collection-rail-condensed'
-            }
-          >
-            <div className="toolbar recall-collection-toolbar">
-              <div className="section-header section-header-compact">
-                <h2>Knowledge graph</h2>
-                <p>Inspect extracted concepts, validate links, and keep the graph grounded in saved source evidence.</p>
-              </div>
-              <button className="ghost-button" type="button" onClick={() => setBrowseDrawerOpen('graph', !graphBrowseDrawerOpen)}>
-                {graphBrowseDrawerOpen ? 'Hide' : 'Show'}
-              </button>
-            </div>
-            <div className="recall-hero-metrics" role="list" aria-label="Knowledge graph metrics">
-              <span className="status-chip" role="listitem">
-                {graphStatus === 'error' ? 'Graph unavailable' : graphLoading ? 'Loading graph…' : `${graphSnapshot?.nodes.length ?? 0} nodes`}
-              </span>
-              <span className="status-chip status-muted" role="listitem">{graphPendingEdgesLabel}</span>
-              <span className="status-chip status-muted" role="listitem">{graphConfirmedEdgesLabel}</span>
-            </div>
-
-            {graphBrowseDrawerOpen || graphStatus === 'error' ? (
-              <div className="recall-document-list" role="list">
-                {graphLoading ? <p className="small-note">Building the local knowledge graph…</p> : null}
-                {!graphLoading && graphStatus === 'error' ? (
-                  <div className="stack-gap">
-                    <p className="small-note">The knowledge graph is unavailable until the local service reconnects.</p>
-                    <div className="inline-actions">
-                      <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
-                        Retry loading
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-                {!graphLoading && graphStatus !== 'error' && !graphSnapshot?.nodes.length ? (
-                  <p className="small-note">Import more source material to give the graph stronger concepts and relations.</p>
-                ) : null}
-
-                {graphSnapshot?.nodes.map((node) => (
-                  <button
-                    key={node.id}
-                    aria-pressed={selectedNodeId === node.id}
-                    className={
-                      selectedNodeId === node.id
-                        ? 'recall-document-item recall-document-item-compact recall-document-item-active'
-                        : 'recall-document-item recall-document-item-compact'
-                    }
-                    type="button"
-                    onClick={() => {
-                      updateGraphState((current) => ({ ...current, selectedNodeId: node.id }))
-                      updateSourceWorkspaceState((current) => ({
-                        ...current,
-                        activeDocumentId: node.source_document_ids[0] ?? current.activeDocumentId,
-                        activeTab: 'graph',
-                        readerAnchor:
-                          current.activeDocumentId === (node.source_document_ids[0] ?? current.activeDocumentId)
-                            ? current.readerAnchor
-                            : null,
-                      }))
-                    }}
-                  >
-                    <span className="recall-collection-row-head">
-                      <strong className="recall-document-title">{node.label}</strong>
-                      <span className="recall-document-meta">{Math.round(node.confidence * 100)}%</span>
-                    </span>
-                    <span className="recall-collection-row-preview">{getGraphNodePreview(node)}</span>
-                    <span className="recall-collection-row-meta">
-                      <span className="status-chip">{node.node_type}</span>
-                      <span className="status-chip">{node.status}</span>
-                      <span className="status-chip">{formatCountLabel(node.mention_count, 'mention', 'mentions')}</span>
-                      <span className="status-chip">{formatCountLabel(node.document_count, 'doc', 'docs')}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="recall-browse-drawer-summary stack-gap">
-                <p className="small-note">
-                  Keep the active graph pane in focus. Open browsing when you want to compare other nodes.
-                </p>
-                <div className="recall-detail-panel recall-browse-summary-card">
-                  <strong>{selectedNodeDetail?.node.label ?? 'No active node for this source'}</strong>
-                  <span>
-                    {selectedNodeDetail
-                      ? selectedNodeDetail.node.description ?? formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')
-                      : activeSourceDocumentId
-                        ? 'Select or promote graph evidence from this source.'
-                        : 'Choose a source to inspect its graph context.'}
-                  </span>
-                </div>
-              </div>
-            )}
-          </section>
-
-          <div className={showFocusedGraphSplitView ? 'recall-main-column recall-source-split-layout' : 'recall-main-column stack-gap'}>
-            {showFocusedGraphSplitView ? renderFocusedReaderPane() : null}
-            <section className="card stack-gap">
-              <div className="toolbar recall-collection-toolbar">
-                <div className="section-header section-header-compact">
-                  <h2>Node detail</h2>
-                  <p>
-                    {selectedNodeDetail
-                      ? 'Review source evidence and relation suggestions before they become trusted knowledge.'
-                      : 'Choose a node to inspect its provenance and relations.'}
-                  </p>
-                </div>
-                {selectedNodeDetail ? (
-                  <div className="recall-actions">
-                    <button
-                      disabled={graphBusyKey === `node:${selectedNodeDetail.node.id}:confirmed`}
-                      type="button"
-                      onClick={() => handleDecideNode('confirmed')}
-                    >
-                      Confirm node
-                    </button>
-                    <button
-                      className="ghost-button"
-                      disabled={graphBusyKey === `node:${selectedNodeDetail.node.id}:rejected`}
-                      type="button"
-                      onClick={() => handleDecideNode('rejected')}
-                    >
-                      Reject node
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-              {nodeDetailLoading ? <p className="small-note">Loading node detail…</p> : null}
-              {!nodeDetailLoading && selectedNodeDetail ? (
-                <div className="stack-gap">
-                  <section className="recall-graph-stage" aria-label="Graph stage">
-                    <div className="recall-graph-stage-copy">
-                      <span className="status-chip">Selected node</span>
-                      <h3>{selectedNodeDetail.node.label}</h3>
-                      <p>
-                        {selectedNodeDetail.node.description ??
-                          'Inspect the closest concepts and supporting relations before confirming this node.'}
-                      </p>
-                    </div>
-                    <div className="recall-hero-metrics" role="list" aria-label="Selected node summary">
-                      <span className="status-chip" role="listitem">{selectedNodeDetail.node.status}</span>
-                      <span className="status-chip status-muted" role="listitem">
-                        {Math.round(selectedNodeDetail.node.confidence * 100)}% confidence
-                      </span>
-                      <span className="status-chip status-muted" role="listitem">
-                        {formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions')}
-                      </span>
-                      <span className="status-chip status-muted" role="listitem">
-                        {formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')}
-                      </span>
-                    </div>
-                    <div className="recall-graph-stage-network">
-                      <div className="recall-graph-stage-node recall-graph-stage-node-active">
-                        <strong>{selectedNodeDetail.node.label}</strong>
-                        <span>{selectedNodeDetail.node.node_type}</span>
-                      </div>
-                      <div className="recall-graph-stage-orbit" role="list">
-                        {selectedNodeEdges.slice(0, 4).map((edge) => (
-                          <div key={`graph-stage:${edge.id}`} className="recall-graph-stage-node" role="listitem">
-                            <strong>{getGraphEdgeCounterpartLabel(edge, selectedNodeDetail.node.id)}</strong>
-                            <span>{getGraphEdgeDirectionLabel(edge, selectedNodeDetail.node.id)}</span>
-                          </div>
-                        ))}
-                        {!selectedNodeEdges.length ? (
-                          <div className="recall-graph-stage-node recall-graph-stage-node-empty" role="listitem">
-                            <strong>No linked concepts yet</strong>
-                            <span>Import more source material or confirm mentions to strengthen this node.</span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </section>
-
-                  <div className="recall-graph-stage-metadata">
-                    <div className="recall-detail-panel">
-                      <strong>Type</strong>
-                      <span>{selectedNodeDetail.node.node_type}</span>
-                    </div>
-                    <div className="recall-detail-panel">
-                      <strong>Aliases</strong>
-                      <span>{selectedNodeDetail.node.aliases.join(', ') || 'No alternate labels yet'}</span>
-                    </div>
-                    <div className="recall-detail-panel">
-                      <strong>Source docs</strong>
-                      <span>{selectedNodeDetail.node.source_document_ids.length || selectedNodeDetail.node.document_count}</span>
-                    </div>
-                  </div>
-
-                  <div className="stack-gap">
-                    <div className="section-header section-header-compact">
-                      <h3>Mentions</h3>
-                      <p>Each mention stays attached to the source document that produced it, with in-place Reader evidence beside it.</p>
-                    </div>
-                    <div className="recall-search-results" role="list">
-                      {selectedNodeDetail.mentions.map((mention) => (
-                        <div key={mention.id} className="recall-search-hit recall-evidence-card" role="listitem">
-                          <span className="recall-collection-row-head">
-                            <strong>{mention.document_title}</strong>
-                            <span>{Math.round(mention.confidence * 100)}%</span>
-                          </span>
-                          <span className="recall-collection-row-preview">{mention.excerpt}</span>
-                          <span className="recall-collection-row-meta">
-                            <span className="status-chip">{mention.entity_type}</span>
-                            <span className="status-chip">{mention.text}</span>
-                            {mention.chunk_id ? <span className="status-chip">Chunk evidence</span> : null}
-                          </span>
-                          <div className="recall-actions recall-actions-inline">
-                            {showFocusedGraphSplitView && mention.source_document_id === activeSourceDocumentId ? (
-                              <button
-                                type="button"
-                                onClick={() => handleShowGraphEvidenceInFocusedReader(`mention:${mention.id}`, mention.source_document_id)}
-                              >
-                                {buildShowReaderLabel(mention.document_title)}
-                              </button>
-                            ) : null}
-                            <button
-                              className={showFocusedGraphSplitView ? 'ghost-button' : undefined}
-                              type="button"
-                              onClick={() => handleOpenMentionInReader(mention.source_document_id)}
-                            >
-                              {buildOpenReaderLabel(mention.document_title)}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="stack-gap">
-                    <div className="section-header section-header-compact">
-                      <h3>Relations</h3>
-                      <p>Confirm or reject inferred links while keeping the supporting source evidence beside live reading.</p>
-                    </div>
-                    <div className="recall-search-results" role="list">
-                      {selectedNodeEdges.map((edge) => (
-                        <div key={`${selectedNodeDetail.node.id}:${edge.id}`} className="recall-search-hit recall-edge-card recall-evidence-card" role="listitem">
-                          <span className="recall-collection-row-head">
-                            <strong>{edge.source_label} {formatRelationLabel(edge.relation_type)} {edge.target_label}</strong>
-                            <span>{Math.round(edge.confidence * 100)}%</span>
-                          </span>
-                          {edge.excerpt ? <span className="recall-collection-row-preview">{edge.excerpt}</span> : null}
-                          <span className="recall-collection-row-meta">
-                            <span className="status-chip">{edge.status}</span>
-                            <span className="status-chip">{edge.provenance}</span>
-                            <span className="status-chip">{formatCountLabel(edge.evidence_count, 'evidence span', 'evidence spans')}</span>
-                            {edge.source_document_ids[0] ? (
-                              <span className="status-chip">
-                                {documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source'}
-                              </span>
-                            ) : null}
-                          </span>
-                          <div className="recall-actions recall-actions-inline">
-                            <button
-                              disabled={graphBusyKey === `edge:${edge.id}:confirmed`}
-                              type="button"
-                              onClick={() => handleDecideEdge(edge, 'confirmed')}
-                            >
-                              Confirm
-                            </button>
-                            <button
-                              className="ghost-button"
-                              disabled={graphBusyKey === `edge:${edge.id}:rejected`}
-                              type="button"
-                              onClick={() => handleDecideEdge(edge, 'rejected')}
-                            >
-                              Reject
-                            </button>
-                            {showFocusedGraphSplitView && activeSourceDocumentId && edge.source_document_ids.includes(activeSourceDocumentId) ? (
-                              <button
-                                type="button"
-                                onClick={() => handleShowGraphEvidenceInFocusedReader(`edge:${edge.id}`, activeSourceDocumentId)}
-                              >
-                                {buildShowReaderLabel(documentTitleById.get(activeSourceDocumentId) ?? 'Saved source')}
-                              </button>
-                            ) : null}
-                            {edge.source_document_ids[0] ? (
-                              <button
-                                className={showFocusedGraphSplitView ? 'ghost-button' : 'ghost-button'}
-                                type="button"
-                                onClick={() => handleOpenEdgeInReader(edge)}
-                              >
-                                {buildOpenReaderLabel(documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source')}
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </section>
-          </div>
-        </div>
-      ) : null}
+      {section === 'graph' ? renderGraphSection() : null}
 
       {section === 'study' ? (
-        <div className={studyBrowseDrawerOpen ? 'recall-grid' : 'recall-grid recall-grid-browse-condensed'}>
+        <div
+          className={
+            showFocusedStudySplitView
+              ? studyBrowseDrawerOpen
+                ? 'recall-grid'
+                : 'recall-grid recall-grid-browse-condensed'
+              : studyBrowseDrawerOpen
+                ? 'recall-study-browser-layout'
+                : 'recall-study-browser-layout recall-study-browser-layout-condensed'
+          }
+        >
           <section
             className={
-              studyBrowseDrawerOpen
-                ? 'card stack-gap recall-collection-rail'
-                : 'card stack-gap recall-collection-rail recall-collection-rail-condensed'
+              showFocusedStudySplitView
+                ? studyBrowseDrawerOpen
+                  ? 'card stack-gap recall-collection-rail'
+                  : 'card stack-gap recall-collection-rail recall-collection-rail-condensed'
+                : studyBrowseDrawerOpen
+                  ? 'card stack-gap recall-collection-rail recall-study-sidebar'
+                  : 'card stack-gap recall-collection-rail recall-collection-rail-condensed recall-study-sidebar'
             }
           >
             <div className="toolbar recall-collection-toolbar">
               <div className="section-header section-header-compact">
-                <h2>Study queue</h2>
-                <p>Source-grounded cards regenerate deterministically and keep their FSRS review state over time.</p>
+                <h2>{showFocusedStudySplitView ? 'Study queue' : 'Study'}</h2>
+                <p>
+                  {showFocusedStudySplitView
+                    ? 'Source-grounded cards regenerate deterministically and keep their FSRS review state over time.'
+                    : 'Keep the next grounded card nearby while the main review loop stays centered.'}
+                </p>
               </div>
               <div className="recall-actions recall-actions-inline">
                 <button
@@ -3004,7 +3537,15 @@ export function RecallWorkspace({
               </div>
             </div>
 
-            <div className="recall-hero-metrics" role="list" aria-label="Study overview">
+            <div
+              className={
+                showFocusedStudySplitView
+                  ? 'recall-hero-metrics'
+                  : 'recall-hero-metrics recall-study-sidebar-metrics'
+              }
+              role="list"
+              aria-label="Study overview"
+            >
               <span className="status-chip" role="listitem">{studyNewCountLabel}</span>
               <span className="status-chip status-muted" role="listitem">{studyDueCountLabel}</span>
               <span className="status-chip status-muted" role="listitem">{studyReviewCountLabel}</span>
@@ -3032,7 +3573,14 @@ export function RecallWorkspace({
                   ))}
                 </div>
 
-                <div className="recall-document-list" role="list">
+                <div
+                  className={
+                    showFocusedStudySplitView
+                      ? 'recall-document-list'
+                      : 'recall-document-list recall-study-sidebar-list'
+                  }
+                  role="list"
+                >
                   {studyLoading ? <p className="small-note">Loading study cards…</p> : null}
                   {!studyLoading && studyStatus === 'error' ? (
                     <div className="stack-gap">
@@ -3057,17 +3605,7 @@ export function RecallWorkspace({
                           : 'recall-document-item recall-document-item-compact'
                       }
                       type="button"
-                      onClick={() => {
-                        updateStudyState((current) => ({ ...current, activeCardId: card.id }))
-                        updateSourceWorkspaceState((current) => ({
-                          ...current,
-                          activeDocumentId: card.source_document_id,
-                          activeTab: 'study',
-                          readerAnchor:
-                            current.activeDocumentId === card.source_document_id ? current.readerAnchor : null,
-                        }))
-                        setShowAnswer(false)
-                      }}
+                      onClick={() => handleSelectStudyCard(card)}
                     >
                       <span className="recall-collection-row-head">
                         <strong className="recall-document-title">{card.prompt}</strong>
@@ -3087,7 +3625,9 @@ export function RecallWorkspace({
             ) : (
               <div className="recall-browse-drawer-summary stack-gap">
                 <p className="small-note">
-                  Keep the active card centered here. Open browsing when you want to change the queue or filter.
+                  {showFocusedStudySplitView
+                    ? 'Keep the active card centered here. Open browsing when you want to change the queue or filter.'
+                    : 'Keep the current card nearby here. Reopen the queue only when you want to switch the review flow.'}
                 </p>
                 <div className="recall-detail-panel recall-browse-summary-card">
                   <strong>{activeStudyCard?.prompt ?? 'No active card for this source'}</strong>
@@ -3103,15 +3643,57 @@ export function RecallWorkspace({
             )}
           </section>
 
-          <div className={showFocusedStudySplitView ? 'recall-main-column recall-source-split-layout' : 'recall-main-column stack-gap'}>
+          <div
+            className={
+              showFocusedStudySplitView
+                ? 'recall-main-column recall-source-split-layout'
+                : 'recall-main-column stack-gap recall-study-browser-main'
+            }
+          >
             {showFocusedStudySplitView ? renderFocusedReaderPane() : null}
-            <section className="card stack-gap recall-study-card">
+
+            {!showFocusedStudySplitView ? (
+              <section className="card recall-study-stage-card">
+                <div className="recall-study-stage-copy">
+                  <h2>Recall review</h2>
+                  <p className="recall-study-stage-kicker">Review one grounded card at a time.</p>
+                  <p>
+                    Keep the main review loop centered here, then reopen Reader only when you want to inspect source
+                    evidence more closely.
+                  </p>
+                </div>
+                <div className="recall-study-journey" role="list" aria-label="Study flow">
+                  <div className="recall-study-step recall-study-step-active" role="listitem">
+                    <strong>1</strong>
+                    <span>Choose the next card from the queue</span>
+                  </div>
+                  <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
+                    <strong>2</strong>
+                    <span>Reveal the grounded answer only when you are ready</span>
+                  </div>
+                  <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
+                    <strong>3</strong>
+                    <span>Rate recall and let FSRS schedule the next review</span>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            <section
+              className={
+                showFocusedStudySplitView
+                  ? 'card stack-gap recall-study-card'
+                  : 'card stack-gap recall-study-card recall-study-card-centered'
+              }
+            >
               <div className="toolbar recall-collection-toolbar">
                 <div className="section-header section-header-compact">
-                  <h2>Active card</h2>
+                  <h2>{showFocusedStudySplitView ? 'Active card' : 'Review card'}</h2>
                   <p>
                     {activeStudyCard
-                      ? `Grounded in ${activeStudyCard.document_title} and scheduled with FSRS review updates.`
+                      ? showFocusedStudySplitView
+                        ? `Grounded in ${activeStudyCard.document_title} and scheduled with FSRS review updates.`
+                        : `Stay with ${activeStudyCard.document_title} until you finish this review step.`
                       : 'Choose a card from the queue to review it here.'}
                   </p>
                 </div>
@@ -3138,45 +3720,78 @@ export function RecallWorkspace({
 
               {!activeStudyCard ? <p className="small-note">No active study card yet.</p> : null}
               {activeStudyCard ? (
-                <div className="study-card-body stack-gap">
-                  <div className="recall-study-journey" role="list" aria-label="Study flow">
-                    <div className="recall-study-step recall-study-step-active" role="listitem">
-                      <strong>1</strong>
-                      <span>Choose the next due card</span>
+                <div
+                  className={
+                    showFocusedStudySplitView
+                      ? 'study-card-body stack-gap'
+                      : 'study-card-body study-card-body-centered stack-gap'
+                  }
+                >
+                  {showFocusedStudySplitView ? (
+                    <div className="recall-study-journey" role="list" aria-label="Study flow">
+                      <div className="recall-study-step recall-study-step-active" role="listitem">
+                        <strong>1</strong>
+                        <span>Choose the next due card</span>
+                      </div>
+                      <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
+                        <strong>2</strong>
+                        <span>Reveal the grounded answer</span>
+                      </div>
+                      <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
+                        <strong>3</strong>
+                        <span>Rate recall and schedule the next review</span>
+                      </div>
                     </div>
-                    <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
-                      <strong>2</strong>
-                      <span>Reveal the grounded answer</span>
-                    </div>
-                    <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
-                      <strong>3</strong>
-                      <span>Rate recall and schedule the next review</span>
-                    </div>
-                  </div>
+                  ) : null}
 
-                  <div className="recall-study-summary">
-                    <div className="recall-detail-panel">
-                      <strong>Source</strong>
-                      <span>{activeStudyCard.document_title}</span>
-                    </div>
-                    <div className="recall-detail-panel">
-                      <strong>Schedule</strong>
-                      <span>Due {dateFormatter.format(new Date(activeStudyCard.due_at))} · {formatStudyStatus(activeStudyCard.status)}</span>
-                    </div>
-                    <div className="recall-detail-panel">
-                      <strong>Reviews</strong>
-                      <span>{formatCountLabel(activeStudyCard.review_count, 'review', 'reviews')}</span>
-                    </div>
-                  </div>
+                  {showFocusedStudySplitView ? (
+                    <>
+                      <div className="recall-study-summary">
+                        <div className="recall-detail-panel">
+                          <strong>Source</strong>
+                          <span>{activeStudyCard.document_title}</span>
+                        </div>
+                        <div className="recall-detail-panel">
+                          <strong>Schedule</strong>
+                          <span>
+                            Due {dateFormatter.format(new Date(activeStudyCard.due_at))} · {formatStudyStatus(activeStudyCard.status)}
+                          </span>
+                        </div>
+                        <div className="recall-detail-panel">
+                          <strong>Reviews</strong>
+                          <span>{formatCountLabel(activeStudyCard.review_count, 'review', 'reviews')}</span>
+                        </div>
+                      </div>
 
-                  <div className="recall-hero-metrics" role="list" aria-label="Study card metadata">
-                    <span className="status-chip" role="listitem">{activeStudyCard.card_type}</span>
-                    <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
-                    <span className="status-chip status-muted" role="listitem">Due {dateFormatter.format(new Date(activeStudyCard.due_at))}</span>
-                    <span className="status-chip status-muted" role="listitem">
-                      {formatCountLabel(activeStudyCard.source_spans.length, 'evidence span', 'evidence spans')}
-                    </span>
-                  </div>
+                      <div className="recall-hero-metrics" role="list" aria-label="Study card metadata">
+                        <span className="status-chip" role="listitem">{activeStudyCard.card_type}</span>
+                        <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
+                        <span className="status-chip status-muted" role="listitem">
+                          Due {dateFormatter.format(new Date(activeStudyCard.due_at))}
+                        </span>
+                        <span className="status-chip status-muted" role="listitem">
+                          {formatCountLabel(activeStudyCard.source_spans.length, 'evidence span', 'evidence spans')}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="recall-study-card-context">
+                      <strong>{activeStudyCard.document_title}</strong>
+                      <div className="recall-hero-metrics recall-study-card-meta" role="list" aria-label="Review card metadata">
+                        <span className="status-chip" role="listitem">{activeStudyCard.card_type}</span>
+                        <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
+                        <span className="status-chip status-muted" role="listitem">
+                          Due {dateFormatter.format(new Date(activeStudyCard.due_at))}
+                        </span>
+                        <span className="status-chip status-muted" role="listitem">
+                          {formatCountLabel(activeStudyCard.review_count, 'review', 'reviews')}
+                        </span>
+                        <span className="status-chip status-muted" role="listitem">
+                          {formatCountLabel(activeStudyCard.source_spans.length, 'evidence span', 'evidence spans')}
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="study-card-face">
                     <strong>Prompt</strong>
@@ -3200,50 +3815,111 @@ export function RecallWorkspace({
                   <div className="stack-gap">
                     <div className="section-header section-header-compact">
                       <h3>Source evidence</h3>
-                      <p>Keep the supporting excerpt close before reopening Reader or logging a review.</p>
+                      <p>
+                        {showFocusedStudySplitView
+                          ? 'Keep the supporting excerpt close before reopening Reader or logging a review.'
+                          : 'Keep one supporting excerpt nearby before reopening Reader or logging a review.'}
+                      </p>
                     </div>
-                    <div className="recall-search-results" role="list">
-                      {activeStudySourceSpans.map((sourceSpan, index) => (
-                        <div
-                          key={`${activeStudyCard.id}:evidence:${index}`}
-                          className="recall-search-hit recall-evidence-card"
-                          role="listitem"
-                        >
-                          <span className="recall-collection-row-head">
-                            <strong>{getStudyEvidenceLabel(sourceSpan)}</strong>
-                            <span>{activeStudyCard.document_title}</span>
-                          </span>
-                          <span className="recall-collection-row-preview">{getStudyEvidenceExcerpt(sourceSpan)}</span>
-                          <span className="recall-collection-row-meta">
-                            {getRecordStringValue(sourceSpan, 'note_id') ? <span className="status-chip">Anchored note</span> : null}
-                            {getRecordStringValue(sourceSpan, 'edge_id') ? <span className="status-chip">Graph-backed</span> : null}
-                            {getRecordStringValue(sourceSpan, 'chunk_id') ? <span className="status-chip">Chunk excerpt</span> : null}
-                            {getRecordNumberValue(sourceSpan, 'global_sentence_start') !== null ? (
-                              <span className="status-chip">
-                                Sentences {String(getRecordNumberValue(sourceSpan, 'global_sentence_start'))}-{String(getRecordNumberValue(sourceSpan, 'global_sentence_end'))}
-                              </span>
-                            ) : null}
-                          </span>
-                          <div className="recall-actions recall-actions-inline">
-                            {showFocusedStudySplitView ? (
+                    {showFocusedStudySplitView ? (
+                      <div className="recall-search-results" role="list">
+                        {activeStudySourceSpans.map((sourceSpan, index) => (
+                          <div
+                            key={`${activeStudyCard.id}:evidence:${index}`}
+                            className="recall-search-hit recall-evidence-card"
+                            role="listitem"
+                          >
+                            <span className="recall-collection-row-head">
+                              <strong>{getStudyEvidenceLabel(sourceSpan)}</strong>
+                              <span>{activeStudyCard.document_title}</span>
+                            </span>
+                            <span className="recall-collection-row-preview">{getStudyEvidenceExcerpt(sourceSpan)}</span>
+                            <span className="recall-collection-row-meta">
+                              {getRecordStringValue(sourceSpan, 'note_id') ? <span className="status-chip">Anchored note</span> : null}
+                              {getRecordStringValue(sourceSpan, 'edge_id') ? <span className="status-chip">Graph-backed</span> : null}
+                              {getRecordStringValue(sourceSpan, 'chunk_id') ? <span className="status-chip">Chunk excerpt</span> : null}
+                              {getRecordNumberValue(sourceSpan, 'global_sentence_start') !== null ? (
+                                <span className="status-chip">
+                                  Sentences {String(getRecordNumberValue(sourceSpan, 'global_sentence_start'))}-{String(getRecordNumberValue(sourceSpan, 'global_sentence_end'))}
+                                </span>
+                              ) : null}
+                            </span>
+                            <div className="recall-actions recall-actions-inline">
                               <button
                                 type="button"
                                 onClick={() => handleShowStudyEvidenceInFocusedReader(activeStudyCard, sourceSpan, index)}
                               >
                                 {buildShowReaderLabel(activeStudyCard.document_title)}
                               </button>
-                            ) : null}
-                            <button
-                              className={showFocusedStudySplitView ? 'ghost-button' : undefined}
-                              type="button"
-                              onClick={() => handleOpenStudyCardInReader(activeStudyCard, sourceSpan)}
-                            >
-                              {buildOpenReaderLabel(activeStudyCard.document_title)}
-                            </button>
+                              <button
+                                className="ghost-button"
+                                type="button"
+                                onClick={() => handleOpenStudyCardInReader(activeStudyCard, sourceSpan)}
+                              >
+                                {buildOpenReaderLabel(activeStudyCard.document_title)}
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        {activeStudySourceSpans.length > 1 ? (
+                          <div className="recall-study-evidence-tabs" aria-label="Evidence spans" role="tablist">
+                            {activeStudySourceSpans.map((sourceSpan, index) => (
+                              <button
+                                key={`${activeStudyCard.id}:tab:${index}`}
+                                aria-selected={focusedStudySourceSpanIndex === index}
+                                className={
+                                  focusedStudySourceSpanIndex === index
+                                    ? 'recall-study-evidence-tab recall-study-evidence-tab-active'
+                                    : 'recall-study-evidence-tab'
+                                }
+                                role="tab"
+                                type="button"
+                                onClick={() => setFocusedStudySourceSpanIndex(index)}
+                              >
+                                Evidence {index + 1}
+                                {getRecordStringValue(sourceSpan, 'note_id') ? ' · Note' : ''}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {focusedStudySourceSpan ? (
+                          <div className="recall-detail-panel recall-study-evidence-focus">
+                            <span className="recall-collection-row-head">
+                              <strong>{getStudyEvidenceLabel(focusedStudySourceSpan)}</strong>
+                              <span>{activeStudyCard.document_title}</span>
+                            </span>
+                            <span className="recall-collection-row-preview">{getStudyEvidenceExcerpt(focusedStudySourceSpan)}</span>
+                            <span className="recall-collection-row-meta">
+                              {getRecordStringValue(focusedStudySourceSpan, 'note_id') ? <span className="status-chip">Anchored note</span> : null}
+                              {getRecordStringValue(focusedStudySourceSpan, 'edge_id') ? <span className="status-chip">Graph-backed</span> : null}
+                              {getRecordStringValue(focusedStudySourceSpan, 'chunk_id') ? <span className="status-chip">Chunk excerpt</span> : null}
+                              {getRecordNumberValue(focusedStudySourceSpan, 'global_sentence_start') !== null ? (
+                                <span className="status-chip">
+                                  Sentences {String(getRecordNumberValue(focusedStudySourceSpan, 'global_sentence_start'))}-{String(getRecordNumberValue(focusedStudySourceSpan, 'global_sentence_end'))}
+                                </span>
+                              ) : null}
+                            </span>
+                            <div className="recall-actions recall-actions-inline">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenStudyCardInReader(activeStudyCard, focusedStudySourceSpan)}
+                              >
+                                {buildOpenReaderLabel(activeStudyCard.document_title)}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="recall-detail-panel recall-study-evidence-focus">
+                            <strong>No evidence span yet</strong>
+                            <span>Promote more grounded notes or reader highlights to add supporting excerpts here.</span>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   <div className="study-rating-row">
@@ -3264,7 +3940,7 @@ export function RecallWorkspace({
                     ))}
                   </div>
 
-                  {activeStudyCard.source_spans[0]?.excerpt ? (
+                  {showFocusedStudySplitView && activeStudyCard.source_spans[0]?.excerpt ? (
                     <div className="recall-detail-panel">
                       <strong>Grounding excerpt</strong>
                       <span>{String(activeStudyCard.source_spans[0].excerpt)}</span>
@@ -3634,3 +4310,4 @@ export function RecallWorkspace({
     </div>
   )
 }
+

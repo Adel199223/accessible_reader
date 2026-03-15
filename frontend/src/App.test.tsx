@@ -847,7 +847,7 @@ test('Recall shows unavailable states when its initial API loads fail', async ()
     expect(screen.getByText(localServiceUnavailableMessage)).toBeInTheDocument()
   })
 
-  expect(screen.getAllByText('Library unavailable').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('Home unavailable').length).toBeGreaterThan(0)
   await waitFor(() => {
     expect(screen.getAllByText('Graph unavailable').length).toBeGreaterThan(0)
     expect(screen.getByText('Study unavailable')).toBeInTheDocument()
@@ -949,10 +949,12 @@ test('Recall study queue shows an active card and records a review after reveali
   fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Active card', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
   })
 
-  const activeCardSection = screen.getByRole('heading', { name: 'Active card', level: 2 }).closest('section')
+  expect(screen.getByRole('heading', { name: 'Recall review', level: 2 })).toBeInTheDocument()
+
+  const activeCardSection = screen.getByRole('heading', { name: 'Review card', level: 2 }).closest('section')
   expect(activeCardSection).not.toBeNull()
   expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
   expect(within(activeCardSection as HTMLElement).getByRole('heading', { name: 'Source evidence', level: 3 })).toBeInTheDocument()
@@ -976,10 +978,10 @@ test('Recall study detail keeps a Reader handoff next to source evidence', async
   fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Active card', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
   })
 
-  const activeCardSection = screen.getByRole('heading', { name: 'Active card', level: 2 }).closest('section')
+  const activeCardSection = screen.getByRole('heading', { name: 'Review card', level: 2 }).closest('section')
   expect(activeCardSection).not.toBeNull()
   fireEvent.click(
     within(activeCardSection as HTMLElement).getAllByRole('button', { name: 'Open Search target only in Reader' })[0],
@@ -1019,25 +1021,25 @@ test('Recall library filter narrows the source rail without clearing selected de
   renderRecallApp('/recall')
 
   await waitFor(() => {
-    expect(screen.getByRole('searchbox', { name: 'Filter sources' })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByText('Reader stays here').closest('button')!)
+  fireEvent.click(screen.getByRole('button', { name: 'Open Reader stays here' }))
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
   })
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Filter sources' }), {
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search saved sources' }), {
     target: { value: 'Search target' },
   })
 
-  const librarySection = screen.getByRole('heading', { name: 'Source library', level: 2 }).closest('section')
-  expect(librarySection).not.toBeNull()
+  const homeSection = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('section')
+  expect(homeSection).not.toBeNull()
 
   await waitFor(() => {
     expect(
-      within(librarySection as HTMLElement).queryByRole('button', { name: /Reader stays here/i }),
+      within(homeSection as HTMLElement).queryByRole('button', { name: /Reader stays here/i }),
     ).not.toBeInTheDocument()
   })
 
@@ -1045,23 +1047,23 @@ test('Recall library filter narrows the source rail without clearing selected de
   const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
   expect(sourceOverviewSection).not.toBeNull()
   expect(within(sourceOverviewSection as HTMLElement).getAllByRole('button', { name: 'View notes' }).length).toBeGreaterThan(0)
-  expect(within(librarySection as HTMLElement).getByText('1 matches')).toBeInTheDocument()
+  expect(within(homeSection as HTMLElement).getByText('1 matches')).toBeInTheDocument()
 })
 
-test('Library detail and filter survive Reader handoff and return', async () => {
+test('Home detail and filter survive Reader handoff and return', async () => {
   renderRecallApp('/recall')
 
   await waitFor(() => {
-    expect(screen.getByRole('searchbox', { name: 'Filter sources' })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByText('Reader stays here').closest('button')!)
+  fireEvent.click(screen.getByRole('button', { name: 'Open Reader stays here' }))
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
   })
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Filter sources' }), {
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search saved sources' }), {
     target: { value: 'Search target' },
   })
 
@@ -1077,18 +1079,18 @@ test('Library detail and filter survive Reader handoff and return', async () => 
   window.history.back()
   window.dispatchEvent(new PopStateEvent('popstate'))
 
-  const librarySection = screen.getByRole('heading', { name: 'Source library', level: 2 }).closest('section')
-  expect(librarySection).not.toBeNull()
+  const homeSection = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('section')
+  expect(homeSection).not.toBeNull()
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
-    expect(screen.getByRole('tab', { name: 'Library', selected: true })).toBeInTheDocument()
-    expect(screen.getByRole('searchbox', { name: 'Filter sources' })).toHaveValue('Search target')
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toHaveValue('Search target')
     expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
   })
 
   expect(
-    within(librarySection as HTMLElement).queryByRole('button', { name: /Reader stays here/i }),
+    within(homeSection as HTMLElement).queryByRole('button', { name: /Reader stays here/i }),
   ).not.toBeInTheDocument()
 })
 
@@ -1274,12 +1276,12 @@ test('Study filter and targeted card survive Reader handoff and return', async (
   fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Active card', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
   })
 
   fireEvent.click(screen.getByRole('tab', { name: 'Due' }))
 
-  const activeCardSection = screen.getByRole('heading', { name: 'Active card', level: 2 }).closest('section')
+  const activeCardSection = screen.getByRole('heading', { name: 'Review card', level: 2 }).closest('section')
   expect(activeCardSection).not.toBeNull()
 
   await waitFor(() => {
@@ -2074,14 +2076,14 @@ test('source-focused mode swaps the utility dock for the compact source strip', 
   expect(screen.getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
 })
 
-test('manual Library clicks return to the browse-first landing without forgetting the last focused source tab', async () => {
+test('manual Home clicks return to the browse-first landing without forgetting the last focused source tab', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
     expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('tab', { name: /^Library$/ }))
+  fireEvent.click(screen.getByRole('tab', { name: /^Home$/ }))
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
@@ -2135,10 +2137,10 @@ test('source-focused notes handoff keeps Reader visible while manual Notes brows
   expect(within(focusedNotesSection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
   expect(within(focusedNotesSection as HTMLElement).queryByRole('combobox', { name: 'Selected document' })).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Library' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Library', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
   })
 
   fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
@@ -2210,10 +2212,10 @@ test('source-focused study handoff keeps Reader visible while manual Study brows
   expect(within(focusedStudySection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
   expect(within(focusedStudySection as HTMLElement).queryByRole('tab', { name: 'All', selected: true })).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Library' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Library', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
   })
 
   fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
@@ -2228,20 +2230,20 @@ test('source-focused study handoff keeps Reader visible while manual Study brows
   expect(within(browseStudySection as HTMLElement).getByRole('tab', { name: 'All', selected: true })).toBeInTheDocument()
 })
 
-test('global Search note handoff preserves prior Library context', async () => {
+test('global Search note handoff preserves prior Home context', async () => {
   renderRecallApp('/recall')
 
   await waitFor(() => {
-    expect(screen.getByRole('searchbox', { name: 'Filter sources' })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByText('Reader stays here').closest('button')!)
+  fireEvent.click(screen.getByRole('button', { name: 'Open Reader stays here' }))
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
   })
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Filter sources' }), {
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search saved sources' }), {
     target: { value: 'Search target' },
   })
 
@@ -2278,11 +2280,11 @@ test('global Search note handoff preserves prior Library context', async () => {
     expect(within(recentWorkPanel as HTMLElement).getByRole('button', { name: /Reader stays here/i })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Library' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Library', selected: true })).toBeInTheDocument()
-    expect(screen.getByRole('searchbox', { name: 'Filter sources' })).toHaveValue('Search target')
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toHaveValue('Search target')
     expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
   })
 })

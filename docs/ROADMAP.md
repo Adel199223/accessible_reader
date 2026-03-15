@@ -231,17 +231,34 @@ Keep this repository as one local-first workspace.
   - Library now groups recent sources into clearer sections, older material reopens from lighter rows, and the landing reads more like a selective collection surface than an archive wall
   - the global add-content dialog now uses one clear heading with grouped import modes instead of repeating `Add source` and `Add content`
   - targeted frontend coverage, `frontend npm run build`, file-scoped ESLint on the touched files, and the repo-owned real Edge Stage 43 screenshot harness are green
+- Stage 44 post-Stage-43 benchmark audit is complete:
+  - the audit confirmed that Library/home is no longer the highest-leverage mismatch and that Graph browse framing is now the stronger benchmark gap
+  - the audit also locked the user-facing terminology cleanup from `Library` to `Home` as part of the next bounded implementation slice
+  - the next slice is now a graph-canvas-first pass plus Home terminology cleanup instead of a premature Study rewrite
+- Stage 45 Recall Graph canvas first pass and Home terminology cleanup is complete:
+  - the shared shell and landing now use `Home` terminology while keeping the internal `library` section key stable
+  - browse-mode Graph now leads with a dominant graph canvas, lighter support rail, and a floating detail overlay with explicit `Focus source` and Reader handoffs
+  - targeted frontend coverage, `frontend npm run lint`, `frontend npm run build`, and the repo-owned real Edge Stage 45 screenshot harness are green
+- Stage 46 post-Stage-45 benchmark audit is complete:
+  - fresh localhost captures plus the Recall benchmark sources confirmed that `Study` is now the clearest remaining top-level mismatch
+  - `Home` still carries some populated-density weight, but it is no longer the highest-friction benchmark gap, and Graph is materially closer after Stage 45
+  - the next slice is now a centered, calmer Study review/start surface pass rather than another immediate Home or Graph rewrite
+- Stage 47 Recall Study centered review surface first pass is complete:
+  - browse-mode `Study` now leads with a centered review/start surface, calmer step hierarchy, lighter supporting queue chrome, and focused evidence beside the main review card
+  - focused Study still preserves the reader-led split and explicit Reader reopen actions
+  - targeted Study/frontend coverage, `frontend npm run lint`, `frontend npm run build`, and the repo-owned real Edge Stage 47 screenshot harness are green
+  - the next slice is now a benchmark audit to decide whether Home or Study is the higher-value remaining surface correction
 
 ## Active Milestone
 
-1. Stage 44: Post-Stage-43 Benchmark Audit
-   - audit the refreshed Library/home and Add Content surfaces against the benchmark matrix
-   - choose the next bounded surface pass between Graph browse framing and Study review framing
+1. Stage 48: Post-Stage-47 Benchmark Audit
+   - compare the refreshed Study surface against the Recall benchmark and fresh localhost captures before choosing another implementation slice
+   - decide whether Home density/selectivity or another bounded Study pass is now the higher-value correction
 
 ## Next Milestone
 
-1. Stage 44: Post-Stage-43 Benchmark Audit
-   - turn the Stage 43 artifacts into a concrete next-slice decision instead of reopening multiple top-level surfaces at once
+1. Stage 48: Post-Stage-47 Benchmark Audit
+   - use the Stage 47 artifacts and the benchmark matrix to choose the next bounded surface pass from evidence instead of momentum
 
 ## Stage Map
 
@@ -384,6 +401,18 @@ Keep this repository as one local-first workspace.
 44. Stage 44: Post-Stage-43 Benchmark Audit
    - compare the refreshed Library/home and Add Content surfaces against the benchmark before choosing the next bounded surface pass
    - decide whether Graph or Study is now the higher-value implementation target
+45. Stage 45: Recall Graph Canvas First Pass And Home Terminology Cleanup
+   - make browse-mode Graph graph-first instead of detail-first while renaming the user-facing `Library` surface to `Home`
+   - preserve browse-first entry, focused reader-led work, and route continuity while reducing graph dashboard chrome
+46. Stage 46: Post-Stage-45 Benchmark Audit
+   - compare the refreshed Home and Graph surfaces against the benchmark and the live localhost captures
+   - decide whether Study is now the next bounded implementation slice or whether Home/Graph still need one more benchmark pass
+47. Stage 47: Recall Study Centered Review Surface First Pass
+   - reshape browse-mode Study around a calmer, more centered review/start surface inspired by the Recall benchmark
+   - keep local review state, source evidence, Reader reopen, and focused reader-led Study behavior intact
+48. Stage 48: Post-Stage-47 Benchmark Audit
+   - compare the refreshed Study surface, Home landing, and Graph browse canvas against the benchmark and fresh localhost captures
+   - decide whether the next bounded slice should return to Home density/selectivity, continue Study chrome reduction, or address another clearly evidenced mismatch
 
 ## Deferred Follow-Ups
 
@@ -446,3 +475,7 @@ Keep this repository as one local-first workspace.
 - 2026-03-15: replaced the generic Stage 40 audit with a benchmark-driven Recall surface audit anchored to user-provided screenshots plus official Recall docs/blog/changelog sources, captured a fresh localhost benchmark set and matrix, and opened Stage 41 for shared-shell and surface convergence
 - 2026-03-15: completed Stage 41 with a calmer shared shell, a two-zone Library landing, grouped add-source import modes, and quieter Graph/Study browse framing, then used a Stage 42 benchmark audit to lock Library/home selectivity and add-source hierarchy cleanup as the next bounded slice
 - 2026-03-15: completed Stage 43 with a grouped, more selective Library landing and a single-heading add-content dialog, validated it with targeted tests plus a real Edge screenshot harness, and opened Stage 44 to choose the next bounded surface pass between Graph and Study
+- 2026-03-15: completed the Stage 44 benchmark audit against the refreshed Stage 43 captures, confirmed Graph browse mode as the stronger remaining mismatch, folded in the user-requested `Home` terminology cleanup, and opened Stage 45 for the next bounded implementation slice
+- 2026-03-15: completed Stage 45 with a graph-first browse canvas, lighter graph support chrome, user-facing `Home` terminology in the shared shell, targeted frontend validation, and a repo-owned real Edge screenshot harness, then opened Stage 46 for the next benchmark audit
+- 2026-03-15: completed the Stage 46 benchmark audit against the refreshed Home, Graph, and Study captures, confirmed that Study is now the clearest remaining top-level mismatch, and opened Stage 47 for a centered review/start surface pass
+- 2026-03-15: completed Stage 47 with a centered Study review/start surface, lighter supporting queue chrome, preserved reader-led focused Study work, targeted frontend validation, and a repo-owned real Edge screenshot harness, then opened Stage 48 for the next benchmark audit

@@ -97,7 +97,7 @@ test('LibraryPane marks only the active row as active and keeps other rows passi
   expect(screen.getByTitle('Beta document')).toHaveAttribute('aria-pressed', 'false')
 })
 
-test('LibraryPane keeps long titles accessible while using the shorter library search wording', () => {
+test('LibraryPane keeps long titles accessible while using the shorter Home search wording', () => {
   render(
     <LibraryPane
       activeDocumentId="doc-1"
@@ -114,7 +114,7 @@ test('LibraryPane keeps long titles accessible while using the shorter library s
     />,
   )
 
-  expect(screen.getByPlaceholderText('Search library')).toBeInTheDocument()
+  expect(screen.getByPlaceholderText('Search Home')).toBeInTheDocument()
   expect(screen.getByTitle('Alpha document')).toHaveAttribute('title', 'Alpha document')
 })
 
@@ -136,7 +136,7 @@ test('LibraryPane hides search and rows when collapsed but keeps the disclosure 
   )
 
   expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument()
-  expect(screen.queryByPlaceholderText('Search library')).not.toBeInTheDocument()
+  expect(screen.queryByPlaceholderText('Search Home')).not.toBeInTheDocument()
   expect(screen.queryByTitle('Alpha document')).not.toBeInTheDocument()
 })
 

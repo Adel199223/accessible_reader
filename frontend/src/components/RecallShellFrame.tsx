@@ -25,7 +25,7 @@ const workspaceSections: Array<{
   label: string
   value: WorkspaceSection
 }> = [
-  { label: 'Library', value: 'library' },
+  { label: 'Home', value: 'library' },
   { label: 'Graph', value: 'graph' },
   { label: 'Study', value: 'study' },
   { label: 'Notes', value: 'notes' },

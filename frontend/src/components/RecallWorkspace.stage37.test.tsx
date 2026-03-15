@@ -324,12 +324,14 @@ function makeBrowseContinuityState(): RecallWorkspaceContinuityState {
   }
 }
 
-function renderHarness() {
+function renderHarness(options?: {
+  initialSection?: RecallSection
+}) {
   const onRequestNewSource = vi.fn()
 
   function Harness(): ReactElement {
     const [continuityState, setContinuityState] = useState<RecallWorkspaceContinuityState>(makeBrowseContinuityState())
-    const [section, setSection] = useState<RecallSection>('library')
+    const [section, setSection] = useState<RecallSection>(options?.initialSection ?? 'library')
 
     return (
       <>
@@ -361,6 +363,7 @@ test('populated Recall library stays browse-first and shows a resume card instea
     expect(screen.getByRole('heading', { name: 'Saved sources', level: 2 })).toBeInTheDocument()
   })
 
+  expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Add source' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Resume Notes' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Source overview', level: 2 })).not.toBeInTheDocument()
@@ -421,4 +424,33 @@ test('add source tile opens the existing import flow', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Add source' }))
 
   expect(onRequestNewSource).toHaveBeenCalledTimes(1)
+})
+
+test('graph browse mode now renders a graph-first canvas with quick picks instead of the old browse detail column', async () => {
+  renderHarness({ initialSection: 'graph' })
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Knowledge graph canvas' })).toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('heading', { name: 'Quick picks', level: 3 })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Node detail', level: 2 })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Select node Stage 10 node' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+  })
+})
+
+test('study browse mode now centers the review flow instead of leading with the old dashboard stack', async () => {
+  renderHarness({ initialSection: 'study' })
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Recall review', level: 2 })).toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Show answer' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'All', selected: true })).toBeInTheDocument()
 })
