@@ -11,18 +11,16 @@ Persistent continuity anchor for future chats and handoffs.
 
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `codex/stage8-closeout-doc-sync`
-- Last completed product slice: Stage 39 `Recall Hierarchy Cleanup and Responsive Card Density`
-- Last completed audit: Stage 40 `Benchmark-Driven Recall Surface Audit`
-- Active next slice: Stage 41 `Recall Shared Shell And Surface Convergence`
+- Last completed product slice: Stage 43 `Recall Library Selectivity And Add-Source Hierarchy Cleanup`
+- Last completed audit: Stage 42 `Post-Stage-41 Benchmark Audit`
+- Active next slice: Stage 44 `Post-Stage-43 Benchmark Audit`
 - Last green checks:
-  - `frontend npm run lint` after the Stage 39 hierarchy cleanup
-  - `frontend npm run build` after the Stage 39 hierarchy cleanup
-  - `frontend vitest run src/components/RecallShellFrame.test.tsx src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose`
-  - `frontend vitest run src/App.test.tsx -t "source-focused mode swaps the utility dock for the compact source strip|manual Library clicks return to the browse-first landing without forgetting the last focused source tab" --maxWorkers=1 --pool=threads --testTimeout=30000 --reporter=verbose`
-  - repo-owned real Edge browse-first smoke via `scripts/playwright/stage37_collection_first_landing_edge.mjs`
-  - repo-owned real Edge screenshot capture via `scripts/playwright/stage39_hierarchy_density_edge.mjs`
-  - repo-owned real Edge benchmark audit via `node scripts/playwright/stage40_benchmark_audit_edge.mjs`
+  - file-scoped ESLint on `src/App.tsx`, `src/components/ImportPanel.tsx`, `src/components/RecallWorkspace.tsx`, `src/components/RecallWorkspace.stage37.test.tsx`, and `src/components/ImportPanel.test.tsx`
+  - `frontend npm run build`
+  - `frontend vitest run src/components/ImportPanel.test.tsx src/components/RecallWorkspace.stage37.test.tsx src/components/RecallWorkspace.stage34.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose`
+  - repo-owned real Edge screenshot capture via `node scripts/playwright/stage43_library_selectivity_edge.mjs`
 - Known caveat:
+  - `frontend npm run lint` remains inconsistent through the current WSL/UNC execution path, so direct ESLint on the touched frontend files is the trustworthy lint signal for Stage 43
   - the large `frontend/src/App.test.tsx` suite still stalls when run as one whole-file pass, so targeted coverage plus real Edge smoke remain the trustworthy validation path for this area
 - First files to read in a new chat:
   - `AGENTS.md`
@@ -30,7 +28,7 @@ Persistent continuity anchor for future chats and handoffs.
   - `docs/ROADMAP.md`
   - `docs/ROADMAP_ANCHOR.md`
   - `docs/ux/recall_benchmark_matrix.md`
-  - `docs/exec_plans/active/2026-03-15_stage41_recall_shared_shell_and_surface_convergence.md`
+  - `docs/exec_plans/active/2026-03-15_stage44_post_stage43_benchmark_audit.md`
 
 ## Current State
 
@@ -43,11 +41,14 @@ As of 2026-03-15, this workspace includes:
 - Edge-first browser speech with sentence highlighting
 - opt-in OpenAI `Simplify` and `Summary`
 - local library/search, reopen support, and persisted reader settings/progress
-- a collection-first default Recall shell with a left workspace rail, slim top bar, primary canvas, and lighter utility dock
-- a browse-first Library landing with source cards and inline resume affordance
+- a calmer shared Recall shell with a slimmer left workspace rail, slimmer top bar, and lighter browse chrome
+- a browse-first Library landing with a two-zone sidebar + collection canvas, grouped recency sections, lighter older-source rows, inline resume affordance, and top-level add-source entry
+- an add-source flow that now uses one clear `Add content` heading plus grouped `Paste text`, `Web page`, and `Choose file` modes inside the global dialog
+- browse-mode `Graph` and `Study` surfaces that no longer keep the extra utility dock and now frame their main task more intentionally than the pre-Stage-41 dashboard layout
 - a compact focused-source strip plus reader-led focused `Notes`, `Graph`, and `Study` work beside live source content once source entry is intentional
-- user-reported contrast and overflow regressions on the landing were corrected during the Stage 38 audit, and Stage 39 further reduced repeated chrome, widened responsive source cards, and removed the focused-Library inline search panel
+- user-reported contrast and overflow regressions on the landing were corrected during the Stage 38 audit, Stage 39 further reduced repeated chrome, and Stage 41 materially converged the shared shell and top-level surfaces toward the benchmark
 - a benchmark matrix in `docs/ux/recall_benchmark_matrix.md` now anchors future UI work to the user-provided Recall screenshots plus official Recall docs/blog/changelog references
+- the Stage 43 implementation materially improved the Library/home benchmark gap, and the next audit now needs to choose between Graph and Study as the next bounded surface pass
 - a bounded assistant harness in `agent.md` and `docs/assistant/`
 - Stage 0/1 planning logs, research notes, repo-fit notes, and future integration logs
 - completed Stage 1 through Stage 8 ExecPlans plus a post-Stage 8 placeholder for the next user-directed milestone
@@ -251,6 +252,20 @@ As of 2026-03-15, this workspace includes:
   - the audit is now anchored to user-provided Recall screenshots plus official Recall docs/blog/changelog references
   - a benchmark matrix and fresh localhost screenshots now lock the biggest remaining gaps across Library, Add Content, Graph, Study, and the shared shell
   - the next slice is now Stage 41 shared-shell and surface convergence
+- Stage 41 Recall shared shell and surface convergence is complete:
+  - the shared shell is calmer, Library now uses a two-zone sidebar + collection canvas, and the add-source flow now groups explicit import modes
+  - browse-mode Graph and Study no longer keep the extra utility dock and now frame their main task more intentionally
+  - targeted frontend coverage, `frontend npm run build`, file-scoped ESLint on the touched frontend files, and the repo-owned real Edge Stage 41 screenshot harness are green
+  - the next slice is now a benchmark audit of the live Stage 41 captures before reopening more implementation
+- Stage 42 post-Stage-41 benchmark audit is complete:
+  - the audit confirmed the shared shell direction is now correct, but the highest-leverage remaining mismatch is the populated Library/home surface
+  - Add Content is close enough to ride with the next Library slice, while Graph and Study remain queued medium mismatches rather than the immediate next target
+  - the next slice is now Stage 43 Library selectivity and add-source hierarchy cleanup
+- Stage 43 Recall Library selectivity and add-source hierarchy cleanup is complete:
+  - Library now groups recent sources into clearer sections, while older material reopens from lighter rows instead of one archive wall
+  - the add-content dialog now uses one clear heading with grouped import modes instead of a duplicated title stack
+  - targeted frontend coverage, `frontend npm run build`, file-scoped ESLint on the touched files, and the repo-owned real Edge Stage 43 screenshot harness are green
+  - the next slice is now a benchmark audit to choose between Graph and Study as the next bounded surface pass
 
 ## Recent Detours
 
@@ -299,14 +314,17 @@ As of 2026-03-15, this workspace includes:
 - 2026-03-15: completed the Stage 38 audit using fresh live screenshots at desktop and tablet widths, fixed the user-reported contrast/overflow regressions, and opened Stage 39 to clean up hierarchy and density without reopening navigation logic
 - 2026-03-15: completed Stage 39 with a quieter Library top bar, wider responsive source cards, lighter focused Library framing, a repo-owned Stage 39 screenshot harness, and a green rerun of the Stage 37 browse-first smoke, then opened Stage 40 for a fresh post-implementation UX audit
 - 2026-03-15: replaced the generic Stage 40 audit with a benchmark-driven Recall surface audit anchored to the user-provided screenshots plus official Recall docs/blog/changelog sources, captured a fresh localhost benchmark set and matrix, and opened Stage 41 for shared-shell and surface convergence
+- 2026-03-15: completed Stage 41 with a calmer shared shell, a two-zone Library landing, grouped add-source import modes, quieter Graph and Study browse framing, targeted frontend coverage, and a repo-owned real Edge screenshot harness, then opened Stage 42 to benchmark the live result before choosing the next bounded slice
+- 2026-03-15: completed the Stage 42 benchmark audit against the Stage 41 captures and the Recall benchmark matrix, confirmed Library/home selectivity as the highest-leverage next fix, and opened Stage 43 to tighten the populated landing plus the remaining add-source hierarchy
+- 2026-03-15: completed Stage 43 with grouped Library recency sections, lighter reopen rows, and a single-heading add-content dialog, validated it with targeted tests plus a real Edge screenshot harness, and opened Stage 44 to choose whether Graph or Study is now the higher-value benchmark follow-up
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Read `docs/ux/recall_benchmark_matrix.md`, then open the active Stage 41 ExecPlan in `docs/exec_plans/active/`.
+3. Read `docs/ux/recall_benchmark_matrix.md`, then open the active Stage 44 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while converging the shell and top-level surfaces toward the benchmark matrix.
-7. Use Stage 41 to rewrite shared shell structure first, then Library/Add Content/Graph/Study framing, before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while auditing the refreshed Library/add-content surfaces against the benchmark matrix.
+7. Use Stage 44 to choose one next bounded surface pass between Graph and Study before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

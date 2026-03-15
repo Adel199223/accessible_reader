@@ -141,12 +141,61 @@ function getDocumentSourcePreview(document: RecallDocumentRecord) {
   return document.source_locator || document.file_name || 'Local paste'
 }
 
+interface LibraryBrowseSection {
+  description: string
+  documents: RecallDocumentRecord[]
+  key: 'today' | 'this-week' | 'earlier'
+  label: string
+}
+
+function buildLibraryBrowseSections(documents: RecallDocumentRecord[], now: Date = new Date()): LibraryBrowseSection[] {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const mondayOffset = (now.getDay() + 6) % 7
+  const startOfWeek = startOfToday - mondayOffset * 24 * 60 * 60 * 1000
+
+  const sections: LibraryBrowseSection[] = [
+    { key: 'today', label: 'Today', description: 'Most recently touched sources.', documents: [] },
+    { key: 'this-week', label: 'This week', description: 'Recent sources still close at hand.', documents: [] },
+    { key: 'earlier', label: 'Earlier', description: 'Older saved sources still ready to reopen.', documents: [] },
+  ]
+
+  for (const document of documents) {
+    const updatedAt = new Date(document.updated_at).getTime()
+    if (!Number.isFinite(updatedAt)) {
+      sections[2].documents.push(document)
+      continue
+    }
+
+    if (updatedAt >= startOfToday) {
+      sections[0].documents.push(document)
+      continue
+    }
+
+    if (updatedAt >= startOfWeek) {
+      sections[1].documents.push(document)
+      continue
+    }
+
+    sections[2].documents.push(document)
+  }
+
+  return sections.filter((section) => section.documents.length > 0)
+}
+
 function getGraphNodePreview(node: KnowledgeNodeRecord) {
   const description = node.description?.trim()
   if (description) {
     return description
   }
   return `${formatCountLabel(node.mention_count, 'mention', 'mentions')} across ${formatCountLabel(node.document_count, 'source document', 'source documents')}.`
+}
+
+function getGraphEdgeCounterpartLabel(edge: KnowledgeEdgeRecord, nodeId: string) {
+  return edge.source_id === nodeId ? edge.target_label : edge.source_label
+}
+
+function getGraphEdgeDirectionLabel(edge: KnowledgeEdgeRecord, nodeId: string) {
+  return edge.source_id === nodeId ? `Points to ${formatRelationLabel(edge.relation_type)}` : `Linked from ${formatRelationLabel(edge.relation_type)}`
 }
 
 function getNoteRowPreview(note: RecallNoteRecord | RecallNoteSearchHit) {
@@ -435,16 +484,30 @@ export function RecallWorkspace({
   const documentTitleById = useMemo(() => new Map(documents.map((document) => [document.id, document.title])), [documents])
   const visibleDocuments = useMemo(() => {
     const normalized = deferredLibraryFilter.trim().toLowerCase()
-    if (!normalized) {
-      return documents
-    }
-    return documents.filter((document) =>
-      [document.title, document.source_type, document.source_locator ?? '', document.file_name ?? '']
-        .join(' ')
-        .toLowerCase()
-        .includes(normalized),
-    )
+    const filtered = !normalized
+      ? documents
+      : documents.filter((document) =>
+          [document.title, document.source_type, document.source_locator ?? '', document.file_name ?? '']
+            .join(' ')
+            .toLowerCase()
+            .includes(normalized),
+        )
+    return [...filtered].sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
   }, [deferredLibraryFilter, documents])
+  const libraryFilterActive = deferredLibraryFilter.trim().length > 0
+  const libraryBrowseSections = useMemo(
+    () => (libraryFilterActive ? [] : buildLibraryBrowseSections(visibleDocuments)),
+    [libraryFilterActive, visibleDocuments],
+  )
+  const featuredLibrarySection = libraryBrowseSections[0] ?? null
+  const secondaryLibrarySections = libraryBrowseSections.slice(1)
+  const recentLibraryDocuments = useMemo(
+    () =>
+      [...documents]
+        .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+        .slice(0, 4),
+    [documents],
+  )
   const showingNoteSearch = deferredNoteSearch.trim().length > 0
   const visibleNotes = showingNoteSearch ? noteSearchResults : documentNotes
   const activeNote =
@@ -470,7 +533,6 @@ export function RecallWorkspace({
         : [],
     [activeSourceDocumentId, studyCards],
   )
-  const libraryFilterActive = deferredLibraryFilter.trim().length > 0
   const sourceWorkspaceNoteCountLabel =
     sourceWorkspaceNotesStatus === 'loading'
       ? 'Loading notes…'
@@ -2252,6 +2314,51 @@ export function RecallWorkspace({
     updateSourceWorkspaceState,
   ])
 
+  function renderLibrarySourceTile(document: RecallDocumentRecord) {
+    return (
+      <button
+        aria-label={`Open ${document.title}`}
+        key={document.id}
+        className="recall-source-tile"
+        type="button"
+        onClick={() => focusSourceLibrary(document.id)}
+      >
+        <span className="recall-source-tile-date">{dateFormatter.format(new Date(document.updated_at))}</span>
+        <span className="recall-source-tile-head">
+          <strong>{document.title}</strong>
+        </span>
+        <span className="recall-source-tile-preview">{getDocumentSourcePreview(document)}</span>
+        <span className="recall-source-tile-meta">
+          <span>{document.source_type.toUpperCase()}</span>
+          <span>{document.chunk_count} chunks</span>
+          <span>{document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'}</span>
+        </span>
+      </button>
+    )
+  }
+
+  function renderLibrarySourceRow(document: RecallDocumentRecord) {
+    return (
+      <button
+        aria-label={`Open ${document.title}`}
+        key={`row:${document.id}`}
+        className="recall-library-list-row"
+        type="button"
+        onClick={() => focusSourceLibrary(document.id)}
+      >
+        <span className="recall-library-list-row-main">
+          <strong>{document.title}</strong>
+          <span>{getDocumentSourcePreview(document)}</span>
+        </span>
+        <span className="recall-library-list-row-meta">
+          <span>{dateFormatter.format(new Date(document.updated_at))}</span>
+          <span>{document.source_type.toUpperCase()}</span>
+          <span>{document.chunk_count} chunks</span>
+        </span>
+      </button>
+    )
+  }
+
   return (
     <div className="stack-gap">
       {overallError ? (
@@ -2394,91 +2501,171 @@ export function RecallWorkspace({
             <div className="recall-main-column">{renderSourceOverviewPanel()}</div>
           </div>
         ) : (
-          <section className="card recall-library-landing stack-gap">
-            <div className="section-header recall-library-landing-header">
-              <div className="recall-library-landing-title">
-                <h2>Saved sources</h2>
-                <p className="recall-library-landing-copy">
-                  {documentsLoading
-                    ? 'Loading local collection.'
-                    : documentsStatus === 'error'
-                      ? 'Reconnect the local service to reload your saved sources.'
-                      : documents.length === 0
-                        ? 'Add a source to start reading and saving context.'
-                        : `${documents.length} saved ${documents.length === 1 ? 'source' : 'sources'} ready to reopen.`}
-                </p>
-              </div>
-            </div>
+          <section className="card recall-library-landing">
+            <div className="recall-library-landing-layout">
+              <aside className="recall-library-sidebar stack-gap">
+                <div className="recall-library-sidebar-panel recall-library-sidebar-panel-accent stack-gap">
+                  <div className="section-header section-header-compact">
+                    <h2>Library</h2>
+                    <p>
+                      {documentsLoading
+                        ? 'Loading local collection.'
+                        : documentsStatus === 'error'
+                          ? 'Reconnect the local service to reload saved sources.'
+                          : documents.length === 0
+                            ? 'Start with one source and build context from there.'
+                            : `${documents.length} saved ${documents.length === 1 ? 'source' : 'sources'} ready inside your local workspace.`}
+                    </p>
+                  </div>
+                </div>
 
-            {resumeSourceDocument ? (
-              <section className="recall-library-resume-card" aria-label="Resume source">
-                <div className="recall-library-resume-copy">
-                  <span className="status-chip">Resume</span>
-                  <strong>{resumeSourceDocument.title}</strong>
-                  <p>
-                    {formatSourceWorkspaceTabLabel(activeSourceTab)} ready from {getDocumentSourcePreview(resumeSourceDocument)}.
-                  </p>
-                </div>
-                <button type="button" onClick={resumeFocusedSource}>
-                  {activeSourceTab === 'reader' ? 'Open Reader' : `Resume ${formatSourceWorkspaceTabLabel(activeSourceTab)}`}
-                </button>
-              </section>
-            ) : null}
+                <label className="field recall-inline-field">
+                  <span>Search saved sources</span>
+                  <input
+                    type="search"
+                    placeholder="Search saved sources"
+                    value={libraryFilterQuery}
+                    onChange={(event) =>
+                      updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                    }
+                  />
+                </label>
 
-            <div className="recall-source-grid" aria-label="Saved sources" role="list">
-              <button
-                aria-label="Add source"
-                className="recall-source-tile recall-source-tile-add"
-                type="button"
-                onClick={onRequestNewSource}
-              >
-                <span className="recall-source-tile-plus" aria-hidden="true">+</span>
-                <strong>Add source</strong>
-                <span>Import local text, files, or article links.</span>
-              </button>
-
-              {documentsLoading ? (
-                <div className="recall-library-inline-state" role="status">
-                  Loading saved sources…
-                </div>
-              ) : null}
-              {!documentsLoading && documentsStatus === 'error' ? (
-                <div className="recall-library-inline-state" role="alert">
-                  <p>Saved sources are unavailable until the local service reconnects.</p>
-                  <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
-                    Retry loading
-                  </button>
-                </div>
-              ) : null}
-              {!documentsLoading && documentsStatus !== 'error' && documents.length === 0 ? (
-                <div className="recall-library-inline-state">
-                  <p>Your library is empty. Add a source to start reading, saving notes, and building graph or study context.</p>
-                </div>
-              ) : null}
-              {!documentsLoading && documentsStatus !== 'error'
-                ? documents.map((document) => (
-                    <button
-                      aria-label={`Open ${document.title}`}
-                      key={document.id}
-                      className="recall-source-tile"
-                      type="button"
-                      onClick={() => focusSourceLibrary(document.id)}
-                    >
-                      <span className="recall-source-tile-date">{dateFormatter.format(new Date(document.updated_at))}</span>
-                      <span className="recall-source-tile-head">
-                        <strong>{document.title}</strong>
-                      </span>
-                      <span className="recall-source-tile-preview">{getDocumentSourcePreview(document)}</span>
-                      <span className="recall-source-tile-meta">
-                        <span className="status-chip reader-meta-chip">{document.source_type.toUpperCase()}</span>
-                        <span className="status-chip reader-meta-chip">{document.chunk_count} chunks</span>
-                        <span className="status-chip reader-meta-chip">
-                          {document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'}
-                        </span>
-                      </span>
+                {resumeSourceDocument ? (
+                  <section className="recall-library-resume-card" aria-label="Resume source">
+                    <div className="recall-library-resume-copy">
+                      <span className="status-chip">Resume</span>
+                      <strong>{resumeSourceDocument.title}</strong>
+                      <p>
+                        {formatSourceWorkspaceTabLabel(activeSourceTab)} ready from {getDocumentSourcePreview(resumeSourceDocument)}.
+                      </p>
+                    </div>
+                    <button type="button" onClick={resumeFocusedSource}>
+                      {activeSourceTab === 'reader' ? 'Open Reader' : `Resume ${formatSourceWorkspaceTabLabel(activeSourceTab)}`}
                     </button>
-                  ))
-                : null}
+                  </section>
+                ) : null}
+
+                <section className="recall-library-sidebar-panel stack-gap">
+                  <div className="section-header section-header-compact">
+                    <h3>Recently updated</h3>
+                    <p>Keep the latest sources close without turning the landing into a second full archive.</p>
+                  </div>
+                  <div className="recall-library-sidebar-list" role="list">
+                    {recentLibraryDocuments.map((document) => (
+                      <button
+                        aria-label={`Focus ${document.title} from sidebar`}
+                        key={`sidebar:${document.id}`}
+                        className="recall-library-sidebar-row"
+                        type="button"
+                        onClick={() => focusSourceLibrary(document.id)}
+                      >
+                        <span className="recall-library-sidebar-row-head">
+                          <strong>{document.title}</strong>
+                          <span>{dateFormatter.format(new Date(document.updated_at))}</span>
+                        </span>
+                        <span className="recall-library-sidebar-row-preview">{getDocumentSourcePreview(document)}</span>
+                      </button>
+                    ))}
+                    {!documentsLoading && documentsStatus !== 'error' && recentLibraryDocuments.length === 0 ? (
+                      <p className="small-note">No saved sources yet.</p>
+                    ) : null}
+                  </div>
+                </section>
+              </aside>
+
+              <div className="recall-library-canvas stack-gap">
+                <div className="section-header recall-library-landing-header">
+                  <div className="recall-library-landing-title">
+                    <h2>{libraryFilterActive ? 'Search results' : 'Saved sources'}</h2>
+                    <p className="recall-library-landing-copy">
+                      {documentsLoading
+                        ? 'Loading your saved source collection.'
+                        : documentsStatus === 'error'
+                          ? 'Saved sources are temporarily unavailable until the local service reconnects.'
+                          : documents.length === 0
+                            ? 'Add one source to start reading, saving notes, and building graph or study context.'
+                            : libraryFilterActive
+                              ? `Showing ${visibleDocuments.length} matching ${visibleDocuments.length === 1 ? 'source' : 'sources'}.`
+                              : 'Browse recent groups here, then enter focused work only when you intentionally open one source.'}
+                    </p>
+                  </div>
+                  <div className="recall-library-landing-actions">
+                    <button aria-label="Add source" type="button" onClick={onRequestNewSource}>
+                      Add source
+                    </button>
+                  </div>
+                </div>
+
+                {documentsLoading ? (
+                  <div className="recall-library-inline-state" role="status">
+                    Loading saved sources…
+                  </div>
+                ) : null}
+                {!documentsLoading && documentsStatus === 'error' ? (
+                  <div className="recall-library-inline-state" role="alert">
+                    <p>Saved sources are unavailable until the local service reconnects.</p>
+                    <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                      Retry loading
+                    </button>
+                  </div>
+                ) : null}
+                {!documentsLoading && documentsStatus !== 'error' && documents.length === 0 ? (
+                  <div className="recall-library-inline-state">
+                    <p>Your library is empty. Add a source to start reading, saving notes, and building graph or study context.</p>
+                  </div>
+                ) : null}
+                {!documentsLoading && documentsStatus !== 'error' && documents.length > 0 && visibleDocuments.length === 0 ? (
+                  <div className="recall-library-inline-state">
+                    <p>No saved sources match that search. Try a different title, type, or locator.</p>
+                  </div>
+                ) : null}
+                {!documentsLoading && documentsStatus !== 'error' && visibleDocuments.length > 0 ? (
+                  libraryFilterActive ? (
+                    <section className="recall-library-section stack-gap" aria-label="Matching saved sources">
+                      <div className="section-header section-header-compact recall-library-section-header">
+                        <div>
+                          <h3>Matching sources</h3>
+                          <p>Open the source you want, then return to grouped browsing when the search is done.</p>
+                        </div>
+                      </div>
+                      <div className="recall-library-list" role="list">
+                        {visibleDocuments.map((document) => renderLibrarySourceRow(document))}
+                      </div>
+                    </section>
+                  ) : (
+                    <>
+                      {featuredLibrarySection ? (
+                        <section className="recall-library-section stack-gap" aria-label={featuredLibrarySection.label}>
+                          <div className="section-header section-header-compact recall-library-section-header">
+                            <div>
+                              <h3>{featuredLibrarySection.label}</h3>
+                              <p>{featuredLibrarySection.description}</p>
+                            </div>
+                          </div>
+                          <div className="recall-source-grid" aria-label={`${featuredLibrarySection.label} sources`} role="list">
+                            {featuredLibrarySection.documents.map((document) => renderLibrarySourceTile(document))}
+                          </div>
+                        </section>
+                      ) : null}
+
+                      {secondaryLibrarySections.map((section) => (
+                        <section className="recall-library-section stack-gap" aria-label={section.label} key={section.key}>
+                          <div className="section-header section-header-compact recall-library-section-header">
+                            <div>
+                              <h3>{section.label}</h3>
+                              <p>{section.description}</p>
+                            </div>
+                          </div>
+                          <div className="recall-library-list" role="list">
+                            {section.documents.map((document) => renderLibrarySourceRow(document))}
+                          </div>
+                        </section>
+                      ))}
+                    </>
+                  )
+                ) : null}
+              </div>
             </div>
           </section>
         )
@@ -2619,27 +2806,53 @@ export function RecallWorkspace({
               {nodeDetailLoading ? <p className="small-note">Loading node detail…</p> : null}
               {!nodeDetailLoading && selectedNodeDetail ? (
                 <div className="stack-gap">
-                  <div className="recall-hero-metrics" role="list" aria-label="Selected node summary">
-                    <span className="status-chip" role="listitem">{selectedNodeDetail.node.status}</span>
-                    <span className="status-chip status-muted" role="listitem">
-                      {Math.round(selectedNodeDetail.node.confidence * 100)}% confidence
-                    </span>
-                    <span className="status-chip status-muted" role="listitem">
-                      {formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions')}
-                    </span>
-                    <span className="status-chip status-muted" role="listitem">
-                      {formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')}
-                    </span>
-                  </div>
+                  <section className="recall-graph-stage" aria-label="Graph stage">
+                    <div className="recall-graph-stage-copy">
+                      <span className="status-chip">Selected node</span>
+                      <h3>{selectedNodeDetail.node.label}</h3>
+                      <p>
+                        {selectedNodeDetail.node.description ??
+                          'Inspect the closest concepts and supporting relations before confirming this node.'}
+                      </p>
+                    </div>
+                    <div className="recall-hero-metrics" role="list" aria-label="Selected node summary">
+                      <span className="status-chip" role="listitem">{selectedNodeDetail.node.status}</span>
+                      <span className="status-chip status-muted" role="listitem">
+                        {Math.round(selectedNodeDetail.node.confidence * 100)}% confidence
+                      </span>
+                      <span className="status-chip status-muted" role="listitem">
+                        {formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions')}
+                      </span>
+                      <span className="status-chip status-muted" role="listitem">
+                        {formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')}
+                      </span>
+                    </div>
+                    <div className="recall-graph-stage-network">
+                      <div className="recall-graph-stage-node recall-graph-stage-node-active">
+                        <strong>{selectedNodeDetail.node.label}</strong>
+                        <span>{selectedNodeDetail.node.node_type}</span>
+                      </div>
+                      <div className="recall-graph-stage-orbit" role="list">
+                        {selectedNodeEdges.slice(0, 4).map((edge) => (
+                          <div key={`graph-stage:${edge.id}`} className="recall-graph-stage-node" role="listitem">
+                            <strong>{getGraphEdgeCounterpartLabel(edge, selectedNodeDetail.node.id)}</strong>
+                            <span>{getGraphEdgeDirectionLabel(edge, selectedNodeDetail.node.id)}</span>
+                          </div>
+                        ))}
+                        {!selectedNodeEdges.length ? (
+                          <div className="recall-graph-stage-node recall-graph-stage-node-empty" role="listitem">
+                            <strong>No linked concepts yet</strong>
+                            <span>Import more source material or confirm mentions to strengthen this node.</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </section>
 
-                  <div className="recall-detail-grid">
+                  <div className="recall-graph-stage-metadata">
                     <div className="recall-detail-panel">
                       <strong>Type</strong>
                       <span>{selectedNodeDetail.node.node_type}</span>
-                    </div>
-                    <div className="recall-detail-panel">
-                      <strong>Documents</strong>
-                      <span>{selectedNodeDetail.node.document_count}</span>
                     </div>
                     <div className="recall-detail-panel">
                       <strong>Aliases</strong>
@@ -2650,13 +2863,6 @@ export function RecallWorkspace({
                       <span>{selectedNodeDetail.node.source_document_ids.length || selectedNodeDetail.node.document_count}</span>
                     </div>
                   </div>
-
-                  {selectedNodeDetail.node.description ? (
-                    <div className="recall-detail-brief">
-                      <strong>Grounded description</strong>
-                      <span>{selectedNodeDetail.node.description}</span>
-                    </div>
-                  ) : null}
 
                   <div className="stack-gap">
                     <div className="section-header section-header-compact">
@@ -2933,22 +3139,33 @@ export function RecallWorkspace({
               {!activeStudyCard ? <p className="small-note">No active study card yet.</p> : null}
               {activeStudyCard ? (
                 <div className="study-card-body stack-gap">
-                  <div className="recall-detail-grid">
+                  <div className="recall-study-journey" role="list" aria-label="Study flow">
+                    <div className="recall-study-step recall-study-step-active" role="listitem">
+                      <strong>1</strong>
+                      <span>Choose the next due card</span>
+                    </div>
+                    <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
+                      <strong>2</strong>
+                      <span>Reveal the grounded answer</span>
+                    </div>
+                    <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
+                      <strong>3</strong>
+                      <span>Rate recall and schedule the next review</span>
+                    </div>
+                  </div>
+
+                  <div className="recall-study-summary">
                     <div className="recall-detail-panel">
                       <strong>Source</strong>
                       <span>{activeStudyCard.document_title}</span>
                     </div>
                     <div className="recall-detail-panel">
-                      <strong>Type</strong>
-                      <span>{activeStudyCard.card_type}</span>
-                    </div>
-                    <div className="recall-detail-panel">
-                      <strong>Due</strong>
-                      <span>{dateFormatter.format(new Date(activeStudyCard.due_at))}</span>
+                      <strong>Schedule</strong>
+                      <span>Due {dateFormatter.format(new Date(activeStudyCard.due_at))} · {formatStudyStatus(activeStudyCard.status)}</span>
                     </div>
                     <div className="recall-detail-panel">
                       <strong>Reviews</strong>
-                      <span>{activeStudyCard.review_count}</span>
+                      <span>{formatCountLabel(activeStudyCard.review_count, 'review', 'reviews')}</span>
                     </div>
                   </div>
 
@@ -2956,6 +3173,9 @@ export function RecallWorkspace({
                     <span className="status-chip" role="listitem">{activeStudyCard.card_type}</span>
                     <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
                     <span className="status-chip status-muted" role="listitem">Due {dateFormatter.format(new Date(activeStudyCard.due_at))}</span>
+                    <span className="status-chip status-muted" role="listitem">
+                      {formatCountLabel(activeStudyCard.source_spans.length, 'evidence span', 'evidence spans')}
+                    </span>
                   </div>
 
                   <div className="study-card-face">
@@ -2969,9 +3189,12 @@ export function RecallWorkspace({
                       <p>{activeStudyCard.answer}</p>
                     </div>
                   ) : (
-                    <button type="button" onClick={() => setShowAnswer(true)}>
-                      Show answer
-                    </button>
+                    <div className="study-card-reveal">
+                      <p>Try to recall the answer before revealing it, then rate how easily it came back.</p>
+                      <button type="button" onClick={() => setShowAnswer(true)}>
+                        Show answer
+                      </button>
+                    </div>
                   )}
 
                   <div className="stack-gap">

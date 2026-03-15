@@ -571,13 +571,13 @@ export default function App() {
         )}
       </RecallShellFrame>
       <WorkspaceDialogFrame
-        description="Capture local text, files, or public article links from anywhere in Recall."
+        description="Paste text, import one public article link, or choose a local file."
         onClose={() => {
           setAddSourceError(null)
           setAddSourceOpen(false)
         }}
         open={addSourceOpen}
-        title="Add source"
+        title="Add content"
         wide
       >
         {addSourceError ? (
@@ -587,12 +587,11 @@ export default function App() {
         ) : null}
         <ImportPanel
           busy={addSourceBusy}
-          description="Bring local text, files, or public article links into Recall."
           helperText="TXT, Markdown, HTML, DOCX, text-based PDF, and public article links."
           onImportFile={handleImportFile}
           onImportText={handleImportText}
           onImportUrl={handleImportUrl}
-          title="New source"
+          showHeader={false}
         />
       </WorkspaceDialogFrame>
       <WorkspaceSearchDialog

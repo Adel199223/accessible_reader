@@ -34,7 +34,7 @@ const recallDocuments: RecallDocumentRecord[] = [
     file_name: null,
     source_locator: 'http://127.0.0.1:46537/index.html',
     created_at: '2026-03-14T10:00:00Z',
-    updated_at: '2026-03-14T10:04:00Z',
+    updated_at: '2026-03-15T10:04:00Z',
     available_modes: ['original', 'reflowed'],
     chunk_count: 4,
   },
@@ -45,7 +45,7 @@ const recallDocuments: RecallDocumentRecord[] = [
     file_name: null,
     source_locator: null,
     created_at: '2026-03-14T10:30:00Z',
-    updated_at: '2026-03-14T10:32:00Z',
+    updated_at: '2026-03-13T10:32:00Z',
     available_modes: ['original'],
     chunk_count: 2,
   },
@@ -365,6 +365,18 @@ test('populated Recall library stays browse-first and shows a resume card instea
   expect(screen.getByRole('button', { name: 'Resume Notes' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Source overview', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Search workspace', level: 2 })).not.toBeInTheDocument()
+})
+
+test('browse-first library groups sources by recency instead of one undifferentiated wall', async () => {
+  renderHarness()
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Today', level: 3 })).toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('heading', { name: 'This week', level: 3 })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Open Stage 10 Debug Article' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Open Stage 13 Debug Notes' })).toBeInTheDocument()
 })
 
 test('clicking a source card enters focused library overview mode', async () => {

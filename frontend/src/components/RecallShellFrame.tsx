@@ -94,11 +94,11 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
 
   const sourceFocused = Boolean(sourceWorkspace)
   const activeSectionLabel = workspaceSections.find((section) => section.value === activeSection)?.label ?? 'Recall'
-  const showUtilityPanel = layoutMode === 'default' && !sourceFocused && activeSection !== 'library'
+  const showUtilityPanel = layoutMode === 'default' && !sourceFocused && activeSection === 'notes'
   const shellTitle = layoutMode === 'reader' ? 'Reader' : 'Recall'
   const showTopbarEyebrow = layoutMode === 'reader'
   const shellEyebrow = layoutMode === 'reader' ? 'Reader workspace' : null
-  const showSectionChip = layoutMode === 'reader' || activeSection !== 'library'
+  const showSectionChip = layoutMode === 'reader' || (!sourceFocused && activeSection !== 'library')
   const quietTopbar = !showTopbarEyebrow && !showSectionChip
 
   return (

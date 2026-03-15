@@ -218,17 +218,30 @@ Keep this repository as one local-first workspace.
   - the audit is now anchored to the user-provided Recall screenshots plus official Recall docs/blog/changelog references instead of a generic post-implementation UX pass
   - a benchmark matrix plus fresh localhost captures now lock the biggest remaining gaps: heavy shared shell chrome, Library card-wall structure, Add Content hierarchy, Graph over-framing, and Study dashboard density
   - the next slice is now a shared-shell-first convergence pass across Library, Add Content, Graph, and Study rather than another open-ended audit
+- Stage 41 recall shared shell and surface convergence is complete:
+  - the shell rail and top bar are calmer, browse-mode `Graph` and `Study` no longer carry the extra utility dock, and focused mode no longer repeats as much chrome
+  - Library now uses a two-zone sidebar + collection canvas, the add-source flow now uses grouped import modes, and Graph/Study now frame their main task more intentionally
+  - targeted frontend coverage, `frontend npm run build`, file-scoped ESLint on the touched frontend files, and the repo-owned real Edge Stage 41 screenshot harness are green
+  - the next slice is now a fresh benchmark audit to decide whether the highest-value follow-up is Library density reduction, Graph canvas emphasis, Study chrome reduction, or add-modal simplification
+- Stage 42 post-Stage-41 benchmark audit is complete:
+  - the audit confirmed the shared shell direction is now correct, but populated Library/home remains the highest-leverage benchmark mismatch
+  - Add Content is close enough to ride with the next Library slice, while Graph and Study remain queued medium mismatches rather than the immediate next target
+  - the next slice is now a bounded Library selectivity and add-source hierarchy cleanup rather than another shared-shell or multi-surface rewrite
+- Stage 43 Recall Library selectivity and add-source hierarchy cleanup is complete:
+  - Library now groups recent sources into clearer sections, older material reopens from lighter rows, and the landing reads more like a selective collection surface than an archive wall
+  - the global add-content dialog now uses one clear heading with grouped import modes instead of repeating `Add source` and `Add content`
+  - targeted frontend coverage, `frontend npm run build`, file-scoped ESLint on the touched files, and the repo-owned real Edge Stage 43 screenshot harness are green
 
 ## Active Milestone
 
-1. Stage 41: Recall Shared Shell And Surface Convergence
-   - converge the shared shell, Library/home, Add Content, Graph, and Study toward the benchmark matrix captured in Stage 40
-   - keep Stage 37 browse-first entry and Stage 34 reader-led focused work while substantially rewriting the visible shell and browse surfaces
+1. Stage 44: Post-Stage-43 Benchmark Audit
+   - audit the refreshed Library/home and Add Content surfaces against the benchmark matrix
+   - choose the next bounded surface pass between Graph browse framing and Study review framing
 
 ## Next Milestone
 
-1. Stage 41: Recall Shared Shell And Surface Convergence
-   - implement the benchmark-constrained shell and surface rewrite the Stage 40 audit now makes decision-complete
+1. Stage 44: Post-Stage-43 Benchmark Audit
+   - turn the Stage 43 artifacts into a concrete next-slice decision instead of reopening multiple top-level surfaces at once
 
 ## Stage Map
 
@@ -362,6 +375,15 @@ Keep this repository as one local-first workspace.
 41. Stage 41: Recall Shared Shell And Surface Convergence
    - rewrite the shared shell and top-level Recall surfaces to match the benchmark direction much more closely
    - keep local-first behavior and reader-led focused work while changing the visible structure substantially
+42. Stage 42: Post-Stage-41 Benchmark Audit
+   - audit the live Stage 41 captures against the benchmark matrix and choose the next bounded surface fix from evidence
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+43. Stage 43: Recall Library Selectivity And Add-Source Hierarchy Cleanup
+   - make the populated Library/home surface more selective and benchmark-aligned while tightening the remaining add-source hierarchy
+   - preserve the shared shell direction and queue Graph/Study follow-up work behind the entry-surface cleanup
+44. Stage 44: Post-Stage-43 Benchmark Audit
+   - compare the refreshed Library/home and Add Content surfaces against the benchmark before choosing the next bounded surface pass
+   - decide whether Graph or Study is now the higher-value implementation target
 
 ## Deferred Follow-Ups
 
@@ -422,3 +444,5 @@ Keep this repository as one local-first workspace.
 - 2026-03-15: completed the Stage 38 audit with fresh live screenshots, confirmed the next bottleneck is visual hierarchy and responsive density rather than navigation entry behavior, fixed the user-reported contrast/overflow regressions, and opened Stage 39 for a bounded cleanup pass
 - 2026-03-15: completed Stage 39 with a quieter Library top bar, wider responsive source cards, lighter focused Library framing, a repo-owned Stage 39 screenshot harness, and a green rerun of the Stage 37 browse-first smoke, then opened Stage 40 for a fresh post-implementation UX audit
 - 2026-03-15: replaced the generic Stage 40 audit with a benchmark-driven Recall surface audit anchored to user-provided screenshots plus official Recall docs/blog/changelog sources, captured a fresh localhost benchmark set and matrix, and opened Stage 41 for shared-shell and surface convergence
+- 2026-03-15: completed Stage 41 with a calmer shared shell, a two-zone Library landing, grouped add-source import modes, and quieter Graph/Study browse framing, then used a Stage 42 benchmark audit to lock Library/home selectivity and add-source hierarchy cleanup as the next bounded slice
+- 2026-03-15: completed Stage 43 with a grouped, more selective Library landing and a single-heading add-content dialog, validated it with targeted tests plus a real Edge screenshot harness, and opened Stage 44 to choose the next bounded surface pass between Graph and Study
