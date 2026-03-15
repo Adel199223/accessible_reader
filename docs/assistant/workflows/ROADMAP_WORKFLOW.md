@@ -7,6 +7,7 @@ Use this workflow for roadmap-driven product work, milestone continuation, and b
 - Active ExecPlan is current.
 - Roadmap and anchor reflect any detour or milestone state change.
 - Targeted validation list matches the files and behavior touched.
+- When the milestone is UI-benchmark-sensitive, the benchmark matrix and screenshot artifacts are current enough to guide the next slice.
 
 ## When To Use
 - The user says `roadmap`, `master plan`, or `next milestone`.
@@ -21,6 +22,7 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - `BUILD_BRIEF.md`
 - `docs/ROADMAP.md`
 - `docs/ROADMAP_ANCHOR.md`
+- `docs/ux/recall_benchmark_matrix.md` for Recall shell and surface work
 - the latest active ExecPlan in `docs/exec_plans/active/`
 
 ## Minimal Commands
@@ -35,6 +37,7 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - Frontend checks for frontend-only roadmap work.
 - Backend `pytest` only when backend files are touched.
 - Manual Windows Edge validation when the milestone includes speech or reading behavior.
+- Screenshot-based browser validation when the milestone changes Recall shell or top-level surface UI.
 
 ## Failure Modes and Fallback Steps
 - If the active plan is already complete, move it to `docs/exec_plans/completed/` and create a new active plan before proceeding.
@@ -45,3 +48,4 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - Active ExecPlan points at the current milestone.
 - Roadmap docs reflect current state and next work.
 - Validation status is recorded in the user-facing handoff.
+- If the work is benchmark-driven UI work, the benchmark matrix and latest screenshot artifacts are referenced in the handoff docs.

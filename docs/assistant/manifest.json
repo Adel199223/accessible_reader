@@ -5,7 +5,8 @@
     "BUILD_BRIEF.md",
     "docs/ROADMAP.md",
     "docs/ROADMAP_ANCHOR.md",
-    "docs/exec_plans/active/2026-03-15_stage36_post_stage35_recall_ux_refresh.md"
+    "docs/ux/recall_benchmark_matrix.md",
+    "docs/exec_plans/active/2026-03-15_stage41_recall_shared_shell_and_surface_convergence.md"
   ],
   "bridges": [
     "agent.md",
@@ -21,7 +22,8 @@
         "BUILD_BRIEF.md",
         "docs/ROADMAP.md",
         "docs/ROADMAP_ANCHOR.md",
-        "docs/exec_plans/active/2026-03-15_stage36_post_stage35_recall_ux_refresh.md"
+        "docs/ux/recall_benchmark_matrix.md",
+        "docs/exec_plans/active/2026-03-15_stage41_recall_shared_shell_and_surface_convergence.md"
       ],
       "validation_commands": [
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'",

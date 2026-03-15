@@ -7,8 +7,9 @@ Short runbook for future Codex chats in this repo. Treat `BUILD_BRIEF.md`, `docs
 2. `BUILD_BRIEF.md`
 3. `docs/ROADMAP.md`
 4. `docs/ROADMAP_ANCHOR.md`
-5. the latest active ExecPlan in `docs/exec_plans/active/`
-6. `docs/assistant/INDEX.md` for harness routing
+5. `docs/ux/recall_benchmark_matrix.md` when the task touches Recall shell or surface UI
+6. the latest active ExecPlan in `docs/exec_plans/active/`
+7. `docs/assistant/INDEX.md` for harness routing
 
 ## Operating Rules
 - Work from WSL for repo commands and toolchains.
@@ -19,6 +20,7 @@ Short runbook for future Codex chats in this repo. Treat `BUILD_BRIEF.md`, `docs
 - AI is opt-in only and limited to `Simplify` and `Summary`.
 - Major or multi-file work starts by creating or updating an ExecPlan in `docs/exec_plans/active/`.
 - Run targeted validation before broader checks.
+- Treat screenshot-based benchmark comparison as required when changing Recall shell or top-level surface UI.
 - Do not push unless the user explicitly asks.
 
 ## Routing
