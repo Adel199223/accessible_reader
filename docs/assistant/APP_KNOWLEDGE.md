@@ -13,7 +13,9 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stores a small local library with search, reopen support, settings, and reading-progress memory.
 - Stores webpage imports as local HTML snapshots and reopens them from the saved snapshot rather than refetching live.
 - Uses `Recall` as the product shell with `Reader` presented as a shared workspace section rather than a sibling app.
-- Uses one unified workspace section row: `Library`, `Graph`, `Study`, `Notes`, and `Reader`.
+- Uses a collection-first Recall shell with a left workspace rail, slim top bar, primary canvas, and lighter utility dock by default.
+- Keeps global workspace navigation centered on `Library`, `Graph`, `Study`, `Notes`, and `Reader`.
+- Uses a compact focused-source strip during active source work, and focused `Notes`, `Graph`, and `Study` now keep embedded Reader content as the steady primary pane.
 - Uses one shared workspace-search session across the shell `Search` dialog and the Library search panel.
 - Reopens the last document and reading mode from browser-local storage, with backend last-session fallback when local state is missing.
 - Supports `Original`, `Reflowed`, `Simplified`, and `Summary` document modes.
@@ -41,14 +43,16 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stage 27 is complete: the audit confirmed the remaining bottleneck is that source tabs still land inside section-first layouts with duplicated detail panels and always-visible collection rails.
 - Stage 28 is complete: the source workspace now has a stronger Overview plus lighter contextual browse drawers for Library, Notes, Graph, and Study during source-focused work, and the repo-owned real Edge shared-source-pane smoke is green.
 - Stage 29 is complete: the audit confirmed the remaining bottleneck is no longer repeated source-local detail, but that active source work still sits under dashboard-level shell chrome instead of taking over the workspace.
-- Stage 30 is complete: active source work now promotes the shared source workspace above generic shell chrome, workspace support reopens on demand, and the repo-owned real Edge Stage 30 smoke is green.
+- Stage 30 is complete: active source work first moved above generic shell chrome and established the source-focused shell mode that later slices refined.
 - Stage 31 is complete: the UX audit confirmed shell stacking is no longer the main issue, and the next bottleneck is still hard switching between full-surface source tools.
 - Stage 32 is complete: focused `Notes`, `Graph`, and `Study` now keep one source visible in a split workspace, and the repo-owned real Edge Stage 32 smoke is green.
 - Stage 33 is complete: the UX audit confirmed the split workspace still anchors too often around `Source overview` instead of the live source itself.
-- Stage 34 is the active milestone: make the split workspace reader-led so note, graph, and study work stay beside live source content instead of summary-only source cards.
+- Stage 34 is complete: focused `Notes`, `Graph`, and `Study` now keep embedded Reader content as the steady pane, with evidence and anchor actions retargeting in place.
+- Stage 35 is complete: default Recall now uses the collection-first shell with a rail, slim top bar, compact focused-source strip, and lighter utility dock.
+- Stage 36 is the active milestone: audit the new shell against the user's benchmark screenshot, current live behavior, and the product brief before choosing another bounded implementation slice.
 - Future work should preserve local-first behavior, routes, note anchors, browser-companion handoff, and reading continuity, but should not preserve the current UI arrangement when a better Recall-quality workflow is available.
 - Treat the original Recall app as a directional benchmark for workflow and information hierarchy, not as a pixel-perfect copy target.
-- The current highest-priority task is to complete Stage 34's reader-led split-work correction before another generic shell or feature expansion.
+- The current highest-priority task is to complete the Stage 36 UX audit before another generic shell or feature expansion.
 
 ## Main Entry Points
 - Frontend shell: `frontend/src/App.tsx`
