@@ -13,10 +13,12 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stores a small local library with search, reopen support, settings, and reading-progress memory.
 - Stores webpage imports as local HTML snapshots and reopens them from the saved snapshot rather than refetching live.
 - Uses `Recall` as the product shell with `Reader` presented as a shared workspace section rather than a sibling app.
-- Uses a collection-first Recall shell with a left workspace rail, slim top bar, primary canvas, and lighter utility dock by default.
-- Uses a browse-first Library landing with source cards plus a lightweight inline resume affordance instead of auto-opening focused source mode on populated workspaces.
+- Uses a collection-first Recall shell with a slimmer left rail, slimmer top bar, primary canvas, and lighter browse chrome by default.
+- Uses a browse-first Library landing with a two-zone sidebar + collection canvas, grouped recency sections, lighter older-source reopen rows, search, and a lightweight inline resume affordance instead of auto-opening focused source mode on populated workspaces.
 - Keeps global workspace navigation centered on `Library`, `Graph`, `Study`, `Notes`, and `Reader`.
 - Uses a compact focused-source strip during active source work, and focused `Notes`, `Graph`, and `Study` now keep embedded Reader content as the steady primary pane.
+- Uses one clear `Add content` dialog with grouped `Paste text`, `Web page`, and `Choose file` modes.
+- Uses quieter browse-mode `Graph` and `Study` surfaces that drop the extra utility dock and lead with a more task-centered surface.
 - Uses one shared workspace-search session across the shell `Search` dialog and the Library search panel.
 - Reopens the last document and reading mode from browser-local storage, with backend last-session fallback when local state is missing.
 - Supports `Original`, `Reflowed`, `Simplified`, and `Summary` document modes.
@@ -55,10 +57,13 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stage 38 is complete: the audit confirmed the next bottleneck is visual hierarchy and density, and it corrected the user-reported dark-on-dark landing text plus the broken high-contrast `New` button while capturing fresh live screenshots.
 - Stage 39 is complete: the landing now uses calmer, wider source cards with clearer hierarchy, the Library top bar repeats less chrome, and focused Library no longer renders inline `Search workspace`.
 - Stage 40 is complete: the audit is now benchmark-driven, using the user-provided Recall screenshots plus official Recall docs/blog/changelog references and fresh localhost captures recorded in `docs/ux/recall_benchmark_matrix.md`.
-- Stage 41 is the active milestone: converge the shared shell, Library/home, Add Content, Graph, and Study much more closely toward the benchmark while preserving local-first behavior and reader-led focused work.
+- Stage 41 is complete: the shared shell is calmer, Library now uses a two-zone sidebar + collection canvas, the add-source flow now groups explicit import modes, and browse-mode Graph/Study frame their main task more intentionally.
+- Stage 42 is complete: the audit confirmed the shared shell direction is now right, but the largest remaining benchmark miss is the populated Library/home surface; Add Content is close enough to ride with that next slice, while Graph and Study stay queued behind it.
+- Stage 43 is complete: Library now groups recent material into clearer sections, older sources reopen from lighter rows, and the add-content dialog now uses one clear heading.
+- Stage 44 is the active milestone: audit the refreshed Library/add-content surfaces and choose the next bounded benchmark pass between Graph and Study.
 - Future work should preserve local-first behavior, routes, note anchors, browser-companion handoff, and reading continuity, but should not preserve the current UI arrangement when a better Recall-quality workflow is available.
 - Treat the original Recall app as a directional benchmark for workflow and information hierarchy, not as a pixel-perfect copy target.
-- The current highest-priority task is to rewrite the shared shell and top-level surface framing around the benchmark matrix, because the remaining gap is now structural and visual rather than navigational.
+- The current highest-priority task is to use the refreshed Stage 43 screenshots plus the benchmark matrix to decide whether Graph or Study is now the higher-value next surface pass, because Library/home is no longer the dominant roadmap gap.
 
 ## Main Entry Points
 - Frontend shell: `frontend/src/App.tsx`
