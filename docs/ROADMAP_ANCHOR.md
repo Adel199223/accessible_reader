@@ -11,6 +11,8 @@ Persistent continuity anchor for future chats and handoffs.
 
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `codex/stage8-closeout-doc-sync`
+- Last pushed clean commit: `57ff0a0d30c550353d87d3feeb68b149331a85cf`
+- Local/remote status at anchor update: clean and in sync
 - Last completed product slice: Stage 47 `Recall Study Centered Review Surface First Pass`
 - Last completed audit: Stage 46 `Post-Stage-45 Benchmark Audit`
 - Active next slice: Stage 48 `Post-Stage-47 Benchmark Audit`
@@ -30,6 +32,14 @@ Persistent continuity anchor for future chats and handoffs.
   - `docs/ROADMAP_ANCHOR.md`
   - `docs/ux/recall_benchmark_matrix.md`
   - `docs/exec_plans/active/2026-03-15_stage48_post_stage47_benchmark_audit.md`
+
+## New Chat Resume Shortcut
+
+- Say `resume from Stage 48` to continue from the next recommended step.
+- The intended next action is:
+  - run the Stage 48 benchmark audit against the current Home, Graph, Study, and focused-Study surfaces
+  - use the benchmark matrix plus fresh screenshots to decide whether the next bounded implementation slice should target Home density/selectivity or a lighter second Study pass
+- Do not reopen backend/storage work, Reader route contracts, or Stage 34 reader-led split behavior during that audit unless a direct regression is discovered.
 
 ## Current State
 
