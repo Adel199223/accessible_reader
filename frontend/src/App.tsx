@@ -151,9 +151,18 @@ export default function App() {
         ...current.sourceWorkspace,
         activeDocumentId: route.documentId,
         activeTab: 'reader',
+        readerAnchor:
+          route.sentenceStart !== null && route.sentenceEnd !== null
+            ? {
+                sentenceEnd: route.sentenceEnd,
+                sentenceStart: route.sentenceStart,
+              }
+            : current.sourceWorkspace.activeDocumentId === route.documentId
+              ? current.sourceWorkspace.readerAnchor
+              : null,
       },
     }))
-  }, [route.documentId, route.path])
+  }, [route.documentId, route.path, route.sentenceEnd, route.sentenceStart])
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -197,6 +206,7 @@ export default function App() {
         [section]: !hasFocusedTarget,
       },
       sourceWorkspace: {
+        ...current.sourceWorkspace,
         activeDocumentId: options?.documentId ?? current.sourceWorkspace.activeDocumentId,
         activeTab: mapRecallSectionToSourceTab(section),
       },
@@ -300,7 +310,7 @@ export default function App() {
             activeTab: 'reader',
           },
         }))
-        navigate('reader', activeSourceDocumentId)
+        navigate('reader', activeSourceDocumentId, recallContinuityState.sourceWorkspace.readerAnchor ?? undefined)
         return
       }
       navigate('reader')
@@ -535,6 +545,7 @@ export default function App() {
             onShellSourceWorkspaceChange={setShellSourceWorkspace}
             onOpenReader={(documentId, options) => navigate('reader', documentId, options)}
             searchSession={workspaceSearchSession}
+            settings={settings}
             section={activeRecallSection}
           />
         ) : (

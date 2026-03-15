@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 
 import {
   buildRecallExportUrl,
@@ -20,6 +20,7 @@ import {
   updateRecallNote,
 } from '../api'
 import type {
+  ReaderAnchorRange,
   RecallSection,
   SourceWorkspaceTab,
   WorkspaceDockAction,
@@ -38,13 +39,16 @@ import type {
   RecallNoteGraphPromotionRequest,
   RecallNoteRecord,
   RecallNoteSearchHit,
+  ReaderSettings,
   StudyCardRecord,
   StudyCardStatus,
   RecallNoteStudyPromotionRequest,
   StudyOverview,
   StudyReviewRating,
+  ViewMode,
 } from '../types'
 import type { WorkspaceHeroProps } from './WorkspaceHero'
+import { FocusedSourceReaderPane } from './FocusedSourceReaderPane'
 import { WorkspaceSearchSurface } from './WorkspaceSearchSurface'
 import type { SourceWorkspaceFrameState } from './SourceWorkspaceFrame'
 
@@ -67,6 +71,7 @@ interface RecallWorkspaceProps {
   ) => void
   onSelectSearchResult: (resultKey: string) => void
   searchSession: WorkspaceSearchSessionState
+  settings: ReaderSettings
   section: RecallSection
 }
 type LoadState = 'idle' | 'loading' | 'success' | 'error'
@@ -188,6 +193,24 @@ function buildOpenReaderLabel(documentTitle: string) {
   return `Open ${documentTitle} in Reader`
 }
 
+function buildShowReaderLabel(documentTitle: string) {
+  return `Show ${documentTitle} in Reader`
+}
+
+function buildAnchorTextCandidates(...values: Array<string | null | undefined>) {
+  const seen = new Set<string>()
+  const candidates: string[] = []
+  for (const value of values) {
+    const trimmed = value?.trim()
+    if (!trimmed || seen.has(trimmed)) {
+      continue
+    }
+    seen.add(trimmed)
+    candidates.push(trimmed)
+  }
+  return candidates
+}
+
 function mapRecallSectionToSourceTab(section: RecallSection): SourceWorkspaceTab {
   if (section === 'library') {
     return 'overview'
@@ -212,6 +235,34 @@ function buildReaderOptionsFromSourceSpan(sourceSpan?: Record<string, unknown>) 
   }
 }
 
+function areReaderAnchorsEqual(left: ReaderAnchorRange | null | undefined, right: ReaderAnchorRange | null | undefined) {
+  if (!left && !right) {
+    return true
+  }
+  if (!left || !right) {
+    return false
+  }
+  return left.sentenceStart === right.sentenceStart && left.sentenceEnd === right.sentenceEnd
+}
+
+function buildReaderAnchorRangeFromNote(note: RecallNoteRecord | RecallNoteSearchHit): ReaderAnchorRange {
+  return {
+    sentenceEnd: note.anchor.global_sentence_end ?? note.anchor.sentence_end,
+    sentenceStart: note.anchor.global_sentence_start ?? note.anchor.sentence_start,
+  }
+}
+
+function buildReaderAnchorRangeFromSourceSpan(sourceSpan?: Record<string, unknown>): ReaderAnchorRange | null {
+  if (!sourceSpan) {
+    return null
+  }
+  const readerOptions = buildReaderOptionsFromSourceSpan(sourceSpan)
+  if (!readerOptions) {
+    return null
+  }
+  return readerOptions
+}
+
 
 export function RecallWorkspace({
   continuityState,
@@ -225,6 +276,7 @@ export function RecallWorkspace({
   onShellHeroChange,
   onShellSourceWorkspaceChange,
   searchSession,
+  settings,
   section,
 }: RecallWorkspaceProps) {
   const [documents, setDocuments] = useState<RecallDocumentRecord[]>([])
@@ -272,6 +324,10 @@ export function RecallWorkspace({
   const [notesMessage, setNotesMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
+  const [focusedReaderMode, setFocusedReaderMode] = useState<ViewMode>('reflowed')
+  const [focusedGraphEvidenceKey, setFocusedGraphEvidenceKey] = useState<string | null>(null)
+  const [focusedStudySourceSpanIndex, setFocusedStudySourceSpanIndex] = useState(0)
+  const previousActiveSourceDocumentIdRef = useRef<string | null>(null)
   const libraryFilterQuery = continuityState.library.filterQuery
   const selectedLibraryDocumentId = continuityState.library.selectedDocumentId
   const selectedNodeId = continuityState.graph.selectedNodeId
@@ -282,10 +338,14 @@ export function RecallWorkspace({
   const selectedNoteId = continuityState.notes.selectedNoteId
   const activeSourceDocumentId = continuityState.sourceWorkspace.activeDocumentId
   const activeSourceTab = continuityState.sourceWorkspace.activeTab
+  const activeSourceReaderAnchor = continuityState.sourceWorkspace.readerAnchor
   const libraryBrowseDrawerOpen = continuityState.browseDrawers.library
   const graphBrowseDrawerOpen = continuityState.browseDrawers.graph
   const notesBrowseDrawerOpen = continuityState.browseDrawers.notes
   const studyBrowseDrawerOpen = continuityState.browseDrawers.study
+  const showFocusedNotesSplitView = section === 'notes' && !notesBrowseDrawerOpen && Boolean(activeSourceDocumentId)
+  const showFocusedGraphSplitView = section === 'graph' && !graphBrowseDrawerOpen && Boolean(activeSourceDocumentId)
+  const showFocusedStudySplitView = section === 'study' && !studyBrowseDrawerOpen && Boolean(activeSourceDocumentId)
   const deferredLibraryFilter = useDeferredValue(libraryFilterQuery)
   const deferredNoteSearch = useDeferredValue(noteSearchQuery)
 
@@ -327,6 +387,17 @@ export function RecallWorkspace({
       sourceWorkspace: updater(current.sourceWorkspace),
     }))
   }, [updateContinuityState])
+
+  const setSourceWorkspaceReaderAnchor = useCallback((nextAnchor: ReaderAnchorRange | null) => {
+    updateSourceWorkspaceState((current) =>
+      areReaderAnchorsEqual(current.readerAnchor, nextAnchor)
+        ? current
+        : {
+            ...current,
+            readerAnchor: nextAnchor,
+          },
+    )
+  }, [updateSourceWorkspaceState])
 
   const updateBrowseDrawersState = useCallback((updater: (current: RecallWorkspaceContinuityState['browseDrawers']) => RecallWorkspaceContinuityState['browseDrawers']) => {
     updateContinuityState((current) => ({
@@ -416,6 +487,76 @@ export function RecallWorkspace({
     [selectedNodeDetail],
   )
   const activeStudySourceSpans = useMemo(() => activeStudyCard?.source_spans ?? [], [activeStudyCard])
+  const focusedGraphEvidence = useMemo(() => {
+    if (!selectedNodeDetail || !activeSourceDocumentId) {
+      return null
+    }
+
+    if (focusedGraphEvidenceKey?.startsWith('edge:')) {
+      const edgeId = focusedGraphEvidenceKey.slice('edge:'.length)
+      const matchingEdge = selectedNodeEdges.find(
+        (edge) => edge.id === edgeId && edge.source_document_ids.includes(activeSourceDocumentId),
+      )
+      if (matchingEdge) {
+        return {
+          documentId: activeSourceDocumentId,
+          excerpt: matchingEdge.excerpt ?? selectedNodeDetail.node.description ?? matchingEdge.target_label,
+          key: focusedGraphEvidenceKey,
+        }
+      }
+    }
+
+    if (focusedGraphEvidenceKey?.startsWith('mention:')) {
+      const mentionId = focusedGraphEvidenceKey.slice('mention:'.length)
+      const matchingMention = selectedNodeDetail.mentions.find(
+        (mention) => mention.id === mentionId && mention.source_document_id === activeSourceDocumentId,
+      )
+      if (matchingMention) {
+        return {
+          documentId: activeSourceDocumentId,
+          excerpt: matchingMention.excerpt,
+          key: focusedGraphEvidenceKey,
+        }
+      }
+    }
+
+    const primaryMention = selectedNodeDetail.mentions.find(
+      (mention) => mention.source_document_id === activeSourceDocumentId,
+    )
+    if (primaryMention) {
+      return {
+        documentId: activeSourceDocumentId,
+        excerpt: primaryMention.excerpt,
+        key: `mention:${primaryMention.id}`,
+      }
+    }
+
+    const primaryEdge = selectedNodeEdges.find((edge) => edge.source_document_ids.includes(activeSourceDocumentId))
+    if (!primaryEdge) {
+      return null
+    }
+    return {
+      documentId: activeSourceDocumentId,
+      excerpt: primaryEdge.excerpt ?? selectedNodeDetail.node.description ?? primaryEdge.target_label,
+      key: `edge:${primaryEdge.id}`,
+    }
+  }, [activeSourceDocumentId, focusedGraphEvidenceKey, selectedNodeDetail, selectedNodeEdges])
+  const focusedStudySourceSpan = activeStudySourceSpans[focusedStudySourceSpanIndex] ?? activeStudySourceSpans[0] ?? null
+  const focusedReaderAnchorCandidates = useMemo(() => {
+    if (section === 'notes' && activeNote) {
+      return buildAnchorTextCandidates(activeNote.anchor.anchor_text, activeNote.anchor.excerpt_text)
+    }
+    if (section === 'graph' && focusedGraphEvidence) {
+      return buildAnchorTextCandidates(focusedGraphEvidence.excerpt)
+    }
+    if (section === 'study' && focusedStudySourceSpan) {
+      return buildAnchorTextCandidates(
+        getRecordStringValue(focusedStudySourceSpan, 'anchor_text'),
+        getRecordStringValue(focusedStudySourceSpan, 'excerpt'),
+      )
+    }
+    return []
+  }, [activeNote, focusedGraphEvidence, focusedStudySourceSpan, section])
   const sourceWorkspacePrimaryNote = sourceWorkspaceNotes[0] ?? null
   const sourceWorkspacePrimaryNode = activeSourceGraphNodes[0] ?? null
   const sourceWorkspacePrimaryStudyCard = activeSourceStudyCards[0] ?? null
@@ -908,6 +1049,54 @@ export function RecallWorkspace({
   }, [activeSourceDocumentId, detailStatus, documents, selectedDocument])
 
   useEffect(() => {
+    if (previousActiveSourceDocumentIdRef.current === activeSourceDocumentId) {
+      return
+    }
+    previousActiveSourceDocumentIdRef.current = activeSourceDocumentId
+    setFocusedGraphEvidenceKey(null)
+    setFocusedStudySourceSpanIndex(0)
+    if (!activeSourceDocumentId) {
+      setFocusedReaderMode('reflowed')
+      setSourceWorkspaceReaderAnchor(null)
+      return
+    }
+    setFocusedReaderMode('reflowed')
+    setSourceWorkspaceReaderAnchor(null)
+  }, [activeSourceDocumentId, setSourceWorkspaceReaderAnchor])
+
+  useEffect(() => {
+    if (!sourceWorkspaceDocument) {
+      return
+    }
+    if (sourceWorkspaceDocument.available_modes.includes(focusedReaderMode)) {
+      return
+    }
+    setFocusedReaderMode(sourceWorkspaceDocument.available_modes.includes('reflowed') ? 'reflowed' : 'original')
+  }, [focusedReaderMode, sourceWorkspaceDocument])
+
+  useEffect(() => {
+    if (!selectedNodeDetail || !activeSourceDocumentId) {
+      setFocusedGraphEvidenceKey(null)
+      return
+    }
+
+    const primaryMention = selectedNodeDetail.mentions.find(
+      (mention) => mention.source_document_id === activeSourceDocumentId,
+    )
+    if (primaryMention) {
+      setFocusedGraphEvidenceKey((currentKey) => currentKey ?? `mention:${primaryMention.id}`)
+      return
+    }
+
+    const primaryEdge = selectedNodeEdges.find((edge) => edge.source_document_ids.includes(activeSourceDocumentId))
+    setFocusedGraphEvidenceKey((currentKey) => currentKey ?? (primaryEdge ? `edge:${primaryEdge.id}` : null))
+  }, [activeSourceDocumentId, selectedNodeDetail, selectedNodeEdges])
+
+  useEffect(() => {
+    setFocusedStudySourceSpanIndex(0)
+  }, [activeStudyCard?.id])
+
+  useEffect(() => {
     if (!selectedLibraryDocumentId) {
       setSelectedDocumentNoteCount(null)
       setSelectedDocumentNoteCountStatus('idle')
@@ -1200,6 +1389,7 @@ export function RecallWorkspace({
       current.activeDocumentId === selectedLibraryDocumentId && current.activeTab === 'overview'
         ? current
         : {
+            ...current,
             activeDocumentId: selectedLibraryDocumentId,
             activeTab: 'overview',
           },
@@ -1214,6 +1404,7 @@ export function RecallWorkspace({
       current.activeDocumentId === selectedNotesDocumentId && current.activeTab === 'notes'
         ? current
         : {
+            ...current,
             activeDocumentId: selectedNotesDocumentId,
             activeTab: 'notes',
           },
@@ -1237,6 +1428,7 @@ export function RecallWorkspace({
         : current.activeDocumentId === sourceDocumentId && current.activeTab === 'graph'
           ? current
           : {
+              ...current,
               activeDocumentId: sourceDocumentId,
               activeTab: 'graph',
             },
@@ -1255,11 +1447,30 @@ export function RecallWorkspace({
         : current.activeDocumentId === activeStudyCard.source_document_id && current.activeTab === 'study'
           ? current
           : {
+              ...current,
               activeDocumentId: activeStudyCard.source_document_id,
               activeTab: 'study',
             },
     )
   }, [activeStudyCard, section, updateSourceWorkspaceState])
+
+  useEffect(() => {
+    if (!showFocusedNotesSplitView || !activeNote || activeNote.anchor.source_document_id !== activeSourceDocumentId) {
+      return
+    }
+    setSourceWorkspaceReaderAnchor(buildReaderAnchorRangeFromNote(activeNote))
+  }, [activeNote, activeSourceDocumentId, setSourceWorkspaceReaderAnchor, showFocusedNotesSplitView])
+
+  useEffect(() => {
+    if (!showFocusedStudySplitView || !focusedStudySourceSpan || !activeStudyCard) {
+      return
+    }
+    const anchorRange = buildReaderAnchorRangeFromSourceSpan(focusedStudySourceSpan)
+    if (!anchorRange) {
+      return
+    }
+    setSourceWorkspaceReaderAnchor(anchorRange)
+  }, [activeStudyCard, focusedStudySourceSpan, setSourceWorkspaceReaderAnchor, showFocusedStudySplitView])
 
   const handleSelectLibraryDocument = useCallback((documentId: string) => {
     setDetailStatus('loading')
@@ -1286,6 +1497,16 @@ export function RecallWorkspace({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'reader',
+      readerAnchor:
+        options?.sentenceStart !== null &&
+        options?.sentenceStart !== undefined &&
+        options?.sentenceEnd !== null &&
+        options?.sentenceEnd !== undefined
+          ? {
+              sentenceEnd: options.sentenceEnd,
+              sentenceStart: options.sentenceStart,
+            }
+          : current.readerAnchor,
     }))
     onOpenReader(documentId, options)
   }
@@ -1304,6 +1525,29 @@ export function RecallWorkspace({
 
   function handleOpenStudyCardInReader(card: StudyCardRecord, sourceSpan?: Record<string, unknown>) {
     handleOpenDocumentInReader(card.source_document_id, buildReaderOptionsFromSourceSpan(sourceSpan))
+  }
+
+  function handleShowNoteInFocusedReader(note: RecallNoteRecord | RecallNoteSearchHit) {
+    handleSelectLibraryDocument(note.anchor.source_document_id)
+    setSourceWorkspaceReaderAnchor(buildReaderAnchorRangeFromNote(note))
+  }
+
+  function handleShowGraphEvidenceInFocusedReader(evidenceKey: string, sourceDocumentId: string) {
+    handleSelectLibraryDocument(sourceDocumentId)
+    setFocusedGraphEvidenceKey(evidenceKey)
+  }
+
+  function handleShowStudyEvidenceInFocusedReader(
+    card: StudyCardRecord,
+    sourceSpan: Record<string, unknown>,
+    sourceSpanIndex: number,
+  ) {
+    handleSelectLibraryDocument(card.source_document_id)
+    setFocusedStudySourceSpanIndex(sourceSpanIndex)
+    const anchorRange = buildReaderAnchorRangeFromSourceSpan(sourceSpan)
+    if (anchorRange) {
+      setSourceWorkspaceReaderAnchor(anchorRange)
+    }
   }
 
   function handleOpenWorkspaceSearchNote(documentId: string, noteId: string) {
@@ -1635,9 +1879,6 @@ export function RecallWorkspace({
         : section === 'study'
           ? 'Keep the source summary visible while reviewing study evidence and scheduling actions beside it.'
           : 'Work from one source-centered summary with nearby notes, graph, study, and reading actions.'
-  const showFocusedNotesSplitView = section === 'notes' && !notesBrowseDrawerOpen && Boolean(activeSourceDocumentId)
-  const showFocusedGraphSplitView = section === 'graph' && !graphBrowseDrawerOpen && Boolean(activeSourceDocumentId)
-  const showFocusedStudySplitView = section === 'study' && !studyBrowseDrawerOpen && Boolean(activeSourceDocumentId)
 
   const focusSourceNotes = useCallback((documentId: string, noteId?: string | null) => {
     handleSelectLibraryDocument(documentId)
@@ -1645,6 +1886,7 @@ export function RecallWorkspace({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'notes',
+      readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
     }))
     updateNotesState((current) => ({
       ...current,
@@ -1664,6 +1906,7 @@ export function RecallWorkspace({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'graph',
+      readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
     }))
     updateGraphState((current) => ({
       ...current,
@@ -1687,6 +1930,7 @@ export function RecallWorkspace({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'study',
+      readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
     }))
     updateStudyState((current) => ({
       ...current,
@@ -1703,6 +1947,31 @@ export function RecallWorkspace({
     updateSourceWorkspaceState,
     updateStudyState,
   ])
+
+  function renderFocusedReaderPane() {
+    const focusedReaderDocument =
+      sourceWorkspaceDocument ?? (activeSourceDocumentId === selectedDocument?.id ? selectedDocument : null)
+    const focusedReaderActiveMode =
+      focusedReaderDocument?.available_modes.includes(focusedReaderMode)
+        ? focusedReaderMode
+        : focusedReaderDocument?.available_modes.includes('reflowed')
+          ? 'reflowed'
+          : 'original'
+
+    return (
+      <FocusedSourceReaderPane
+        activeMode={focusedReaderActiveMode}
+        anchorTextCandidates={focusedReaderAnchorCandidates}
+        document={focusedReaderDocument}
+        notes={sourceWorkspaceNotes}
+        onModeChange={setFocusedReaderMode}
+        onOpenInReader={handleOpenDocumentInReader}
+        onResolvedAnchorRange={setSourceWorkspaceReaderAnchor}
+        requestedAnchorRange={activeSourceReaderAnchor}
+        settings={settings}
+      />
+    )
+  }
 
   function renderSourceOverviewPanel(splitView = false) {
     return (
@@ -1996,7 +2265,7 @@ export function RecallWorkspace({
                   <span>Filter sources</span>
                   <input
                     type="search"
-                    placeholder="Filter by title, type, or locator"
+                    placeholder="Search saved sources"
                     value={libraryFilterQuery}
                     onChange={(event) =>
                       updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
@@ -2167,8 +2436,13 @@ export function RecallWorkspace({
                     onClick={() => {
                       updateGraphState((current) => ({ ...current, selectedNodeId: node.id }))
                       updateSourceWorkspaceState((current) => ({
+                        ...current,
                         activeDocumentId: node.source_document_ids[0] ?? current.activeDocumentId,
                         activeTab: 'graph',
+                        readerAnchor:
+                          current.activeDocumentId === (node.source_document_ids[0] ?? current.activeDocumentId)
+                            ? current.readerAnchor
+                            : null,
                       }))
                     }}
                   >
@@ -2206,7 +2480,7 @@ export function RecallWorkspace({
           </section>
 
           <div className={showFocusedGraphSplitView ? 'recall-main-column recall-source-split-layout' : 'recall-main-column stack-gap'}>
-            {showFocusedGraphSplitView ? renderSourceOverviewPanel(true) : null}
+            {showFocusedGraphSplitView ? renderFocusedReaderPane() : null}
             <section className="card stack-gap">
               <div className="toolbar recall-collection-toolbar">
                 <div className="section-header section-header-compact">
@@ -2283,7 +2557,7 @@ export function RecallWorkspace({
                   <div className="stack-gap">
                     <div className="section-header section-header-compact">
                       <h3>Mentions</h3>
-                      <p>Each mention stays attached to the source document that produced it, with Reader reopen nearby.</p>
+                      <p>Each mention stays attached to the source document that produced it, with in-place Reader evidence beside it.</p>
                     </div>
                     <div className="recall-search-results" role="list">
                       {selectedNodeDetail.mentions.map((mention) => (
@@ -2299,8 +2573,16 @@ export function RecallWorkspace({
                             {mention.chunk_id ? <span className="status-chip">Chunk evidence</span> : null}
                           </span>
                           <div className="recall-actions recall-actions-inline">
+                            {showFocusedGraphSplitView && mention.source_document_id === activeSourceDocumentId ? (
+                              <button
+                                type="button"
+                                onClick={() => handleShowGraphEvidenceInFocusedReader(`mention:${mention.id}`, mention.source_document_id)}
+                              >
+                                {buildShowReaderLabel(mention.document_title)}
+                              </button>
+                            ) : null}
                             <button
-                              className="ghost-button"
+                              className={showFocusedGraphSplitView ? 'ghost-button' : undefined}
                               type="button"
                               onClick={() => handleOpenMentionInReader(mention.source_document_id)}
                             >
@@ -2315,7 +2597,7 @@ export function RecallWorkspace({
                   <div className="stack-gap">
                     <div className="section-header section-header-compact">
                       <h3>Relations</h3>
-                      <p>Confirm or reject inferred links while keeping the supporting source document close by.</p>
+                      <p>Confirm or reject inferred links while keeping the supporting source evidence beside live reading.</p>
                     </div>
                     <div className="recall-search-results" role="list">
                       {selectedNodeEdges.map((edge) => (
@@ -2351,9 +2633,17 @@ export function RecallWorkspace({
                             >
                               Reject
                             </button>
+                            {showFocusedGraphSplitView && activeSourceDocumentId && edge.source_document_ids.includes(activeSourceDocumentId) ? (
+                              <button
+                                type="button"
+                                onClick={() => handleShowGraphEvidenceInFocusedReader(`edge:${edge.id}`, activeSourceDocumentId)}
+                              >
+                                {buildShowReaderLabel(documentTitleById.get(activeSourceDocumentId) ?? 'Saved source')}
+                              </button>
+                            ) : null}
                             {edge.source_document_ids[0] ? (
                               <button
-                                className="ghost-button"
+                                className={showFocusedGraphSplitView ? 'ghost-button' : 'ghost-button'}
                                 type="button"
                                 onClick={() => handleOpenEdgeInReader(edge)}
                               >
@@ -2459,9 +2749,12 @@ export function RecallWorkspace({
                       type="button"
                       onClick={() => {
                         updateStudyState((current) => ({ ...current, activeCardId: card.id }))
-                        updateSourceWorkspaceState(() => ({
+                        updateSourceWorkspaceState((current) => ({
+                          ...current,
                           activeDocumentId: card.source_document_id,
                           activeTab: 'study',
+                          readerAnchor:
+                            current.activeDocumentId === card.source_document_id ? current.readerAnchor : null,
                         }))
                         setShowAnswer(false)
                       }}
@@ -2501,7 +2794,7 @@ export function RecallWorkspace({
           </section>
 
           <div className={showFocusedStudySplitView ? 'recall-main-column recall-source-split-layout' : 'recall-main-column stack-gap'}>
-            {showFocusedStudySplitView ? renderSourceOverviewPanel(true) : null}
+            {showFocusedStudySplitView ? renderFocusedReaderPane() : null}
             <section className="card stack-gap recall-study-card">
               <div className="toolbar recall-collection-toolbar">
                 <div className="section-header section-header-compact">
@@ -2514,10 +2807,18 @@ export function RecallWorkspace({
                 </div>
                 {activeStudyCard ? (
                   <div className="recall-actions">
+                    {showFocusedStudySplitView && focusedStudySourceSpan ? (
+                      <button
+                        type="button"
+                        onClick={() => handleShowStudyEvidenceInFocusedReader(activeStudyCard, focusedStudySourceSpan, focusedStudySourceSpanIndex)}
+                      >
+                        {buildShowReaderLabel(activeStudyCard.document_title)}
+                      </button>
+                    ) : null}
                     <button
-                      className="ghost-button"
+                      className={showFocusedStudySplitView ? 'ghost-button' : undefined}
                       type="button"
-                      onClick={() => handleOpenStudyCardInReader(activeStudyCard, activeStudySourceSpans[0])}
+                      onClick={() => handleOpenStudyCardInReader(activeStudyCard, focusedStudySourceSpan ?? activeStudySourceSpans[0])}
                     >
                       {buildOpenReaderLabel(activeStudyCard.document_title)}
                     </button>
@@ -2597,8 +2898,16 @@ export function RecallWorkspace({
                             ) : null}
                           </span>
                           <div className="recall-actions recall-actions-inline">
+                            {showFocusedStudySplitView ? (
+                              <button
+                                type="button"
+                                onClick={() => handleShowStudyEvidenceInFocusedReader(activeStudyCard, sourceSpan, index)}
+                              >
+                                {buildShowReaderLabel(activeStudyCard.document_title)}
+                              </button>
+                            ) : null}
                             <button
-                              className="ghost-button"
+                              className={showFocusedStudySplitView ? 'ghost-button' : undefined}
                               type="button"
                               onClick={() => handleOpenStudyCardInReader(activeStudyCard, sourceSpan)}
                             >
@@ -2798,7 +3107,7 @@ export function RecallWorkspace({
           </section>
 
           <div className={showFocusedNotesSplitView ? 'recall-main-column recall-source-split-layout' : 'recall-main-column stack-gap'}>
-            {showFocusedNotesSplitView ? renderSourceOverviewPanel(true) : null}
+            {showFocusedNotesSplitView ? renderFocusedReaderPane() : null}
             <section className="card stack-gap">
               <div className="toolbar">
                 <div className="section-header section-header-compact">
@@ -2811,7 +3120,16 @@ export function RecallWorkspace({
                 </div>
                 {activeNote ? (
                   <div className="recall-actions">
-                    <button type="button" onClick={() => handleOpenNoteInReader(activeNote)}>
+                    {showFocusedNotesSplitView ? (
+                      <button type="button" onClick={() => handleShowNoteInFocusedReader(activeNote)}>
+                        Show in Reader
+                      </button>
+                    ) : null}
+                    <button
+                      className={showFocusedNotesSplitView ? 'ghost-button' : undefined}
+                      type="button"
+                      onClick={() => handleOpenNoteInReader(activeNote)}
+                    >
                       Open in Reader
                     </button>
                     <button

@@ -190,17 +190,25 @@ Keep this repository as one local-first workspace.
   - the audit confirmed Stage 32 solved the full-surface swap problem, but the split workspace is still too overview-led
   - the highest-friction remaining gap is that note, graph, and study work still anchor around `Source overview` more often than the live source itself
   - the next slice is now a reader-led split-work correction with contextual evidence panes instead of another generic shell pass
+- Stage 34 reader-led source split and contextual evidence panes is complete:
+  - focused `Notes`, `Graph`, and `Study` now keep embedded Reader content as the steady primary pane instead of keeping `Source overview` steady during source-local work
+  - note anchors, graph evidence, and study source spans now retarget the embedded Reader in place while explicit `Open in Reader` deep links stay intact
+  - targeted frontend coverage, `frontend npm run lint`, `frontend npm run build`, and the repo-owned real Edge Stage 34 smoke are green
+- Stage 35 collection-first Recall shell reset is complete:
+  - default `/recall` now uses a collection-first shell with a left rail, slim top bar, primary canvas, and lighter utility dock
+  - focused source work now uses a compact source strip and no longer depends on the old support-strip reopen model
+  - targeted shell/frontend coverage, `frontend npm run lint`, `frontend npm run build`, and the refreshed repo-owned real Edge Stage 34 smoke are green
 
 ## Active Milestone
 
-1. Stage 34: Reader-Led Source Split and Contextual Evidence Panes
-   - keep the live source in `Reader` as the primary pane during source-local note, graph, and study work
-   - reduce reopen loops by keeping contextual evidence beside live content instead of summary-only source cards
+1. Stage 36: Post-Stage-35 Recall UX Refresh
+   - audit the new collection-first shell against the product brief, live behavior, and the user's benchmark screenshot
+   - choose the next bounded slice only after reassessing the default landing, focused mode, narrow-width behavior, and empty/error states
 
 ## Next Milestone
 
-1. Stage 34: Reader-Led Source Split and Contextual Evidence Panes
-   - turn the new split-work canvas into a live-source-first workspace before reopening broader polish or feature expansion
+1. Stage 36: Post-Stage-35 Recall UX Refresh
+   - use the Stage 34 and Stage 35 live artifacts to decide whether the next bounded slice should target shell polish, focused-mode polish, responsiveness, or empty/error-state cleanup
 
 ## Stage Map
 
@@ -313,6 +321,12 @@ Keep this repository as one local-first workspace.
 34. Stage 34: Reader-Led Source Split and Contextual Evidence Panes
    - keep the live source itself, not just source summary metadata, as the steady primary pane during source-local note, graph, and study work
    - tighten evidence and anchor workflows around live reading without reopening deferred backend or AI scope
+35. Stage 35: Collection-First Recall Shell Reset Before Further UI Work
+   - replace the old dashboard-heavy default shell with a collection-first layout centered on one rail, one top bar, and one main canvas
+   - keep focused source work compact and preserve Stage 34 reader-led split behavior while reducing stacked shell clutter
+36. Stage 36: Post-Stage-35 Recall UX Refresh
+   - reassess the new collection-first shell against the user's benchmark, current live behavior, and the product brief
+   - choose the next bounded UX correction only after the refreshed shell is audited in its live state
 
 ## Deferred Follow-Ups
 
@@ -367,3 +381,4 @@ Keep this repository as one local-first workspace.
 - 2026-03-14: completed Stage 30 with a shell-owned source-focused mode, collapsible workspace support chrome, a repo-owned real Edge smoke harness, and live localhost recovery on both `127.0.0.1:8000` and `127.0.0.1:5173`, then opened Stage 31 for a fresh post-Stage-30 UX audit
 - 2026-03-15: completed the Stage 31 UX refresh audit using the live Stage 30 artifacts, the product brief, and current Recall benchmark material, then opened Stage 32 to keep one source visible while related note, graph, and study work move into adaptable side panes
 - 2026-03-15: completed Stage 32 with focused split-work layouts for source-local Notes, Graph, and Study, validated the slice with lint/build plus a repo-owned real Edge smoke, and then completed the Stage 33 UX audit to identify reader-led split work as the next highest-leverage correction
+- 2026-03-15: completed Stage 34 with reader-led focused split work plus in-place evidence retargeting, then, by explicit user direction, completed a Stage 35 collection-first shell reset immediately afterward instead of waiting for the usual audit interstitial, and opened Stage 36 to audit the new shell before choosing the next bounded slice

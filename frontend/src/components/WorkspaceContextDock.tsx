@@ -22,10 +22,10 @@ export function WorkspaceContextDock({
   recentItems,
 }: WorkspaceContextDockProps) {
   const denseSection = activeSection === 'reader' || activeSection === 'notes'
-  const condensed = compact || denseSection
   const visibleRecentItems = currentContext?.recentItem
     ? recentItems.filter((item) => item.key !== currentContext.recentItem?.key)
     : recentItems
+  const showOnboardingCard = !currentContext && visibleRecentItems.length === 0
 
   return (
     <section
@@ -38,14 +38,23 @@ export function WorkspaceContextDock({
         .filter(Boolean)
         .join(' ')}
     >
-      <div className={condensed ? 'workspace-context-panel workspace-context-panel-condensed' : 'workspace-context-panel'}>
+      {showOnboardingCard ? (
+        <div className="workspace-context-panel workspace-context-panel-onboarding">
+          <div className="section-header section-header-compact">
+            <h2>Start here</h2>
+            <p>Add a source, then use search, notes, graph, and study without losing your place.</p>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="workspace-context-panel workspace-context-panel-condensed">
         <div className="section-header section-header-compact">
           <h2>Current context</h2>
-          {!denseSection || !currentContext ? <p>Keep your active focus and the next useful jump visible in the shell.</p> : null}
+          {!denseSection || !currentContext ? <p>Keep the next useful jump nearby without crowding the main canvas.</p> : null}
         </div>
 
         {currentContext ? (
-          <div className={condensed ? 'workspace-context-body workspace-context-body-condensed' : 'workspace-context-body'}>
+          <div className="workspace-context-body workspace-context-body-condensed">
             <div className="workspace-context-copy">
               <div className="workspace-context-heading-row">
                 <span className="status-chip reader-meta-chip">{currentContext.badge}</span>
@@ -56,7 +65,7 @@ export function WorkspaceContextDock({
             </div>
 
             {currentContext.actions.length > 0 ? (
-              <div className={condensed ? 'workspace-context-actions workspace-context-actions-condensed' : 'workspace-context-actions'}>
+              <div className={compact ? 'workspace-context-actions workspace-context-actions-condensed' : 'workspace-context-actions'}>
                 {currentContext.actions.map((action) => (
                   <button key={action.key} type="button" onClick={() => onActivateTarget(action.target)}>
                     {action.label}
@@ -67,12 +76,12 @@ export function WorkspaceContextDock({
           </div>
         ) : (
           <p className="workspace-context-placeholder">
-            Active source, note, graph node, study card, or Reader focus appears here once you start working.
+            Open a source, note, graph node, study card, or Reader target to pin it here.
           </p>
         )}
       </div>
 
-      <div className={condensed ? 'workspace-context-panel workspace-context-panel-condensed' : 'workspace-context-panel'}>
+      <div className="workspace-context-panel workspace-context-panel-condensed">
         <div className="section-header section-header-compact">
           <h2>Recent work</h2>
           {!denseSection || visibleRecentItems.length === 0 ? (

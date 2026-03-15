@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import type { WorkspaceDockContext, WorkspaceDockTarget, WorkspaceRecentItem, WorkspaceSection } from '../lib/appRoute'
 import { SourceWorkspaceFrame, type SourceWorkspaceFrameState } from './SourceWorkspaceFrame'
 import { WorkspaceContextDock } from './WorkspaceContextDock'
-import { WorkspaceHero, type WorkspaceHeroProps } from './WorkspaceHero'
+import type { WorkspaceHeroProps } from './WorkspaceHero'
 
 
 interface RecallShellFrameProps {
@@ -32,36 +32,127 @@ const workspaceSections: Array<{
   { label: 'Reader', value: 'reader' },
 ]
 
-export function RecallShellFrame({
-  activeSection,
-  children,
-  currentContext,
-  headerActions,
-  hero,
-  layoutMode = 'default',
-  onActivateTarget,
-  onSelectSection,
-  onToggleSupportChrome,
-  recentItems,
-  sourceWorkspace = null,
-  supportChromeOpen = false,
-}: RecallShellFrameProps) {
+function WorkspaceSectionIcon({ section }: { section: WorkspaceSection }) {
+  if (section === 'library') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M4 6.75A2.75 2.75 0 0 1 6.75 4h10.5A2.75 2.75 0 0 1 20 6.75v10.5A2.75 2.75 0 0 1 17.25 20H6.75A2.75 2.75 0 0 1 4 17.25Z" />
+        <path d="M8 8h8M8 12h8M8 16h5.5" />
+      </svg>
+    )
+  }
+  if (section === 'graph') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <circle cx="6" cy="12" r="2.25" />
+        <circle cx="18" cy="6" r="2.25" />
+        <circle cx="18" cy="18" r="2.25" />
+        <path d="m8.2 10.95 7.55-3.9M8.2 13.05l7.55 3.9" />
+      </svg>
+    )
+  }
+  if (section === 'study') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M5.75 6.25h8.5A2.25 2.25 0 0 1 16.5 8.5v9.25l-4.5-2.2-4.5 2.2V8.5a2.25 2.25 0 0 1 2.25-2.25Z" />
+        <path d="M9.25 10.5h5.5M9.25 13.25h3.5" />
+      </svg>
+    )
+  }
+  if (section === 'notes') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M7 4.75h7.5L18 8.2v11.05H7z" />
+        <path d="M14.5 4.75V8.5H18M9.25 11h6.5M9.25 14h6.5M9.25 17h4.25" />
+      </svg>
+    )
+  }
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M12 5.5c-3.75 0-6.75 2.98-6.75 6.66S8.25 18.84 12 18.84s6.75-2.98 6.75-6.68S15.75 5.5 12 5.5Z" />
+      <path d="M12 3v3.2M12 17.8V21M4.7 12.16H1.5M22.5 12.16h-3.2" />
+    </svg>
+  )
+}
+
+export function RecallShellFrame(props: RecallShellFrameProps) {
+  const {
+    activeSection,
+    children,
+    currentContext,
+    headerActions,
+    layoutMode = 'default',
+    onActivateTarget,
+    onSelectSection,
+    recentItems,
+    sourceWorkspace = null,
+  } = props
+
+  void props.hero
+  void props.onToggleSupportChrome
+  void props.supportChromeOpen
+
   const sourceFocused = Boolean(sourceWorkspace)
-  const compactShell = sourceFocused || layoutMode === 'reader' || hero.compact
-  const showSupportChrome = !sourceFocused || supportChromeOpen
+  const activeSectionLabel = workspaceSections.find((section) => section.value === activeSection)?.label ?? 'Recall'
+  const showUtilityPanel = layoutMode === 'default' && !sourceFocused
+  const shellTitle = layoutMode === 'reader' ? 'Reader' : 'Recall'
+  const shellEyebrow = sourceFocused ? 'Focused source' : layoutMode === 'reader' ? 'Reader workspace' : 'Local knowledge workspace'
 
   return (
-    <>
-      <header className={compactShell ? 'shell-header shell-header-compact' : 'shell-header'}>
-        <div className="shell-brand">
-          <p className="eyebrow">Local knowledge workspace</p>
-          <h1>Recall</h1>
-          <p>Search what you saved, reopen it in Reader, and keep the flow local-first.</p>
+    <div
+      className={[
+        'recall-shell-frame',
+        layoutMode === 'reader' ? 'recall-shell-frame-reader' : 'recall-shell-frame-default',
+        sourceFocused ? 'recall-shell-frame-source-focused' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <aside className="workspace-rail" aria-label="Workspace navigation">
+        <div className="workspace-rail-brand">
+          <div className="workspace-rail-mark" aria-hidden="true">R</div>
+          <div className="workspace-rail-brand-copy">
+            <span>Local-first</span>
+            <strong>Recall</strong>
+          </div>
         </div>
-        {headerActions ? <div className="shell-nav">{headerActions}</div> : null}
-      </header>
+        <nav className="workspace-rail-nav" aria-label="Workspace sections" role="tablist">
+          {workspaceSections.map((section) => (
+            <button
+              key={section.value}
+              aria-current={activeSection === section.value ? 'page' : undefined}
+              aria-selected={activeSection === section.value}
+              className={
+                activeSection === section.value
+                  ? 'workspace-rail-button workspace-rail-button-active'
+                  : 'workspace-rail-button'
+              }
+              role="tab"
+              tabIndex={activeSection === section.value ? 0 : -1}
+              type="button"
+              onClick={() => onSelectSection(section.value)}
+            >
+              <span className="workspace-rail-icon">
+                <WorkspaceSectionIcon section={section.value} />
+              </span>
+              <span className="workspace-rail-label">{section.label}</span>
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-      <main className="shell-main">
+      <main className="workspace-shell-main">
+        <header className="workspace-topbar">
+          <div className="workspace-topbar-copy">
+            <p className="workspace-topbar-eyebrow">{shellEyebrow}</p>
+            <div className="workspace-topbar-heading-row">
+              <h1>{shellTitle}</h1>
+              <span className="workspace-topbar-section-chip">{activeSectionLabel}</span>
+            </div>
+          </div>
+          {headerActions ? <div className="workspace-topbar-actions">{headerActions}</div> : null}
+        </header>
+
         <div
           className={
             [
@@ -72,31 +163,6 @@ export function RecallShellFrame({
               .join(' ')
           }
         >
-          {!sourceFocused ? <WorkspaceHero {...hero} /> : null}
-
-          <div
-            className={compactShell ? 'recall-stage-tabs recall-stage-tabs-compact' : 'recall-stage-tabs'}
-            aria-label="Workspace sections"
-            role="tablist"
-          >
-            {workspaceSections.map((section) => (
-              <button
-                key={section.value}
-                aria-selected={activeSection === section.value}
-                className={
-                  activeSection === section.value
-                    ? 'recall-stage-tab recall-stage-tab-active'
-                    : 'recall-stage-tab'
-                }
-                role="tab"
-                type="button"
-                onClick={() => onSelectSection(section.value)}
-              >
-                {section.label}
-              </button>
-            ))}
-          </div>
-
           {sourceFocused && sourceWorkspace ? (
             <SourceWorkspaceFrame
               activeTab={sourceWorkspace.activeTab}
@@ -107,38 +173,22 @@ export function RecallShellFrame({
             />
           ) : null}
 
-          {sourceFocused ? (
-            <section className="card workspace-support-strip" aria-label="Workspace support">
-              <div className="workspace-support-strip-copy">
-                <strong>Source-focused mode</strong>
-                <span>Keep workspace guidance nearby without letting it crowd the active source.</span>
-              </div>
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={onToggleSupportChrome}
-              >
-                {supportChromeOpen ? 'Hide workspace support' : 'Show workspace support'}
-              </button>
-            </section>
-          ) : null}
-
-          {showSupportChrome ? (
-            <div className={sourceFocused ? 'workspace-support-stack stack-gap' : ''}>
-              {sourceFocused ? <WorkspaceHero {...hero} /> : null}
-              <WorkspaceContextDock
-                activeSection={activeSection}
-                compact={compactShell}
-                currentContext={currentContext}
-                onActivateTarget={onActivateTarget}
-                recentItems={recentItems}
-              />
-            </div>
-          ) : null}
-
-          {children}
+          <div className={showUtilityPanel ? 'workspace-shell-layout workspace-shell-layout-with-utility' : 'workspace-shell-layout'}>
+            <div className="workspace-shell-primary">{children}</div>
+            {showUtilityPanel ? (
+              <aside className="workspace-shell-secondary">
+                <WorkspaceContextDock
+                  activeSection={activeSection}
+                  compact
+                  currentContext={currentContext}
+                  onActivateTarget={onActivateTarget}
+                  recentItems={recentItems}
+                />
+              </aside>
+            ) : null}
+          </div>
         </div>
       </main>
-    </>
+    </div>
   )
 }

@@ -11,13 +11,15 @@ Persistent continuity anchor for future chats and handoffs.
 
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `codex/stage8-closeout-doc-sync`
-- Last completed product slice: Stage 32 `Flexible Source Split Work and Adaptable Side Panes`
+- Last completed product slice: Stage 35 `Collection-First Recall Shell Reset Before Further UI Work`
 - Last completed audit: Stage 33 `Post-Stage-32 Recall UX Refresh`
-- Active next slice: Stage 34 `Reader-Led Source Split and Contextual Evidence Panes`
+- Active next slice: Stage 36 `Post-Stage-35 Recall UX Refresh`
 - Last green checks:
   - `frontend npm run lint`
   - `frontend npm run build`
-  - repo-owned real Edge Stage 32 smoke via `scripts/playwright/stage32_flexible_source_split_edge.mjs`
+  - `frontend vitest run src/components/RecallShellFrame.test.tsx src/components/RecallWorkspace.stage34.test.tsx`
+  - `frontend vitest run src/App.test.tsx -t 'source-focused mode swaps the utility dock for the compact source strip'`
+  - repo-owned real Edge smoke via `scripts/playwright/stage34_reader_led_source_split_edge.mjs`
 - Known caveat:
   - the large `frontend/src/App.test.tsx` suite still stalls when run as one whole-file pass, so targeted coverage plus real Edge smoke remain the trustworthy validation path for this area
 - First files to read in a new chat:
@@ -25,7 +27,7 @@ Persistent continuity anchor for future chats and handoffs.
   - `BUILD_BRIEF.md`
   - `docs/ROADMAP.md`
   - `docs/ROADMAP_ANCHOR.md`
-  - `docs/exec_plans/active/2026-03-15_stage34_reader_led_source_split_and_contextual_evidence_panes.md`
+  - `docs/exec_plans/active/2026-03-15_stage36_post_stage35_recall_ux_refresh.md`
 
 ## Current State
 
@@ -38,6 +40,8 @@ As of 2026-03-15, this workspace includes:
 - Edge-first browser speech with sentence highlighting
 - opt-in OpenAI `Simplify` and `Summary`
 - local library/search, reopen support, and persisted reader settings/progress
+- a collection-first default Recall shell with a left workspace rail, slim top bar, primary canvas, and lighter utility dock
+- a compact focused-source strip plus reader-led focused `Notes`, `Graph`, and `Study` work beside live source content
 - a bounded assistant harness in `agent.md` and `docs/assistant/`
 - Stage 0/1 planning logs, research notes, repo-fit notes, and future integration logs
 - completed Stage 1 through Stage 8 ExecPlans plus a post-Stage 8 placeholder for the next user-directed milestone
@@ -213,6 +217,14 @@ As of 2026-03-15, this workspace includes:
   - the audit confirmed the remaining bottleneck is no longer split-work adjacency itself
   - the next highest-friction break is that split work still anchors too often around `Source overview` instead of the live source in `Reader`
   - the next slice is now a reader-led source split and contextual evidence-pane correction
+- Stage 34 reader-led source split and contextual evidence panes is complete:
+  - focused `Notes`, `Graph`, and `Study` now keep the embedded Reader steady beside the active tool instead of keeping `Source overview` steady
+  - note anchors, graph evidence, and study source spans now retarget the embedded Reader in place while explicit Reader deep links stay intact
+  - targeted frontend validation plus the repo-owned real Edge Stage 34 smoke are green
+- Stage 35 collection-first Recall shell reset is complete:
+  - default Recall now opens in a collection-first shell with a rail, top bar, primary canvas, and lighter utility dock
+  - focused source work now uses a compact source strip and no longer depends on the old support-strip reopen model
+  - targeted shell/frontend validation plus the refreshed repo-owned real Edge Stage 34 smoke are green
 
 ## Recent Detours
 
@@ -255,14 +267,15 @@ As of 2026-03-15, this workspace includes:
 - 2026-03-14: completed Stage 30 with a shell-owned source-focused mode, collapsible workspace support chrome, a repo-owned real Edge smoke harness, and live localhost recovery on both `127.0.0.1:8000` and `127.0.0.1:5173`, then opened Stage 31 for a fresh post-Stage-30 UX audit
 - 2026-03-15: completed the Stage 31 UX refresh audit using the live Stage 30 artifacts, the product brief, and current Recall benchmark material, then opened Stage 32 to keep one source visible while related note, graph, and study work move into adaptable side panes
 - 2026-03-15: completed Stage 32 with source-local split work for Notes/Graph/Study plus a repo-owned real Edge smoke, then completed the Stage 33 UX refresh audit and opened a reader-led split-work correction so live source content becomes the steady pane instead of `Source overview`
+- 2026-03-15: completed Stage 34 with reader-led focused split work and in-place evidence retargeting, then, by explicit user direction, completed a Stage 35 collection-first shell reset immediately afterward instead of waiting for the usual audit interstitial, and opened Stage 36 to audit the new shell before choosing the next bounded slice
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Open the active Stage 34 ExecPlan in `docs/exec_plans/active/`.
+3. Open the active Stage 36 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while making the split workspace reader-led instead of overview-led.
-7. Use Stage 34 to keep live source content steady during note, graph, and study work before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while auditing the new collection-first shell plus reader-led focused work.
+7. Use Stage 36 to reassess the new shell against the user-shared reference, live behavior, and the product brief before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

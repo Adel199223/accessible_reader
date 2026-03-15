@@ -42,7 +42,13 @@ const views: Record<string, DocumentView> = {
     mode: 'original',
     detail_level: 'default',
     title: 'Search target only',
-    blocks: [{ id: 'search-original-1', kind: 'paragraph', text: 'Search original sentence one. Search original sentence two.' }],
+    blocks: [
+      {
+        id: 'search-original-1',
+        kind: 'paragraph',
+        text: 'Search original sentence one. Search original sentence two. Knowledge Graphs support Study Cards.',
+      },
+    ],
     generated_by: 'local',
     cached: false,
     source_hash: 'search-original-hash',
@@ -56,11 +62,11 @@ const views: Record<string, DocumentView> = {
       {
         id: 'search-1',
         kind: 'paragraph',
-        text: 'Search sentence one. Search sentence two.',
+        text: 'Search sentence one. Search sentence two. Knowledge Graphs support Study Cards.',
         metadata: {
-          sentence_count: 2,
+          sentence_count: 3,
           sentence_metadata_version: '1',
-          sentence_texts: ['Search sentence one.', 'Search sentence two.'],
+          sentence_texts: ['Search sentence one.', 'Search sentence two.', 'Knowledge Graphs support Study Cards.'],
         },
       },
     ],
@@ -254,7 +260,15 @@ const baseStudyCards: StudyCardRecord[] = [
     prompt: 'What do Knowledge Graphs support?',
     answer: 'Study Cards',
     card_type: 'relation',
-    source_spans: [{ excerpt: 'Knowledge Graphs support Study Cards.' }],
+    source_spans: [
+      {
+        excerpt: 'Knowledge Graphs support Study Cards.',
+        global_sentence_end: 2,
+        global_sentence_start: 2,
+        sentence_end: 2,
+        sentence_start: 2,
+      },
+    ],
     scheduling_state: { due_at: '2026-03-13T00:20:00Z', review_count: 0 },
     due_at: '2026-03-13T00:20:00Z',
     review_count: 0,
@@ -801,20 +815,11 @@ function renderRecallApp(path = '/') {
   render(<App />)
 }
 
-function ensureWorkspaceSupportVisible() {
-  const showSupportButton = screen.queryByRole('button', { name: 'Show workspace support' })
-  if (showSupportButton) {
-    fireEvent.click(showSupportButton)
-  }
-}
-
 function getCurrentContextPanel() {
-  ensureWorkspaceSupportVisible()
   return screen.getByRole('heading', { name: 'Current context', level: 2 }).closest('.workspace-context-panel')
 }
 
 function getRecentWorkPanel() {
-  ensureWorkspaceSupportVisible()
   return screen.getByRole('heading', { name: 'Recent work', level: 2 }).closest('.workspace-context-panel')
 }
 
@@ -985,6 +990,8 @@ test('Recall study detail keeps a Reader handoff next to source evidence', async
   })
 
   expect(window.location.search).toContain('document=doc-search')
+  expect(window.location.search).toContain('sentenceStart=2')
+  expect(window.location.search).toContain('sentenceEnd=2')
 })
 
 test('Recall handoff opens the selected document in Reader', async () => {
@@ -2016,7 +2023,7 @@ test('Reader source workspace tabs hand the active source into Recall notes and 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Node detail', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Reader', level: 2 })).toBeInTheDocument()
   })
 
   expect(
@@ -2054,7 +2061,7 @@ test('Recall source workspace tabs reopen Reader for the selected source', async
   })
 })
 
-test('source-focused mode hides workspace support until explicitly reopened', async () => {
+test('source-focused mode swaps the utility dock for the compact source strip', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
@@ -2062,14 +2069,9 @@ test('source-focused mode hides workspace support until explicitly reopened', as
   })
 
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Show workspace support' })).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Show workspace support' }))
-
-  await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Current context', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Recent work', level: 2 })).toBeInTheDocument()
-  })
+  expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
+  expect(screen.getAllByText('Focused source')).toHaveLength(2)
+  expect(screen.getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
 })
 
 test('Recall source overview surfaces nearby notes, graph, and study context for the active source', async () => {
@@ -2088,7 +2090,7 @@ test('Recall source overview surfaces nearby notes, graph, and study context for
   expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
 })
 
-test('source-focused notes handoff collapses the notes drawer while manual Notes browsing reopens it', async () => {
+test('source-focused notes handoff keeps Reader visible while manual Notes browsing reopens the drawer', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
@@ -2104,7 +2106,9 @@ test('source-focused notes handoff collapses the notes drawer while manual Notes
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Reader', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Search sentence one.' })).toHaveClass('reader-sentence-anchored')
+    expect(screen.getByRole('button', { name: 'Search sentence two.' })).toHaveClass('reader-sentence-anchored')
   })
 
   const focusedNotesSection = screen.getByRole('heading', { name: 'Notes', level: 2 }).closest('section')
@@ -2130,7 +2134,39 @@ test('source-focused notes handoff collapses the notes drawer while manual Notes
   expect(within(browseNotesSection as HTMLElement).getByRole('combobox', { name: 'Selected document' })).toBeInTheDocument()
 })
 
-test('source-focused study handoff keeps source overview visible while manual Study browsing reopens filters', async () => {
+test('source-focused graph evidence retargets the embedded Reader without leaving Recall', async () => {
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+      name: 'Source workspace Graph',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Reader', level: 2 })).toBeInTheDocument()
+  })
+
+  const nodeDetailSection = screen.getByRole('heading', { name: 'Node detail', level: 2 }).closest('section')
+  expect(nodeDetailSection).not.toBeNull()
+
+  fireEvent.click(
+    within(nodeDetailSection as HTMLElement).getAllByRole('button', { name: 'Show Search target only in Reader' })[0],
+  )
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('button', { name: 'Knowledge Graphs support Study Cards.' })).toHaveClass('reader-sentence-anchored')
+  })
+})
+
+test('source-focused study handoff keeps Reader visible while manual Study browsing reopens filters', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
@@ -2146,7 +2182,8 @@ test('source-focused study handoff keeps source overview visible while manual St
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Active card', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Reader', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Knowledge Graphs support Study Cards.' })).toHaveClass('reader-sentence-anchored')
   })
 
   const focusedStudySection = screen.getByRole('heading', { name: 'Study queue', level: 2 }).closest('section')

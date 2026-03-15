@@ -60,46 +60,46 @@ export function SourceWorkspaceFrame({
   onSelectTab,
 }: SourceWorkspaceFrameProps) {
   return (
-    <section className="card source-workspace-frame stack-gap" aria-label={`${document.title} workspace`}>
-      <div className="toolbar source-workspace-header">
-        <div className="section-header section-header-compact">
-          <p className="eyebrow">Source workspace</p>
-          <h2>Source workspace</h2>
+    <section className="source-workspace-frame" aria-label={`${document.title} workspace`}>
+      <div className="source-workspace-strip-main">
+        <div className="source-workspace-strip-heading">
+          <span className="status-chip source-workspace-strip-badge">Focused source</span>
           <strong className="source-workspace-title">{document.title}</strong>
-          <p>{description}</p>
+        </div>
+        <p className="source-workspace-description">{description}</p>
+        <div className="source-workspace-meta" role="list" aria-label="Active source summary">
+          <span className="status-chip" role="listitem">{document.sourceType.toUpperCase()}</span>
+          <span className="status-chip reader-meta-chip" role="listitem">{buildCountLabel(document)}</span>
+          <span className="status-chip reader-meta-chip" role="listitem">{buildSourcePreview(document)}</span>
+          {counts.map((item) => (
+            <span
+              key={item.label}
+              className={item.tone === 'muted' ? 'status-chip status-muted' : 'status-chip reader-meta-chip'}
+              role="listitem"
+            >
+              {item.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="source-workspace-strip-actions">
+        <div className="recall-stage-tabs source-workspace-tabs" aria-label="Source workspace tabs" role="tablist">
+          {sourceWorkspaceTabs.map((tab) => (
+            <button
+              key={tab.value}
+              aria-label={`Source workspace ${tab.label}`}
+              aria-selected={activeTab === tab.value}
+              className={activeTab === tab.value ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+              role="tab"
+              type="button"
+              onClick={() => onSelectTab(tab.value)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
         {actions ? <div className="source-workspace-actions">{actions}</div> : null}
-      </div>
-
-      <div className="source-workspace-meta" role="list" aria-label="Active source summary">
-        <span className="status-chip" role="listitem">{document.sourceType.toUpperCase()}</span>
-        <span className="status-chip reader-meta-chip" role="listitem">{buildCountLabel(document)}</span>
-        <span className="status-chip reader-meta-chip" role="listitem">{buildSourcePreview(document)}</span>
-        {counts.map((item) => (
-          <span
-            key={item.label}
-            className={item.tone === 'muted' ? 'status-chip status-muted' : 'status-chip reader-meta-chip'}
-            role="listitem"
-          >
-            {item.label}
-          </span>
-        ))}
-      </div>
-
-      <div className="recall-stage-tabs source-workspace-tabs" aria-label="Source workspace tabs" role="tablist">
-        {sourceWorkspaceTabs.map((tab) => (
-          <button
-            key={tab.value}
-            aria-label={`Source workspace ${tab.label}`}
-            aria-selected={activeTab === tab.value}
-            className={activeTab === tab.value ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-            role="tab"
-            type="button"
-            onClick={() => onSelectTab(tab.value)}
-          >
-            {tab.label}
-          </button>
-        ))}
       </div>
     </section>
   )
