@@ -39,7 +39,7 @@ import { ControlsOverflow } from './ControlsOverflow'
 import { LibraryPane } from './LibraryPane'
 import { ReaderSurface } from './ReaderSurface'
 import { SettingsPanel } from './SettingsPanel'
-import { SourceWorkspaceFrame } from './SourceWorkspaceFrame'
+import type { SourceWorkspaceFrameState } from './SourceWorkspaceFrame'
 import { useSpeech } from '../hooks/useSpeech'
 import type { WorkspaceDockContext } from '../lib/appRoute'
 import { loadReaderSession, resolveReaderSession, saveReaderSession } from '../lib/readerSession'
@@ -55,6 +55,7 @@ interface ReaderWorkspaceProps {
   onRequestNewSource: () => void
   onShellContextChange: (context: WorkspaceDockContext | null) => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
+  onShellSourceWorkspaceChange: (workspace: SourceWorkspaceFrameState | null) => void
   routeDocumentId?: string | null
   routeSentenceEnd?: number | null
   routeSentenceStart?: number | null
@@ -317,6 +318,7 @@ export function ReaderWorkspace({
   onRequestNewSource,
   onShellContextChange,
   onShellHeroChange,
+  onShellSourceWorkspaceChange,
   onSettingsChange,
   routeDocumentId = null,
   routeSentenceEnd = null,
@@ -528,17 +530,21 @@ export function ReaderWorkspace({
     notes[0] ??
     null
   const currentModeOption = viewModeOptions.find((option) => option.mode === activeMode)
-  const sourceWorkspaceCounts = selectedDocument
-    ? [
-        {
-          label: notes.length === 1 ? '1 saved note' : `${notes.length} saved notes`,
-        },
-        {
-          label: currentModeOption?.label ? `${currentModeOption.label} view` : 'Reader view',
-          tone: 'muted' as const,
-        },
-      ]
-    : []
+  const sourceWorkspaceCounts = useMemo(
+    () =>
+      selectedDocument
+        ? [
+            {
+              label: notes.length === 1 ? '1 saved note' : `${notes.length} saved notes`,
+            },
+            {
+              label: currentModeOption?.label ? `${currentModeOption.label} view` : 'Reader view',
+              tone: 'muted' as const,
+            },
+          ]
+        : [],
+    [currentModeOption?.label, notes.length, selectedDocument],
+  )
 
   useEffect(() => {
     if (!selectedDocument) {
@@ -1234,6 +1240,54 @@ export function ReaderWorkspace({
     onShellContextChange(shellContext)
   }, [onShellContextChange, shellContext])
 
+  useEffect(() => {
+    if (!selectedDocument) {
+      onShellSourceWorkspaceChange(null)
+      return
+    }
+
+    onShellSourceWorkspaceChange({
+      activeTab: 'reader',
+      counts: sourceWorkspaceCounts,
+      description: 'Keep one source in focus while moving between overview, reading, notes, graph context, and study.',
+      document: {
+        availableModes: selectedDocument.available_modes,
+        fileName: selectedDocument.file_name ?? null,
+        id: selectedDocument.id,
+        sourceType: selectedDocument.source_type,
+        title: selectedDocument.title,
+      },
+      onSelectTab: (tab) => {
+        if (tab === 'reader') {
+          return
+        }
+        if (tab === 'overview') {
+          onOpenRecallLibrary(selectedDocument.id)
+          return
+        }
+        if (tab === 'notes') {
+          onOpenRecallNotes(selectedDocument.id, activeReaderNote?.id ?? notes[0]?.id ?? null)
+          return
+        }
+        if (tab === 'graph') {
+          onOpenRecallGraph(selectedDocument.id)
+          return
+        }
+        onOpenRecallStudy(selectedDocument.id)
+      },
+    })
+  }, [
+    activeReaderNote,
+    notes,
+    onOpenRecallGraph,
+    onOpenRecallLibrary,
+    onOpenRecallNotes,
+    onOpenRecallStudy,
+    onShellSourceWorkspaceChange,
+    selectedDocument,
+    sourceWorkspaceCounts,
+  ])
+
   return (
     <div className="reader-workspace stack-gap">
       {readerErrorMessage ? (
@@ -1253,36 +1307,6 @@ export function ReaderWorkspace({
         <main className="main-panel">
           {selectedDocument ? (
             <>
-              <SourceWorkspaceFrame
-                activeTab="reader"
-                counts={sourceWorkspaceCounts}
-                description="Keep one source in focus while moving between overview, reading, notes, graph context, and study."
-                document={{
-                  availableModes: selectedDocument.available_modes,
-                  fileName: selectedDocument.file_name ?? null,
-                  id: selectedDocument.id,
-                  sourceType: selectedDocument.source_type,
-                  title: selectedDocument.title,
-                }}
-                onSelectTab={(tab) => {
-                  if (tab === 'reader') {
-                    return
-                  }
-                  if (tab === 'overview') {
-                    onOpenRecallLibrary(selectedDocument.id)
-                    return
-                  }
-                  if (tab === 'notes') {
-                    onOpenRecallNotes(selectedDocument.id, activeReaderNote?.id ?? notes[0]?.id ?? null)
-                    return
-                  }
-                  if (tab === 'graph') {
-                    onOpenRecallGraph(selectedDocument.id)
-                    return
-                  }
-                  onOpenRecallStudy(selectedDocument.id)
-                }}
-              />
               <section className="card reader-mode-card stack-gap" aria-label="Reader views">
                 <div className="toolbar">
                   <div className="section-header section-header-compact">

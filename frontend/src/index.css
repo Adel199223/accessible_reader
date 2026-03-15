@@ -262,6 +262,10 @@ textarea:focus-visible {
   gap: 0.75rem;
 }
 
+.recall-workspace-source-focused {
+  gap: 0.65rem;
+}
+
 .recall-grid {
   display: grid;
   gap: 1rem;
@@ -378,6 +382,10 @@ textarea:focus-visible {
   gap: 0.45rem;
 }
 
+.recall-workspace-source-focused .source-workspace-frame {
+  box-shadow: 0 20px 40px var(--theme-shadow);
+}
+
 .recall-stage-tab {
   background: var(--theme-surface);
   border: 1px solid var(--theme-border-strong);
@@ -410,6 +418,51 @@ textarea:focus-visible {
 
 .workspace-context-dock-dense {
   gap: 0.6rem;
+}
+
+.workspace-support-strip {
+  align-items: center;
+  background: color-mix(in srgb, var(--theme-surface-strong) 88%, var(--theme-chip-muted));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  justify-content: space-between;
+  padding: 0.78rem 0.92rem;
+}
+
+.workspace-support-strip-copy {
+  display: flex;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.workspace-support-strip-copy strong {
+  font-size: 0.95rem;
+}
+
+.workspace-support-strip-copy span {
+  color: var(--theme-muted);
+  font-size: 0.92rem;
+}
+
+.workspace-support-strip .ghost-button {
+  min-height: 0;
+  padding: 0.72rem 0.88rem;
+  white-space: nowrap;
+}
+
+.workspace-support-stack {
+  gap: 0.65rem;
+}
+
+.workspace-support-stack .recall-hero {
+  background: color-mix(in srgb, var(--theme-surface-strong) 90%, transparent);
+}
+
+.workspace-support-stack .workspace-context-dock {
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.9fr);
 }
 
 .workspace-context-panel {
@@ -887,6 +940,26 @@ textarea:focus-visible {
   display: grid;
   gap: 0.75rem;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.recall-source-split-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  align-items: start;
+}
+
+.recall-source-split-layout > * {
+  min-width: 0;
+}
+
+.recall-source-split-layout > :last-child {
+  position: sticky;
+  top: 1rem;
+}
+
+.recall-source-overview-card-split {
+  align-self: start;
 }
 
 .recall-detail-panel {
@@ -2140,10 +2213,16 @@ textarea:focus-visible {
 @media (max-width: 1080px) {
   .reader-shell-grid,
   .recall-grid,
+  .recall-source-split-layout,
   .workspace-context-dock,
   .workspace-context-dock-compact,
   .workspace-search-layout {
     grid-template-columns: 1fr;
+  }
+
+  .recall-source-split-layout > :last-child {
+    position: static;
+    top: auto;
   }
 
   .reader-context-panel {

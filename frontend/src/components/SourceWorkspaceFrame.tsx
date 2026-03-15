@@ -14,9 +14,8 @@ export interface SourceWorkspaceDocumentSummary {
   updatedAt?: string | null
 }
 
-interface SourceWorkspaceFrameProps {
+export interface SourceWorkspaceFrameState {
   activeTab: SourceWorkspaceTab
-  actions?: ReactNode
   counts?: Array<{
     label: string
     tone?: 'default' | 'muted'
@@ -24,6 +23,10 @@ interface SourceWorkspaceFrameProps {
   description: string
   document: SourceWorkspaceDocumentSummary
   onSelectTab: (tab: SourceWorkspaceTab) => void
+}
+
+interface SourceWorkspaceFrameProps extends SourceWorkspaceFrameState {
+  actions?: ReactNode
 }
 
 const sourceWorkspaceTabs: Array<{

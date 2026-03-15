@@ -801,11 +801,20 @@ function renderRecallApp(path = '/') {
   render(<App />)
 }
 
+function ensureWorkspaceSupportVisible() {
+  const showSupportButton = screen.queryByRole('button', { name: 'Show workspace support' })
+  if (showSupportButton) {
+    fireEvent.click(showSupportButton)
+  }
+}
+
 function getCurrentContextPanel() {
+  ensureWorkspaceSupportVisible()
   return screen.getByRole('heading', { name: 'Current context', level: 2 }).closest('.workspace-context-panel')
 }
 
 function getRecentWorkPanel() {
+  ensureWorkspaceSupportVisible()
   return screen.getByRole('heading', { name: 'Recent work', level: 2 }).closest('.workspace-context-panel')
 }
 
@@ -1777,6 +1786,8 @@ test('workspace dock tracks current source context and recent note handoffs', as
     expect(window.location.pathname).toBe('/recall')
     expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Search target only', level: 3 })).toBeInTheDocument()
   })
 })
 
@@ -2005,6 +2016,7 @@ test('Reader source workspace tabs hand the active source into Recall notes and 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Node detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
   })
 
   expect(
@@ -2042,6 +2054,24 @@ test('Recall source workspace tabs reopen Reader for the selected source', async
   })
 })
 
+test('source-focused mode hides workspace support until explicitly reopened', async () => {
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Show workspace support' })).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show workspace support' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Current context', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Recent work', level: 2 })).toBeInTheDocument()
+  })
+})
+
 test('Recall source overview surfaces nearby notes, graph, and study context for the active source', async () => {
   renderRecallApp('/recall')
 
@@ -2074,6 +2104,7 @@ test('source-focused notes handoff collapses the notes drawer while manual Notes
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
   })
 
   const focusedNotesSection = screen.getByRole('heading', { name: 'Notes', level: 2 }).closest('section')
@@ -2097,6 +2128,48 @@ test('source-focused notes handoff collapses the notes drawer while manual Notes
   expect(browseNotesSection).not.toBeNull()
   expect(within(browseNotesSection as HTMLElement).getByRole('button', { name: 'Hide' })).toBeInTheDocument()
   expect(within(browseNotesSection as HTMLElement).getByRole('combobox', { name: 'Selected document' })).toBeInTheDocument()
+})
+
+test('source-focused study handoff keeps source overview visible while manual Study browsing reopens filters', async () => {
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+      name: 'Source workspace Study',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Active card', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+  })
+
+  const focusedStudySection = screen.getByRole('heading', { name: 'Study queue', level: 2 }).closest('section')
+  expect(focusedStudySection).not.toBeNull()
+  expect(within(focusedStudySection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
+  expect(within(focusedStudySection as HTMLElement).queryByRole('tab', { name: 'All', selected: true })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Library' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Library', selected: true })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+  })
+
+  const browseStudySection = screen.getByRole('heading', { name: 'Study queue', level: 2 }).closest('section')
+  expect(browseStudySection).not.toBeNull()
+  expect(within(browseStudySection as HTMLElement).getByRole('button', { name: 'Hide' })).toBeInTheDocument()
+  expect(within(browseStudySection as HTMLElement).getByRole('tab', { name: 'All', selected: true })).toBeInTheDocument()
 })
 
 test('global Search note handoff preserves prior Library context', async () => {

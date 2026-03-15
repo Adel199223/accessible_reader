@@ -15,6 +15,7 @@ import { ImportPanel } from './components/ImportPanel'
 import { RecallShellFrame } from './components/RecallShellFrame'
 import { RecallWorkspace } from './components/RecallWorkspace'
 import { ReaderWorkspace } from './components/ReaderWorkspace'
+import type { SourceWorkspaceFrameState } from './components/SourceWorkspaceFrame'
 import { WorkspaceDialogFrame } from './components/WorkspaceDialogFrame'
 import { WorkspaceSearchDialog } from './components/WorkspaceSearchDialog'
 import {
@@ -101,6 +102,8 @@ export default function App() {
   )
   const [recallFocusRequest, setRecallFocusRequest] = useState<RecallWorkspaceFocusRequest | null>(null)
   const [shellContext, setShellContext] = useState<WorkspaceDockContext | null>(null)
+  const [shellSourceWorkspace, setShellSourceWorkspace] = useState<SourceWorkspaceFrameState | null>(null)
+  const [supportChromeOpen, setSupportChromeOpen] = useState(false)
   const [recentItems, setRecentItems] = useState<WorkspaceRecentItem[]>([])
   const lastRecentItemKeyRef = useRef<string | null>(null)
   const deferredWorkspaceSearchQuery = useDeferredValue(workspaceSearchSession.query)
@@ -352,6 +355,13 @@ export default function App() {
     setRecentItems((currentItems) => [recentItem, ...currentItems.filter((item) => item.key !== recentItem.key)].slice(0, 6))
   }, [shellContext])
 
+  useEffect(() => {
+    if (shellSourceWorkspace) {
+      return
+    }
+    setSupportChromeOpen(false)
+  }, [shellSourceWorkspace])
+
   const activeWorkspaceSection: WorkspaceSection = route.path === 'reader' ? 'reader' : activeRecallSection
   const searchSurfaceVisible = searchOpen || (route.path === 'recall' && activeRecallSection === 'library')
 
@@ -507,7 +517,10 @@ export default function App() {
         layoutMode={route.path === 'reader' ? 'reader' : 'default'}
         onActivateTarget={handleActivateDockTarget}
         onSelectSection={handleSelectWorkspaceSection}
+        onToggleSupportChrome={() => setSupportChromeOpen((current) => !current)}
         recentItems={recentItems}
+        sourceWorkspace={shellSourceWorkspace}
+        supportChromeOpen={supportChromeOpen}
       >
         {route.path === 'recall' ? (
           <RecallWorkspace
@@ -519,6 +532,7 @@ export default function App() {
             onSelectSearchResult={handleSelectWorkspaceSearchResult}
             onSectionChange={setActiveRecallSection}
             onShellHeroChange={setShellHero}
+            onShellSourceWorkspaceChange={setShellSourceWorkspace}
             onOpenReader={(documentId, options) => navigate('reader', documentId, options)}
             searchSession={workspaceSearchSession}
             section={activeRecallSection}
@@ -531,6 +545,7 @@ export default function App() {
             onOpenRecallLibrary={(documentId) => openRecallSection('library', { documentId })}
             onShellHeroChange={setShellHero}
             onShellContextChange={setShellContext}
+            onShellSourceWorkspaceChange={setShellSourceWorkspace}
             onOpenRecallNotes={(documentId, noteId) => openRecallSection('notes', { documentId, noteId })}
             onOpenRecallStudy={(documentId) => openRecallSection('study', { documentId })}
             onRequestNewSource={handleRequestNewSource}

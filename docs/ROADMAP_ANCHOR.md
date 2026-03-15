@@ -7,9 +7,29 @@ Persistent continuity anchor for future chats and handoffs.
 - Unless explicitly redirected, `roadmap`, `master plan`, and `next milestone` mean the active plan for this workspace.
 - If a task deviates for a blocker or correction, record it and return to the roadmap afterward.
 
+## Resume Snapshot
+
+- Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
+- Active branch: `codex/stage8-closeout-doc-sync`
+- Last completed product slice: Stage 32 `Flexible Source Split Work and Adaptable Side Panes`
+- Last completed audit: Stage 33 `Post-Stage-32 Recall UX Refresh`
+- Active next slice: Stage 34 `Reader-Led Source Split and Contextual Evidence Panes`
+- Last green checks:
+  - `frontend npm run lint`
+  - `frontend npm run build`
+  - repo-owned real Edge Stage 32 smoke via `scripts/playwright/stage32_flexible_source_split_edge.mjs`
+- Known caveat:
+  - the large `frontend/src/App.test.tsx` suite still stalls when run as one whole-file pass, so targeted coverage plus real Edge smoke remain the trustworthy validation path for this area
+- First files to read in a new chat:
+  - `AGENTS.md`
+  - `BUILD_BRIEF.md`
+  - `docs/ROADMAP.md`
+  - `docs/ROADMAP_ANCHOR.md`
+  - `docs/exec_plans/active/2026-03-15_stage34_reader_led_source_split_and_contextual_evidence_panes.md`
+
 ## Current State
 
-As of 2026-03-14, this workspace includes:
+As of 2026-03-15, this workspace includes:
 
 - the existing accessible-reader frontend and backend
 - local import and parsing for TXT, Markdown, HTML, DOCX, and text-based PDF
@@ -173,7 +193,26 @@ As of 2026-03-14, this workspace includes:
   - `Overview` now acts as a real source summary surface with nearby saved-note, graph, and study context plus direct next actions
   - source-focused landings now collapse Library, Notes, Graph, and Study browsing into lighter contextual drawers while manual section clicks still reopen full browse mode
   - targeted frontend validation plus a repo-owned real Edge shared-source-pane smoke are green
-- Stage 29 post-Stage-28 Recall UX refresh is now the active milestone.
+- Stage 29 post-Stage-28 Recall UX refresh is complete:
+  - the audit confirmed Stage 28 solved repeated section-local source detail, but active source work still starts too low in the page under dashboard shell chrome
+  - the Recall benchmark now points more toward source/card-first focus with expanded reading space and flexible split work than toward keeping the current shell stacked above the source canvas
+- Stage 30 focused source mode and collapsible workspace chrome is complete:
+  - source-focused sessions now promote the active source workspace above generic shell support chrome in both Recall and Reader
+  - hero, current-context, and recent-work panels now collapse behind an explicit `Show workspace support` affordance during source-focused work
+  - manual section clicks still reopen browse-first surfaces while source-workspace tabs preserve source-focused return flows
+  - targeted frontend validation plus a repo-owned real Edge Stage 30 smoke are green
+- Stage 31 post-Stage-30 Recall UX refresh is complete:
+  - the audit confirmed the shell-chrome collapse solved the prior stacking problem
+  - the next highest-friction break is that source-local work still requires hard switches between full-surface `Reader`, `Notes`, `Graph`, and `Study` tabs
+  - the next slice is now flexible source split work plus adaptable side panes
+- Stage 32 flexible source split work and adaptable side panes is complete:
+  - focused `Notes`, `Graph`, and `Study` now keep the active source visible in a split workspace instead of replacing the full source surface
+  - manual section clicks still reopen browse-first surfaces while source-local work stays adjacent
+  - `frontend npm run lint`, `frontend npm run build`, and the repo-owned real Edge Stage 32 smoke are green
+- Stage 33 post-Stage-32 Recall UX refresh is complete:
+  - the audit confirmed the remaining bottleneck is no longer split-work adjacency itself
+  - the next highest-friction break is that split work still anchors too often around `Source overview` instead of the live source in `Reader`
+  - the next slice is now a reader-led source split and contextual evidence-pane correction
 
 ## Recent Detours
 
@@ -212,14 +251,18 @@ As of 2026-03-14, this workspace includes:
 - 2026-03-14: completed Stage 26 with a shared source-workspace frame across Recall and Reader, source-tab handoffs for `Overview`/`Reader`/`Notes`/`Graph`/`Study`, a continuity fix so stale Graph or Study detail no longer overrides the active source, targeted frontend validation, and a repo-owned real Edge source-workspace smoke harness, then opened Stage 27 for a fresh post-Stage-26 UX audit
 - 2026-03-14: completed the Stage 27 UX refresh audit using the live post-Stage-26 artifacts, the product brief, and current Recall docs/changelog direction, then opened Stage 28 to turn source tabs into a true shared source-pane system with lighter contextual collection browsing
 - 2026-03-14: completed Stage 28 with a stronger source `Overview`, lighter contextual browse drawers for Library/Notes/Graph/Study during source-focused work, targeted frontend validation, and a repo-owned real Edge shared-source-pane smoke harness, then opened Stage 29 for a fresh post-Stage-28 UX audit
+- 2026-03-14: completed the Stage 29 UX refresh audit using the live Stage 28 artifacts, current shell/state architecture, the product brief, and current Recall benchmark material, then opened Stage 30 to make active source work take over the workspace before adding more feature surface
+- 2026-03-14: completed Stage 30 with a shell-owned source-focused mode, collapsible workspace support chrome, a repo-owned real Edge smoke harness, and live localhost recovery on both `127.0.0.1:8000` and `127.0.0.1:5173`, then opened Stage 31 for a fresh post-Stage-30 UX audit
+- 2026-03-15: completed the Stage 31 UX refresh audit using the live Stage 30 artifacts, the product brief, and current Recall benchmark material, then opened Stage 32 to keep one source visible while related note, graph, and study work move into adaptable side panes
+- 2026-03-15: completed Stage 32 with source-local split work for Notes/Graph/Study plus a repo-owned real Edge smoke, then completed the Stage 33 UX refresh audit and opened a reader-led split-work correction so live source content becomes the steady pane instead of `Source overview`
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Open the active Stage 29 ExecPlan in `docs/exec_plans/active/`.
+3. Open the active Stage 34 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while choosing the next milestone from the current post-search product state.
-7. Use the Stage 29 plan to audit the post-Stage-28 workspace before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while making the split workspace reader-led instead of overview-led.
+7. Use Stage 34 to keep live source content steady during note, graph, and study work before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

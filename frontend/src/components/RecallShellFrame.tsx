@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import type { WorkspaceDockContext, WorkspaceDockTarget, WorkspaceRecentItem, WorkspaceSection } from '../lib/appRoute'
+import { SourceWorkspaceFrame, type SourceWorkspaceFrameState } from './SourceWorkspaceFrame'
 import { WorkspaceContextDock } from './WorkspaceContextDock'
 import { WorkspaceHero, type WorkspaceHeroProps } from './WorkspaceHero'
 
@@ -14,7 +15,10 @@ interface RecallShellFrameProps {
   layoutMode?: 'default' | 'reader'
   onActivateTarget: (target: WorkspaceDockTarget) => void
   onSelectSection: (section: WorkspaceSection) => void
+  onToggleSupportChrome?: () => void
   recentItems: WorkspaceRecentItem[]
+  sourceWorkspace?: SourceWorkspaceFrameState | null
+  supportChromeOpen?: boolean
 }
 
 const workspaceSections: Array<{
@@ -37,9 +41,14 @@ export function RecallShellFrame({
   layoutMode = 'default',
   onActivateTarget,
   onSelectSection,
+  onToggleSupportChrome,
   recentItems,
+  sourceWorkspace = null,
+  supportChromeOpen = false,
 }: RecallShellFrameProps) {
-  const compactShell = layoutMode === 'reader' || hero.compact
+  const sourceFocused = Boolean(sourceWorkspace)
+  const compactShell = sourceFocused || layoutMode === 'reader' || hero.compact
+  const showSupportChrome = !sourceFocused || supportChromeOpen
 
   return (
     <>
@@ -53,8 +62,17 @@ export function RecallShellFrame({
       </header>
 
       <main className="shell-main">
-        <div className={layoutMode === 'reader' ? 'recall-workspace recall-workspace-reader stack-gap' : 'recall-workspace stack-gap'}>
-          <WorkspaceHero {...hero} />
+        <div
+          className={
+            [
+              layoutMode === 'reader' ? 'recall-workspace recall-workspace-reader stack-gap' : 'recall-workspace stack-gap',
+              sourceFocused ? 'recall-workspace-source-focused' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')
+          }
+        >
+          {!sourceFocused ? <WorkspaceHero {...hero} /> : null}
 
           <div
             className={compactShell ? 'recall-stage-tabs recall-stage-tabs-compact' : 'recall-stage-tabs'}
@@ -79,13 +97,44 @@ export function RecallShellFrame({
             ))}
           </div>
 
-          <WorkspaceContextDock
-            activeSection={activeSection}
-            compact={compactShell}
-            currentContext={currentContext}
-            onActivateTarget={onActivateTarget}
-            recentItems={recentItems}
-          />
+          {sourceFocused && sourceWorkspace ? (
+            <SourceWorkspaceFrame
+              activeTab={sourceWorkspace.activeTab}
+              counts={sourceWorkspace.counts}
+              description={sourceWorkspace.description}
+              document={sourceWorkspace.document}
+              onSelectTab={sourceWorkspace.onSelectTab}
+            />
+          ) : null}
+
+          {sourceFocused ? (
+            <section className="card workspace-support-strip" aria-label="Workspace support">
+              <div className="workspace-support-strip-copy">
+                <strong>Source-focused mode</strong>
+                <span>Keep workspace guidance nearby without letting it crowd the active source.</span>
+              </div>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={onToggleSupportChrome}
+              >
+                {supportChromeOpen ? 'Hide workspace support' : 'Show workspace support'}
+              </button>
+            </section>
+          ) : null}
+
+          {showSupportChrome ? (
+            <div className={sourceFocused ? 'workspace-support-stack stack-gap' : ''}>
+              {sourceFocused ? <WorkspaceHero {...hero} /> : null}
+              <WorkspaceContextDock
+                activeSection={activeSection}
+                compact={compactShell}
+                currentContext={currentContext}
+                onActivateTarget={onActivateTarget}
+                recentItems={recentItems}
+              />
+            </div>
+          ) : null}
 
           {children}
         </div>
