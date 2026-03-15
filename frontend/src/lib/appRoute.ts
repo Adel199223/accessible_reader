@@ -2,6 +2,7 @@ export type AppSection = 'recall' | 'reader'
 export type RecallSection = 'library' | 'graph' | 'study' | 'notes'
 export type RecallStudyFilter = 'all' | 'new' | 'due' | 'scheduled'
 export type SourceWorkspaceTab = 'overview' | 'reader' | 'notes' | 'graph' | 'study'
+export type SourceWorkspaceMode = 'browse' | 'focused'
 export type WorkspaceSection = RecallSection | 'reader'
 
 export interface ReaderAnchorRange {
@@ -79,6 +80,7 @@ export interface RecallWorkspaceContinuityState {
   sourceWorkspace: {
     activeDocumentId: string | null
     activeTab: SourceWorkspaceTab
+    mode: SourceWorkspaceMode
     readerAnchor: ReaderAnchorRange | null
   }
 }
@@ -116,6 +118,7 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
   sourceWorkspace: {
     activeDocumentId: null,
     activeTab: 'overview',
+    mode: 'browse',
     readerAnchor: null,
   },
 }

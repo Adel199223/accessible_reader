@@ -66,11 +66,11 @@ export function SourceWorkspaceFrame({
           <span className="status-chip source-workspace-strip-badge">Focused source</span>
           <strong className="source-workspace-title">{document.title}</strong>
         </div>
+        <p className="source-workspace-source">{buildSourcePreview(document)}</p>
         <p className="source-workspace-description">{description}</p>
         <div className="source-workspace-meta" role="list" aria-label="Active source summary">
           <span className="status-chip" role="listitem">{document.sourceType.toUpperCase()}</span>
           <span className="status-chip reader-meta-chip" role="listitem">{buildCountLabel(document)}</span>
-          <span className="status-chip reader-meta-chip" role="listitem">{buildSourcePreview(document)}</span>
           {counts.map((item) => (
             <span
               key={item.label}

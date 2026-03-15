@@ -11,15 +11,17 @@ Persistent continuity anchor for future chats and handoffs.
 
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `codex/stage8-closeout-doc-sync`
-- Last completed product slice: Stage 35 `Collection-First Recall Shell Reset Before Further UI Work`
-- Last completed audit: Stage 33 `Post-Stage-32 Recall UX Refresh`
-- Active next slice: Stage 36 `Post-Stage-35 Recall UX Refresh`
+- Last completed product slice: Stage 39 `Recall Hierarchy Cleanup and Responsive Card Density`
+- Last completed audit: Stage 40 `Benchmark-Driven Recall Surface Audit`
+- Active next slice: Stage 41 `Recall Shared Shell And Surface Convergence`
 - Last green checks:
-  - `frontend npm run lint`
-  - `frontend npm run build`
-  - `frontend vitest run src/components/RecallShellFrame.test.tsx src/components/RecallWorkspace.stage34.test.tsx`
-  - `frontend vitest run src/App.test.tsx -t 'source-focused mode swaps the utility dock for the compact source strip'`
-  - repo-owned real Edge smoke via `scripts/playwright/stage34_reader_led_source_split_edge.mjs`
+  - `frontend npm run lint` after the Stage 39 hierarchy cleanup
+  - `frontend npm run build` after the Stage 39 hierarchy cleanup
+  - `frontend vitest run src/components/RecallShellFrame.test.tsx src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose`
+  - `frontend vitest run src/App.test.tsx -t "source-focused mode swaps the utility dock for the compact source strip|manual Library clicks return to the browse-first landing without forgetting the last focused source tab" --maxWorkers=1 --pool=threads --testTimeout=30000 --reporter=verbose`
+  - repo-owned real Edge browse-first smoke via `scripts/playwright/stage37_collection_first_landing_edge.mjs`
+  - repo-owned real Edge screenshot capture via `scripts/playwright/stage39_hierarchy_density_edge.mjs`
+  - repo-owned real Edge benchmark audit via `node scripts/playwright/stage40_benchmark_audit_edge.mjs`
 - Known caveat:
   - the large `frontend/src/App.test.tsx` suite still stalls when run as one whole-file pass, so targeted coverage plus real Edge smoke remain the trustworthy validation path for this area
 - First files to read in a new chat:
@@ -27,7 +29,8 @@ Persistent continuity anchor for future chats and handoffs.
   - `BUILD_BRIEF.md`
   - `docs/ROADMAP.md`
   - `docs/ROADMAP_ANCHOR.md`
-  - `docs/exec_plans/active/2026-03-15_stage36_post_stage35_recall_ux_refresh.md`
+  - `docs/ux/recall_benchmark_matrix.md`
+  - `docs/exec_plans/active/2026-03-15_stage41_recall_shared_shell_and_surface_convergence.md`
 
 ## Current State
 
@@ -41,7 +44,10 @@ As of 2026-03-15, this workspace includes:
 - opt-in OpenAI `Simplify` and `Summary`
 - local library/search, reopen support, and persisted reader settings/progress
 - a collection-first default Recall shell with a left workspace rail, slim top bar, primary canvas, and lighter utility dock
-- a compact focused-source strip plus reader-led focused `Notes`, `Graph`, and `Study` work beside live source content
+- a browse-first Library landing with source cards and inline resume affordance
+- a compact focused-source strip plus reader-led focused `Notes`, `Graph`, and `Study` work beside live source content once source entry is intentional
+- user-reported contrast and overflow regressions on the landing were corrected during the Stage 38 audit, and Stage 39 further reduced repeated chrome, widened responsive source cards, and removed the focused-Library inline search panel
+- a benchmark matrix in `docs/ux/recall_benchmark_matrix.md` now anchors future UI work to the user-provided Recall screenshots plus official Recall docs/blog/changelog references
 - a bounded assistant harness in `agent.md` and `docs/assistant/`
 - Stage 0/1 planning logs, research notes, repo-fit notes, and future integration logs
 - completed Stage 1 through Stage 8 ExecPlans plus a post-Stage 8 placeholder for the next user-directed milestone
@@ -225,6 +231,26 @@ As of 2026-03-15, this workspace includes:
   - default Recall now opens in a collection-first shell with a rail, top bar, primary canvas, and lighter utility dock
   - focused source work now uses a compact source strip and no longer depends on the old support-strip reopen model
   - targeted shell/frontend validation plus the refreshed repo-owned real Edge Stage 34 smoke are green
+- Stage 36 post-Stage-35 Recall UX refresh is complete:
+  - the audit confirmed the reader-led focused split work and responsive shell are no longer the main bottlenecks
+  - the highest-friction remaining break is that populated `/recall` still auto-resumes into source-focused Library instead of a true collection-first landing
+  - the next slice is now a collection-first landing and intentional source-entry correction
+- Stage 37 true collection-first landing and intentional source entry is complete:
+  - populated `/recall` now stays browse-first by default instead of auto-entering focused source mode
+  - the default Library landing now uses a source-card canvas and inline resume affordance instead of keeping `Source overview` steady on load
+  - targeted frontend validation plus the repo-owned real Edge Stage 37 smoke are green
+- Stage 38 post-Stage-37 Recall UX refresh is complete:
+  - the audit confirmed the next bottleneck is visual hierarchy and density, not entry behavior
+  - fresh live screenshots now show a calmer landing, but the app still remains denser and more label-heavy than the benchmark
+  - the next slice is now a bounded hierarchy/density cleanup rather than another shell or navigation rewrite
+- Stage 39 Recall hierarchy cleanup and responsive card density is complete:
+  - the default landing now uses calmer, wider source cards with clearer hierarchy and less repeated chrome
+  - focused Library no longer renders inline `Search workspace`, and the focused source strip now carries less chip overload
+  - targeted frontend validation, the repo-owned real Edge Stage 37 smoke, and the repo-owned Stage 39 screenshot harness are green
+- Stage 40 benchmark-driven Recall surface audit is complete:
+  - the audit is now anchored to user-provided Recall screenshots plus official Recall docs/blog/changelog references
+  - a benchmark matrix and fresh localhost screenshots now lock the biggest remaining gaps across Library, Add Content, Graph, Study, and the shared shell
+  - the next slice is now Stage 41 shared-shell and surface convergence
 
 ## Recent Detours
 
@@ -268,14 +294,19 @@ As of 2026-03-15, this workspace includes:
 - 2026-03-15: completed the Stage 31 UX refresh audit using the live Stage 30 artifacts, the product brief, and current Recall benchmark material, then opened Stage 32 to keep one source visible while related note, graph, and study work move into adaptable side panes
 - 2026-03-15: completed Stage 32 with source-local split work for Notes/Graph/Study plus a repo-owned real Edge smoke, then completed the Stage 33 UX refresh audit and opened a reader-led split-work correction so live source content becomes the steady pane instead of `Source overview`
 - 2026-03-15: completed Stage 34 with reader-led focused split work and in-place evidence retargeting, then, by explicit user direction, completed a Stage 35 collection-first shell reset immediately afterward instead of waiting for the usual audit interstitial, and opened Stage 36 to audit the new shell before choosing the next bounded slice
+- 2026-03-15: completed the Stage 36 shell audit using the user-shared benchmark, the product brief, live localhost inspection, and Stage 34 artifacts, then opened Stage 37 to make `/recall` truly collection-first on populated workspaces instead of auto-entering focused source mode
+- 2026-03-15: completed Stage 37 with explicit browse-vs-focused source continuity, a browse-first source-card landing, and a repo-owned real Edge validation run, then opened Stage 38 to audit the calmer landing and decide the next bounded UI correction
+- 2026-03-15: completed the Stage 38 audit using fresh live screenshots at desktop and tablet widths, fixed the user-reported contrast/overflow regressions, and opened Stage 39 to clean up hierarchy and density without reopening navigation logic
+- 2026-03-15: completed Stage 39 with a quieter Library top bar, wider responsive source cards, lighter focused Library framing, a repo-owned Stage 39 screenshot harness, and a green rerun of the Stage 37 browse-first smoke, then opened Stage 40 for a fresh post-implementation UX audit
+- 2026-03-15: replaced the generic Stage 40 audit with a benchmark-driven Recall surface audit anchored to the user-provided screenshots plus official Recall docs/blog/changelog sources, captured a fresh localhost benchmark set and matrix, and opened Stage 41 for shared-shell and surface convergence
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Open the active Stage 36 ExecPlan in `docs/exec_plans/active/`.
+3. Read `docs/ux/recall_benchmark_matrix.md`, then open the active Stage 41 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while auditing the new collection-first shell plus reader-led focused work.
-7. Use Stage 36 to reassess the new shell against the user-shared reference, live behavior, and the product brief before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while converging the shell and top-level surfaces toward the benchmark matrix.
+7. Use Stage 41 to rewrite shared shell structure first, then Library/Add Content/Graph/Study framing, before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

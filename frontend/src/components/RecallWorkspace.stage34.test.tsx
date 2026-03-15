@@ -4,7 +4,6 @@ import { useState, type ReactElement } from 'react'
 
 import { RecallWorkspace } from './RecallWorkspace'
 import { defaultRecallWorkspaceContinuityState, type RecallSection, type RecallWorkspaceContinuityState } from '../lib/appRoute'
-import { defaultWorkspaceSearchSessionState } from '../lib/workspaceSearch'
 import type {
   DocumentView,
   KnowledgeGraphSnapshot,
@@ -317,6 +316,7 @@ function makeContinuityState(section: RecallSection): RecallWorkspaceContinuityS
     sourceWorkspace: {
       activeDocumentId: 'doc-search',
       activeTab: section === 'library' ? 'overview' : section,
+      mode: 'focused',
       readerAnchor: null,
     },
     study: {
@@ -334,20 +334,18 @@ function renderHarness(initialSection: RecallSection) {
     const [section, setSection] = useState<RecallSection>(initialSection)
 
     return (
-      <RecallWorkspace
-        continuityState={continuityState}
-        onContinuityStateChange={setContinuityState}
-        onOpenReader={onOpenReader}
-        onSearchQueryChange={() => undefined}
-        onSectionChange={setSection}
-        onSelectSearchResult={() => undefined}
-        onShellContextChange={() => undefined}
-        onShellHeroChange={() => undefined}
-        onShellSourceWorkspaceChange={() => undefined}
-        searchSession={defaultWorkspaceSearchSessionState}
-        section={section}
-        settings={settings}
-      />
+        <RecallWorkspace
+          continuityState={continuityState}
+          onContinuityStateChange={setContinuityState}
+          onOpenReader={onOpenReader}
+          onRequestNewSource={() => undefined}
+          onSectionChange={setSection}
+          onShellContextChange={() => undefined}
+          onShellHeroChange={() => undefined}
+          onShellSourceWorkspaceChange={() => undefined}
+          section={section}
+          settings={settings}
+        />
     )
   }
 

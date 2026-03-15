@@ -151,6 +151,7 @@ export default function App() {
         ...current.sourceWorkspace,
         activeDocumentId: route.documentId,
         activeTab: 'reader',
+        mode: 'focused',
         readerAnchor:
           route.sentenceStart !== null && route.sentenceEnd !== null
             ? {
@@ -209,6 +210,7 @@ export default function App() {
         ...current.sourceWorkspace,
         activeDocumentId: options?.documentId ?? current.sourceWorkspace.activeDocumentId,
         activeTab: mapRecallSectionToSourceTab(section),
+        mode: hasFocusedTarget ? 'focused' : 'browse',
       },
     }))
     setRecallFocusRequest({
@@ -308,6 +310,7 @@ export default function App() {
             ...current.sourceWorkspace,
             activeDocumentId: activeSourceDocumentId,
             activeTab: 'reader',
+            mode: 'focused',
           },
         }))
         navigate('reader', activeSourceDocumentId, recallContinuityState.sourceWorkspace.readerAnchor ?? undefined)
@@ -325,7 +328,8 @@ export default function App() {
       },
       sourceWorkspace: {
         ...current.sourceWorkspace,
-        activeTab: mapWorkspaceSectionToSourceTab(section),
+        activeTab: section === 'library' ? current.sourceWorkspace.activeTab : mapWorkspaceSectionToSourceTab(section),
+        mode: 'browse',
       },
     }))
     if (route.path !== 'recall') {
@@ -537,14 +541,12 @@ export default function App() {
             continuityState={recallContinuityState}
             focusRequest={recallFocusRequest}
             onContinuityStateChange={setRecallContinuityState}
-            onSearchQueryChange={handleWorkspaceSearchQueryChange}
             onShellContextChange={setShellContext}
-            onSelectSearchResult={handleSelectWorkspaceSearchResult}
             onSectionChange={setActiveRecallSection}
             onShellHeroChange={setShellHero}
+            onRequestNewSource={handleRequestNewSource}
             onShellSourceWorkspaceChange={setShellSourceWorkspace}
             onOpenReader={(documentId, options) => navigate('reader', documentId, options)}
-            searchSession={workspaceSearchSession}
             settings={settings}
             section={activeRecallSection}
           />

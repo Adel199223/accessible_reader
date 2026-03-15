@@ -198,17 +198,37 @@ Keep this repository as one local-first workspace.
   - default `/recall` now uses a collection-first shell with a left rail, slim top bar, primary canvas, and lighter utility dock
   - focused source work now uses a compact source strip and no longer depends on the old support-strip reopen model
   - targeted shell/frontend coverage, `frontend npm run lint`, `frontend npm run build`, and the refreshed repo-owned real Edge Stage 34 smoke are green
+- Stage 36 post-Stage-35 Recall UX refresh is complete:
+  - the audit confirmed the reader-led focused split work and responsive shell are no longer the main bottlenecks
+  - the highest-friction remaining break is that populated `/recall` still boots into source-focused Library instead of a true collection-first landing
+  - the next slice is now a collection-first landing and intentional source-entry correction
+- Stage 37 true collection-first landing and intentional source entry is complete:
+  - populated `/recall` now stays browse-first by default and no longer auto-enters focused source mode on load
+  - the default Library landing now uses a calmer source grid plus inline resume card instead of keeping `Source overview` and `Search workspace` steady on the landing
+  - targeted frontend coverage, `frontend npm run lint`, `frontend npm run build`, and the repo-owned real Edge Stage 37 smoke are green
+- Stage 38 post-Stage-37 Recall UX refresh is complete:
+  - the audit confirmed the remaining bottleneck is no longer navigation entry logic, but visual hierarchy and density
+  - landing cards are readable again after the user-reported contrast and overflow regressions were corrected
+  - the next slice is now a bounded hierarchy/density cleanup for the landing, focused Library, and tablet-width layout
+- Stage 39 Recall hierarchy cleanup and responsive card density is complete:
+  - the default landing now uses calmer, wider source cards with clearer hierarchy, less repeated labeling, and cleaner tablet-width density
+  - focused Library no longer renders the inline `Search workspace` panel, and the focused source strip now carries less chip overload
+  - targeted frontend coverage, `frontend npm run lint`, `frontend npm run build`, the repo-owned real Edge Stage 37 smoke, and the repo-owned Stage 39 screenshot harness are green
+- Stage 40 benchmark-driven Recall surface audit is complete:
+  - the audit is now anchored to the user-provided Recall screenshots plus official Recall docs/blog/changelog references instead of a generic post-implementation UX pass
+  - a benchmark matrix plus fresh localhost captures now lock the biggest remaining gaps: heavy shared shell chrome, Library card-wall structure, Add Content hierarchy, Graph over-framing, and Study dashboard density
+  - the next slice is now a shared-shell-first convergence pass across Library, Add Content, Graph, and Study rather than another open-ended audit
 
 ## Active Milestone
 
-1. Stage 36: Post-Stage-35 Recall UX Refresh
-   - audit the new collection-first shell against the product brief, live behavior, and the user's benchmark screenshot
-   - choose the next bounded slice only after reassessing the default landing, focused mode, narrow-width behavior, and empty/error states
+1. Stage 41: Recall Shared Shell And Surface Convergence
+   - converge the shared shell, Library/home, Add Content, Graph, and Study toward the benchmark matrix captured in Stage 40
+   - keep Stage 37 browse-first entry and Stage 34 reader-led focused work while substantially rewriting the visible shell and browse surfaces
 
 ## Next Milestone
 
-1. Stage 36: Post-Stage-35 Recall UX Refresh
-   - use the Stage 34 and Stage 35 live artifacts to decide whether the next bounded slice should target shell polish, focused-mode polish, responsiveness, or empty/error-state cleanup
+1. Stage 41: Recall Shared Shell And Surface Convergence
+   - implement the benchmark-constrained shell and surface rewrite the Stage 40 audit now makes decision-complete
 
 ## Stage Map
 
@@ -327,6 +347,21 @@ Keep this repository as one local-first workspace.
 36. Stage 36: Post-Stage-35 Recall UX Refresh
    - reassess the new collection-first shell against the user's benchmark, current live behavior, and the product brief
    - choose the next bounded UX correction only after the refreshed shell is audited in its live state
+37. Stage 37: True Collection-First Landing and Intentional Source Entry
+   - stop populated `/recall` from auto-entering focused source mode on load
+   - preserve reader-led focused work once the user explicitly enters one source through selection or handoff
+38. Stage 38: Post-Stage-37 Recall UX Refresh
+   - audit the new browse-first landing and intentional source-entry model in live use
+   - choose the next bounded UI correction from the current app and benchmark evidence instead of guessing at another broad shell pass
+39. Stage 39: Recall Hierarchy Cleanup and Responsive Card Density
+   - reduce landing and focused-Library noise while improving card readability and mid-width responsiveness
+   - preserve intentional source entry and reader-led focused work while making the app feel calmer and more benchmark-aligned
+40. Stage 40: Benchmark-Driven Recall Surface Audit
+   - anchor the audit to user-provided Recall screenshots plus official Recall docs/blog/changelog references
+   - capture a benchmark matrix and fresh localhost surface screenshots before choosing the next implementation slice
+41. Stage 41: Recall Shared Shell And Surface Convergence
+   - rewrite the shared shell and top-level Recall surfaces to match the benchmark direction much more closely
+   - keep local-first behavior and reader-led focused work while changing the visible structure substantially
 
 ## Deferred Follow-Ups
 
@@ -382,3 +417,8 @@ Keep this repository as one local-first workspace.
 - 2026-03-15: completed the Stage 31 UX refresh audit using the live Stage 30 artifacts, the product brief, and current Recall benchmark material, then opened Stage 32 to keep one source visible while related note, graph, and study work move into adaptable side panes
 - 2026-03-15: completed Stage 32 with focused split-work layouts for source-local Notes, Graph, and Study, validated the slice with lint/build plus a repo-owned real Edge smoke, and then completed the Stage 33 UX audit to identify reader-led split work as the next highest-leverage correction
 - 2026-03-15: completed Stage 34 with reader-led focused split work plus in-place evidence retargeting, then, by explicit user direction, completed a Stage 35 collection-first shell reset immediately afterward instead of waiting for the usual audit interstitial, and opened Stage 36 to audit the new shell before choosing the next bounded slice
+- 2026-03-15: completed the Stage 36 shell audit using the user-shared benchmark, the product brief, live localhost inspection, and Stage 34 artifacts, then opened Stage 37 to stop populated `/recall` from auto-entering focused source mode and make collection-first landing behavior truly intentional
+- 2026-03-15: completed Stage 37 with explicit browse-vs-focused source continuity, a browse-first Library landing, and a repo-owned real Edge validation pass, then opened Stage 38 to audit the calmer landing and choose the next bounded UI correction from the live result
+- 2026-03-15: completed the Stage 38 audit with fresh live screenshots, confirmed the next bottleneck is visual hierarchy and responsive density rather than navigation entry behavior, fixed the user-reported contrast/overflow regressions, and opened Stage 39 for a bounded cleanup pass
+- 2026-03-15: completed Stage 39 with a quieter Library top bar, wider responsive source cards, lighter focused Library framing, a repo-owned Stage 39 screenshot harness, and a green rerun of the Stage 37 browse-first smoke, then opened Stage 40 for a fresh post-implementation UX audit
+- 2026-03-15: replaced the generic Stage 40 audit with a benchmark-driven Recall surface audit anchored to user-provided screenshots plus official Recall docs/blog/changelog sources, captured a fresh localhost benchmark set and matrix, and opened Stage 41 for shared-shell and surface convergence

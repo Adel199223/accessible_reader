@@ -29,7 +29,6 @@ import type {
   RecallWorkspaceContinuityState,
   RecallWorkspaceFocusRequest,
 } from '../lib/appRoute'
-import type { WorkspaceSearchSessionState } from '../lib/workspaceSearch'
 import type {
   KnowledgeEdgeRecord,
   KnowledgeGraphSnapshot,
@@ -49,7 +48,6 @@ import type {
 } from '../types'
 import type { WorkspaceHeroProps } from './WorkspaceHero'
 import { FocusedSourceReaderPane } from './FocusedSourceReaderPane'
-import { WorkspaceSearchSurface } from './WorkspaceSearchSurface'
 import type { SourceWorkspaceFrameState } from './SourceWorkspaceFrame'
 
 
@@ -57,10 +55,10 @@ interface RecallWorkspaceProps {
   continuityState: RecallWorkspaceContinuityState
   focusRequest?: RecallWorkspaceFocusRequest | null
   onContinuityStateChange: Dispatch<SetStateAction<RecallWorkspaceContinuityState>>
-  onSearchQueryChange: (query: string) => void
   onShellContextChange: (context: WorkspaceDockContext | null) => void
   onSectionChange: (section: RecallSection) => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
+  onRequestNewSource: () => void
   onShellSourceWorkspaceChange: (workspace: SourceWorkspaceFrameState | null) => void
   onOpenReader: (
     documentId: string,
@@ -69,8 +67,6 @@ interface RecallWorkspaceProps {
       sentenceStart?: number | null
     },
   ) => void
-  onSelectSearchResult: (resultKey: string) => void
-  searchSession: WorkspaceSearchSessionState
   settings: ReaderSettings
   section: RecallSection
 }
@@ -79,6 +75,13 @@ type LoadState = 'idle' | 'loading' | 'success' | 'error'
 
 function formatModeLabel(mode: string) {
   return mode.slice(0, 1).toUpperCase() + mode.slice(1)
+}
+
+function formatSourceWorkspaceTabLabel(tab: SourceWorkspaceTab) {
+  if (tab === 'overview') {
+    return 'Overview'
+  }
+  return tab.slice(0, 1).toUpperCase() + tab.slice(1)
 }
 
 
@@ -268,14 +271,12 @@ export function RecallWorkspace({
   continuityState,
   focusRequest = null,
   onContinuityStateChange,
-  onSearchQueryChange,
   onShellContextChange,
   onOpenReader,
-  onSelectSearchResult,
   onSectionChange,
   onShellHeroChange,
+  onRequestNewSource,
   onShellSourceWorkspaceChange,
-  searchSession,
   settings,
   section,
 }: RecallWorkspaceProps) {
@@ -338,14 +339,20 @@ export function RecallWorkspace({
   const selectedNoteId = continuityState.notes.selectedNoteId
   const activeSourceDocumentId = continuityState.sourceWorkspace.activeDocumentId
   const activeSourceTab = continuityState.sourceWorkspace.activeTab
+  const activeSourceMode = continuityState.sourceWorkspace.mode
   const activeSourceReaderAnchor = continuityState.sourceWorkspace.readerAnchor
   const libraryBrowseDrawerOpen = continuityState.browseDrawers.library
   const graphBrowseDrawerOpen = continuityState.browseDrawers.graph
   const notesBrowseDrawerOpen = continuityState.browseDrawers.notes
   const studyBrowseDrawerOpen = continuityState.browseDrawers.study
-  const showFocusedNotesSplitView = section === 'notes' && !notesBrowseDrawerOpen && Boolean(activeSourceDocumentId)
-  const showFocusedGraphSplitView = section === 'graph' && !graphBrowseDrawerOpen && Boolean(activeSourceDocumentId)
-  const showFocusedStudySplitView = section === 'study' && !studyBrowseDrawerOpen && Boolean(activeSourceDocumentId)
+  const sourceWorkspaceFocused = activeSourceMode === 'focused'
+  const showFocusedLibraryOverview = section === 'library' && sourceWorkspaceFocused && Boolean(activeSourceDocumentId)
+  const showFocusedNotesSplitView =
+    section === 'notes' && sourceWorkspaceFocused && !notesBrowseDrawerOpen && Boolean(activeSourceDocumentId)
+  const showFocusedGraphSplitView =
+    section === 'graph' && sourceWorkspaceFocused && !graphBrowseDrawerOpen && Boolean(activeSourceDocumentId)
+  const showFocusedStudySplitView =
+    section === 'study' && sourceWorkspaceFocused && !studyBrowseDrawerOpen && Boolean(activeSourceDocumentId)
   const deferredLibraryFilter = useDeferredValue(libraryFilterQuery)
   const deferredNoteSearch = useDeferredValue(noteSearchQuery)
 
@@ -565,11 +572,6 @@ export function RecallWorkspace({
       sourceWorkspaceDocument
         ? [
             {
-              label: sourceWorkspaceDocument.available_modes.length === 1
-                ? '1 view'
-                : `${sourceWorkspaceDocument.available_modes.length} views`,
-            },
-            {
               label: sourceWorkspaceNoteCountLabel,
               tone: 'muted' as const,
             },
@@ -589,12 +591,12 @@ export function RecallWorkspace({
   )
   const sourceWorkspaceDescription =
     section === 'library'
-      ? 'Keep one source in focus while overview, reading, notes, graph context, and study stay one jump away.'
+      ? 'Keep one source in focus while Reader, Notes, Graph, and Study stay nearby.'
       : section === 'notes'
-        ? 'Stay on the same source while editing saved notes, reopening Reader, or checking graph and study context.'
+        ? 'Edit saved notes without losing the active source.'
         : section === 'graph'
-          ? 'Validate graph evidence for the active source without losing nearby reading, note, or study context.'
-          : 'Review study evidence for the active source while Reader, notes, and graph context stay close.'
+          ? 'Validate graph evidence without losing the active source.'
+          : 'Review study evidence without losing the active source.'
   const shellContext = useMemo<WorkspaceDockContext | null>(() => {
     if (section === 'library') {
       if (!selectedDocument) {
@@ -851,6 +853,10 @@ export function RecallWorkspace({
       updatedAt: sourceWorkspaceDocument.updated_at,
     }
   }, [sourceWorkspaceDocument])
+  const resumeSourceDocument = useMemo(
+    () => sourceWorkspaceDocument ?? documents.find((document) => document.id === activeSourceDocumentId) ?? null,
+    [activeSourceDocumentId, documents, sourceWorkspaceDocument],
+  )
 
   const loadGraph = useCallback(async () => {
     setGraphStatus('loading')
@@ -955,13 +961,17 @@ export function RecallWorkspace({
               current.sourceWorkspace.activeDocumentId &&
               loadedDocuments.some((document) => document.id === current.sourceWorkspace.activeDocumentId)
                 ? current.sourceWorkspace.activeDocumentId
-                : current.library.selectedDocumentId &&
+                : current.sourceWorkspace.mode === 'focused' &&
+                    current.library.selectedDocumentId &&
                     loadedDocuments.some((document) => document.id === current.library.selectedDocumentId)
                   ? current.library.selectedDocumentId
-                  : current.notes.selectedDocumentId &&
+                  : current.sourceWorkspace.mode === 'focused' &&
+                      current.notes.selectedDocumentId &&
                       loadedDocuments.some((document) => document.id === current.notes.selectedDocumentId)
                     ? current.notes.selectedDocumentId
-                    : loadedDocuments[0]?.id ?? null,
+                    : current.sourceWorkspace.mode === 'focused'
+                      ? loadedDocuments[0]?.id ?? null
+                      : null,
           },
         }))
       })
@@ -1382,7 +1392,7 @@ export function RecallWorkspace({
   }, [focusRequest, section, updateGraphState, updateLibraryState, updateNotesState, updateSourceWorkspaceState, updateStudyState])
 
   useEffect(() => {
-    if (section !== 'library' || !selectedLibraryDocumentId) {
+    if (section !== 'library' || !selectedLibraryDocumentId || !sourceWorkspaceFocused) {
       return
     }
     updateSourceWorkspaceState((current) =>
@@ -1394,7 +1404,7 @@ export function RecallWorkspace({
             activeTab: 'overview',
           },
     )
-  }, [section, selectedLibraryDocumentId, updateSourceWorkspaceState])
+  }, [section, selectedLibraryDocumentId, sourceWorkspaceFocused, updateSourceWorkspaceState])
 
   useEffect(() => {
     if (section !== 'notes' || !selectedNotesDocumentId) {
@@ -1485,18 +1495,19 @@ export function RecallWorkspace({
     }))
   }
 
-  function handleOpenDocumentInReader(
+  const handleOpenDocumentInReader = useCallback((
     documentId: string,
     options?: {
       sentenceEnd?: number | null
       sentenceStart?: number | null
     },
-  ) {
+  ) => {
     handleSelectLibraryDocument(documentId)
     updateSourceWorkspaceState((current) => ({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'reader',
+      mode: 'focused',
       readerAnchor:
         options?.sentenceStart !== null &&
         options?.sentenceStart !== undefined &&
@@ -1509,7 +1520,7 @@ export function RecallWorkspace({
           : current.readerAnchor,
     }))
     onOpenReader(documentId, options)
-  }
+  }, [handleSelectLibraryDocument, onOpenReader, updateSourceWorkspaceState])
 
   function handleOpenMentionInReader(sourceDocumentId: string) {
     handleOpenDocumentInReader(sourceDocumentId)
@@ -1548,34 +1559,6 @@ export function RecallWorkspace({
     if (anchorRange) {
       setSourceWorkspaceReaderAnchor(anchorRange)
     }
-  }
-
-  function handleOpenWorkspaceSearchNote(documentId: string, noteId: string) {
-    focusSourceNotes(documentId, noteId)
-  }
-
-  function handleOpenWorkspaceSearchGraph(nodeId: string | null, sourceDocumentId?: string | null) {
-    if (!sourceDocumentId) {
-      updateGraphState((current) => ({ ...current, selectedNodeId: nodeId ?? current.selectedNodeId }))
-      setBrowseDrawerOpen('graph', false)
-      onSectionChange('graph')
-      return
-    }
-    focusSourceGraph(sourceDocumentId, nodeId)
-  }
-
-  function handleOpenWorkspaceSearchStudy(cardId: string | null, sourceDocumentId?: string | null) {
-    if (!sourceDocumentId) {
-      updateStudyState((current) => ({
-        ...current,
-        filter: 'all',
-        activeCardId: cardId ?? current.activeCardId,
-      }))
-      setBrowseDrawerOpen('study', false)
-      onSectionChange('study')
-      return
-    }
-    focusSourceStudy(sourceDocumentId, cardId)
   }
 
   function handleRetryRecallLoading() {
@@ -1873,12 +1856,25 @@ export function RecallWorkspace({
       : sourceWorkspaceNoteCountLabel
   const sourceOverviewDescription =
     section === 'notes'
-      ? 'Keep the source summary visible while editing saved notes and grounded promotions beside it.'
+      ? 'Keep the source summary visible while editing saved notes and grounded promotions.'
       : section === 'graph'
-        ? 'Keep the source summary visible while validating graph evidence and relation suggestions beside it.'
+        ? 'Keep the source summary visible while validating graph evidence and relation suggestions.'
         : section === 'study'
-          ? 'Keep the source summary visible while reviewing study evidence and scheduling actions beside it.'
-          : 'Work from one source-centered summary with nearby notes, graph, study, and reading actions.'
+          ? 'Keep the source summary visible while reviewing study evidence and scheduling actions.'
+          : 'Work from one source-centered summary with nearby reading, notes, graph, and study handoffs.'
+
+  const focusSourceLibrary = useCallback((documentId: string) => {
+    handleSelectLibraryDocument(documentId)
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeDocumentId: documentId,
+      activeTab: 'overview',
+      mode: 'focused',
+      readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
+    }))
+    setBrowseDrawerOpen('library', false)
+    onSectionChange('library')
+  }, [handleSelectLibraryDocument, onSectionChange, setBrowseDrawerOpen, updateSourceWorkspaceState])
 
   const focusSourceNotes = useCallback((documentId: string, noteId?: string | null) => {
     handleSelectLibraryDocument(documentId)
@@ -1886,6 +1882,7 @@ export function RecallWorkspace({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'notes',
+      mode: 'focused',
       readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
     }))
     updateNotesState((current) => ({
@@ -1906,6 +1903,7 @@ export function RecallWorkspace({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'graph',
+      mode: 'focused',
       readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
     }))
     updateGraphState((current) => ({
@@ -1930,6 +1928,7 @@ export function RecallWorkspace({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'study',
+      mode: 'focused',
       readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
     }))
     updateStudyState((current) => ({
@@ -1946,6 +1945,46 @@ export function RecallWorkspace({
     studyCards,
     updateSourceWorkspaceState,
     updateStudyState,
+  ])
+
+  const resumeFocusedSource = useCallback(() => {
+    if (!activeSourceDocumentId) {
+      return
+    }
+
+    if (activeSourceTab === 'reader') {
+      handleOpenDocumentInReader(activeSourceDocumentId, activeSourceReaderAnchor ?? undefined)
+      return
+    }
+
+    if (activeSourceTab === 'notes') {
+      focusSourceNotes(activeSourceDocumentId, selectedNoteId)
+      return
+    }
+
+    if (activeSourceTab === 'graph') {
+      focusSourceGraph(activeSourceDocumentId, selectedNodeId)
+      return
+    }
+
+    if (activeSourceTab === 'study') {
+      focusSourceStudy(activeSourceDocumentId, activeCardId)
+      return
+    }
+
+    focusSourceLibrary(activeSourceDocumentId)
+  }, [
+    activeCardId,
+    activeSourceDocumentId,
+    activeSourceReaderAnchor,
+    activeSourceTab,
+    focusSourceGraph,
+    focusSourceLibrary,
+    focusSourceNotes,
+    focusSourceStudy,
+    handleOpenDocumentInReader,
+    selectedNodeId,
+    selectedNoteId,
   ])
 
   function renderFocusedReaderPane() {
@@ -1992,9 +2031,6 @@ export function RecallWorkspace({
               <button type="button" onClick={() => onOpenReader(sourceOverviewDocument.id)}>
                 Open in Reader
               </button>
-              <button className="ghost-button" type="button" onClick={() => focusSourceNotes(sourceOverviewDocument.id)}>
-                View notes
-              </button>
               <a className="secondary-button" href={buildRecallExportUrl(sourceOverviewDocument.id)}>
                 Export Markdown
               </a>
@@ -2028,11 +2064,6 @@ export function RecallWorkspace({
                   {sourceOverviewDocument.chunk_count} chunks
                 </span>
                 <span className="status-chip reader-meta-chip" role="listitem">{sourceOverviewNoteCountLabel}</span>
-                {sourceOverviewDocument.available_modes.map((mode) => (
-                  <span key={mode} className="status-chip reader-meta-chip" role="listitem">
-                    {formatModeLabel(mode)}
-                  </span>
-                ))}
               </div>
             </div>
             <div className="recall-detail-brief">
@@ -2143,7 +2174,11 @@ export function RecallWorkspace({
   }, [onShellContextChange, shellContext])
 
   useEffect(() => {
-    if (!activeSourceDocumentId || (!sourceWorkspaceDocument && sourceWorkspaceStatus !== 'loading')) {
+    if (
+      !sourceWorkspaceFocused ||
+      !activeSourceDocumentId ||
+      (!sourceWorkspaceDocument && sourceWorkspaceStatus !== 'loading')
+    ) {
       onShellSourceWorkspaceChange(null)
       return
     }
@@ -2198,8 +2233,10 @@ export function RecallWorkspace({
     })
   }, [
     activeSourceDocumentId,
+    activeSourceMode,
     activeSourceTab,
     focusSourceGraph,
+    focusSourceLibrary,
     focusSourceNotes,
     focusSourceStudy,
     onOpenReader,
@@ -2209,6 +2246,7 @@ export function RecallWorkspace({
     sourceWorkspaceCounts,
     sourceWorkspaceDescription,
     sourceWorkspaceDocument,
+    sourceWorkspaceFocused,
     sourceWorkspaceStatus,
     updateLibraryState,
     updateSourceWorkspaceState,
@@ -2231,89 +2269,207 @@ export function RecallWorkspace({
       {studyMessage ? <p className="small-note">{studyMessage}</p> : null}
 
       {section === 'library' ? (
-        <div className={libraryBrowseDrawerOpen ? 'recall-grid' : 'recall-grid recall-grid-browse-condensed'}>
-          <section
-            className={
-              libraryBrowseDrawerOpen
-                ? 'card recall-library-card recall-collection-rail stack-gap'
-                : 'card recall-library-card recall-collection-rail recall-collection-rail-condensed stack-gap'
-            }
-          >
-            <div className="toolbar recall-collection-toolbar">
-              <div className="section-header section-header-compact">
-                <h2>Source library</h2>
-                <p>
+        showFocusedLibraryOverview ? (
+          <div className={libraryBrowseDrawerOpen ? 'recall-grid' : 'recall-grid recall-grid-browse-condensed'}>
+            <section
+              className={
+                libraryBrowseDrawerOpen
+                  ? 'card recall-library-card recall-collection-rail stack-gap'
+                  : 'card recall-library-card recall-collection-rail recall-collection-rail-condensed stack-gap'
+              }
+            >
+              <div className="toolbar recall-collection-toolbar">
+                <div className="section-header section-header-compact">
+                  <h2>Source library</h2>
+                  <p>
+                    {documentsLoading
+                      ? 'Loading…'
+                      : libraryFilterActive
+                        ? `${visibleDocuments.length} matches`
+                        : documentCountLabel}
+                  </p>
+                </div>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => setBrowseDrawerOpen('library', !libraryBrowseDrawerOpen)}
+                >
+                  {libraryBrowseDrawerOpen ? 'Hide' : 'Show'}
+                </button>
+              </div>
+
+              {libraryBrowseDrawerOpen || documentsStatus === 'error' ? (
+                <>
+                  <label className="field recall-inline-field">
+                    <span>Filter sources</span>
+                    <input
+                      type="search"
+                      placeholder="Search saved sources"
+                      value={libraryFilterQuery}
+                      onChange={(event) =>
+                        updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                      }
+                    />
+                  </label>
+
+                  <div className="recall-document-list" role="list">
+                    {documentsLoading ? <p className="small-note">Loading saved documents…</p> : null}
+                    {!documentsLoading && documentsStatus === 'error' ? (
+                      <div className="stack-gap">
+                        <p className="small-note">Saved documents are unavailable until the local service reconnects.</p>
+                        <div className="inline-actions">
+                          <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                            Retry loading
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {!documentsLoading && documentsStatus !== 'error' && documents.length === 0 ? (
+                      <p className="small-note">
+                        Reader imports appear here automatically once they reach shared storage.
+                      </p>
+                    ) : null}
+                    {!documentsLoading &&
+                    documentsStatus !== 'error' &&
+                    documents.length > 0 &&
+                    visibleDocuments.length === 0 ? (
+                      <p className="small-note">
+                        No saved sources match that filter. The current source overview stays visible on the right.
+                      </p>
+                    ) : null}
+
+                    {visibleDocuments.map((document) => (
+                      <button
+                        key={document.id}
+                        aria-pressed={selectedLibraryDocumentId === document.id}
+                        className={
+                          selectedLibraryDocumentId === document.id
+                            ? 'recall-document-item recall-document-item-compact recall-document-item-active'
+                            : 'recall-document-item recall-document-item-compact'
+                        }
+                        type="button"
+                        onClick={() => handleSelectLibraryDocument(document.id)}
+                      >
+                        <span className="recall-collection-row-head">
+                          <span className="recall-document-title">{document.title}</span>
+                          <span className="recall-document-meta">{dateFormatter.format(new Date(document.updated_at))}</span>
+                        </span>
+                        <span className="recall-collection-row-preview">{getDocumentSourcePreview(document)}</span>
+                        <span className="recall-collection-row-meta">
+                          <span className="status-chip reader-meta-chip">{document.source_type.toUpperCase()}</span>
+                          <span className="status-chip reader-meta-chip">{document.chunk_count} chunks</span>
+                          <span className="status-chip reader-meta-chip">
+                            {document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="recall-browse-drawer-summary stack-gap">
+                  <p className="small-note">
+                    Keep the active source centered here. Open browsing when you want to switch sources or refine the filter.
+                  </p>
+                  {sourceWorkspaceDrawerSummary ? (
+                    <div className="recall-detail-panel recall-browse-summary-card">
+                      <strong>{sourceWorkspaceDrawerSummary.title}</strong>
+                      <span>{sourceWorkspaceDrawerSummary.source}</span>
+                      <span>
+                        {sourceWorkspaceDrawerSummary.updatedAt
+                          ? `Updated ${dateFormatter.format(new Date(sourceWorkspaceDrawerSummary.updatedAt))}`
+                          : sourceWorkspaceNoteCountLabel}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="recall-detail-panel recall-browse-summary-card">
+                      <strong>No active source yet</strong>
+                      <span>Open the library drawer when you want to choose a saved source.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <div className="recall-main-column">{renderSourceOverviewPanel()}</div>
+          </div>
+        ) : (
+          <section className="card recall-library-landing stack-gap">
+            <div className="section-header recall-library-landing-header">
+              <div className="recall-library-landing-title">
+                <h2>Saved sources</h2>
+                <p className="recall-library-landing-copy">
                   {documentsLoading
-                    ? 'Loading…'
-                    : libraryFilterActive
-                      ? `${visibleDocuments.length} matches`
-                      : documentCountLabel}
+                    ? 'Loading local collection.'
+                    : documentsStatus === 'error'
+                      ? 'Reconnect the local service to reload your saved sources.'
+                      : documents.length === 0
+                        ? 'Add a source to start reading and saving context.'
+                        : `${documents.length} saved ${documents.length === 1 ? 'source' : 'sources'} ready to reopen.`}
                 </p>
               </div>
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => setBrowseDrawerOpen('library', !libraryBrowseDrawerOpen)}
-              >
-                {libraryBrowseDrawerOpen ? 'Hide' : 'Show'}
-              </button>
             </div>
 
-            {libraryBrowseDrawerOpen || documentsStatus === 'error' ? (
-              <>
-                <label className="field recall-inline-field">
-                  <span>Filter sources</span>
-                  <input
-                    type="search"
-                    placeholder="Search saved sources"
-                    value={libraryFilterQuery}
-                    onChange={(event) =>
-                      updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
-                    }
-                  />
-                </label>
+            {resumeSourceDocument ? (
+              <section className="recall-library-resume-card" aria-label="Resume source">
+                <div className="recall-library-resume-copy">
+                  <span className="status-chip">Resume</span>
+                  <strong>{resumeSourceDocument.title}</strong>
+                  <p>
+                    {formatSourceWorkspaceTabLabel(activeSourceTab)} ready from {getDocumentSourcePreview(resumeSourceDocument)}.
+                  </p>
+                </div>
+                <button type="button" onClick={resumeFocusedSource}>
+                  {activeSourceTab === 'reader' ? 'Open Reader' : `Resume ${formatSourceWorkspaceTabLabel(activeSourceTab)}`}
+                </button>
+              </section>
+            ) : null}
 
-                <div className="recall-document-list" role="list">
-                  {documentsLoading ? <p className="small-note">Loading saved documents…</p> : null}
-                  {!documentsLoading && documentsStatus === 'error' ? (
-                    <div className="stack-gap">
-                      <p className="small-note">Saved documents are unavailable until the local service reconnects.</p>
-                      <div className="inline-actions">
-                        <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
-                          Retry loading
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                  {!documentsLoading && documentsStatus !== 'error' && documents.length === 0 ? (
-                    <p className="small-note">
-                      Reader imports appear here automatically once they reach shared storage.
-                    </p>
-                  ) : null}
-                  {!documentsLoading && documentsStatus !== 'error' && documents.length > 0 && visibleDocuments.length === 0 ? (
-                    <p className="small-note">
-                      No saved sources match that filter. The current source overview stays visible on the right.
-                    </p>
-                  ) : null}
+            <div className="recall-source-grid" aria-label="Saved sources" role="list">
+              <button
+                aria-label="Add source"
+                className="recall-source-tile recall-source-tile-add"
+                type="button"
+                onClick={onRequestNewSource}
+              >
+                <span className="recall-source-tile-plus" aria-hidden="true">+</span>
+                <strong>Add source</strong>
+                <span>Import local text, files, or article links.</span>
+              </button>
 
-                  {visibleDocuments.map((document) => (
+              {documentsLoading ? (
+                <div className="recall-library-inline-state" role="status">
+                  Loading saved sources…
+                </div>
+              ) : null}
+              {!documentsLoading && documentsStatus === 'error' ? (
+                <div className="recall-library-inline-state" role="alert">
+                  <p>Saved sources are unavailable until the local service reconnects.</p>
+                  <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                    Retry loading
+                  </button>
+                </div>
+              ) : null}
+              {!documentsLoading && documentsStatus !== 'error' && documents.length === 0 ? (
+                <div className="recall-library-inline-state">
+                  <p>Your library is empty. Add a source to start reading, saving notes, and building graph or study context.</p>
+                </div>
+              ) : null}
+              {!documentsLoading && documentsStatus !== 'error'
+                ? documents.map((document) => (
                     <button
+                      aria-label={`Open ${document.title}`}
                       key={document.id}
-                      aria-pressed={selectedLibraryDocumentId === document.id}
-                      className={
-                        selectedLibraryDocumentId === document.id
-                          ? 'recall-document-item recall-document-item-compact recall-document-item-active'
-                          : 'recall-document-item recall-document-item-compact'
-                      }
+                      className="recall-source-tile"
                       type="button"
-                      onClick={() => handleSelectLibraryDocument(document.id)}
+                      onClick={() => focusSourceLibrary(document.id)}
                     >
-                      <span className="recall-collection-row-head">
-                        <span className="recall-document-title">{document.title}</span>
-                        <span className="recall-document-meta">{dateFormatter.format(new Date(document.updated_at))}</span>
+                      <span className="recall-source-tile-date">{dateFormatter.format(new Date(document.updated_at))}</span>
+                      <span className="recall-source-tile-head">
+                        <strong>{document.title}</strong>
                       </span>
-                      <span className="recall-collection-row-preview">{getDocumentSourcePreview(document)}</span>
-                      <span className="recall-collection-row-meta">
+                      <span className="recall-source-tile-preview">{getDocumentSourcePreview(document)}</span>
+                      <span className="recall-source-tile-meta">
                         <span className="status-chip reader-meta-chip">{document.source_type.toUpperCase()}</span>
                         <span className="status-chip reader-meta-chip">{document.chunk_count} chunks</span>
                         <span className="status-chip reader-meta-chip">
@@ -2321,63 +2477,11 @@ export function RecallWorkspace({
                         </span>
                       </span>
                     </button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="recall-browse-drawer-summary stack-gap">
-                <p className="small-note">
-                  Keep the active source centered here. Open browsing when you want to switch sources or refine the filter.
-                </p>
-                {sourceWorkspaceDrawerSummary ? (
-                  <div className="recall-detail-panel recall-browse-summary-card">
-                    <strong>{sourceWorkspaceDrawerSummary.title}</strong>
-                    <span>{sourceWorkspaceDrawerSummary.source}</span>
-                    <span>
-                      {sourceWorkspaceDrawerSummary.updatedAt
-                        ? `Updated ${dateFormatter.format(new Date(sourceWorkspaceDrawerSummary.updatedAt))}`
-                        : sourceWorkspaceNoteCountLabel}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="recall-detail-panel recall-browse-summary-card">
-                    <strong>No active source yet</strong>
-                    <span>Open the library drawer when you want to choose a saved source.</span>
-                  </div>
-                )}
-              </div>
-            )}
+                  ))
+                : null}
+            </div>
           </section>
-
-          <div className="recall-main-column stack-gap">
-            {renderSourceOverviewPanel()}
-
-            <section className="card stack-gap recall-search-card">
-              <div className="section-header section-header-compact">
-                <h2>Search workspace</h2>
-                <p>Keep one remembered search loop across sources, notes, graph evidence, and study clues.</p>
-              </div>
-              <WorkspaceSearchSurface
-                onOpenGraph={(nodeId) => {
-                  const sourceDocumentId =
-                    searchSession.hits.find((hit) => hit.node_id === nodeId)?.source_document_id ?? selectedDocument?.id ?? null
-                  handleOpenWorkspaceSearchGraph(nodeId, sourceDocumentId)
-                }}
-                onOpenNote={handleOpenWorkspaceSearchNote}
-                onOpenReader={handleOpenDocumentInReader}
-                onOpenStudy={(cardId) => {
-                  const sourceDocumentId =
-                    searchSession.hits.find((hit) => hit.card_id === cardId)?.source_document_id ?? selectedDocument?.id ?? null
-                  handleOpenWorkspaceSearchStudy(cardId, sourceDocumentId)
-                }}
-                onQueryChange={onSearchQueryChange}
-                onSelectResult={onSelectSearchResult}
-                searchSession={searchSession}
-                variant="panel"
-              />
-            </section>
-          </div>
-        </div>
+        )
       ) : null}
 
       {section === 'graph' ? (

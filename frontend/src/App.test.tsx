@@ -2070,8 +2070,27 @@ test('source-focused mode swaps the utility dock for the compact source strip', 
 
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
-  expect(screen.getAllByText('Focused source')).toHaveLength(2)
+  expect(screen.getByText('Focused source')).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
+})
+
+test('manual Library clicks return to the browse-first landing without forgetting the last focused source tab', async () => {
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: /^Library$/ }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('heading', { name: 'Saved sources', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open Reader' })).toBeInTheDocument()
+  })
+
+  expect(screen.queryByRole('region', { name: 'Search target only workspace' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Source overview', level: 2 })).not.toBeInTheDocument()
 })
 
 test('Recall source overview surfaces nearby notes, graph, and study context for the active source', async () => {

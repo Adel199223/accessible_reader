@@ -95,19 +95,29 @@ function renderShell(overrides?: {
   return { onSelectSection }
 }
 
-test('RecallShellFrame renders the collection-first rail, topbar, and utility dock by default', () => {
+test('RecallShellFrame renders the collection-first rail and topbar without the library utility dock', () => {
   const { onSelectSection } = renderShell()
 
   expect(screen.getByRole('tablist', { name: 'Workspace sections' })).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: 'Library', selected: true })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Current context', level: 2 })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Recent work', level: 2 })).toBeInTheDocument()
+  expect(screen.queryByText('Reader workspace')).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Graph' }))
 
   expect(onSelectSection).toHaveBeenCalledWith('graph')
+})
+
+test('RecallShellFrame keeps the utility dock for non-library browse sections', () => {
+  renderShell({
+    activeSection: 'notes',
+  })
+
+  expect(screen.getByRole('heading', { name: 'Current context', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Recent work', level: 2 })).toBeInTheDocument()
 })
 
 test('RecallShellFrame hides the utility dock and shows the compact source strip in focused mode', () => {
@@ -119,7 +129,7 @@ test('RecallShellFrame hides the utility dock and shows the compact source strip
   })
 
   expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
-  expect(screen.getAllByText('Focused source')).toHaveLength(2)
+  expect(screen.getByText('Focused source')).toBeInTheDocument()
   expect(screen.getByText('Focused document')).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: 'Source workspace Notes', selected: true })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
