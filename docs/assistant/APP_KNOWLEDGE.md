@@ -40,10 +40,15 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stage 26 is complete: one selected source now keeps a shared source-workspace frame with nearby Overview, Reader, Notes, Graph, and Study handoffs across Recall and Reader, and the repo-owned real Edge source-workspace smoke is green.
 - Stage 27 is complete: the audit confirmed the remaining bottleneck is that source tabs still land inside section-first layouts with duplicated detail panels and always-visible collection rails.
 - Stage 28 is complete: the source workspace now has a stronger Overview plus lighter contextual browse drawers for Library, Notes, Graph, and Study during source-focused work, and the repo-owned real Edge shared-source-pane smoke is green.
-- Stage 29 is the active milestone: reassess the live post-Stage-28 workspace and choose the next bounded milestone from the current UX state.
+- Stage 29 is complete: the audit confirmed the remaining bottleneck is no longer repeated source-local detail, but that active source work still sits under dashboard-level shell chrome instead of taking over the workspace.
+- Stage 30 is complete: active source work now promotes the shared source workspace above generic shell chrome, workspace support reopens on demand, and the repo-owned real Edge Stage 30 smoke is green.
+- Stage 31 is complete: the UX audit confirmed shell stacking is no longer the main issue, and the next bottleneck is still hard switching between full-surface source tools.
+- Stage 32 is complete: focused `Notes`, `Graph`, and `Study` now keep one source visible in a split workspace, and the repo-owned real Edge Stage 32 smoke is green.
+- Stage 33 is complete: the UX audit confirmed the split workspace still anchors too often around `Source overview` instead of the live source itself.
+- Stage 34 is the active milestone: make the split workspace reader-led so note, graph, and study work stay beside live source content instead of summary-only source cards.
 - Future work should preserve local-first behavior, routes, note anchors, browser-companion handoff, and reading continuity, but should not preserve the current UI arrangement when a better Recall-quality workflow is available.
 - Treat the original Recall app as a directional benchmark for workflow and information hierarchy, not as a pixel-perfect copy target.
-- The current highest-priority task is to audit the live post-Stage-28 workspace and identify the next highest-leverage UX correction.
+- The current highest-priority task is to complete Stage 34's reader-led split-work correction before another generic shell or feature expansion.
 
 ## Main Entry Points
 - Frontend shell: `frontend/src/App.tsx`
