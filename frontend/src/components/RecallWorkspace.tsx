@@ -161,6 +161,16 @@ interface GraphCanvasLayout {
   nodes: GraphCanvasNodeLayout[]
 }
 
+function getLibrarySectionDisplayLimit(sectionKey: LibraryBrowseSection['key']) {
+  if (sectionKey === 'today') {
+    return 3
+  }
+  if (sectionKey === 'this-week') {
+    return 5
+  }
+  return 6
+}
+
 function buildLibraryBrowseSections(documents: RecallDocumentRecord[], now: Date = new Date()): LibraryBrowseSection[] {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const mondayOffset = (now.getDay() + 6) % 7
@@ -492,6 +502,11 @@ export function RecallWorkspace({
   const [focusedReaderMode, setFocusedReaderMode] = useState<ViewMode>('reflowed')
   const [focusedGraphEvidenceKey, setFocusedGraphEvidenceKey] = useState<string | null>(null)
   const [focusedStudySourceSpanIndex, setFocusedStudySourceSpanIndex] = useState(0)
+  const [expandedLibrarySectionKeys, setExpandedLibrarySectionKeys] = useState<Record<LibraryBrowseSection['key'], boolean>>({
+    today: false,
+    'this-week': false,
+    earlier: false,
+  })
   const previousActiveSourceDocumentIdRef = useRef<string | null>(null)
   const libraryFilterQuery = continuityState.library.filterQuery
   const selectedLibraryDocumentId = continuityState.library.selectedDocumentId
@@ -615,15 +630,9 @@ export function RecallWorkspace({
     () => (libraryFilterActive ? [] : buildLibraryBrowseSections(visibleDocuments)),
     [libraryFilterActive, visibleDocuments],
   )
+  const librarySectionSnapshot = useMemo(() => buildLibraryBrowseSections(documents), [documents])
   const featuredLibrarySection = libraryBrowseSections[0] ?? null
   const secondaryLibrarySections = libraryBrowseSections.slice(1)
-  const recentLibraryDocuments = useMemo(
-    () =>
-      [...documents]
-        .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
-        .slice(0, 4),
-    [documents],
-  )
   const showingNoteSearch = deferredNoteSearch.trim().length > 0
   const visibleNotes = showingNoteSearch ? noteSearchResults : documentNotes
   const activeNote =
@@ -1060,6 +1069,10 @@ export function RecallWorkspace({
   const resumeSourceDocument = useMemo(
     () => sourceWorkspaceDocument ?? documents.find((document) => document.id === activeSourceDocumentId) ?? null,
     [activeSourceDocumentId, documents, sourceWorkspaceDocument],
+  )
+  const resumeSupportDocuments = useMemo(
+    () => visibleDocuments.filter((document) => document.id !== resumeSourceDocument?.id).slice(0, 2),
+    [resumeSourceDocument?.id, visibleDocuments],
   )
 
   const loadGraph = useCallback(async () => {
@@ -2498,7 +2511,6 @@ export function RecallWorkspace({
         <span className="recall-source-tile-preview">{getDocumentSourcePreview(document)}</span>
         <span className="recall-source-tile-meta">
           <span>{document.source_type.toUpperCase()}</span>
-          <span>{document.chunk_count} chunks</span>
           <span>{document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'}</span>
         </span>
       </button>
@@ -2521,7 +2533,29 @@ export function RecallWorkspace({
         <span className="recall-library-list-row-meta">
           <span>{dateFormatter.format(new Date(document.updated_at))}</span>
           <span>{document.source_type.toUpperCase()}</span>
-          <span>{document.chunk_count} chunks</span>
+        </span>
+      </button>
+    )
+  }
+
+  function renderLibrarySupportCard(document: RecallDocumentRecord) {
+    return (
+      <button
+        aria-label={`Open ${document.title}`}
+        key={`support:${document.id}`}
+        className="recall-library-support-card"
+        type="button"
+        onClick={() => focusSourceLibrary(document.id)}
+      >
+        <span className="recall-library-support-card-head">
+          <span className="status-chip">Nearby</span>
+          <span>{dateFormatter.format(new Date(document.updated_at))}</span>
+        </span>
+        <strong>{document.title}</strong>
+        <span className="recall-library-support-card-preview">{getDocumentSourcePreview(document)}</span>
+        <span className="recall-library-support-card-meta">
+          <span>{document.source_type.toUpperCase()}</span>
+          <span>{document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'}</span>
         </span>
       </button>
     )
@@ -3331,60 +3365,34 @@ export function RecallWorkspace({
                             : `${documents.length} saved ${documents.length === 1 ? 'source' : 'sources'} ready inside your local workspace.`}
                     </p>
                   </div>
+
+                  {!documentsLoading && documentsStatus !== 'error' && librarySectionSnapshot.length > 0 ? (
+                    <div className="recall-library-sidebar-metrics" role="list" aria-label="Collection snapshot">
+                      {librarySectionSnapshot.map((section) => (
+                        <div className="recall-library-sidebar-metric" key={section.key} role="listitem">
+                          <strong>{section.documents.length}</strong>
+                          <span>{section.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
 
-                <label className="field recall-inline-field">
-                  <span>Search saved sources</span>
-                  <input
-                    type="search"
-                    placeholder="Search saved sources"
-                    value={libraryFilterQuery}
-                    onChange={(event) =>
-                      updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
-                    }
-                  />
-                </label>
-
-                {resumeSourceDocument ? (
-                  <section className="recall-library-resume-card" aria-label="Resume source">
-                    <div className="recall-library-resume-copy">
-                      <span className="status-chip">Resume</span>
-                      <strong>{resumeSourceDocument.title}</strong>
-                      <p>
-                        {formatSourceWorkspaceTabLabel(activeSourceTab)} ready from {getDocumentSourcePreview(resumeSourceDocument)}.
-                      </p>
-                    </div>
-                    <button type="button" onClick={resumeFocusedSource}>
-                      {activeSourceTab === 'reader' ? 'Open Reader' : `Resume ${formatSourceWorkspaceTabLabel(activeSourceTab)}`}
-                    </button>
-                  </section>
-                ) : null}
-
                 <section className="recall-library-sidebar-panel stack-gap">
-                  <div className="section-header section-header-compact">
-                    <h3>Recently updated</h3>
-                    <p>Keep the latest sources close without turning the landing into a second full archive.</p>
-                  </div>
-                  <div className="recall-library-sidebar-list" role="list">
-                    {recentLibraryDocuments.map((document) => (
-                      <button
-                        aria-label={`Focus ${document.title} from sidebar`}
-                        key={`sidebar:${document.id}`}
-                        className="recall-library-sidebar-row"
-                        type="button"
-                        onClick={() => focusSourceLibrary(document.id)}
-                      >
-                        <span className="recall-library-sidebar-row-head">
-                          <strong>{document.title}</strong>
-                          <span>{dateFormatter.format(new Date(document.updated_at))}</span>
-                        </span>
-                        <span className="recall-library-sidebar-row-preview">{getDocumentSourcePreview(document)}</span>
-                      </button>
-                    ))}
-                    {!documentsLoading && documentsStatus !== 'error' && recentLibraryDocuments.length === 0 ? (
-                      <p className="small-note">No saved sources yet.</p>
-                    ) : null}
-                  </div>
+                  <label className="field recall-inline-field">
+                    <span>Search saved sources</span>
+                    <input
+                      type="search"
+                      placeholder="Search saved sources"
+                      value={libraryFilterQuery}
+                      onChange={(event) =>
+                        updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <p className="small-note">
+                    Keep Home selective here, then search when you need to reopen something older or more specific.
+                  </p>
                 </section>
               </aside>
 
@@ -3401,7 +3409,7 @@ export function RecallWorkspace({
                             ? 'Add one source to start reading, saving notes, and building graph or study context.'
                             : libraryFilterActive
                               ? `Showing ${visibleDocuments.length} matching ${visibleDocuments.length === 1 ? 'source' : 'sources'}.`
-                              : 'Browse recent groups here, then enter focused work only when you intentionally open one source.'}
+                              : 'Start from one deliberate resume point, then expand grouped reopen sections only when you need more of the archive.'}
                     </p>
                   </div>
                   <div className="recall-library-landing-actions">
@@ -3449,6 +3457,56 @@ export function RecallWorkspace({
                     </section>
                   ) : (
                     <>
+                      {resumeSourceDocument ? (
+                        <section className="recall-library-priority-band stack-gap" aria-label="Resume now">
+                          <div className="section-header section-header-compact recall-library-section-header">
+                            <div>
+                              <h3>Resume now</h3>
+                              <p>Return to the source you last kept active, then dip into grouped reopen sections only when you need to shift context.</p>
+                            </div>
+                          </div>
+
+                          <div
+                            className={
+                              resumeSupportDocuments.length > 0
+                                ? 'recall-library-priority-layout'
+                                : 'recall-library-priority-layout recall-library-priority-layout-single'
+                            }
+                          >
+                            <section className="recall-library-resume-card" aria-label="Resume source">
+                              <div className="recall-library-resume-copy">
+                                <span className="status-chip">Resume</span>
+                                <strong>{resumeSourceDocument.title}</strong>
+                                <p>
+                                  {formatSourceWorkspaceTabLabel(activeSourceTab)} ready from {getDocumentSourcePreview(resumeSourceDocument)}.
+                                </p>
+                              </div>
+                              <div className="recall-library-resume-meta" role="list" aria-label="Resume source details">
+                                <span className="status-chip reader-meta-chip" role="listitem">
+                                  {dateFormatter.format(new Date(resumeSourceDocument.updated_at))}
+                                </span>
+                                <span className="status-chip reader-meta-chip" role="listitem">
+                                  {resumeSourceDocument.source_type.toUpperCase()}
+                                </span>
+                                <span className="status-chip reader-meta-chip" role="listitem">
+                                  {resumeSourceDocument.available_modes.length}{' '}
+                                  {resumeSourceDocument.available_modes.length === 1 ? 'view' : 'views'}
+                                </span>
+                              </div>
+                              <button type="button" onClick={resumeFocusedSource}>
+                                {activeSourceTab === 'reader' ? 'Open Reader' : `Resume ${formatSourceWorkspaceTabLabel(activeSourceTab)}`}
+                              </button>
+                            </section>
+
+                            {resumeSupportDocuments.length > 0 ? (
+                              <div className="recall-library-priority-support" role="list" aria-label="Nearby sources">
+                                {resumeSupportDocuments.map((document) => renderLibrarySupportCard(document))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </section>
+                      ) : null}
+
                       {featuredLibrarySection ? (
                         <section className="recall-library-section stack-gap" aria-label={featuredLibrarySection.label}>
                           <div className="section-header section-header-compact recall-library-section-header">
@@ -3458,8 +3516,29 @@ export function RecallWorkspace({
                             </div>
                           </div>
                           <div className="recall-source-grid" aria-label={`${featuredLibrarySection.label} sources`} role="list">
-                            {featuredLibrarySection.documents.map((document) => renderLibrarySourceTile(document))}
+                            {(expandedLibrarySectionKeys[featuredLibrarySection.key]
+                              ? featuredLibrarySection.documents
+                              : featuredLibrarySection.documents.slice(0, getLibrarySectionDisplayLimit(featuredLibrarySection.key))
+                            ).map((document) => renderLibrarySourceTile(document))}
                           </div>
+                          {featuredLibrarySection.documents.length > getLibrarySectionDisplayLimit(featuredLibrarySection.key) ? (
+                            <div className="recall-library-section-footer">
+                              <button
+                                className="ghost-button"
+                                type="button"
+                                onClick={() =>
+                                  setExpandedLibrarySectionKeys((current) => ({
+                                    ...current,
+                                    [featuredLibrarySection.key]: !current[featuredLibrarySection.key],
+                                  }))
+                                }
+                              >
+                                {expandedLibrarySectionKeys[featuredLibrarySection.key]
+                                  ? `Show fewer ${featuredLibrarySection.label.toLowerCase()} sources`
+                                  : `Show all ${featuredLibrarySection.documents.length} ${featuredLibrarySection.label.toLowerCase()} sources`}
+                              </button>
+                            </div>
+                          ) : null}
                         </section>
                       ) : null}
 
@@ -3472,8 +3551,29 @@ export function RecallWorkspace({
                             </div>
                           </div>
                           <div className="recall-library-list" role="list">
-                            {section.documents.map((document) => renderLibrarySourceRow(document))}
+                            {(expandedLibrarySectionKeys[section.key]
+                              ? section.documents
+                              : section.documents.slice(0, getLibrarySectionDisplayLimit(section.key))
+                            ).map((document) => renderLibrarySourceRow(document))}
                           </div>
+                          {section.documents.length > getLibrarySectionDisplayLimit(section.key) ? (
+                            <div className="recall-library-section-footer">
+                              <button
+                                className="ghost-button"
+                                type="button"
+                                onClick={() =>
+                                  setExpandedLibrarySectionKeys((current) => ({
+                                    ...current,
+                                    [section.key]: !current[section.key],
+                                  }))
+                                }
+                              >
+                                {expandedLibrarySectionKeys[section.key]
+                                  ? `Show fewer ${section.label.toLowerCase()} sources`
+                                  : `Show all ${section.documents.length} ${section.label.toLowerCase()} sources`}
+                              </button>
+                            </div>
+                          ) : null}
                         </section>
                       ))}
                     </>

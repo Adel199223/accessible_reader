@@ -248,17 +248,30 @@ Keep this repository as one local-first workspace.
   - focused Study still preserves the reader-led split and explicit Reader reopen actions
   - targeted Study/frontend coverage, `frontend npm run lint`, `frontend npm run build`, and the repo-owned real Edge Stage 47 screenshot harness are green
   - the next slice is now a benchmark audit to decide whether Home or Study is the higher-value remaining surface correction
+- Stage 48 post-Stage-47 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 47 materially improved Study and that Study is no longer the top benchmark blocker
+  - Home once again reads like the clearest remaining top-level mismatch on populated datasets, while Graph stays stable and focused Study preserves the reader-led split
+  - the next slice is now a bounded Home selective-landing second pass rather than another immediate Study rewrite
+- Stage 49 Recall Home selective landing second pass is complete:
+  - Home now uses a lighter collection snapshot rail, a shorter landing, and explicit `Show all …` controls for larger recency groups instead of loading the full reopen backlog at once
+  - the fresh Stage 49 captures show a materially calmer populated landing while Graph, Study, and focused Study remain stable
+  - the next slice is now a benchmark audit to decide whether Home still leads the mismatch list or whether another surface has become the stronger target
+- Stage 50 post-Stage-49 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Home is materially calmer and no longer the clearest roadmap blocker
+  - Study is once again the strongest remaining benchmark mismatch, while Graph stays stable and focused Study preserves the reader-led split
+  - the next slice is now a bounded Study sidebar and queue compression second pass instead of another immediate Home rewrite
 
 ## Active Milestone
 
-1. Stage 48: Post-Stage-47 Benchmark Audit
-   - compare the refreshed Study surface against the Recall benchmark and fresh localhost captures before choosing another implementation slice
-   - decide whether Home density/selectivity or another bounded Study pass is now the higher-value correction
+1. Stage 51: Recall Study Sidebar And Queue Compression Second Pass
+   - reduce browse-mode Study sidebar and queue chrome so the centered review task reads more like one streamlined surface
+   - preserve the current Home, Graph, Add Content, and focused Study behavior while tightening Study support hierarchy
 
 ## Next Milestone
 
-1. Stage 48: Post-Stage-47 Benchmark Audit
-   - use the Stage 47 artifacts and the benchmark matrix to choose the next bounded surface pass from evidence instead of momentum
+1. Stage 52: Post-Stage-51 Benchmark Audit
+   - compare the refreshed Study surface against the benchmark and fresh localhost captures before choosing another surface pass
+   - keep screenshot-led review mandatory before reopening broader shell work
 
 ## Stage Map
 
@@ -413,6 +426,18 @@ Keep this repository as one local-first workspace.
 48. Stage 48: Post-Stage-47 Benchmark Audit
    - compare the refreshed Study surface, Home landing, and Graph browse canvas against the benchmark and fresh localhost captures
    - decide whether the next bounded slice should return to Home density/selectivity, continue Study chrome reduction, or address another clearly evidenced mismatch
+49. Stage 49: Recall Home Selective Landing Second Pass
+   - reduce populated Home density and archive-like repetition so the landing feels more selective and benchmark-aligned again
+   - preserve intentional source entry, the current add-content flow, and the recent Graph/Study gains while tightening recency and reopen emphasis
+50. Stage 50: Post-Stage-49 Benchmark Audit
+   - compare the refreshed Home landing against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+51. Stage 51: Recall Study Sidebar And Queue Compression Second Pass
+   - reduce Study browse-mode sidebar and queue weight so the review task stays visually dominant
+   - preserve local review state, Reader reopen, source evidence, and focused reader-led Study behavior while simplifying support chrome
+52. Stage 52: Post-Stage-51 Benchmark Audit
+   - compare the refreshed Study surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
 
 ## Deferred Follow-Ups
 
@@ -479,3 +504,6 @@ Keep this repository as one local-first workspace.
 - 2026-03-15: completed Stage 45 with a graph-first browse canvas, lighter graph support chrome, user-facing `Home` terminology in the shared shell, targeted frontend validation, and a repo-owned real Edge screenshot harness, then opened Stage 46 for the next benchmark audit
 - 2026-03-15: completed the Stage 46 benchmark audit against the refreshed Home, Graph, and Study captures, confirmed that Study is now the clearest remaining top-level mismatch, and opened Stage 47 for a centered review/start surface pass
 - 2026-03-15: completed Stage 47 with a centered Study review/start surface, lighter supporting queue chrome, preserved reader-led focused Study work, targeted frontend validation, and a repo-owned real Edge screenshot harness, then opened Stage 48 for the next benchmark audit
+- 2026-03-15: completed the Stage 48 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Home is once again the clearest remaining benchmark mismatch after the Study rewrite, and opened Stage 49 for a bounded Home selective-landing second pass
+- 2026-03-15: completed Stage 49 with a lighter Home support rail, explicit recency expansion controls, targeted Home coverage, frontend lint/build, and a repo-owned real Edge screenshot harness, then opened Stage 50 for the next benchmark audit
+- 2026-03-15: completed the Stage 50 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Study is once again the clearest remaining benchmark mismatch after the Home pass, and opened Stage 51 for a bounded Study sidebar and queue compression second pass

@@ -49,6 +49,83 @@ const recallDocuments: RecallDocumentRecord[] = [
     available_modes: ['original'],
     chunk_count: 2,
   },
+  {
+    id: 'doc-archive-1',
+    title: 'Archived Reference 1',
+    source_type: 'txt',
+    file_name: 'archive-1.txt',
+    source_locator: null,
+    created_at: '2026-02-20T09:00:00Z',
+    updated_at: '2026-02-20T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-2',
+    title: 'Archived Reference 2',
+    source_type: 'txt',
+    file_name: 'archive-2.txt',
+    source_locator: null,
+    created_at: '2026-02-19T09:00:00Z',
+    updated_at: '2026-02-19T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-3',
+    title: 'Archived Reference 3',
+    source_type: 'txt',
+    file_name: 'archive-3.txt',
+    source_locator: null,
+    created_at: '2026-02-18T09:00:00Z',
+    updated_at: '2026-02-18T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-4',
+    title: 'Archived Reference 4',
+    source_type: 'txt',
+    file_name: 'archive-4.txt',
+    source_locator: null,
+    created_at: '2026-02-17T09:00:00Z',
+    updated_at: '2026-02-17T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-5',
+    title: 'Archived Reference 5',
+    source_type: 'txt',
+    file_name: 'archive-5.txt',
+    source_locator: null,
+    created_at: '2026-02-16T09:00:00Z',
+    updated_at: '2026-02-16T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-6',
+    title: 'Archived Reference 6',
+    source_type: 'txt',
+    file_name: 'archive-6.txt',
+    source_locator: null,
+    created_at: '2026-02-15T09:00:00Z',
+    updated_at: '2026-02-15T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-7',
+    title: 'Archived Reference 7',
+    source_type: 'txt',
+    file_name: 'archive-7.txt',
+    source_locator: null,
+    created_at: '2026-02-14T09:00:00Z',
+    updated_at: '2026-02-14T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
 ]
 
 const views: Record<string, DocumentView> = {
@@ -364,6 +441,7 @@ test('populated Recall library stays browse-first and shows a resume card instea
   })
 
   expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Resume now', level: 3 })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Add source' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Resume Notes' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Source overview', level: 2 })).not.toBeInTheDocument()
@@ -377,9 +455,27 @@ test('browse-first library groups sources by recency instead of one undifferenti
     expect(screen.getByRole('heading', { name: 'Today', level: 3 })).toBeInTheDocument()
   })
 
+  const thisWeekSection = screen.getByRole('heading', { name: 'This week', level: 3 }).closest('section')
+
   expect(screen.getByRole('heading', { name: 'This week', level: 3 })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Open Stage 10 Debug Article' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Open Stage 13 Debug Notes' })).toBeInTheDocument()
+  expect(thisWeekSection).not.toBeNull()
+  expect((thisWeekSection as HTMLElement).querySelector('[aria-label="Open Stage 13 Debug Notes"]')).not.toBeNull()
+})
+
+test('earlier Home sources stay collapsed until expanded intentionally', async () => {
+  renderHarness()
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Earlier', level: 3 })).toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('button', { name: /show all 7 earlier sources/i })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Open Archived Reference 7' })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: /show all 7 earlier sources/i }))
+
+  expect(screen.getByRole('button', { name: 'Open Archived Reference 7' })).toBeInTheDocument()
 })
 
 test('clicking a source card enters focused library overview mode', async () => {

@@ -12,18 +12,18 @@ Persistent continuity anchor for future chats and handoffs.
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `codex/stage8-closeout-doc-sync`
 - Last pushed clean commit: `57ff0a0d30c550353d87d3feeb68b149331a85cf`
-- Local/remote status at anchor update: clean and in sync
-- Last completed product slice: Stage 47 `Recall Study Centered Review Surface First Pass`
-- Last completed audit: Stage 46 `Post-Stage-45 Benchmark Audit`
-- Active next slice: Stage 48 `Post-Stage-47 Benchmark Audit`
+- Local/remote status at anchor update: local Stage 49 code plus Stage 50 audit docs and harness changes are present; not pushed
+- Last completed product slice: Stage 49 `Recall Home Selective Landing Second Pass`
+- Last completed audit: Stage 50 `Post-Stage-49 Benchmark Audit`
+- Active next slice: Stage 51 `Recall Study Sidebar And Queue Compression Second Pass`
 - Last green checks:
-  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npx vitest run src/components/RecallWorkspace.stage37.test.tsx src/components/RecallWorkspace.stage34.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose"`
-  - targeted `src/App.test.tsx` passes for the Stage 47 Study browse/handoff checks
+  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npx vitest run src/components/RecallWorkspace.stage37.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose"`
   - `frontend npm run lint`
   - `frontend npm run build`
-  - repo-owned real Edge screenshot capture via `node scripts/playwright/stage47_study_centered_review_edge.mjs`
+  - repo-owned real Edge screenshot capture via `node scripts/playwright/stage50_post_stage49_benchmark_audit_edge.mjs`
 - Known caveat:
   - run git, npm, and browser-validation commands through `wsl.exe bash -lc ...` or inside WSL directly; UNC-native Windows `npm`/`node` invocations remain less reliable than the WSL wrapper path
+  - the repo-owned Windows Edge screenshot harnesses should run through Windows `node`; WSL `node` will try to launch Linux `msedge`, which is not installed on this machine
   - the large `frontend/src/App.test.tsx` suite still stalls when run as one whole-file pass, so targeted coverage plus real Edge smoke remain the trustworthy validation path for this area
 - First files to read in a new chat:
   - `AGENTS.md`
@@ -31,15 +31,15 @@ Persistent continuity anchor for future chats and handoffs.
   - `docs/ROADMAP.md`
   - `docs/ROADMAP_ANCHOR.md`
   - `docs/ux/recall_benchmark_matrix.md`
-  - `docs/exec_plans/active/2026-03-15_stage48_post_stage47_benchmark_audit.md`
+  - `docs/exec_plans/active/2026-03-15_stage51_recall_study_sidebar_and_queue_compression_second_pass.md`
 
 ## New Chat Resume Shortcut
 
-- Say `resume from Stage 48` to continue from the next recommended step.
+- Say `resume from Stage 51` to continue from the next recommended step.
 - The intended next action is:
-  - run the Stage 48 benchmark audit against the current Home, Graph, Study, and focused-Study surfaces
-  - use the benchmark matrix plus fresh screenshots to decide whether the next bounded implementation slice should target Home density/selectivity or a lighter second Study pass
-- Do not reopen backend/storage work, Reader route contracts, or Stage 34 reader-led split behavior during that audit unless a direct regression is discovered.
+  - implement the Stage 51 Study sidebar and queue compression pass on top of the current centered review surface
+  - use fresh Study screenshots plus spot-check Home/Graph/focused-Study captures to confirm the pass improves Study without regressing the preserved surfaces
+- Do not reopen backend/storage work, Reader route contracts, Home/Graph rewrites, or Stage 34 reader-led split behavior during that pass unless a direct regression is discovered.
 
 ## Current State
 
@@ -53,14 +53,14 @@ As of 2026-03-15, this workspace includes:
 - opt-in OpenAI `Simplify` and `Summary`
 - local library/search, reopen support, and persisted reader settings/progress
 - a calmer shared Recall shell with a slimmer left workspace rail, slimmer top bar, and lighter browse chrome
-- a browse-first Home landing with a two-zone sidebar + collection canvas, grouped recency sections, lighter older-source rows, inline resume affordance, search, and a top-level add-source entry
+- a browse-first Home landing with a lighter collection snapshot rail, grouped recency sections, capped reopen groups with explicit `Show all …` reveals, search, and a top-level add-source entry
 - an add-source flow that now uses one clear `Add content` heading plus grouped `Paste text`, `Web page`, and `Choose file` modes inside the global dialog
 - a browse-mode `Graph` surface that now leads with a graph-first canvas, a lighter support rail, and a floating node-detail overlay with explicit `Focus source` and Reader handoffs
 - a browse-mode `Study` surface that now uses a centered review/start frame, lighter supporting queue chrome, and a stronger main review card hierarchy while preserving local evidence and Reader reopen
 - a compact focused-source strip plus reader-led focused `Notes`, `Graph`, and `Study` work beside live source content once source entry is intentional
 - user-reported contrast and overflow regressions on the landing were corrected during the Stage 38 audit, Stage 39 further reduced repeated chrome, and Stage 41 materially converged the shared shell and top-level surfaces toward the benchmark
 - a benchmark matrix in `docs/ux/recall_benchmark_matrix.md` now anchors future UI work to the user-provided Recall screenshots plus official Recall docs/blog/changelog references
-- Stage 47 materially improved Study, so the next decision is now whether Home density/selectivity or a lighter second Study pass is the higher-value remaining correction
+- Stage 50 confirmed that Home is materially calmer after the selective-landing pass, so Study is once again the clearest remaining benchmark mismatch
 - a bounded assistant harness in `agent.md` and `docs/assistant/`
 - Stage 0/1 planning logs, research notes, repo-fit notes, and future integration logs
 - completed Stage 1 through Stage 8 ExecPlans plus a post-Stage 8 placeholder for the next user-directed milestone
@@ -297,6 +297,18 @@ As of 2026-03-15, this workspace includes:
   - focused Study still preserves the reader-led split and explicit Reader reopen actions
   - targeted frontend validation, `frontend npm run lint`, `frontend npm run build`, and the repo-owned real Edge Stage 47 screenshot harness are green
   - the next slice is now Stage 48 post-Stage-47 benchmark audit
+- Stage 48 post-Stage-47 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Study is materially closer to the benchmark after Stage 47
+  - Home is again the clearest remaining top-level mismatch on populated datasets, while Graph stays stable and focused Study preserves the reader-led split
+  - the next slice is now Stage 49 Recall Home selective landing second pass
+- Stage 49 Recall Home selective landing second pass is complete:
+  - Home now uses a lighter sidebar snapshot, a shorter default landing, and explicit expansion controls for larger recency groups
+  - the Stage 49 captures show calmer Home browse mode while Graph, Study, and focused Study remain stable
+  - the next slice is now Stage 50 post-Stage-49 benchmark audit
+- Stage 50 post-Stage-49 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Home is materially calmer and no longer the clearest roadmap blocker
+  - Study is again the clearest remaining benchmark mismatch, while Graph stays stable and focused Study preserves the reader-led split
+  - the next slice is now Stage 51 Recall Study sidebar and queue compression second pass
 
 ## Recent Detours
 
@@ -352,14 +364,17 @@ As of 2026-03-15, this workspace includes:
 - 2026-03-15: completed Stage 45 with a graph-first browse canvas, lighter graph support chrome, and user-facing `Home` terminology in the shared shell, then opened Stage 46 for the next benchmark audit
 - 2026-03-15: completed the Stage 46 benchmark audit against fresh Home, Graph, Study, and focused-graph captures, confirmed Study as the clearest remaining top-level mismatch, and opened Stage 47 for the next bounded implementation slice
 - 2026-03-15: completed Stage 47 with a centered Study review/start surface, lighter supporting queue chrome, preserved reader-led focused Study work, targeted frontend validation, and a repo-owned real Edge screenshot harness, then opened Stage 48 for the next benchmark audit
+- 2026-03-15: completed the Stage 48 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Home is once again the clearest remaining benchmark mismatch after the Study rewrite, and opened Stage 49 for a bounded Home selective-landing second pass
+- 2026-03-15: completed Stage 49 with a lighter Home support rail, explicit recency expansion controls, targeted Home coverage, frontend lint/build, and a repo-owned real Edge screenshot harness, then opened Stage 50 for the next benchmark audit
+- 2026-03-15: completed the Stage 50 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Study is once again the clearest remaining benchmark mismatch after the Home pass, and opened Stage 51 for a bounded Study sidebar and queue compression second pass
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Read `docs/ux/recall_benchmark_matrix.md`, then open the active Stage 48 ExecPlan in `docs/exec_plans/active/`.
+3. Read `docs/ux/recall_benchmark_matrix.md`, then open the active Stage 51 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while auditing the post-Stage-47 Home, Graph, Study, and focused-study surfaces against the benchmark.
-7. Use Stage 48 to choose the next bounded benchmark fix before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while implementing the Stage 51 Study sidebar/queue compression pass and spot-checking Home, Graph, Study, and focused-study regressions against the benchmark.
+7. Use Stage 51 to tighten Study browse-mode hierarchy before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.
