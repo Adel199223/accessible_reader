@@ -14,7 +14,7 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stores webpage imports as local HTML snapshots and reopens them from the saved snapshot rather than refetching live.
 - Uses `Recall` as the product shell with `Reader` presented as a shared workspace section rather than a sibling app.
 - Uses a collection-first Recall shell with a slimmer left rail, slimmer top bar, primary canvas, and lighter browse chrome by default.
-- Uses a browse-first Home landing with a two-zone sidebar + collection canvas, grouped recency sections, lighter older-source reopen rows, search, and a lightweight inline resume affordance instead of auto-opening focused source mode on populated workspaces.
+- Uses a browse-first Home landing with a lighter collection snapshot rail, grouped recency sections, capped reopen groups with explicit `Show all …` reveals, search, and a lightweight selective-landing flow instead of auto-opening focused source mode on populated workspaces.
 - Keeps global workspace navigation centered on `Home`, `Graph`, `Study`, `Notes`, and `Reader`.
 - Uses a compact focused-source strip during active source work, and focused `Notes`, `Graph`, and `Study` now keep embedded Reader content as the steady primary pane.
 - Uses one clear `Add content` dialog with grouped `Paste text`, `Web page`, and `Choose file` modes.
@@ -65,11 +65,14 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Stage 45 is complete: the shared shell now uses `Home` instead of `Library` in the user-facing navigation, and browse-mode Graph now leads with a graph-first canvas plus lighter support chrome.
 - Stage 46 is complete: the audit confirmed that Study is now the clearest remaining top-level benchmark mismatch, while Home is secondary and Graph is materially closer after Stage 45.
 - Stage 47 is complete: browse-mode Study now centers the review/start flow, demotes the queue chrome, and keeps source evidence plus Reader reopen secondary to the main review task.
-- Stage 48 is the active milestone: audit the post-Stage-47 Home, Graph, Study, and focused-study surfaces against the benchmark before choosing the next bounded implementation slice.
+- Stage 48 is complete: the audit confirmed that Study is materially closer after Stage 47, that Graph remains stable, and that Home is once again the clearest remaining top-level benchmark mismatch.
+- Stage 49 is complete: Home now uses a lighter sidebar snapshot, a shorter default landing, and explicit expansion controls for larger recency groups while Graph, Study, and focused Study remain stable.
+- Stage 50 is complete: the audit confirmed that Home is materially calmer after Stage 49, that Graph remains stable, and that Study is once again the clearest remaining top-level benchmark mismatch.
+- Stage 51 is the active milestone: run a bounded Study sidebar and queue compression second pass so browse-mode Study feels less dashboard-heavy without regressing Home, Graph, or focused reader-led Study work.
 - The broad `frontend/src/App.test.tsx` file still has a long-standing stall mode, so the trusted UI-validation path is targeted tests plus real Edge screenshot artifacts rather than one giant whole-file pass.
 - Future work should preserve local-first behavior, routes, note anchors, browser-companion handoff, and reading continuity, but should not preserve the current UI arrangement when a better Recall-quality workflow is available.
 - Treat the original Recall app as a directional benchmark for workflow and information hierarchy, not as a pixel-perfect copy target.
-- The current highest-priority task is to use the Stage 47 screenshots plus the benchmark matrix to decide whether Home density/selectivity or a second bounded Study pass is now the higher-value correction.
+- The current highest-priority task is to reduce Study browse-mode sidebar and queue chrome while preserving the calmer Home landing and the stable Graph/focused-Study surfaces that Stage 50 revalidated.
 
 ## Main Entry Points
 - Frontend shell: `frontend/src/App.tsx`
