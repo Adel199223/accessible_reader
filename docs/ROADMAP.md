@@ -445,18 +445,88 @@ Keep this repository as one local-first workspace.
   - Home now uses a tighter featured spotlight, a quieter inline utility/search row, and a calmer spotlight-plus-support opening stage so the landing starts more selectively
   - the fresh Stage 109 captures keep Study, Graph, and focused Study stable while materially calming the Home opening
   - the next slice is now Stage 110 post-Stage-109 benchmark audit
+- Stage 110 post-Stage-109 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 109 materially improved Home, but that Home still remains the clearest blocker
+  - the remaining Home weight is now the split opening-stage composition, where the featured spotlight still feels too separated from nearby/support reopen utility
+  - the next slice is now a bounded Home opening-stage-unification and nearby-flow-lift pass
+- Stage 111 Recall Home opening stage unification and nearby flow lift is complete:
+  - Home now reads as one calmer opening stage with the featured spotlight followed immediately by nearby reopen support instead of splitting those choices into separate left/right zones
+  - the collection snapshot now stays beside the Home heading instead of competing as a separate setup block
+  - the fresh Stage 111 captures keep Study, Graph, and focused Study stable while materially calming the Home opening
+- Stage 112 post-Stage-111 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 111 improved Home enough that Home is no longer the clearest blocker
+  - Study now leads the remaining mismatch list because the browse-mode review still sits inside too much empty dashboard canvas with a support strip that over-frames the task
+  - the next slice is now a bounded Study support-strip-demotion and review-card-lift pass
+- Stage 113 Recall Study support strip demotion and review card lift is complete:
+  - browse-mode Study now uses a lighter in-flow support strip instead of a standing framing header and lifts the review card higher into the canvas
+  - the fresh Stage 113 captures keep Home, Graph, and focused Study stable while materially calming the Study browse surface
+- Stage 114 post-Stage-113 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 113 improved Study enough that Study is no longer the clearest blocker
+  - Home now leads the remaining mismatch list because the lower continuation rows still feel too boxed and disconnected from the calmer opening flow
+  - the next slice is now a bounded Home continuation-handoff-tightening and lower-reopen-row-compaction pass
+- Stage 115 Recall Home continuation handoff tightening and lower reopen row compaction is complete:
+  - Home now uses a lighter `Keep going` handoff and flatter lower reopen rows so the landing reads more like one continuous reopen sequence
+  - the fresh Stage 115 captures keep Study, Graph, and focused Study stable while materially calming the lower Home canvas
+- Stage 116 post-Stage-115 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 115 materially improved Home, but that Home still remains the clearest blocker
+  - the remaining Home weight is now the isolated reveal control and the extra empty lower canvas at the end of the landing
+  - the next slice is now a bounded Home lower-canvas-fill and reveal-control-integration pass
+- Stage 117 Recall Home lower canvas fill and reveal control integration is complete:
+  - Home now integrates the reveal control directly into the continuation flow instead of ending with an isolated footer action
+  - the lower landing reads more intentionally finished and less abruptly cut off in the fresh Stage 117 captures
+  - Study, Graph, and focused Study stayed stable after the pass
+- Stage 118 post-Stage-117 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 117 improved Home enough that Home is no longer the clearest blocker
+  - Study now leads the remaining mismatch list because the browse-mode support strip and review canvas still frame the task too much
+  - the next slice is now a bounded Study support-strip-minimization and review-canvas-tightening pass
+- Stage 119 Recall Study support strip minimization and review canvas tightening is complete:
+  - browse-mode Study now keeps the collapsed `Session` support inside the review card as lightweight utility instead of a separate framing band
+  - the review card lands higher and the browse-mode Study canvas feels more task-first in the fresh Stage 119 captures
+  - Home, Graph, and focused Study stayed stable after the pass
+- Stage 120 post-Stage-119 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 119 improved Study enough that Study is no longer the clearest blocker
+  - Home now leads the remaining mismatch list because the opening spotlight and nearby handoff still read slightly too staged
+  - the next slice is now a bounded Home opening-spotlight compaction and nearby-flow-flattening pass
+- Stage 121 Recall Home opening spotlight compaction and nearby flow flattening is complete:
+  - Home now uses a lighter `Start here` spotlight and flatter inline nearby reopen rows so the opening reads more like one selective flow
+  - the top of the landing feels less staged in the fresh Stage 121 captures
+  - Study, Graph, and focused Study stayed stable after the pass
+- Stage 122 Post-Stage-121 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 121 improved Home enough that Home is no longer the clearest blocker
+  - Study now leads the remaining mismatch list because the browse-mode support strip and extra review-canvas space still frame the task too much
+  - the next slice is now a bounded Study support-strip collapse and review-card expansion pass
+- Stage 123 Recall Study support strip collapse and review card expansion is complete:
+  - browse-mode Study now uses toolbar-level utility instead of a separate support strip, so the task lands sooner and with less leftover dashboard framing
+  - the review card occupies more of the page in the fresh Stage 123 captures
+  - Home, Graph, and focused Study stayed stable after the pass
+- Stage 124 Post-Stage-123 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 123 improved Study enough that Study no longer leads the mismatch list
+  - Home now leads again because the lower continuation band and final reveal control still read too much like an abrupt footer ending
+  - the next slice is now a bounded Home continuation-band elevation and reveal-card demotion pass
+- Stage 125 Recall Home continuation band elevation and reveal card demotion is complete:
+  - the lower Home continuation band now reads more like part of the same reopen flow instead of a separate footer strip
+  - the final reveal control now sits as quieter supporting utility beneath the continuation rows instead of as a terminal card
+  - Study, Graph, and focused Study stayed stable after the pass
+- Stage 126 Post-Stage-125 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 125 improved Home enough that Home no longer leads the mismatch list
+  - Study now leads again because the browse-mode review card still sits beneath a mostly empty top support strip and too much unused top canvas
+  - the next slice is now a bounded Study support-strip removal and review-canvas lift pass
+- Stage 127 Recall Study support strip removal and review canvas lift is complete:
+  - browse-mode Study no longer renders the ghost top support strip above the review card
+  - the review task now starts higher and feels more immediate in the fresh Study capture
+  - Home, Graph, and focused Study stayed stable after the pass
 
 ## Active Milestone
 
-1. Stage 110: Post-Stage-109 Benchmark Audit
-   - compare the refreshed Home surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+1. Stage 128: Post-Stage-127 benchmark audit
+   - compare the refreshed Study surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
    - keep screenshot review as the gate instead of guessing at another broad rewrite
 
 ## Next Milestone
 
-1. Stage 111: Next bounded benchmark-selected surface pass
-   - use the Stage 110 audit to decide whether Home still leads or whether Study becomes the stronger remaining mismatch again
-   - keep the next implementation slice tightly bounded to the one clearest blocker
+1. Stage 129: Next bounded implementation slice selected by the Stage 128 audit
+   - apply the next screenshot-led surface correction only after the fresh Stage 127 audit identifies the clearest blocker
+   - keep the redesign bounded and benchmark-led
 
 ## Stage Map
 
@@ -797,6 +867,63 @@ Keep this repository as one local-first workspace.
 110. Stage 110: Post-Stage-109 Benchmark Audit
    - compare the refreshed Home surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
    - keep screenshot review as the gate instead of guessing at another broad rewrite
+111. Stage 111: Recall Home Opening Stage Unification And Nearby Flow Lift
+   - reduce the split staged feel between the featured spotlight and nearby/support reopen utility so Home reads like one calmer first-flow surface
+   - keep Study, Graph, focused Study, and the deferred responsive-shell issue stable
+112. Stage 112: Post-Stage-111 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+113. Stage 113: Recall Study Support Strip Demotion And Review Card Lift
+   - demote the remaining browse-mode Study support strip and reduce the empty dashboard feel around the main review task
+   - keep Home, Graph, focused Study, and the deferred responsive-shell issue stable
+114. Stage 114: Post-Stage-113 Benchmark Audit
+   - compare the refreshed Study surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+115. Stage 115: Recall Home Continuation Handoff Tightening And Lower Reopen Row Compaction
+   - tighten the handoff from the opening spotlight into the lower continuation rows and reduce the remaining boxed/archive feel there
+   - keep Study, Graph, focused Study, and the deferred responsive-shell issue stable
+116. Stage 116: Post-Stage-115 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+117. Stage 117: Recall Home Lower Canvas Fill And Reveal Control Integration
+   - integrate the reveal control into the continuation flow and reduce the abrupt lower-canvas ending without restoring a dense archive wall
+   - keep Study, Graph, focused Study, and the deferred responsive-shell issue stable
+118. Stage 118: Post-Stage-117 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+119. Stage 119: Recall Study Support Strip Minimization And Review Canvas Tightening
+   - reduce the remaining browse-mode Study support-strip framing and tighten the review card landing so the task owns the page sooner
+   - keep Home, Graph, focused Study, and the deferred responsive-shell issue stable
+120. Stage 120: Post-Stage-119 Benchmark Audit
+   - compare the refreshed Study surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+121. Stage 121: Recall Home Opening Spotlight Compaction And Nearby Flow Flattening
+   - reduce the remaining oversized `Start here` spotlight and flatten the nearby reopen handoff so Home reads like one calmer selective flow
+   - keep Study, Graph, focused Study, and the deferred responsive-shell issue stable
+122. Stage 122: Post-Stage-121 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+123. Stage 123: Recall Study Support Strip Collapse And Review Card Expansion
+   - collapse the remaining browse-mode support-strip framing and let the review card occupy more of the Study canvas
+   - keep Home, Graph, focused Study, and the deferred responsive-shell issue stable
+124. Stage 124: Post-Stage-123 Benchmark Audit
+   - compare the refreshed Study surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+125. Stage 125: Recall Home Continuation Band Elevation And Reveal Card Demotion
+   - elevate the lower Home continuation flow so it feels like the next step in the same reopen sequence
+   - demote the final reveal control so the landing ends more naturally without reviving the archive-wall feel
+126. Stage 126: Post-Stage-125 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+127. Stage 127: Recall Study Support Strip Removal And Review Canvas Lift
+   - remove or materially demote the remaining empty top support-strip framing in browse-mode Study
+   - lift the review card so the task owns the page sooner while keeping Home, Graph, and focused Study stable
+128. Stage 128: Post-Stage-127 Benchmark Audit
+   - compare the refreshed Study surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep screenshot review as the gate instead of guessing at another broad rewrite
+129. Stage 129: Next bounded implementation slice
+   - implement the next benchmark-led surface correction selected by the Stage 128 audit
+   - keep the scope narrow and protect the calmer Home, Graph, Study, and focused-Study baselines
 
 ## Deferred Follow-Ups
 
@@ -894,3 +1021,21 @@ Keep this repository as one local-first workspace.
 - 2026-03-16: completed Stage 107 with a lighter Home continuation flow, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 108 audit harness for the next benchmark decision
 - 2026-03-16: completed the Stage 108 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still remains the clearest blocker after Stage 107, and opened Stage 109 for a bounded spotlight-footprint-reduction and utility-header-softening pass
 - 2026-03-16: completed Stage 109 with a tighter Home spotlight, quieter inline utility/search row, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 110 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 110 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still remains the clearest blocker after Stage 109 because the opening still reads as a split stage, and opened Stage 111 for a bounded Home opening-stage-unification and nearby-flow-lift pass
+- 2026-03-16: completed Stage 111 with a unified Home opening flow, compact left-side snapshot counts, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 112 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 112 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Study now leads the remaining mismatch list after Stage 111, and opened Stage 113 for a bounded Study support-strip-demotion and review-card-lift pass
+- 2026-03-16: completed Stage 113 with an in-flow Study support strip, a higher browse-mode review card landing, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 114 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 114 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home now leads the remaining mismatch list again after Stage 113, and opened Stage 115 for a bounded Home continuation-handoff-tightening and lower-reopen-row-compaction pass
+- 2026-03-16: completed Stage 115 with a tighter Home continuation handoff, flatter lower reopen rows, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 116 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 116 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still leads the remaining mismatch list after Stage 115, and opened Stage 117 for a bounded lower-canvas-fill and reveal-control-integration pass
+- 2026-03-16: completed Stage 117 with an integrated Home reveal control inside the continuation flow, a fuller lower landing finish, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 118 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 118 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is no longer the clearest blocker after Stage 117, and opened Stage 119 for a bounded Study support-strip-minimization and review-canvas-tightening pass
+- 2026-03-16: completed Stage 119 with a lighter in-card Study support strip, a tighter review-card landing, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 120 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 120 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Study is no longer the clearest blocker after Stage 119, and opened Stage 121 for a bounded Home opening-spotlight-compaction and nearby-flow-flattening pass
+- 2026-03-16: completed Stage 121 with a lighter Home opening spotlight, flatter nearby reopen rows, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 122 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 122 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is no longer the clearest blocker after Stage 121, and opened Stage 123 for a bounded Study support-strip-collapse and review-card-expansion pass
+- 2026-03-16: completed Stage 123 with a quieter toolbar-level Study utility row, a wider review-card landing, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 124 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 124 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Study is no longer the clearest blocker after Stage 123, and opened Stage 125 for a bounded Home continuation-band-elevation and reveal-card-demotion pass
+- 2026-03-16: completed Stage 125 with a softer lower Home continuation band, a quieter reveal footer control, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 126 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 126 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is no longer the clearest blocker after Stage 125, and opened Stage 127 for a bounded Study support-strip-removal and review-canvas-lift pass
+- 2026-03-16: completed Stage 127 by removing the ghost Study support strip from browse mode, lifting the review card higher into the page, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 128 for the next benchmark audit

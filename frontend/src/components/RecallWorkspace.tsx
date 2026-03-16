@@ -713,6 +713,8 @@ export function RecallWorkspace({
     [activeStudyCard?.id, showFocusedStudySplitView, studyCards, studyQueueExpanded, studyStatus],
   )
   const hiddenStudyQueueCount = Math.max(0, studyCards.length - visibleStudyQueueCards.length)
+  const showStudySidebar =
+    showFocusedStudySplitView || studyBrowseDrawerOpen || studyStatus === 'error'
   const sourceWorkspaceNoteCountLabel =
     sourceWorkspaceNotesStatus === 'loading'
       ? 'Loading notes…'
@@ -2206,9 +2208,7 @@ export function RecallWorkspace({
       ? 'Generate or promote a study card from this source to review it here.'
       : 'Choose a source to inspect its study state.'
   const activeStudyCardCollapsedRailSummary = activeStudyCard
-    ? showAnswer
-      ? 'Queue hidden until you want another card.'
-      : 'Queue hidden until you want another card.'
+    ? null
     : activeSourceDocumentId
       ? 'Generate or promote a study card from this source to review it here.'
       : 'Choose a source to inspect its study state.'
@@ -2692,7 +2692,7 @@ export function RecallWorkspace({
   function renderLibraryReopenRow(
     document: RecallDocumentRecord,
     badgeLabel: string,
-    density: 'default' | 'compact' = 'default',
+    density: 'default' | 'compact' | 'inline' = 'default',
   ) {
     return (
       <button
@@ -2701,6 +2701,8 @@ export function RecallWorkspace({
         className={
           density === 'compact'
             ? 'recall-library-reopen-row recall-library-reopen-row-compact'
+            : density === 'inline'
+              ? 'recall-library-reopen-row recall-library-reopen-row-inline'
             : 'recall-library-reopen-row'
         }
         type="button"
@@ -2727,7 +2729,7 @@ export function RecallWorkspace({
       <button
         aria-label={`Open ${document.title}`}
         key={`continuation:${document.id}`}
-        className="recall-library-continuation-row"
+        className="recall-library-continuation-row recall-library-continuation-row-flat"
         type="button"
         onClick={() => focusSourceLibrary(document.id)}
       >
@@ -2741,9 +2743,93 @@ export function RecallWorkspace({
         </span>
         <span className="recall-library-continuation-row-meta">
           <span>{document.source_type.toUpperCase()}</span>
-          <span>{document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'}</span>
         </span>
       </button>
+    )
+  }
+
+  function toggleFeaturedLibrarySection() {
+    if (!featuredLibrarySection) {
+      return
+    }
+    setExpandedLibrarySectionKeys((current) => ({
+      ...current,
+      [featuredLibrarySection.key]: !current[featuredLibrarySection.key],
+    }))
+  }
+
+  function renderFeaturedLibraryRevealControl() {
+    if (!featuredLibrarySection || !canExpandFeaturedLibrarySection) {
+      return null
+    }
+
+    const expanded = !!expandedLibrarySectionKeys[featuredLibrarySection.key]
+    const hiddenCount = Math.max(featuredLibrarySection.documents.length - visibleFeaturedLibraryDocuments.length, 0)
+    const actionLabel = expanded
+      ? `Show fewer ${featuredLibrarySection.label.toLowerCase()} sources`
+      : `Show all ${featuredLibrarySection.documents.length} ${featuredLibrarySection.label.toLowerCase()} sources`
+    const actionMeta = expanded ? 'Compact landing' : hiddenCount > 0 ? `${hiddenCount} hidden` : 'More ready'
+    const actionDescription = expanded
+      ? `Return to the calmer ${featuredLibrarySection.label.toLowerCase()} landing.`
+      : hiddenCount > 0
+        ? `${hiddenCount} more ${featuredLibrarySection.label.toLowerCase()} sources stay grouped until you want a wider sweep.`
+        : `Open the full ${featuredLibrarySection.label.toLowerCase()} list when you want a wider sweep.`
+
+    return (
+      <div className="recall-library-follow-on-footer">
+        <p>{actionDescription}</p>
+        <button
+          aria-label={actionLabel}
+          className="ghost-button recall-library-follow-on-reveal-button"
+          type="button"
+          onClick={toggleFeaturedLibrarySection}
+        >
+          <span>{actionLabel}</span>
+          <span>{actionMeta}</span>
+        </button>
+      </div>
+    )
+  }
+
+  function renderCollapsedStudySupportStrip() {
+    if (!collapsedStudyBrowseRail || studyStatus === 'error' || showFocusedStudySplitView) {
+      return null
+    }
+
+    return (
+      <div
+        className="recall-study-toolbar-utility"
+        aria-label="Browse study support"
+      >
+        <div className="recall-study-toolbar-glance" aria-label="Active study queue summary">
+          <div className="recall-study-toolbar-glance-top">
+            <span className="recall-study-toolbar-kicker">{collapsedStudyBrowseRailLabel}</span>
+            <span className="recall-study-toolbar-meta">{collapsedStudyQueueOverview}</span>
+          </div>
+          {activeStudyCardCollapsedRailSummary ? (
+            <span className="recall-study-toolbar-caption">{activeStudyCardCollapsedRailSummary}</span>
+          ) : null}
+        </div>
+        <div className="recall-actions recall-actions-inline recall-study-toolbar-actions">
+          <button
+            aria-label="Show queue"
+            className="ghost-button recall-study-sidebar-toggle-button"
+            type="button"
+            onClick={() => setBrowseDrawerOpen('study', true)}
+          >
+            Queue
+          </button>
+          <button
+            aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
+            className="ghost-button recall-study-sidebar-utility-button"
+            disabled={studyBusyKey === 'generate'}
+            type="button"
+            onClick={handleGenerateStudyCards}
+          >
+            {studyBusyKey === 'generate' ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+      </div>
     )
   }
 
@@ -3543,6 +3629,16 @@ export function RecallWorkspace({
                     <div className="section-header section-header-compact recall-library-home-inline-heading">
                       <div className="recall-library-home-inline-heading-copy">
                         <h2>{homeInlineHeading}</h2>
+                        {homeInlineSnapshotItems.length > 0 ? (
+                          <div className="recall-library-home-inline-meta recall-library-sidebar-metrics" role="list" aria-label="Collection snapshot">
+                            {homeInlineSnapshotItems.map((item) => (
+                              <div className="recall-library-sidebar-metric" key={item.key} role="listitem">
+                                <strong>{item.count}</strong>
+                                <span>{item.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                         {!showCompactHomeHeaderSummary ? (
                           <p className="recall-library-home-inline-summary">
                             {!documentsLoading && documentsStatus !== 'error' && documents.length > 0
@@ -3551,17 +3647,6 @@ export function RecallWorkspace({
                           </p>
                         ) : null}
                       </div>
-
-                      {homeInlineSnapshotItems.length > 0 ? (
-                        <div className="recall-library-home-inline-meta recall-library-sidebar-metrics" role="list" aria-label="Collection snapshot">
-                          {homeInlineSnapshotItems.map((item) => (
-                            <div className="recall-library-sidebar-metric" key={item.key} role="listitem">
-                              <strong>{item.count}</strong>
-                              <span>{item.label}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
                       <div className="recall-library-home-inline-actions">
                         {showInlineHomeSearch ? (
                           <label className="field recall-inline-field recall-library-home-inline-search">
@@ -3697,16 +3782,11 @@ export function RecallWorkspace({
                                   <h3>{featuredLibrarySection.label}</h3>
                                   <p>{featuredLibrarySection.description}</p>
                                 </div>
-                                {canExpandFeaturedLibrarySection ? (
+                                {canExpandFeaturedLibrarySection && featuredFollowOnDocuments.length === 0 ? (
                                   <button
                                     className="ghost-button"
                                     type="button"
-                                    onClick={() =>
-                                      setExpandedLibrarySectionKeys((current) => ({
-                                        ...current,
-                                        [featuredLibrarySection.key]: !current[featuredLibrarySection.key],
-                                      }))
-                                    }
+                                    onClick={toggleFeaturedLibrarySection}
                                   >
                                     {expandedLibrarySectionKeys[featuredLibrarySection.key]
                                       ? `Show fewer ${featuredLibrarySection.label.toLowerCase()} sources`
@@ -3731,33 +3811,37 @@ export function RecallWorkspace({
                             {featuredSupportingDocuments.length > 0 ? (
                               <div className="recall-library-featured-support" role="list" aria-label={`${featuredLibrarySection.label} secondary sources`}>
                                 {featuredSupportingDocuments.map((document) =>
-                                  renderLibraryReopenRow(document, 'Nearby', 'compact'),
+                                  renderLibraryReopenRow(document, 'Nearby', 'inline'),
                                 )}
                               </div>
                             ) : null}
                           </div>
-                          {featuredFollowOnDocuments.length > 0 ? (
-                            <div className="recall-library-follow-on stack-gap">
+                          {featuredFollowOnDocuments.length > 0 || canExpandFeaturedLibrarySection ? (
+                            <div
+                              className={
+                                featuredSupportingDocuments.length > 0
+                                  ? 'recall-library-follow-on recall-library-follow-on-bridged stack-gap'
+                                  : 'recall-library-follow-on stack-gap'
+                              }
+                            >
                               <div className="recall-library-follow-on-header">
                                 <span className="status-chip">Keep going</span>
-                                <p>More {featuredLibrarySection.label.toLowerCase()} sources ready to reopen when you want the next one.</p>
+                                <p>More {featuredLibrarySection.label.toLowerCase()} sources ready when you want the next one.</p>
                               </div>
                               <div className="recall-library-follow-on-list" role="list" aria-label={`${featuredLibrarySection.label} follow-on sources`}>
                                 {featuredFollowOnDocuments.map((document) => renderLibraryContinuationRow(document))}
                               </div>
+                              {renderFeaturedLibraryRevealControl()}
                             </div>
                           ) : null}
-                          {mergeHomeHeaderIntoFeaturedSection && canExpandFeaturedLibrarySection ? (
+                          {mergeHomeHeaderIntoFeaturedSection &&
+                          canExpandFeaturedLibrarySection &&
+                          featuredFollowOnDocuments.length === 0 ? (
                             <div className="recall-library-section-footer recall-library-section-footer-merged">
                               <button
                                 className="ghost-button"
                                 type="button"
-                                onClick={() =>
-                                  setExpandedLibrarySectionKeys((current) => ({
-                                    ...current,
-                                    [featuredLibrarySection.key]: !current[featuredLibrarySection.key],
-                                  }))
-                                }
+                                onClick={toggleFeaturedLibrarySection}
                               >
                                 {expandedLibrarySectionKeys[featuredLibrarySection.key]
                                   ? `Show fewer ${featuredLibrarySection.label.toLowerCase()} sources`
@@ -3825,55 +3909,17 @@ export function RecallWorkspace({
                 : 'recall-study-browser-layout recall-study-browser-layout-condensed'
           }
         >
-          <section
-            className={
-              showFocusedStudySplitView
-                ? studyBrowseDrawerOpen
-                  ? 'card stack-gap recall-collection-rail'
-                  : 'card stack-gap recall-collection-rail recall-collection-rail-condensed'
-                : studyBrowseDrawerOpen
-                  ? 'card stack-gap recall-collection-rail recall-study-sidebar'
-                  : 'card stack-gap recall-collection-rail recall-collection-rail-condensed recall-study-sidebar recall-study-sidebar-collapsed recall-study-sidebar-support-strip recall-study-sidebar-unboxed'
-            }
-          >
-            {collapsedStudyBrowseRail && studyStatus !== 'error' ? (
-              <div className="recall-study-sidebar-collapsed-shell">
-                <div className="toolbar recall-collection-toolbar recall-study-sidebar-toolbar-collapsed">
-                  <div className="section-header section-header-compact">
-                    <h2>Session</h2>
-                  </div>
-                  <div className="recall-actions recall-actions-inline">
-                    <button
-                      aria-label="Show queue"
-                      className="ghost-button recall-study-sidebar-toggle-button"
-                      type="button"
-                      onClick={() => setBrowseDrawerOpen('study', true)}
-                    >
-                      Queue
-                    </button>
-                    <button
-                      aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
-                      className="ghost-button recall-study-sidebar-utility-button"
-                      disabled={studyBusyKey === 'generate'}
-                      type="button"
-                      onClick={handleGenerateStudyCards}
-                    >
-                      {studyBusyKey === 'generate' ? 'Refreshing…' : 'Refresh'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="recall-study-sidebar-glance" aria-label="Active study queue summary">
-                  <div className="recall-study-sidebar-glance-top">
-                    <span className="recall-study-sidebar-glance-kicker">{collapsedStudyBrowseRailLabel}</span>
-                    <span className="recall-study-sidebar-glance-meta">{collapsedStudyQueueOverview}</span>
-                  </div>
-                  {activeStudyCardCollapsedRailSummary ? (
-                    <span className="recall-study-sidebar-glance-caption">{activeStudyCardCollapsedRailSummary}</span>
-                  ) : null}
-                </div>
-              </div>
-            ) : (
+          {showStudySidebar ? (
+            <section
+              className={
+                showFocusedStudySplitView
+                  ? studyBrowseDrawerOpen
+                    ? 'card stack-gap recall-collection-rail'
+                    : 'card stack-gap recall-collection-rail recall-collection-rail-condensed'
+                  : 'card stack-gap recall-collection-rail recall-study-sidebar'
+              }
+            >
+            {collapsedStudyBrowseRail && studyStatus !== 'error' ? null : (
               <>
                 <div
                   className={
@@ -4026,14 +4072,15 @@ export function RecallWorkspace({
                   : 'Queue support is hidden until you want to switch cards or change the filter.'}
               </p>
             ) : null}
-          </section>
+            </section>
+          ) : null}
 
           <div
             className={
               showFocusedStudySplitView
                 ? 'recall-main-column recall-source-split-layout'
                 : collapsedStudyBrowseRail
-                  ? 'recall-main-column stack-gap recall-study-browser-main recall-study-browser-main-condensed'
+                  ? 'recall-main-column stack-gap recall-study-browser-main recall-study-browser-main-condensed recall-study-browser-main-lifted'
                   : 'recall-main-column stack-gap recall-study-browser-main'
             }
           >
@@ -4043,7 +4090,9 @@ export function RecallWorkspace({
               className={
                 showFocusedStudySplitView
                   ? 'card stack-gap recall-study-card'
-                  : 'card stack-gap recall-study-card recall-study-card-centered'
+                  : collapsedStudyBrowseRail
+                    ? 'card stack-gap recall-study-card recall-study-card-centered recall-study-card-browse-condensed recall-study-card-browse-expanded'
+                    : 'card stack-gap recall-study-card recall-study-card-centered'
               }
             >
               <div className="toolbar recall-collection-toolbar">
@@ -4057,25 +4106,29 @@ export function RecallWorkspace({
                     </p>
                   )}
                 </div>
-                {activeStudyCard && showFocusedStudySplitView ? (
-                  <div className="recall-actions">
-                    {focusedStudySourceSpan ? (
+                {showFocusedStudySplitView ? (
+                  activeStudyCard ? (
+                    <div className="recall-actions">
+                      {focusedStudySourceSpan ? (
+                        <button
+                          type="button"
+                          onClick={() => handleShowStudyEvidenceInFocusedReader(activeStudyCard, focusedStudySourceSpan, focusedStudySourceSpanIndex)}
+                        >
+                          {buildShowReaderLabel(activeStudyCard.document_title)}
+                        </button>
+                      ) : null}
                       <button
+                        className={showFocusedStudySplitView ? 'ghost-button' : undefined}
                         type="button"
-                        onClick={() => handleShowStudyEvidenceInFocusedReader(activeStudyCard, focusedStudySourceSpan, focusedStudySourceSpanIndex)}
+                        onClick={() => handleOpenStudyCardInReader(activeStudyCard, focusedStudySourceSpan ?? activeStudySourceSpans[0])}
                       >
-                        {buildShowReaderLabel(activeStudyCard.document_title)}
+                        {buildOpenReaderLabel(activeStudyCard.document_title)}
                       </button>
-                    ) : null}
-                    <button
-                      className={showFocusedStudySplitView ? 'ghost-button' : undefined}
-                      type="button"
-                      onClick={() => handleOpenStudyCardInReader(activeStudyCard, focusedStudySourceSpan ?? activeStudySourceSpans[0])}
-                    >
-                      {buildOpenReaderLabel(activeStudyCard.document_title)}
-                    </button>
-                  </div>
-                ) : null}
+                    </div>
+                  ) : null
+                ) : (
+                  renderCollapsedStudySupportStrip()
+                )}
               </div>
 
               {!showFocusedStudySplitView && activeStudyCard ? (
