@@ -11,8 +11,8 @@ Persistent continuity anchor for future chats and handoffs.
 
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `codex/stage8-closeout-doc-sync`
-- Last pushed clean commit: `f6a9fb47f6f7701ed18d3e657a9b3c8dc1bf47a2`
-- Local/remote status at anchor update: local Stage 127 implementation/docs/artifacts and Stage 128 planning docs are present and unpushed
+- Latest pushed clean checkpoint: branch tip on `origin/codex/stage8-closeout-doc-sync`
+- Local/remote status at anchor update: clean and synced after pushing the Stage 127 checkpoint plus the Stage 128 assistant-doc sync
 - Last completed product slice: Stage 127 `Recall Study Support Strip Removal And Review Canvas Lift`
 - Last completed audit: Stage 126 `Post-Stage-125 Benchmark Audit`
 - Active next slice: Stage 128 `Post-Stage-127 Benchmark Audit`
@@ -30,6 +30,7 @@ Persistent continuity anchor for future chats and handoffs.
   - the repo-owned Windows Edge screenshot harnesses should run through Windows `node`; WSL `node` will try to launch Linux `msedge`, which is not installed on this machine
 - First files to read in a new chat:
   - `AGENTS.md`
+  - `agent.md`
   - `BUILD_BRIEF.md`
   - `docs/ROADMAP.md`
   - `docs/ROADMAP_ANCHOR.md`
