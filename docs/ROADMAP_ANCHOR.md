@@ -11,39 +11,39 @@ Persistent continuity anchor for future chats and handoffs.
 
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `codex/stage8-closeout-doc-sync`
-- Last pushed clean commit: `57ff0a0d30c550353d87d3feeb68b149331a85cf`
-- Local/remote status at anchor update: local Stage 49 code plus Stage 50 audit docs and harness changes are present; not pushed
-- Last completed product slice: Stage 49 `Recall Home Selective Landing Second Pass`
-- Last completed audit: Stage 50 `Post-Stage-49 Benchmark Audit`
-- Active next slice: Stage 51 `Recall Study Sidebar And Queue Compression Second Pass`
+- Last pushed clean commit: `a220c8cfce892a2d050d21eff3bdcdad1ad9ef60`
+- Local/remote status at anchor update: local Stage 109 implementation docs/code/artifacts, Stage 110 audit docs/harness, refresh-persistence follow-up docs, and earlier closeout-doc changes are present and unpushed; unrelated assistant-template edits also remain local in this worktree
+- Last completed product slice: Stage 109 `Recall Home Spotlight Footprint Reduction And Utility Header Softening`
+- Last completed audit: Stage 108 `Post-Stage-107 Benchmark Audit`
+- Active next slice: Stage 110 `Post-Stage-109 Benchmark Audit`
 - Last green checks:
-  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npx vitest run src/components/RecallWorkspace.stage37.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose"`
-  - `frontend npm run lint`
-  - `frontend npm run build`
-  - repo-owned real Edge screenshot capture via `node scripts/playwright/stage50_post_stage49_benchmark_audit_edge.mjs`
+  - targeted plus broad Home/frontend validation via `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npx vitest run src/components/RecallWorkspace.stage37.test.tsx src/App.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose"`
+  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npm run lint"`
+  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npm run build"`
+  - repo-owned real Edge screenshot capture via `node scripts/playwright/stage109_home_spotlight_footprint_reduction_edge.mjs`
+  - `node --check scripts/playwright/stage110_post_stage109_benchmark_audit_edge.mjs`
 - Known caveat:
   - run git, npm, and browser-validation commands through `wsl.exe bash -lc ...` or inside WSL directly; UNC-native Windows `npm`/`node` invocations remain less reliable than the WSL wrapper path
   - the repo-owned Windows Edge screenshot harnesses should run through Windows `node`; WSL `node` will try to launch Linux `msedge`, which is not installed on this machine
-  - the large `frontend/src/App.test.tsx` suite still stalls when run as one whole-file pass, so targeted coverage plus real Edge smoke remain the trustworthy validation path for this area
 - First files to read in a new chat:
   - `AGENTS.md`
   - `BUILD_BRIEF.md`
   - `docs/ROADMAP.md`
   - `docs/ROADMAP_ANCHOR.md`
   - `docs/ux/recall_benchmark_matrix.md`
-  - `docs/exec_plans/active/2026-03-15_stage51_recall_study_sidebar_and_queue_compression_second_pass.md`
+  - `docs/exec_plans/active/2026-03-16_stage110_post_stage109_benchmark_audit.md`
 
 ## New Chat Resume Shortcut
 
-- Say `resume from Stage 51` to continue from the next recommended step.
+- Say `resume from Stage 110` to continue from the next recommended step.
 - The intended next action is:
-  - implement the Stage 51 Study sidebar and queue compression pass on top of the current centered review surface
-  - use fresh Study screenshots plus spot-check Home/Graph/focused-Study captures to confirm the pass improves Study without regressing the preserved surfaces
-- Do not reopen backend/storage work, Reader route contracts, Home/Graph rewrites, or Stage 34 reader-led split behavior during that pass unless a direct regression is discovered.
+  - run the post-Stage-109 benchmark audit against the fresh Home, Study, Graph, and focused-Study artifacts
+  - choose the next bounded surface pass from that evidence instead of assumption
+- Do not reopen backend/storage work or broaden the redesign beyond the Stage 110 audit plus one bounded follow-up slice unless a direct regression is discovered.
 
 ## Current State
 
-As of 2026-03-15, this workspace includes:
+As of 2026-03-16, this workspace includes:
 
 - the existing accessible-reader frontend and backend
 - local import and parsing for TXT, Markdown, HTML, DOCX, and text-based PDF
@@ -53,14 +53,64 @@ As of 2026-03-15, this workspace includes:
 - opt-in OpenAI `Simplify` and `Summary`
 - local library/search, reopen support, and persisted reader settings/progress
 - a calmer shared Recall shell with a slimmer left workspace rail, slimmer top bar, and lighter browse chrome
-- a browse-first Home landing with a lighter collection snapshot rail, grouped recency sections, capped reopen groups with explicit `Show all …` reveals, search, and a top-level add-source entry
+- a browse-first Home landing with a quieter utility/search support dock, one featured reopen spotlight, quieter nearby reopen rows, a lighter `Keep going` continuation flow, grouped recency sections with explicit `Show all …` reveals, search, and an in-rail add-source entry
 - an add-source flow that now uses one clear `Add content` heading plus grouped `Paste text`, `Web page`, and `Choose file` modes inside the global dialog
 - a browse-mode `Graph` surface that now leads with a graph-first canvas, a lighter support rail, and a floating node-detail overlay with explicit `Focus source` and Reader handoffs
-- a browse-mode `Study` surface that now uses a centered review/start frame, lighter supporting queue chrome, and a stronger main review card hierarchy while preserving local evidence and Reader reopen
+- a browse-mode `Study` surface that now uses a centered review/start frame, a lightweight top support strip when the queue is collapsed, a compact review-session summary ahead of the prompt, and source-evidence-first Reader reopen while preserving local evidence and focused Study behavior
 - a compact focused-source strip plus reader-led focused `Notes`, `Graph`, and `Study` work beside live source content once source entry is intentional
 - user-reported contrast and overflow regressions on the landing were corrected during the Stage 38 audit, Stage 39 further reduced repeated chrome, and Stage 41 materially converged the shared shell and top-level surfaces toward the benchmark
 - a benchmark matrix in `docs/ux/recall_benchmark_matrix.md` now anchors future UI work to the user-provided Recall screenshots plus official Recall docs/blog/changelog references
-- Stage 50 confirmed that Home is materially calmer after the selective-landing pass, so Study is once again the clearest remaining benchmark mismatch
+- Stage 61 materially reduced the remaining Study chrome with a much softer queue rail and a compact pre-reveal evidence summary
+- Stage 62 confirmed that Study still led the remaining mismatch list because browse mode still read like a dashboard page with a persistent queue summary and extra review-card support chrome rather than a singular quiz/review session
+- Stage 63 materially reduced the browse-mode Study dashboard feel by turning the queue summary into a smaller session dock and collapsing pre-answer support into one compact review-session summary
+- Stage 65 materially calmed Home with one quieter utility dock and a flatter grouped recent-source list
+- Stage 66 confirmed that Home is no longer the clearest blocker and that Study again leads the remaining mismatch list because its session dock and pre-answer review header still frame the page too heavily
+- Stage 67 materially calmed Study with a narrower session dock and quieter pre-answer review header
+- Stage 68 confirmed that Study is still the clearest remaining mismatch, but now mainly because the collapsed dock summary and pre-reveal `Grounding ready` strip still add extra chrome
+- Stage 69 materially calmed those remaining Study support-chrome hotspots by removing the extra collapsed-dock totals/review chrome and by turning the pre-reveal grounding strip into a slimmer inline utility row
+- A bounded 2026-03-16 detour fixed Recall section refresh persistence, so hard refresh now restores the active `Graph`, `Study`, or `Notes` section instead of always falling back to `Home`
+- Stage 70 confirmed that Study is no longer the clearest blocker and that Home again leads the remaining mismatch list because the landing still feels too much like a large archive wall
+- Stage 71 materially calmed Home with a tighter header/canvas transition and flatter featured reopen cards while keeping the calmer Study, Graph, and focused reader-led baselines stable in fresh artifacts
+- Stage 72 confirmed that Home is no longer the clearest blocker and that Study again leads the remaining mismatch list because its session rail and pre-answer review header still frame the page too heavily
+- Stage 73 materially calmed Study with a shorter utility-like session rail and flatter pre-answer context while keeping the calmer Home landing, Graph, and focused reader-led baselines stable in fresh artifacts
+- Stage 74 confirmed that Study is no longer the clearest blocker and that Home again leads the remaining mismatch list because its utility rail and featured reopen row still read too sidebar/archive-like
+- Stage 75 materially calmed Home by demoting the utility rail into lighter secondary support and by turning the featured reopen surface into one deliberate spotlight with quieter nearby rows
+- Stage 76 confirmed that Home still led the remaining mismatch list because the spotlight card was too tall and the secondary reopen stack still felt too boxed
+- Stage 77 materially calmed Home with a shorter spotlight footprint and a denser nearby reopen stack while keeping Study, Graph, and focused Study stable in fresh artifacts
+- Stage 78 confirmed that Home is no longer the clearest blocker and that Study now leads the remaining mismatch list because its browse-mode session dock and pre-answer review meta still over-frame the review task
+- Stage 79 materially calmed Study with a lighter session dock and a quieter pre-answer review strip while keeping Home, Graph, and focused Study stable in fresh artifacts
+- Stage 80 confirmed that Study is no longer the clearest blocker and that Home now leads the remaining mismatch list because the featured band still feels too staged and the landing still carries too much empty canvas
+- Stage 81 materially calmed Home by flattening the featured band into one compact reopen flow, reducing the default nearby reopen count, and tightening the landing rhythm
+- Stage 82 confirmed that Home is no longer the clearest blocker and that Study now leads the remaining mismatch list because its browse-mode `Session` rail and pre-answer `Grounded` row still read heavier than the benchmark direction wants
+- Stage 83 materially calmed Study by compressing the collapsed `Session` rail and demoting the pre-answer `Grounded` row
+- Stage 84 confirmed that Study is no longer the clearest blocker and that Home now leads the remaining mismatch list because its landing still ends too early and feels too much like one isolated featured band
+- Stage 85 materially calmed Home by extending the featured reopen band into a quieter same-section `Keep going` continuation that fills the lower canvas without reviving the old archive wall
+- Stage 86 confirmed that Home is no longer the clearest blocker and that Study now leads the remaining mismatch list again because its browse-mode `Session` dock and pre-answer review framing still read too sidebar-like
+- Stage 87 materially calmed Study by minimizing the collapsed session dock and removing the redundant browse-mode source-repeat framing above the review flow
+- Stage 88 confirmed that Study is no longer the clearest blocker and that Home now leads the remaining mismatch list again because the utility/search rail and upper landing setup still read heavier than the benchmark direction wants
+- Stage 89 materially calmed Home with a flatter utility/search rail and a tighter header-to-reopen-flow handoff while keeping Study, Graph, and focused Study stable in fresh artifacts
+- Stage 90 confirmed that Home still remains the clearest blocker after Stage 89 because the split top-of-page header and separate first-section intro still keep the first reopen point too low and too staged
+- Stage 91 materially calmed the no-resume Home landing by merging the `Saved sources` header into the first featured reopen section and lifting the first reopen point higher on desktop without regressing Study, Graph, or focused reader-led work
+- Stage 92 confirmed that Home is no longer the clearest blocker after Stage 91 and that Study now leads the remaining mismatch list again because the browse-mode `Session` dock and pre-answer review header still over-frame the task
+- Stage 93 materially calmed Study by demoting the collapsed `Session` dock summary and removing the extra pre-answer due-state framing from the review-session strip
+- Stage 94 confirmed that Study is no longer the clearest blocker after Stage 93 and that Home now leads again because the left `Find later` utility/search area and the `Saved sources` intro/setup still stage the landing too heavily
+- Stage 95 materially calmed Home by narrowing the `Find later` utility/search column and shortening the `Saved sources` intro/setup above the featured reopen flow
+- Stage 96 confirmed that Home still remains the clearest blocker after Stage 95 because the left support still reads as a dedicated column and the `Saved sources` header/actions still stage the landing before the featured reopen flow
+- Stage 97 materially calmed Home by collapsing more of the utility-column feel, moving `Add source` into the quieter support dock, and demoting the merged `Saved sources` header/action chrome ahead of the featured reopen flow
+- Stage 98 confirmed that Home still remains the clearest blocker after Stage 97 because the support/search area still reads like a standing secondary dock and the `Saved sources` heading/copy still keep the `Start here` reopen card too staged
+- Stage 99 materially calmed Home with quieter support/search copy and a shorter merged saved-sources preamble
+- Stage 100 confirmed that Home still remains the clearest blocker after Stage 99 because the support/search area still reads like a standing dock and the merged saved-sources setup still stages the landing before the first featured reopen flow
+- Stage 101 materially calmed Home by inlining the remaining utility controls and removing the saved-sources preamble above the first featured reopen flow
+- Stage 102 confirmed that Home still remains the clearest blocker because the upper landing setup still reads as split staged zones, with isolated Home meta on the left and search/add utilities on the right leaving too much empty top canvas before `Start here`
+- Stage 103 materially tightened Home by collapsing the populated header into one compact heading-and-snapshot row and demoting the inline search/add treatment into quieter support utility
+- Stage 104 confirmed that Home is no longer the clearest blocker and that Study now leads again because the browse-mode `Session` rail still reads too sidebar-like and the review flow still sits inside too much empty dashboard canvas
+- Stage 105 materially calmed Study by turning the collapsed `Session` rail into a top support strip and recentering the browse-mode review canvas around the active task
+- Stage 106 confirmed that Study is no longer the clearest blocker after Stage 105 and that Home now leads again because the landing still reads too much like one staged featured band handing off into a quieter archive-style lower stack
+- Stage 107 materially calmed Home by turning the lower `Keep going` area into a lighter continuation flow that feels more connected to the featured reopen band
+- Stage 108 confirmed that Home still remained the clearest blocker after Stage 107, but that the lower continuation flow was no longer the main issue
+- Stage 109 materially calmed Home by tightening the `Start here` spotlight and softening the inline utility/search row while keeping Study, Graph, and focused Study stable
+- Stage 110 is the next benchmark audit and should determine whether Home still leads or whether another surface now has the stronger remaining mismatch
+- User-reported responsive regression to revisit later: at narrower desktop window widths, the Recall section rail can reflow into an oversized top navigation grid/panel that feels much heavier than the maximized-shell layout
 - a bounded assistant harness in `agent.md` and `docs/assistant/`
 - Stage 0/1 planning logs, research notes, repo-fit notes, and future integration logs
 - completed Stage 1 through Stage 8 ExecPlans plus a post-Stage 8 placeholder for the next user-directed milestone
@@ -309,6 +359,51 @@ As of 2026-03-15, this workspace includes:
   - fresh Home, Graph, Study, and focused-Study captures confirmed that Home is materially calmer and no longer the clearest roadmap blocker
   - Study is again the clearest remaining benchmark mismatch, while Graph stays stable and focused Study preserves the reader-led split
   - the next slice is now Stage 51 Recall Study sidebar and queue compression second pass
+- Stage 51 Recall Study sidebar and queue compression second pass is complete:
+  - browse-mode Study now uses a lighter queue-control rail, a persistent active-card summary, and explicit queue expansion instead of leaning on a full-height backlog wall
+  - the browse-mode review-stage support card is shorter, so the main review card becomes the first strong focal point on desktop
+  - the next slice is now Stage 52 post-Stage-51 benchmark audit
+- Stage 52 post-Stage-51 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 51 materially improved Study without regressing the preserved surfaces
+  - Study is still the clearest remaining mismatch because the queue rail still opens too heavy by default and the stage shell still competes with the main review card
+  - the next slice is now Stage 53 Recall Study default queue collapse and stage shell minimization
+- Stage 53 Recall Study default queue collapse and stage shell minimization is complete:
+  - browse-mode Study now lands with queue support collapsed by default, including manual top-level Study entry
+  - the old standalone `Recall review` support shell is now lighter inline guidance attached to the main review card
+  - the fresh Stage 53 captures keep Home and Graph stable while focused Study preserves the reader-led split
+  - the next slice is now Stage 54 post-Stage-53 benchmark audit
+- Stage 54 post-Stage-53 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 53 materially improved Study without regressing the preserved surfaces
+  - Study is still the clearest remaining mismatch because the collapsed queue summary still reads too tall and boxed, and the review-card header still carries too much support chrome
+  - the next slice is now Stage 55 Recall Study support rail flattening and review header compression
+- Stage 55 Recall Study support rail flattening and review header compression is complete:
+  - browse-mode Study now uses a flatter collapsed support rail and shorter review header so the main interaction starts earlier
+  - the fresh Stage 55 captures keep Home and Graph stable while focused Study preserves the reader-led split
+  - the next slice is now Stage 56 post-Stage-55 benchmark audit
+- Stage 56 post-Stage-55 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 55 materially improved Study without regressing the preserved surfaces
+  - Study is still the clearest remaining mismatch because the support rail still reads too boxed and the top-right Reader/journey utility cluster still feels heavier than the benchmark
+  - the next slice is now Stage 57 Recall Study support rail unboxing and review utility demotion
+- Stage 57 Recall Study support rail unboxing and review utility demotion is complete:
+  - browse-mode Study now uses a lighter, more utility-first collapsed rail and a calmer browse-mode header without the heavier top-right Reader utility cluster
+  - the fresh Stage 57 captures keep Home and Graph stable while focused Study preserves the reader-led split
+  - the next slice is now Stage 58 post-Stage-57 benchmark audit
+- Stage 58 post-Stage-57 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 57 materially improved Study without regressing the preserved surfaces
+  - Study is still the clearest remaining mismatch because the lower `Source evidence` block and full-width rating footer still give the review surface too much stacked support chrome
+  - the next slice is now Stage 59 Recall Study evidence stack compression and rating row tightening
+- Stage 59 Recall Study evidence stack compression and rating row tightening is complete:
+  - browse-mode Study now uses a lighter lower support stack, a smaller evidence reopen treatment, and a quiet pre-reveal rating placeholder
+  - the fresh Stage 59 captures keep Home and Graph stable while focused Study preserves the reader-led split
+  - the next slice is now Stage 60 post-Stage-59 benchmark audit
+- Stage 60 post-Stage-59 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Stage 59 materially improved Study without regressing the preserved surfaces
+  - Study is still the clearest remaining mismatch because the queue rail still reads boxed and the pre-reveal `Source evidence` section still occupies too much space before reveal
+  - the next slice is now Stage 61 Recall Study pre-reveal evidence minimization and queue rail softening
+- Stage 61 Recall Study pre-reveal evidence minimization and queue rail softening is complete:
+  - browse-mode Study now uses a compact `Grounding ready` pre-reveal summary and a visibly softer queue rail without disturbing the calmer review flow
+  - the fresh Stage 61 captures keep Home and Graph stable while focused Study preserves the reader-led split
+  - the next slice is now Stage 62 post-Stage-61 benchmark audit
 
 ## Recent Detours
 
@@ -367,14 +462,56 @@ As of 2026-03-15, this workspace includes:
 - 2026-03-15: completed the Stage 48 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Home is once again the clearest remaining benchmark mismatch after the Study rewrite, and opened Stage 49 for a bounded Home selective-landing second pass
 - 2026-03-15: completed Stage 49 with a lighter Home support rail, explicit recency expansion controls, targeted Home coverage, frontend lint/build, and a repo-owned real Edge screenshot harness, then opened Stage 50 for the next benchmark audit
 - 2026-03-15: completed the Stage 50 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Study is once again the clearest remaining benchmark mismatch after the Home pass, and opened Stage 51 for a bounded Study sidebar and queue compression second pass
+- 2026-03-15: completed Stage 51 with a lighter Study queue-control rail, explicit full-queue reveal controls, a shorter review-stage explainer, targeted Study coverage, frontend lint/build, and a repo-owned real Edge screenshot harness, then opened Stage 52 for the benchmark audit
+- 2026-03-15: completed the Stage 52 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Study is materially closer but still the clearest remaining mismatch, and opened Stage 53 for a bounded default-queue-collapse and stage-shell-minimization pass
+- 2026-03-15: completed Stage 53 with a default-collapsed Study queue, inline review-flow guidance, targeted Study/frontend coverage, frontend lint/build, and a repo-owned real Edge screenshot harness, then opened Stage 54 for the benchmark audit
+- 2026-03-15: completed the Stage 54 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Study is still the clearest remaining mismatch because the collapsed queue summary and review-card header still feel too heavy, and opened Stage 55 for a bounded support-rail and review-header compression pass
+- 2026-03-15: completed Stage 55 with a flatter collapsed Study support rail, shorter review header, targeted Study/frontend coverage, frontend lint/build, and a repo-owned real Edge screenshot harness, then opened Stage 56 for the benchmark audit
+- 2026-03-15: completed the Stage 56 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Study is still the clearest remaining mismatch because the rail still feels boxed and the top-right Reader/journey utility cluster still over-frames the card, and opened Stage 57 for a bounded support-rail-unboxing and utility-demotion pass
+- 2026-03-15: completed the Stage 62 benchmark audit, fixed the long-running whole-file `src/App.test.tsx` stall by stabilizing App-level shell handoff callbacks, then completed Stage 63 with a lighter Study session dock plus a compact review-session summary and fresh real Edge captures
+- 2026-03-15: completed the Stage 64 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Study is materially closer after Stage 63, and opened Stage 65 to soften Home's utility rail and compress the recent-source list
+- 2026-03-15: completed Stage 65 with a quieter Home utility dock, a flatter grouped recent-source list, targeted Home/frontend coverage, frontend lint/build, and a repo-owned real Edge screenshot harness, then opened Stage 66 for the benchmark audit
+- 2026-03-16: completed Stage 77 with a shorter Home spotlight, a denser nearby reopen stack, targeted and broad frontend validation, fresh real Edge captures, and then opened Stage 78 for the benchmark audit
+- 2026-03-16: completed the Stage 78 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Home is no longer the clearest blocker, and opened Stage 79 for a bounded Study session-dock and review-meta pass
+- 2026-03-16: completed Stage 79 with a lighter collapsed Study dock, a quieter pre-answer review strip, targeted and broad frontend validation, fresh real Edge captures, and then opened Stage 80 for the benchmark audit
+- 2026-03-16: completed the Stage 80 benchmark audit against fresh Study, Home, Graph, and focused-Study captures, confirmed that Study is no longer the clearest blocker, and opened Stage 81 for a bounded Home featured-band and empty-canvas pass
+- 2026-03-16: completed Stage 81 with a flatter Home featured band, tighter landing spacing, targeted plus broad frontend validation, and fresh real Edge captures, then opened Stage 82 for the next benchmark audit
+- 2026-03-16: completed the Stage 82 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is no longer the clearest blocker, and opened Stage 83 for a bounded Study utility-chrome follow-up
+- 2026-03-16: completed Stage 83 with a quieter collapsed Study rail, a lighter grounding row, targeted plus broad frontend validation, and fresh real Edge captures, then opened Stage 84 for the next benchmark audit
+- 2026-03-16: completed the Stage 84 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Study is no longer the clearest blocker, and opened Stage 85 for a bounded Home follow-on-flow pass
+- 2026-03-16: completed Stage 85 with a quieter same-section `Keep going` follow-on reopen flow, targeted plus broad frontend validation, and fresh real Edge captures, then opened Stage 86 for the next benchmark audit
+- 2026-03-16: completed the Stage 86 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is no longer the clearest blocker, and opened Stage 87 for a bounded Study dock-and-review-canvas pass
+- 2026-03-16: completed Stage 87 with a slimmer Study session dock, a shorter browse-mode review frame, targeted plus broad frontend validation, and fresh real Edge captures, then opened Stage 88 for the next benchmark audit
+- 2026-03-16: completed the Stage 88 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Study is no longer the clearest blocker, and opened Stage 89 for a bounded Home utility/search-rail and landing-header pass
+- 2026-03-16: completed Stage 89 with a flatter Home utility/search rail, a tighter header-to-reopen handoff, targeted plus broad frontend validation, and fresh real Edge captures, then opened Stage 90 for the next benchmark audit
+- 2026-03-16: completed the Stage 90 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still remains the clearest blocker after Stage 89, and opened Stage 91 for a bounded header-merge and first-reopen lift pass
+- 2026-03-16: completed Stage 91 with a merged no-resume Home header and first-reopen handoff, kept Study, Graph, and focused Study stable in fresh real Edge captures, and opened Stage 92 for the next benchmark audit
+- 2026-03-16: completed the Stage 92 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is no longer the clearest blocker after Stage 91, and opened Stage 93 for a bounded Study dock-and-review-header pass
+- 2026-03-16: completed Stage 93 with a quieter Study session dock, a shorter pre-answer review header, targeted plus broad frontend validation, and fresh real Edge captures, then opened Stage 94 for the next benchmark audit
+- 2026-03-16: completed the Stage 94 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Study is no longer the clearest blocker after Stage 93, and opened Stage 95 for a bounded Home find-later-column and saved-sources-intro pass
+- 2026-03-16: completed Stage 95 with a quieter Home utility/search column, a shorter saved-sources intro, targeted plus broad frontend validation, and fresh real Edge captures, then opened Stage 96 for the next benchmark audit
+- 2026-03-16: completed the Stage 96 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still remains the clearest blocker after Stage 95, and opened Stage 97 for a bounded Home utility-column-collapse and header-action-demotion pass
+- 2026-03-16: completed Stage 97 with a quieter Home utility/search dock, a calmer merged `Saved sources` handoff, targeted plus broad frontend validation, and fresh real Edge captures, then opened Stage 98 for the next benchmark audit
+- 2026-03-16: completed the Stage 98 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still remains the clearest blocker after Stage 97, and opened Stage 99 for a bounded Home support-dock and saved-sources-preamble follow-up
+- 2026-03-16: completed Stage 99 with quieter Home support/search copy, a shorter merged saved-sources preamble, targeted plus broad frontend validation, and fresh real Edge captures that materially calmed the Home landing
+- 2026-03-16: completed the Stage 100 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still remains the clearest blocker after Stage 99, and opened Stage 101 for a more structural Home support-utility-inlining and saved-sources-preamble-removal pass
+- 2026-03-16: completed Stage 101 with an inline Home utility header, no saved-sources preamble above the first featured reopen flow, targeted plus broad frontend validation, and fresh real Edge captures that materially calmed the Home landing, then opened Stage 102 for the next benchmark audit
+- 2026-03-16: completed the Stage 102 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still remains the clearest blocker because the upper landing setup still reads as split staged zones, and opened Stage 103 for a bounded landing-header-collapse and inline-search-demotion pass
+- 2026-03-16: completed Stage 103 with a compact Home heading-and-snapshot row, quieter inline search/add utility treatment, targeted plus broad frontend validation, and fresh real Edge captures, then opened Stage 104 for the next benchmark audit
+- 2026-03-16: completed the Stage 104 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is no longer the clearest blocker after Stage 103, and opened Stage 105 for a bounded Study session-rail-demotion and review-canvas-recentering pass
+- 2026-03-16: completed Stage 105 with a lighter top support strip for browse-mode Study, a more centered review canvas, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 106 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 106 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Study is no longer the clearest blocker after Stage 105, and opened Stage 107 for a bounded Home featured-flow-unification and lower-canvas-compaction pass
+- 2026-03-16: completed Stage 107 with a lighter Home continuation flow, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 108 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 108 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still remains the clearest blocker after Stage 107, and opened Stage 109 for a bounded spotlight-footprint-reduction and utility-header-softening pass
+- 2026-03-16: completed Stage 109 with a tighter Home spotlight, quieter inline utility/search row, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 110 audit harness for the next benchmark decision
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Read `docs/ux/recall_benchmark_matrix.md`, then open the active Stage 51 ExecPlan in `docs/exec_plans/active/`.
+3. Read `docs/ux/recall_benchmark_matrix.md`, then open the active Stage 110 ExecPlan in `docs/exec_plans/active/`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while implementing the Stage 51 Study sidebar/queue compression pass and spot-checking Home, Graph, Study, and focused-study regressions against the benchmark.
-7. Use Stage 51 to tighten Study browse-mode hierarchy before reopening local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while tightening the remaining Home upper-landing chrome.
+7. Use Stage 110 to choose one fresh bounded follow-up from screenshot evidence before reopening Study, Graph, local TTS, OCR, cloud sync, collaboration, chat/Q&A, or other deferred systems.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

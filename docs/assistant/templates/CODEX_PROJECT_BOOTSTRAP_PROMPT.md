@@ -36,7 +36,7 @@ You are working in a new app repository. Build an AI-first documentation system 
 ## Objectives
 1. Create a canonical+bridge docs model so one source of truth exists.
 2. Add machine-readable routing so automated agents can choose the right workflow quickly.
-3. Add workflow runbooks for feature work, data work, CI/repo operations, docs maintenance, commit/publish hygiene, and inspiration/parity reference discovery.
+3. Add workflow runbooks for feature work, data work, UI/browser validation, CI/repo operations, docs maintenance, commit/publish hygiene, and inspiration/parity reference discovery.
 4. Add validator tooling and tests that catch docs drift and policy violations.
 5. Keep all commands PowerShell-compatible and avoid bash-only syntax.
 6. Ensure commit requests are never handled blindly.
@@ -47,6 +47,7 @@ You are working in a new app repository. Build an AI-first documentation system 
 11. Create a user-perspective documentation track so agents can explain the app to non-coders clearly.
 12. Add enforceable approval gates and worktree isolation guidance for safer execution.
 13. Add Golden Principles and ExecPlans so major work stays deterministic and self-contained.
+14. Add a reusable UI/browser validation contract that captures environment rules, repo-owned real-browser harnesses, artifact policy, and fallback paths for unstable broad suites.
 
 ## Newbie-First Layer (Optional: remove for developer-first repos)
 - Assume user is a complete beginner/non-coder unless this section is removed or user explicitly requests technical depth.
@@ -97,6 +98,7 @@ If equivalent docs/files already exist in the repo (same or similar purpose), up
 ### Workflow docs
 - `docs/assistant/workflows/FEATURE_WORKFLOW.md` (core product workflow; rename to domain)
 - `docs/assistant/workflows/DATA_WORKFLOW.md` (data/API/cache/schema workflow; rename to domain)
+- `docs/assistant/workflows/UI_SURFACE_VALIDATION_WORKFLOW.md`
 - `docs/assistant/workflows/LOCALIZATION_WORKFLOW.md`
 - `docs/assistant/workflows/PERFORMANCE_WORKFLOW.md`
 - `docs/assistant/workflows/REFERENCE_DISCOVERY_WORKFLOW.md`
@@ -128,6 +130,8 @@ If equivalent docs/files already exist in the repo (same or similar purpose), up
 15. `AGENTS.md` and `agent.md` must include `Approval Gates`, `ExecPlans`, and `Worktree Isolation` sections.
 16. ExecPlans are mandatory for major/multi-file work and optional for small isolated changes.
 17. For support/non-technical explanation tasks, route to `APP_USER_GUIDE.md` (and `PRIMARY_FEATURE_USER_GUIDE.md` for domain-specific support).
+18. Browser-delivered UI repos must document a validation environment matrix, a repo-owned browser harness strategy, and a validation fallback path when broad suites are confirmed unstable.
+19. Confirmed validation caveats must be captured in runbook, index, or bridge docs so future agents do not rediscover the same unstable path.
 
 ## Commit/Publish Workflow Requirements
 In `COMMIT_PUBLISH_WORKFLOW.md`, define a strict sequence:
@@ -175,6 +179,40 @@ In `AGENTS.md` and `agent.md`, require `## Approval Gates` with explicit ask-bef
 4. Require `## Worktree Isolation` section in `AGENTS.md` and `agent.md`.
 5. Require worktree guidance in CI/commit/docs-maintenance workflows.
 
+## UI Surface Validation Requirements
+Create one dedicated workflow:
+- `docs/assistant/workflows/UI_SURFACE_VALIDATION_WORKFLOW.md`
+
+In that workflow, require:
+1. A validation environment matrix that records:
+   - repo/toolchain host
+   - target UI runtime and browser
+   - approved command wrappers
+   - path-translation or interoperability rules when commands cross OS boundaries
+   - artifact location
+2. A validation truth ladder for UI work:
+   - targeted tests first
+   - repo-owned real-browser harness second
+   - captured artifacts plus manual review third when layout, hierarchy, or parity-sensitive UI changes are involved
+3. A repo-owned harness strategy for browser and UI-heavy repos:
+   - scripted real-browser validation kept in the repo
+   - deterministic setup and cleanup for stateful flows
+   - success artifacts plus machine-readable validation output
+   - failure screenshot on errors
+   - traces or equivalent deeper-debug artifacts when supported
+4. Locator guidance:
+   - prefer user-facing locators (`role`, `label`, `text`, `placeholder`)
+   - use stable test ids only when user-facing locators are insufficient
+5. Responsive and visual guidance:
+   - when layout or hierarchy changes materially, capture at least one primary viewport artifact and one secondary viewport artifact
+6. Fallback guidance:
+   - if a broad suite is known unstable, document the trusted fallback instead of treating the unstable path as the primary gate
+   - once a validation caveat is confirmed, route future work toward the trusted path in the runbook, index, or bridge docs
+7. Artifact organization:
+   - use one predictable artifact namespace so screenshots, traces, and validation summaries are easy to find
+8. Scope rule:
+   - keep benchmark-matrix creation on-demand for parity-sensitive UI work instead of requiring it for every repo
+
 ## Manifest Requirements (`docs/assistant/manifest.json`)
 Include:
 - `version`
@@ -194,6 +232,7 @@ For `user_guides`, require:
 Add workflow IDs for:
 - feature workflow
 - data workflow
+- `ui_surface_validation`
 - localization workflow
 - workspace performance workflow
 - `reference_discovery`
@@ -213,6 +252,11 @@ Add contract keys for:
 - `approval_gates_policy`
 - `worktree_isolation_policy`
 - `doc_gardening_policy`
+- `ui_surface_validation_policy`
+- `validation_environment_policy`
+- `artifact_capture_policy`
+- `benchmark_matrix_policy`
+- `validation_fallback_policy`
 - `user_guides_support_usage_policy`
 - `user_guides_canonical_deference_policy`
 - `user_guides_update_sync_policy`
@@ -231,7 +275,10 @@ In that workflow, require:
    - list selected references with links
    - explain why each was chosen
    - clearly separate adopted pattern vs local adaptation
-4. Safety:
+4. If the task is parity-sensitive UI work:
+   - require creation or refresh of a benchmark matrix only for the affected surfaces
+   - map each surface to the selected reference, local artifact, target direction, allowed product-specific differences, and mismatch severity
+5. Safety:
    - no blind code copying
    - license/attribution checks
    - report insufficiency and fallback strategy when references are weak
@@ -279,7 +326,7 @@ Validator must fail if:
 1. Required docs/workflow/tooling files are missing.
 2. Manifest schema keys are missing/invalid.
 3. Manifest paths do not exist.
-4. Required workflow IDs are missing (including `ci_repo_ops`, `commit_publish_ops`, and localization workflow id).
+4. Required workflow IDs are missing (including `ci_repo_ops`, `commit_publish_ops`, the localization workflow id, or `ui_surface_validation`).
 5. Required section headings are missing in any workflow doc.
 6. Any workflow doc misses `Expected Outputs`.
 7. Any workflow doc misses explicit negative-routing + alternative language.
@@ -291,36 +338,44 @@ Validator must fail if:
 13. Workspace performance workflow/baseline or routing contracts are missing.
 14. Workspace hygiene validator/tooling files are missing.
 15. `REFERENCE_DISCOVERY_WORKFLOW.md` is missing.
-16. `reference_discovery` workflow id is missing from manifest.
-17. `post_change_docs_sync_prompt_policy` or `inspiration_reference_discovery_policy` contracts are missing from manifest.
-18. New contracts are missing from manifest:
+16. `UI_SURFACE_VALIDATION_WORKFLOW.md` is missing.
+17. `reference_discovery` or `ui_surface_validation` workflow id is missing from manifest.
+18. `post_change_docs_sync_prompt_policy` or `inspiration_reference_discovery_policy` contracts are missing from manifest.
+19. New contracts are missing from manifest:
    - `golden_principles_source_of_truth`
    - `execplan_policy`
    - `approval_gates_policy`
    - `worktree_isolation_policy`
    - `doc_gardening_policy`
-19. `GOLDEN_PRINCIPLES.md` or `exec_plans/PLANS.md` scaffolding is missing.
-20. `AGENTS.md`/`agent.md` do not enforce:
+   - `ui_surface_validation_policy`
+   - `validation_environment_policy`
+   - `artifact_capture_policy`
+   - `benchmark_matrix_policy`
+   - `validation_fallback_policy`
+20. `GOLDEN_PRINCIPLES.md` or `exec_plans/PLANS.md` scaffolding is missing.
+21. `AGENTS.md`/`agent.md` do not enforce:
    - post-significant-change docs-sync prompt policy
    - inspiration/parity routing to `REFERENCE_DISCOVERY_WORKFLOW.md`
+   - routing to `UI_SURFACE_VALIDATION_WORKFLOW.md` for browser/UI validation work
    - Approval Gates
    - ExecPlans
    - Worktree Isolation
-21. `user_guides` key is missing from manifest.
-22. Any `user_guides` path in manifest does not exist.
-23. User guides are not discoverable from the docs index/routing docs.
-24. Template-path routing regression protections are missing.
-25. User guides are missing required section headings:
+22. The UI surface validation workflow lacks required routing language, environment-matrix guidance, artifact policy, locator guidance, or fallback guidance.
+23. `user_guides` key is missing from manifest.
+24. Any `user_guides` path in manifest does not exist.
+25. User guides are not discoverable from the docs index/routing docs.
+26. Template-path routing regression protections are missing.
+27. User guides are missing required section headings:
    - `Use This Guide When`
    - `Do Not Use This Guide For`
    - `For Agents: Support Interaction Contract`
    - `Canonical Deference Rule`
-26. AGENTS/runbook do not route support/non-technical tasks to user guides.
-27. Manifest is missing:
+28. AGENTS/runbook do not route support/non-technical tasks to user guides.
+29. Manifest is missing:
    - `user_guides_support_usage_policy`
    - `user_guides_canonical_deference_policy`
    - `user_guides_update_sync_policy`
-28. Docs maintenance workflow lacks user-guide sync guidance.
+30. Docs maintenance workflow lacks user-guide sync guidance.
 
 ## Tests
 1. Validator passes in current repo.
@@ -345,13 +400,19 @@ Validator must fail if:
     - `approval_gates_policy`
     - `worktree_isolation_policy`
     - `doc_gardening_policy`
-18. Fails when user guides are missing required support/canonical-deference section headings.
-19. Fails when AGENTS/runbook omit support routing to user guides.
-20. Fails when user-guide manifest contract keys are missing:
+    - `ui_surface_validation_policy`
+    - `validation_environment_policy`
+    - `artifact_capture_policy`
+    - `benchmark_matrix_policy`
+    - `validation_fallback_policy`
+18. Fails when the UI surface validation workflow is missing, unroutable, or lacks required routing language, environment-matrix guidance, artifact policy, locator guidance, or fallback policy.
+19. Fails when user guides are missing required support/canonical-deference section headings.
+20. Fails when AGENTS/runbook omit support routing to user guides.
+21. Fails when user-guide manifest contract keys are missing:
     - `user_guides_support_usage_policy`
     - `user_guides_canonical_deference_policy`
     - `user_guides_update_sync_policy`
-21. Fails when docs maintenance workflow omits user-guide sync guidance.
+22. Fails when docs maintenance workflow omits user-guide sync guidance.
 
 ## CI Guidance
 Ensure CI includes:
@@ -378,7 +439,8 @@ Use temporary fixture directories for failure-mode tests; do not mutate real doc
 3. Commit requests follow strict triage/validation/push protocol.
 4. Validator catches docs drift automatically.
 5. Docs are concise, non-duplicative, and Windows command compatible.
-6. No runtime behavior changes unless explicitly requested.
+6. UI/browser repos have a durable validation workflow with environment rules, artifact policy, and fallback guidance.
+7. No runtime behavior changes unless explicitly requested.
 
 ## Output
 Return:
@@ -396,6 +458,7 @@ Return:
 - Align targeted tests to the new repo's test layout.
 - Keep PowerShell command style if you are targeting Windows-first workflows.
 - If the app is not planning-centric, rename `PRIMARY_FEATURE_USER_GUIDE.md` to the app’s most critical user workflow guide.
+- If the repo has no browser-delivered UI, keep the UI surface validation workflow lightweight but still present so routing stays explicit.
 
 ## Update Cadence
 
@@ -403,3 +466,4 @@ Review/update this template when:
 - your agent docs architecture changes materially
 - validator contracts gain new rules
 - commit/CI governance changes
+- repeated cross-project UI validation failures reveal a missing reusable rule

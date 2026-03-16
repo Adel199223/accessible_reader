@@ -171,6 +171,16 @@ function getLibrarySectionDisplayLimit(sectionKey: LibraryBrowseSection['key']) 
   return 6
 }
 
+function getFeaturedLibrarySectionDisplayLimit(sectionKey: LibraryBrowseSection['key']) {
+  if (sectionKey === 'today') {
+    return 2
+  }
+  if (sectionKey === 'this-week') {
+    return 3
+  }
+  return 3
+}
+
 function buildLibraryBrowseSections(documents: RecallDocumentRecord[], now: Date = new Date()): LibraryBrowseSection[] {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const mondayOffset = (now.getDay() + 6) % 7
@@ -348,6 +358,21 @@ function getStudyCardPreview(card: StudyCardRecord) {
   return `Grounded in saved source evidence from ${card.document_title}.`
 }
 
+function buildStudyQueuePreview(cards: StudyCardRecord[], activeCardId: string | null, limit: number) {
+  if (cards.length <= limit) {
+    return cards
+  }
+  const preview = cards.slice(0, limit)
+  if (!activeCardId || preview.some((card) => card.id === activeCardId)) {
+    return preview
+  }
+  const activeCard = cards.find((card) => card.id === activeCardId)
+  if (!activeCard) {
+    return preview
+  }
+  return [activeCard, ...preview.slice(0, Math.max(0, limit - 1))]
+}
+
 function getStudyEvidenceLabel(sourceSpan: Record<string, unknown>) {
   if (getRecordStringValue(sourceSpan, 'note_id')) {
     return 'Saved note'
@@ -474,6 +499,7 @@ export function RecallWorkspace({
   const [studyError, setStudyError] = useState<string | null>(null)
   const [studyBusyKey, setStudyBusyKey] = useState<string | null>(null)
   const [showAnswer, setShowAnswer] = useState(false)
+  const [studyEvidencePeekOpen, setStudyEvidencePeekOpen] = useState(false)
   const [studyMessage, setStudyMessage] = useState<string | null>(null)
   const [documentNotes, setDocumentNotes] = useState<RecallNoteRecord[]>([])
   const [sourceWorkspaceNotes, setSourceWorkspaceNotes] = useState<RecallNoteRecord[]>([])
@@ -502,6 +528,7 @@ export function RecallWorkspace({
   const [focusedReaderMode, setFocusedReaderMode] = useState<ViewMode>('reflowed')
   const [focusedGraphEvidenceKey, setFocusedGraphEvidenceKey] = useState<string | null>(null)
   const [focusedStudySourceSpanIndex, setFocusedStudySourceSpanIndex] = useState(0)
+  const [studyQueueExpanded, setStudyQueueExpanded] = useState(false)
   const [expandedLibrarySectionKeys, setExpandedLibrarySectionKeys] = useState<Record<LibraryBrowseSection['key'], boolean>>({
     today: false,
     'this-week': false,
@@ -632,6 +659,26 @@ export function RecallWorkspace({
   )
   const librarySectionSnapshot = useMemo(() => buildLibraryBrowseSections(documents), [documents])
   const featuredLibrarySection = libraryBrowseSections[0] ?? null
+  const featuredLibrarySectionDisplayLimit = featuredLibrarySection
+    ? getLibrarySectionDisplayLimit(featuredLibrarySection.key)
+    : 0
+  const canExpandFeaturedLibrarySection =
+    !!featuredLibrarySection && featuredLibrarySection.documents.length > featuredLibrarySectionDisplayLimit
+  const featuredLibraryBandDisplayLimit = featuredLibrarySection
+    ? getFeaturedLibrarySectionDisplayLimit(featuredLibrarySection.key)
+    : 0
+  const visibleFeaturedLibraryDocuments = useMemo(() => {
+    if (!featuredLibrarySection) {
+      return []
+    }
+    return expandedLibrarySectionKeys[featuredLibrarySection.key]
+      ? featuredLibrarySection.documents
+      : featuredLibrarySection.documents.slice(0, featuredLibrarySectionDisplayLimit)
+  }, [expandedLibrarySectionKeys, featuredLibrarySection, featuredLibrarySectionDisplayLimit])
+  const visibleFeaturedLibraryBandDocuments = visibleFeaturedLibraryDocuments.slice(0, featuredLibraryBandDisplayLimit)
+  const featuredPrimaryDocument = visibleFeaturedLibraryBandDocuments[0] ?? null
+  const featuredSupportingDocuments = visibleFeaturedLibraryBandDocuments.slice(1)
+  const featuredFollowOnDocuments = visibleFeaturedLibraryDocuments.slice(featuredLibraryBandDisplayLimit)
   const secondaryLibrarySections = libraryBrowseSections.slice(1)
   const showingNoteSearch = deferredNoteSearch.trim().length > 0
   const visibleNotes = showingNoteSearch ? noteSearchResults : documentNotes
@@ -658,6 +705,14 @@ export function RecallWorkspace({
         : [],
     [activeSourceDocumentId, studyCards],
   )
+  const visibleStudyQueueCards = useMemo(
+    () =>
+      showFocusedStudySplitView || studyQueueExpanded || studyStatus === 'error'
+        ? studyCards
+        : buildStudyQueuePreview(studyCards, activeStudyCard?.id ?? null, 4),
+    [activeStudyCard?.id, showFocusedStudySplitView, studyCards, studyQueueExpanded, studyStatus],
+  )
+  const hiddenStudyQueueCount = Math.max(0, studyCards.length - visibleStudyQueueCards.length)
   const sourceWorkspaceNoteCountLabel =
     sourceWorkspaceNotesStatus === 'loading'
       ? 'Loading notes…'
@@ -1074,6 +1129,8 @@ export function RecallWorkspace({
     () => visibleDocuments.filter((document) => document.id !== resumeSourceDocument?.id).slice(0, 2),
     [resumeSourceDocument?.id, visibleDocuments],
   )
+  const mergeHomeHeaderIntoFeaturedSection =
+    !libraryFilterActive && !resumeSourceDocument && !!featuredLibrarySection && !!featuredPrimaryDocument
 
   const loadGraph = useCallback(async () => {
     setGraphStatus('loading')
@@ -1321,7 +1378,18 @@ export function RecallWorkspace({
 
   useEffect(() => {
     setFocusedStudySourceSpanIndex(0)
+    setStudyEvidencePeekOpen(false)
   }, [activeStudyCard?.id])
+
+  useEffect(() => {
+    setStudyQueueExpanded(false)
+  }, [section, showFocusedStudySplitView, studyBrowseDrawerOpen, studyFilter])
+
+  useEffect(() => {
+    if (section !== 'study' || showFocusedStudySplitView) {
+      setStudyEvidencePeekOpen(false)
+    }
+  }, [section, showFocusedStudySplitView])
 
   useEffect(() => {
     if (!selectedLibraryDocumentId) {
@@ -1801,6 +1869,7 @@ export function RecallWorkspace({
         current.activeDocumentId === card.source_document_id ? current.readerAnchor : null,
     }))
     setShowAnswer(false)
+    setStudyEvidencePeekOpen(false)
     setFocusedStudySourceSpanIndex(0)
   }
 
@@ -2036,6 +2105,7 @@ export function RecallWorkspace({
         currentCards.map((card) => (card.id === reviewedCard.id ? reviewedCard : card)),
       )
       setShowAnswer(false)
+      setStudyEvidencePeekOpen(false)
       await loadStudy(studyFilter)
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : 'Could not save that review.')
@@ -2068,6 +2138,50 @@ export function RecallWorkspace({
       : studyOverview
         ? `${studyOverview.new_count + studyOverview.due_count + studyOverview.scheduled_count} cards`
         : 'Loading study…'
+  const homeSavedSourceLabel = `${documents.length} ready`
+  const homeSidebarStatusCopy =
+    documentsLoading
+      ? 'Loading local collection.'
+      : documentsStatus === 'error'
+        ? 'Reconnect the local service to reload saved sources.'
+        : documents.length === 0
+          ? 'Start with one source and build context from there.'
+          : null
+  const libraryLandingIntroCopy =
+    documentsLoading
+      ? 'Loading your saved source collection.'
+      : documentsStatus === 'error'
+        ? 'Saved sources are temporarily unavailable until the local service reconnects.'
+        : documents.length === 0
+          ? 'Add one source to start reading, saving notes, and building graph or study context.'
+          : libraryFilterActive
+            ? `Showing ${visibleDocuments.length} matching ${visibleDocuments.length === 1 ? 'source' : 'sources'}.`
+            : resumeSourceDocument
+              ? 'Resume one source now, then expand grouped sections only when you need more.'
+              : 'Open one saved source now.'
+  const showInlineHomeSearch = !documentsLoading && documentsStatus !== 'error' && documents.length > 0
+  const homeInlineHeading = libraryFilterActive ? 'Search results' : 'Home'
+  const showCompactHomeHeaderSummary = !documentsLoading && documentsStatus !== 'error' && documents.length > 0 && !libraryFilterActive
+  const homeInlineSnapshotItems = showCompactHomeHeaderSummary
+    ? [
+        { key: 'ready', count: documents.length, label: 'ready' },
+        ...librarySectionSnapshot.slice(0, 2).map((section) => ({
+          key: section.key,
+          count: section.documents.length,
+          label: section.label,
+        })),
+      ]
+    : []
+  const homeInlineSummary =
+    documentsLoading
+      ? 'Loading saved sources.'
+      : documentsStatus === 'error'
+        ? 'Saved sources are unavailable until the local service reconnects.'
+        : documents.length === 0
+          ? 'Add one source to start reading, saving notes, and building graph or study context.'
+          : libraryFilterActive
+            ? libraryLandingIntroCopy
+            : `${homeSavedSourceLabel}.`
   const graphPendingEdgesLabel =
     graphStatus === 'error' ? 'Relations unavailable' : `${graphSnapshot?.pending_edges ?? 0} pending edges`
   const graphConfirmedEdgesLabel =
@@ -2076,6 +2190,39 @@ export function RecallWorkspace({
   const studyDueCountLabel = studyStatus === 'error' ? 'Counts unavailable' : `${studyOverview?.due_count ?? 0} due`
   const studyReviewCountLabel =
     studyStatus === 'error' ? 'Retry needed' : `${studyOverview?.review_event_count ?? 0} reviews logged`
+  const collapsedStudyBrowseRail = !showFocusedStudySplitView && !studyBrowseDrawerOpen
+  const collapsedStudyQueueOverview = studyStatus === 'error'
+    ? 'Study unavailable'
+    : studyOverview
+      ? studyOverview.due_count > 0
+        ? `${studyOverview.due_count} due`
+        : studyOverview.new_count > 0
+          ? `${studyOverview.new_count} new`
+          : `${studyOverview.scheduled_count} scheduled`
+      : 'Loading study…'
+  const activeStudyCardSidebarSummary = activeStudyCard
+    ? `${activeStudyCard.document_title} · ${formatStudyStatus(activeStudyCard.status)} · Due ${dateFormatter.format(new Date(activeStudyCard.due_at))}`
+    : activeSourceDocumentId
+      ? 'Generate or promote a study card from this source to review it here.'
+      : 'Choose a source to inspect its study state.'
+  const activeStudyCardCollapsedRailSummary = activeStudyCard
+    ? showAnswer
+      ? 'Queue hidden until you want another card.'
+      : 'Queue hidden until you want another card.'
+    : activeSourceDocumentId
+      ? 'Generate or promote a study card from this source to review it here.'
+      : 'Choose a source to inspect its study state.'
+  const collapsedStudyBrowseRailLabel = activeStudyCard ? 'Up next' : formatModeLabel(studyFilter)
+  const activeStudyCardHeaderSummary = activeStudyCard
+    ? showAnswer
+      ? 'Rate next'
+      : null
+    : 'Choose a card from the queue to review it here.'
+  const browseStudySessionLabel = showAnswer ? 'Answer shown' : 'Ready'
+  const browseStudyEvidenceExpanded = showFocusedStudySplitView || showAnswer || studyEvidencePeekOpen
+  const browseStudyEvidenceSummary = focusedStudySourceSpan
+    ? getStudyEvidenceLabel(focusedStudySourceSpan)
+    : 'Add a note or highlight to keep one excerpt nearby.'
   const overallError = error ?? documentsError ?? detailError ?? graphError ?? studyError
   const canRetryRecallLoading = Boolean(documentsError || detailError || graphError || studyError)
   const sourceOverviewDocument =
@@ -2495,28 +2642,6 @@ export function RecallWorkspace({
     updateSourceWorkspaceState,
   ])
 
-  function renderLibrarySourceTile(document: RecallDocumentRecord) {
-    return (
-      <button
-        aria-label={`Open ${document.title}`}
-        key={document.id}
-        className="recall-source-tile"
-        type="button"
-        onClick={() => focusSourceLibrary(document.id)}
-      >
-        <span className="recall-source-tile-date">{dateFormatter.format(new Date(document.updated_at))}</span>
-        <span className="recall-source-tile-head">
-          <strong>{document.title}</strong>
-        </span>
-        <span className="recall-source-tile-preview">{getDocumentSourcePreview(document)}</span>
-        <span className="recall-source-tile-meta">
-          <span>{document.source_type.toUpperCase()}</span>
-          <span>{document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'}</span>
-        </span>
-      </button>
-    )
-  }
-
   function renderLibrarySourceRow(document: RecallDocumentRecord) {
     return (
       <button
@@ -2532,28 +2657,89 @@ export function RecallWorkspace({
         </span>
         <span className="recall-library-list-row-meta">
           <span>{dateFormatter.format(new Date(document.updated_at))}</span>
-          <span>{document.source_type.toUpperCase()}</span>
         </span>
       </button>
     )
   }
 
-  function renderLibrarySupportCard(document: RecallDocumentRecord) {
+  function renderLibraryFeaturedSpotlight(document: RecallDocumentRecord) {
+    return (
+      <button
+        aria-label={`Open ${document.title}`}
+        key={`featured:${document.id}`}
+        className="recall-library-featured-spotlight"
+        type="button"
+        onClick={() => focusSourceLibrary(document.id)}
+      >
+        <span className="recall-library-featured-spotlight-topline">
+          <span className="recall-library-featured-spotlight-kicker">
+            <span className="status-chip">Start here</span>
+            <span>{document.source_type.toUpperCase()}</span>
+          </span>
+          <span>{dateFormatter.format(new Date(document.updated_at))}</span>
+        </span>
+        <span className="recall-library-featured-spotlight-main">
+          <strong>{document.title}</strong>
+          <span className="recall-library-featured-spotlight-preview">{getDocumentSourcePreview(document)}</span>
+        </span>
+        <span className="recall-library-featured-spotlight-meta">
+          <span>{document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'} ready</span>
+        </span>
+      </button>
+    )
+  }
+
+  function renderLibraryReopenRow(
+    document: RecallDocumentRecord,
+    badgeLabel: string,
+    density: 'default' | 'compact' = 'default',
+  ) {
     return (
       <button
         aria-label={`Open ${document.title}`}
         key={`support:${document.id}`}
-        className="recall-library-support-card"
+        className={
+          density === 'compact'
+            ? 'recall-library-reopen-row recall-library-reopen-row-compact'
+            : 'recall-library-reopen-row'
+        }
         type="button"
         onClick={() => focusSourceLibrary(document.id)}
       >
-        <span className="recall-library-support-card-head">
-          <span className="status-chip">Nearby</span>
+        <span className="recall-library-reopen-row-head">
+          <span className="status-chip">{badgeLabel}</span>
           <span>{dateFormatter.format(new Date(document.updated_at))}</span>
         </span>
-        <strong>{document.title}</strong>
-        <span className="recall-library-support-card-preview">{getDocumentSourcePreview(document)}</span>
-        <span className="recall-library-support-card-meta">
+        <span className="recall-library-reopen-row-main">
+          <strong>{document.title}</strong>
+          <span>{getDocumentSourcePreview(document)}</span>
+        </span>
+        <span className="recall-library-reopen-row-meta">
+          <span>{document.source_type.toUpperCase()}</span>
+          <span>{document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'}</span>
+        </span>
+      </button>
+    )
+  }
+
+  function renderLibraryContinuationRow(document: RecallDocumentRecord) {
+    return (
+      <button
+        aria-label={`Open ${document.title}`}
+        key={`continuation:${document.id}`}
+        className="recall-library-continuation-row"
+        type="button"
+        onClick={() => focusSourceLibrary(document.id)}
+      >
+        <span className="recall-library-continuation-row-head">
+          <span className="recall-library-continuation-row-kicker">Next</span>
+          <span>{dateFormatter.format(new Date(document.updated_at))}</span>
+        </span>
+        <span className="recall-library-continuation-row-main">
+          <strong>{document.title}</strong>
+          <span>{getDocumentSourcePreview(document)}</span>
+        </span>
+        <span className="recall-library-continuation-row-meta">
           <span>{document.source_type.toUpperCase()}</span>
           <span>{document.available_modes.length} {document.available_modes.length === 1 ? 'view' : 'views'}</span>
         </span>
@@ -3351,71 +3537,51 @@ export function RecallWorkspace({
         ) : (
           <section className="card recall-library-landing">
             <div className="recall-library-landing-layout">
-              <aside className="recall-library-sidebar stack-gap">
-                <div className="recall-library-sidebar-panel recall-library-sidebar-panel-accent stack-gap">
-                  <div className="section-header section-header-compact">
-                    <h2>Home</h2>
-                    <p>
-                      {documentsLoading
-                        ? 'Loading local collection.'
-                        : documentsStatus === 'error'
-                          ? 'Reconnect the local service to reload saved sources.'
-                          : documents.length === 0
-                            ? 'Start with one source and build context from there.'
-                            : `${documents.length} saved ${documents.length === 1 ? 'source' : 'sources'} ready inside your local workspace.`}
-                    </p>
-                  </div>
-
-                  {!documentsLoading && documentsStatus !== 'error' && librarySectionSnapshot.length > 0 ? (
-                    <div className="recall-library-sidebar-metrics" role="list" aria-label="Collection snapshot">
-                      {librarySectionSnapshot.map((section) => (
-                        <div className="recall-library-sidebar-metric" key={section.key} role="listitem">
-                          <strong>{section.documents.length}</strong>
-                          <span>{section.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                <section className="recall-library-sidebar-panel stack-gap">
-                  <label className="field recall-inline-field">
-                    <span>Search saved sources</span>
-                    <input
-                      type="search"
-                      placeholder="Search saved sources"
-                      value={libraryFilterQuery}
-                      onChange={(event) =>
-                        updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <p className="small-note">
-                    Keep Home selective here, then search when you need to reopen something older or more specific.
-                  </p>
-                </section>
-              </aside>
-
               <div className="recall-library-canvas stack-gap">
-                <div className="section-header recall-library-landing-header">
-                  <div className="recall-library-landing-title">
-                    <h2>{libraryFilterActive ? 'Search results' : 'Saved sources'}</h2>
-                    <p className="recall-library-landing-copy">
-                      {documentsLoading
-                        ? 'Loading your saved source collection.'
-                        : documentsStatus === 'error'
-                          ? 'Saved sources are temporarily unavailable until the local service reconnects.'
-                          : documents.length === 0
-                            ? 'Add one source to start reading, saving notes, and building graph or study context.'
-                            : libraryFilterActive
-                              ? `Showing ${visibleDocuments.length} matching ${visibleDocuments.length === 1 ? 'source' : 'sources'}.`
-                              : 'Start from one deliberate resume point, then expand grouped reopen sections only when you need more of the archive.'}
-                    </p>
-                  </div>
-                  <div className="recall-library-landing-actions">
-                    <button aria-label="Add source" type="button" onClick={onRequestNewSource}>
-                      Add source
-                    </button>
+                <div className="recall-library-home-inline-shell stack-gap">
+                  <div className="recall-library-home-inline-header">
+                    <div className="section-header section-header-compact recall-library-home-inline-heading">
+                      <div className="recall-library-home-inline-heading-copy">
+                        <h2>{homeInlineHeading}</h2>
+                        {!showCompactHomeHeaderSummary ? (
+                          <p className="recall-library-home-inline-summary">
+                            {!documentsLoading && documentsStatus !== 'error' && documents.length > 0
+                              ? homeInlineSummary
+                              : homeSidebarStatusCopy ?? homeInlineSummary}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      {homeInlineSnapshotItems.length > 0 ? (
+                        <div className="recall-library-home-inline-meta recall-library-sidebar-metrics" role="list" aria-label="Collection snapshot">
+                          {homeInlineSnapshotItems.map((item) => (
+                            <div className="recall-library-sidebar-metric" key={item.key} role="listitem">
+                              <strong>{item.count}</strong>
+                              <span>{item.label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="recall-library-home-inline-actions">
+                        {showInlineHomeSearch ? (
+                          <label className="field recall-inline-field recall-library-home-inline-search">
+                            <span className="visually-hidden">Search saved sources</span>
+                            <input
+                              aria-label="Search saved sources"
+                              type="search"
+                              placeholder="Search"
+                              value={libraryFilterQuery}
+                              onChange={(event) =>
+                                updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                              }
+                            />
+                          </label>
+                        ) : null}
+                        <button className="ghost-button" aria-label="Add source" type="button" onClick={onRequestNewSource}>
+                          Add
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -3500,29 +3666,89 @@ export function RecallWorkspace({
 
                             {resumeSupportDocuments.length > 0 ? (
                               <div className="recall-library-priority-support" role="list" aria-label="Nearby sources">
-                                {resumeSupportDocuments.map((document) => renderLibrarySupportCard(document))}
+                                {resumeSupportDocuments.map((document) => renderLibraryReopenRow(document, 'Nearby'))}
                               </div>
                             ) : null}
                           </div>
                         </section>
                       ) : null}
 
-                      {featuredLibrarySection ? (
-                        <section className="recall-library-section stack-gap" aria-label={featuredLibrarySection.label}>
-                          <div className="section-header section-header-compact recall-library-section-header">
-                            <div>
-                              <h3>{featuredLibrarySection.label}</h3>
-                              <p>{featuredLibrarySection.description}</p>
+                      {featuredLibrarySection && featuredPrimaryDocument ? (
+                        <section
+                          className={
+                            mergeHomeHeaderIntoFeaturedSection
+                              ? 'recall-library-section recall-library-section-leading recall-library-section-leading-merged stack-gap'
+                              : resumeSourceDocument
+                              ? 'recall-library-section stack-gap'
+                              : 'recall-library-section recall-library-section-leading stack-gap'
+                          }
+                          aria-label={mergeHomeHeaderIntoFeaturedSection ? 'Saved sources' : featuredLibrarySection.label}
+                        >
+                          {!mergeHomeHeaderIntoFeaturedSection ? (
+                            <div
+                              className={
+                                resumeSourceDocument
+                                  ? 'section-header section-header-compact recall-library-section-header recall-library-section-header-inline'
+                                  : 'section-header section-header-compact recall-library-section-header recall-library-section-header-inline recall-library-section-header-inline-leading'
+                              }
+                            >
+                              <>
+                                <div>
+                                  <h3>{featuredLibrarySection.label}</h3>
+                                  <p>{featuredLibrarySection.description}</p>
+                                </div>
+                                {canExpandFeaturedLibrarySection ? (
+                                  <button
+                                    className="ghost-button"
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedLibrarySectionKeys((current) => ({
+                                        ...current,
+                                        [featuredLibrarySection.key]: !current[featuredLibrarySection.key],
+                                      }))
+                                    }
+                                  >
+                                    {expandedLibrarySectionKeys[featuredLibrarySection.key]
+                                      ? `Show fewer ${featuredLibrarySection.label.toLowerCase()} sources`
+                                      : `Show all ${featuredLibrarySection.documents.length} ${featuredLibrarySection.label.toLowerCase()} sources`}
+                                  </button>
+                                ) : null}
+                              </>
                             </div>
+                          ) : null}
+                          <div
+                            className={
+                              featuredSupportingDocuments.length > 0
+                                ? mergeHomeHeaderIntoFeaturedSection
+                                  ? 'recall-library-featured-layout recall-library-featured-layout-merged'
+                                  : 'recall-library-featured-layout'
+                                : mergeHomeHeaderIntoFeaturedSection
+                                  ? 'recall-library-featured-layout recall-library-featured-layout-merged recall-library-featured-layout-single'
+                                  : 'recall-library-featured-layout recall-library-featured-layout-single'
+                            }
+                          >
+                            {renderLibraryFeaturedSpotlight(featuredPrimaryDocument)}
+                            {featuredSupportingDocuments.length > 0 ? (
+                              <div className="recall-library-featured-support" role="list" aria-label={`${featuredLibrarySection.label} secondary sources`}>
+                                {featuredSupportingDocuments.map((document) =>
+                                  renderLibraryReopenRow(document, 'Nearby', 'compact'),
+                                )}
+                              </div>
+                            ) : null}
                           </div>
-                          <div className="recall-source-grid" aria-label={`${featuredLibrarySection.label} sources`} role="list">
-                            {(expandedLibrarySectionKeys[featuredLibrarySection.key]
-                              ? featuredLibrarySection.documents
-                              : featuredLibrarySection.documents.slice(0, getLibrarySectionDisplayLimit(featuredLibrarySection.key))
-                            ).map((document) => renderLibrarySourceTile(document))}
-                          </div>
-                          {featuredLibrarySection.documents.length > getLibrarySectionDisplayLimit(featuredLibrarySection.key) ? (
-                            <div className="recall-library-section-footer">
+                          {featuredFollowOnDocuments.length > 0 ? (
+                            <div className="recall-library-follow-on stack-gap">
+                              <div className="recall-library-follow-on-header">
+                                <span className="status-chip">Keep going</span>
+                                <p>More {featuredLibrarySection.label.toLowerCase()} sources ready to reopen when you want the next one.</p>
+                              </div>
+                              <div className="recall-library-follow-on-list" role="list" aria-label={`${featuredLibrarySection.label} follow-on sources`}>
+                                {featuredFollowOnDocuments.map((document) => renderLibraryContinuationRow(document))}
+                              </div>
+                            </div>
+                          ) : null}
+                          {mergeHomeHeaderIntoFeaturedSection && canExpandFeaturedLibrarySection ? (
+                            <div className="recall-library-section-footer recall-library-section-footer-merged">
                               <button
                                 className="ghost-button"
                                 type="button"
@@ -3607,49 +3833,111 @@ export function RecallWorkspace({
                   : 'card stack-gap recall-collection-rail recall-collection-rail-condensed'
                 : studyBrowseDrawerOpen
                   ? 'card stack-gap recall-collection-rail recall-study-sidebar'
-                  : 'card stack-gap recall-collection-rail recall-collection-rail-condensed recall-study-sidebar'
+                  : 'card stack-gap recall-collection-rail recall-collection-rail-condensed recall-study-sidebar recall-study-sidebar-collapsed recall-study-sidebar-support-strip recall-study-sidebar-unboxed'
             }
           >
-            <div className="toolbar recall-collection-toolbar">
-              <div className="section-header section-header-compact">
-                <h2>{showFocusedStudySplitView ? 'Study queue' : 'Study'}</h2>
-                <p>
-                  {showFocusedStudySplitView
-                    ? 'Source-grounded cards regenerate deterministically and keep their FSRS review state over time.'
-                    : 'Keep the next grounded card nearby while the main review loop stays centered.'}
-                </p>
-              </div>
-              <div className="recall-actions recall-actions-inline">
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => setBrowseDrawerOpen('study', !studyBrowseDrawerOpen)}
-                >
-                  {studyBrowseDrawerOpen ? 'Hide' : 'Show'}
-                </button>
-                <button
-                  disabled={studyBusyKey === 'generate'}
-                  type="button"
-                  onClick={handleGenerateStudyCards}
-                >
-                  {studyBusyKey === 'generate' ? 'Refreshing…' : 'Refresh cards'}
-                </button>
-              </div>
-            </div>
+            {collapsedStudyBrowseRail && studyStatus !== 'error' ? (
+              <div className="recall-study-sidebar-collapsed-shell">
+                <div className="toolbar recall-collection-toolbar recall-study-sidebar-toolbar-collapsed">
+                  <div className="section-header section-header-compact">
+                    <h2>Session</h2>
+                  </div>
+                  <div className="recall-actions recall-actions-inline">
+                    <button
+                      aria-label="Show queue"
+                      className="ghost-button recall-study-sidebar-toggle-button"
+                      type="button"
+                      onClick={() => setBrowseDrawerOpen('study', true)}
+                    >
+                      Queue
+                    </button>
+                    <button
+                      aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
+                      className="ghost-button recall-study-sidebar-utility-button"
+                      disabled={studyBusyKey === 'generate'}
+                      type="button"
+                      onClick={handleGenerateStudyCards}
+                    >
+                      {studyBusyKey === 'generate' ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                  </div>
+                </div>
 
-            <div
-              className={
-                showFocusedStudySplitView
-                  ? 'recall-hero-metrics'
-                  : 'recall-hero-metrics recall-study-sidebar-metrics'
-              }
-              role="list"
-              aria-label="Study overview"
-            >
-              <span className="status-chip" role="listitem">{studyNewCountLabel}</span>
-              <span className="status-chip status-muted" role="listitem">{studyDueCountLabel}</span>
-              <span className="status-chip status-muted" role="listitem">{studyReviewCountLabel}</span>
-            </div>
+                <div className="recall-study-sidebar-glance" aria-label="Active study queue summary">
+                  <div className="recall-study-sidebar-glance-top">
+                    <span className="recall-study-sidebar-glance-kicker">{collapsedStudyBrowseRailLabel}</span>
+                    <span className="recall-study-sidebar-glance-meta">{collapsedStudyQueueOverview}</span>
+                  </div>
+                  {activeStudyCardCollapsedRailSummary ? (
+                    <span className="recall-study-sidebar-glance-caption">{activeStudyCardCollapsedRailSummary}</span>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div
+                  className={
+                    !showFocusedStudySplitView && !studyBrowseDrawerOpen
+                      ? 'toolbar recall-collection-toolbar recall-study-sidebar-toolbar-collapsed'
+                      : 'toolbar recall-collection-toolbar'
+                  }
+                >
+                  <div className="section-header section-header-compact">
+                    <h2>{showFocusedStudySplitView ? 'Study queue' : collapsedStudyBrowseRail ? 'Session' : 'Queue'}</h2>
+                    {showFocusedStudySplitView || studyBrowseDrawerOpen ? (
+                      <p>
+                        {showFocusedStudySplitView
+                          ? 'Source-grounded cards stay nearby while the active review remains tied to one source.'
+                          : 'Keep one grounded question in focus.'}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="recall-actions recall-actions-inline">
+                    <button
+                      aria-label={studyBrowseDrawerOpen ? 'Hide queue' : 'Show queue'}
+                      className={!showFocusedStudySplitView && !studyBrowseDrawerOpen ? 'ghost-button recall-study-sidebar-toggle-button' : 'ghost-button'}
+                      type="button"
+                      onClick={() => setBrowseDrawerOpen('study', !studyBrowseDrawerOpen)}
+                    >
+                      {studyBrowseDrawerOpen ? 'Hide queue' : !showFocusedStudySplitView && !studyBrowseDrawerOpen ? 'Queue' : 'Show queue'}
+                    </button>
+                    <button
+                      aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
+                      className={!showFocusedStudySplitView && !studyBrowseDrawerOpen ? 'ghost-button recall-study-sidebar-utility-button' : undefined}
+                      disabled={studyBusyKey === 'generate'}
+                      type="button"
+                      onClick={handleGenerateStudyCards}
+                    >
+                      {studyBusyKey === 'generate' ? 'Refreshing…' : !showFocusedStudySplitView && !studyBrowseDrawerOpen ? 'Refresh' : 'Refresh cards'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="recall-study-sidebar-focus">
+                  <div className="recall-study-sidebar-focus-header">
+                    <span className="status-chip status-muted">
+                      {showFocusedStudySplitView ? 'Focused review' : `${formatModeLabel(studyFilter)} queue`}
+                    </span>
+                    {!showFocusedStudySplitView ? <span className="recall-document-meta">{studyCountLabel}</span> : null}
+                  </div>
+                  <strong>{activeStudyCard?.prompt ?? 'No active card yet'}</strong>
+                  <span>{activeStudyCardSidebarSummary}</span>
+                  <div
+                    className={
+                      showFocusedStudySplitView
+                        ? 'recall-hero-metrics'
+                        : 'recall-hero-metrics recall-study-sidebar-metrics'
+                    }
+                    role="list"
+                    aria-label="Study overview"
+                  >
+                    <span className="status-chip" role="listitem">{studyNewCountLabel}</span>
+                    <span className="status-chip status-muted" role="listitem">{studyDueCountLabel}</span>
+                    <span className="status-chip status-muted" role="listitem">{studyReviewCountLabel}</span>
+                  </div>
+                </div>
+              </>
+            )}
 
             {studyBrowseDrawerOpen || studyStatus === 'error' ? (
               <>
@@ -3695,89 +3983,61 @@ export function RecallWorkspace({
                   {!studyLoading && studyStatus !== 'error' && studyCards.length === 0 ? (
                     <p className="small-note">No study cards are available for that filter yet.</p>
                   ) : null}
-                  {studyCards.map((card) => (
+                  {visibleStudyQueueCards.map((card) => (
                     <button
                       key={card.id}
                       aria-pressed={activeStudyCard?.id === card.id}
                       className={
                         activeStudyCard?.id === card.id
-                          ? 'recall-document-item recall-document-item-compact recall-document-item-active'
-                          : 'recall-document-item recall-document-item-compact'
+                          ? 'recall-document-item recall-document-item-compact recall-document-item-active recall-study-queue-item'
+                          : 'recall-document-item recall-document-item-compact recall-study-queue-item'
                       }
                       type="button"
                       onClick={() => handleSelectStudyCard(card)}
                     >
-                      <span className="recall-collection-row-head">
+                      <span className="recall-study-queue-item-head">
                         <strong className="recall-document-title">{card.prompt}</strong>
-                        <span className="recall-document-meta">{formatStudyStatus(card.status)}</span>
+                        <span className="recall-study-queue-item-status">{formatStudyStatus(card.status)}</span>
                       </span>
+                      <span className="recall-document-meta">{card.document_title}</span>
                       <span className="recall-collection-row-preview">{getStudyCardPreview(card)}</span>
-                      <span className="recall-collection-row-meta">
-                        <span className="status-chip">{card.card_type}</span>
-                        <span className="status-chip">{card.document_title}</span>
-                        <span className="status-chip">Due {dateFormatter.format(new Date(card.due_at))}</span>
-                        <span className="status-chip">{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
+                      <span className="recall-study-queue-item-meta">
+                        <span>{card.card_type}</span>
+                        <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
+                        <span>{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
                       </span>
                     </button>
                   ))}
                 </div>
+                {!showFocusedStudySplitView && studyStatus !== 'error' && (studyQueueExpanded || hiddenStudyQueueCount > 0) ? (
+                  <button
+                    className="ghost-button recall-study-queue-toggle"
+                    type="button"
+                    onClick={() => setStudyQueueExpanded((current) => !current)}
+                  >
+                    {studyQueueExpanded ? 'Show fewer cards' : `Show all ${studyCards.length} cards`}
+                  </button>
+                ) : null}
               </>
-            ) : (
-              <div className="recall-browse-drawer-summary stack-gap">
-                <p className="small-note">
-                  {showFocusedStudySplitView
-                    ? 'Keep the active card centered here. Open browsing when you want to change the queue or filter.'
-                    : 'Keep the current card nearby here. Reopen the queue only when you want to switch the review flow.'}
-                </p>
-                <div className="recall-detail-panel recall-browse-summary-card">
-                  <strong>{activeStudyCard?.prompt ?? 'No active card for this source'}</strong>
-                  <span>
-                    {activeStudyCard
-                      ? `${activeStudyCard.document_title} · ${formatStudyStatus(activeStudyCard.status)}`
-                      : activeSourceDocumentId
-                        ? 'Generate or promote a study card from this source to review it here.'
-                        : 'Choose a source to inspect its study state.'}
-                  </span>
-                </div>
-              </div>
-            )}
+            ) : showFocusedStudySplitView ? (
+              <p className="small-note recall-study-sidebar-hint">
+                {showFocusedStudySplitView
+                  ? 'Queue support is hidden until you want to change the card or filter.'
+                  : 'Queue support is hidden until you want to switch cards or change the filter.'}
+              </p>
+            ) : null}
           </section>
 
           <div
             className={
               showFocusedStudySplitView
                 ? 'recall-main-column recall-source-split-layout'
-                : 'recall-main-column stack-gap recall-study-browser-main'
+                : collapsedStudyBrowseRail
+                  ? 'recall-main-column stack-gap recall-study-browser-main recall-study-browser-main-condensed'
+                  : 'recall-main-column stack-gap recall-study-browser-main'
             }
           >
             {showFocusedStudySplitView ? renderFocusedReaderPane() : null}
-
-            {!showFocusedStudySplitView ? (
-              <section className="card recall-study-stage-card">
-                <div className="recall-study-stage-copy">
-                  <h2>Recall review</h2>
-                  <p className="recall-study-stage-kicker">Review one grounded card at a time.</p>
-                  <p>
-                    Keep the main review loop centered here, then reopen Reader only when you want to inspect source
-                    evidence more closely.
-                  </p>
-                </div>
-                <div className="recall-study-journey" role="list" aria-label="Study flow">
-                  <div className="recall-study-step recall-study-step-active" role="listitem">
-                    <strong>1</strong>
-                    <span>Choose the next card from the queue</span>
-                  </div>
-                  <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
-                    <strong>2</strong>
-                    <span>Reveal the grounded answer only when you are ready</span>
-                  </div>
-                  <div className={showAnswer ? 'recall-study-step recall-study-step-active' : 'recall-study-step'} role="listitem">
-                    <strong>3</strong>
-                    <span>Rate recall and let FSRS schedule the next review</span>
-                  </div>
-                </div>
-              </section>
-            ) : null}
 
             <section
               className={
@@ -3789,17 +4049,17 @@ export function RecallWorkspace({
               <div className="toolbar recall-collection-toolbar">
                 <div className="section-header section-header-compact">
                   <h2>{showFocusedStudySplitView ? 'Active card' : 'Review card'}</h2>
-                  <p>
-                    {activeStudyCard
-                      ? showFocusedStudySplitView
+                  {activeStudyCard && !showFocusedStudySplitView ? null : (
+                    <p>
+                      {activeStudyCard
                         ? `Grounded in ${activeStudyCard.document_title} and scheduled with FSRS review updates.`
-                        : `Stay with ${activeStudyCard.document_title} until you finish this review step.`
-                      : 'Choose a card from the queue to review it here.'}
-                  </p>
+                        : 'Choose a card from the queue to review it here.'}
+                    </p>
+                  )}
                 </div>
-                {activeStudyCard ? (
+                {activeStudyCard && showFocusedStudySplitView ? (
                   <div className="recall-actions">
-                    {showFocusedStudySplitView && focusedStudySourceSpan ? (
+                    {focusedStudySourceSpan ? (
                       <button
                         type="button"
                         onClick={() => handleShowStudyEvidenceInFocusedReader(activeStudyCard, focusedStudySourceSpan, focusedStudySourceSpanIndex)}
@@ -3817,6 +4077,22 @@ export function RecallWorkspace({
                   </div>
                 ) : null}
               </div>
+
+              {!showFocusedStudySplitView && activeStudyCard ? (
+                <div className="recall-study-session-strip" aria-label="Review session">
+                  <div className="recall-study-session-strip-copy">
+                    <span className="recall-study-session-strip-kicker">{browseStudySessionLabel}</span>
+                    {activeStudyCardHeaderSummary ? (
+                      <span className="recall-study-session-strip-summary">{activeStudyCardHeaderSummary}</span>
+                    ) : null}
+                  </div>
+                  {showAnswer ? (
+                    <div className="recall-study-session-progress" role="status" aria-label="Review status">
+                      <span className="recall-study-session-progress-note">Rate to schedule the next review.</span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {!activeStudyCard ? <p className="small-note">No active study card yet.</p> : null}
               {activeStudyCard ? (
@@ -3874,24 +4150,7 @@ export function RecallWorkspace({
                         </span>
                       </div>
                     </>
-                  ) : (
-                    <div className="recall-study-card-context">
-                      <strong>{activeStudyCard.document_title}</strong>
-                      <div className="recall-hero-metrics recall-study-card-meta" role="list" aria-label="Review card metadata">
-                        <span className="status-chip" role="listitem">{activeStudyCard.card_type}</span>
-                        <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
-                        <span className="status-chip status-muted" role="listitem">
-                          Due {dateFormatter.format(new Date(activeStudyCard.due_at))}
-                        </span>
-                        <span className="status-chip status-muted" role="listitem">
-                          {formatCountLabel(activeStudyCard.review_count, 'review', 'reviews')}
-                        </span>
-                        <span className="status-chip status-muted" role="listitem">
-                          {formatCountLabel(activeStudyCard.source_spans.length, 'evidence span', 'evidence spans')}
-                        </span>
-                      </div>
-                    </div>
-                  )}
+                  ) : null}
 
                   <div className="study-card-face">
                     <strong>Prompt</strong>
@@ -3905,22 +4164,14 @@ export function RecallWorkspace({
                     </div>
                   ) : (
                     <div className="study-card-reveal">
-                      <p>Try to recall the answer before revealing it, then rate how easily it came back.</p>
+                      <p>Recall the answer before revealing it.</p>
                       <button type="button" onClick={() => setShowAnswer(true)}>
                         Show answer
                       </button>
                     </div>
                   )}
 
-                  <div className="stack-gap">
-                    <div className="section-header section-header-compact">
-                      <h3>Source evidence</h3>
-                      <p>
-                        {showFocusedStudySplitView
-                          ? 'Keep the supporting excerpt close before reopening Reader or logging a review.'
-                          : 'Keep one supporting excerpt nearby before reopening Reader or logging a review.'}
-                      </p>
-                    </div>
+                  <div className={showFocusedStudySplitView ? 'stack-gap' : 'stack-gap recall-study-support-stack'}>
                     {showFocusedStudySplitView ? (
                       <div className="recall-search-results" role="list">
                         {activeStudySourceSpans.map((sourceSpan, index) => (
@@ -3962,8 +4213,39 @@ export function RecallWorkspace({
                           </div>
                         ))}
                       </div>
-                    ) : (
+                    ) : browseStudyEvidenceExpanded ? (
                       <>
+                        <div className="toolbar recall-study-support-toolbar">
+                          <div className="section-header section-header-compact recall-study-support-heading">
+                            <h3>Source evidence</h3>
+                            <p>
+                              {!showAnswer && studyEvidencePeekOpen
+                                ? 'Preview the supporting excerpt, then return to the recall flow when you are ready to answer.'
+                                : 'Keep one supporting excerpt nearby before reopening Reader or logging a review.'}
+                            </p>
+                          </div>
+                          <div className="recall-actions recall-actions-inline recall-study-support-actions">
+                            {!showAnswer && studyEvidencePeekOpen ? (
+                              <button
+                                className="ghost-button recall-study-evidence-summary-button"
+                                type="button"
+                                onClick={() => setStudyEvidencePeekOpen(false)}
+                              >
+                                Hide preview
+                              </button>
+                            ) : null}
+                            {focusedStudySourceSpan ? (
+                              <button
+                                className="ghost-button recall-study-evidence-reader-button"
+                                type="button"
+                                onClick={() => handleOpenStudyCardInReader(activeStudyCard, focusedStudySourceSpan)}
+                              >
+                                {buildOpenReaderLabel(activeStudyCard.document_title)}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+
                         {activeStudySourceSpans.length > 1 ? (
                           <div className="recall-study-evidence-tabs" aria-label="Evidence spans" role="tablist">
                             {activeStudySourceSpans.map((sourceSpan, index) => (
@@ -3987,7 +4269,7 @@ export function RecallWorkspace({
                         ) : null}
 
                         {focusedStudySourceSpan ? (
-                          <div className="recall-detail-panel recall-study-evidence-focus">
+                          <div className="recall-detail-panel recall-study-evidence-focus recall-study-evidence-focus-compact">
                             <span className="recall-collection-row-head">
                               <strong>{getStudyEvidenceLabel(focusedStudySourceSpan)}</strong>
                               <span>{activeStudyCard.document_title}</span>
@@ -4003,42 +4285,91 @@ export function RecallWorkspace({
                                 </span>
                               ) : null}
                             </span>
-                            <div className="recall-actions recall-actions-inline">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenStudyCardInReader(activeStudyCard, focusedStudySourceSpan)}
-                              >
-                                {buildOpenReaderLabel(activeStudyCard.document_title)}
-                              </button>
-                            </div>
                           </div>
                         ) : (
-                          <div className="recall-detail-panel recall-study-evidence-focus">
+                          <div className="recall-detail-panel recall-study-evidence-focus recall-study-evidence-focus-compact">
                             <strong>No evidence span yet</strong>
                             <span>Promote more grounded notes or reader highlights to add supporting excerpts here.</span>
                           </div>
                         )}
                       </>
+                    ) : (
+                        <div className="recall-study-evidence-ready" aria-label="Grounding ready">
+                          <div className="recall-study-evidence-ready-copy">
+                            <span className="recall-study-evidence-ready-kicker">Grounded</span>
+                            <span className="recall-study-evidence-ready-summary">{browseStudyEvidenceSummary}</span>
+                          </div>
+                        <div className="recall-actions recall-actions-inline recall-study-evidence-ready-actions">
+                          {focusedStudySourceSpan ? (
+                            <button
+                              aria-label="Preview evidence"
+                              className="ghost-button recall-study-evidence-summary-button"
+                              type="button"
+                              onClick={() => setStudyEvidencePeekOpen(true)}
+                            >
+                              Preview
+                            </button>
+                          ) : null}
+                          {focusedStudySourceSpan ? (
+                            <button
+                              aria-label={buildOpenReaderLabel(activeStudyCard.document_title)}
+                              className="ghost-button recall-study-evidence-reader-button"
+                              type="button"
+                              onClick={() => handleOpenStudyCardInReader(activeStudyCard, focusedStudySourceSpan)}
+                            >
+                              Reader
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
                     )}
                   </div>
 
-                  <div className="study-rating-row">
-                    {([
-                      ['forgot', 'Forgot'],
-                      ['hard', 'Hard'],
-                      ['good', 'Good'],
-                      ['easy', 'Easy'],
-                    ] as const).map(([rating, label]) => (
-                      <button
-                        key={rating}
-                        disabled={!showAnswer || studyBusyKey === `review:${activeStudyCard.id}:${rating}`}
-                        type="button"
-                        onClick={() => handleReviewCard(rating)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
+                  {showFocusedStudySplitView ? (
+                    <div className="study-rating-row">
+                      {([
+                        ['forgot', 'Forgot'],
+                        ['hard', 'Hard'],
+                        ['good', 'Good'],
+                        ['easy', 'Easy'],
+                      ] as const).map(([rating, label]) => (
+                        <button
+                          key={rating}
+                          disabled={!showAnswer || studyBusyKey === `review:${activeStudyCard.id}:${rating}`}
+                          type="button"
+                          onClick={() => handleReviewCard(rating)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : showAnswer ? (
+                    <div className="recall-study-rating-panel">
+                      <p className="recall-study-rating-note">Rate recall to schedule the next review.</p>
+                      <div className="study-rating-row study-rating-row-compact">
+                        {([
+                          ['forgot', 'Forgot'],
+                          ['hard', 'Hard'],
+                          ['good', 'Good'],
+                          ['easy', 'Easy'],
+                        ] as const).map(([rating, label]) => (
+                          <button
+                            key={rating}
+                            className="recall-study-rating-button"
+                            disabled={studyBusyKey === `review:${activeStudyCard.id}:${rating}`}
+                            type="button"
+                            onClick={() => handleReviewCard(rating)}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="small-note recall-study-rating-placeholder">
+                      Reveal the answer to rate recall.
+                    </p>
+                  )}
 
                   {showFocusedStudySplitView && activeStudyCard.source_spans[0]?.excerpt ? (
                     <div className="recall-detail-panel">

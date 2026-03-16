@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useDeferredValue, useEffect, useRef, useState, type CSSProperties } from 'react'
 
 import {
   fetchDocuments,
@@ -22,6 +22,7 @@ import {
   buildAppHref,
   defaultRecallWorkspaceContinuityState,
   parseAppRoute,
+  shouldOpenRecallBrowseDrawerByDefault,
   type AppRoute,
   type AppSection,
   type SourceWorkspaceTab,
@@ -46,6 +47,7 @@ import type { WorkspaceHeroProps } from './components/WorkspaceHero'
 function syncRouteFromLocation(setRoute: (route: AppRoute) => void) {
   const nextRoute = parseAppRoute(window.location)
   const expectedHref = buildAppHref(nextRoute.path, nextRoute.documentId, {
+    recallSection: nextRoute.recallSection,
     sentenceEnd: nextRoute.sentenceEnd,
     sentenceStart: nextRoute.sentenceStart,
   })
@@ -85,7 +87,7 @@ function mapRecallSectionToSourceTab(section: RecallSection): SourceWorkspaceTab
 
 export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseAppRoute(window.location))
-  const [activeRecallSection, setActiveRecallSection] = useState<RecallSection>('library')
+  const [activeRecallSection, setActiveRecallSection] = useState<RecallSection>(() => parseAppRoute(window.location).recallSection)
   const [recallContinuityState, setRecallContinuityState] = useState<RecallWorkspaceContinuityState>(
     defaultRecallWorkspaceContinuityState,
   )
@@ -166,6 +168,13 @@ export default function App() {
   }, [route.documentId, route.path, route.sentenceEnd, route.sentenceStart])
 
   useEffect(() => {
+    if (route.path !== 'recall') {
+      return
+    }
+    setActiveRecallSection(route.recallSection)
+  }, [route.path, route.recallSection])
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
@@ -179,14 +188,15 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [searchOpen])
 
-  function navigate(
+  const navigate = useCallback((
     path: AppSection,
     documentId?: string | null,
     options?: {
+      recallSection?: RecallSection | null
       sentenceEnd?: number | null
       sentenceStart?: number | null
     },
-  ) {
+  ) => {
     const href = buildAppHref(path, documentId, options)
     const currentHref = `${window.location.pathname}${window.location.search}`
     if (currentHref === href) {
@@ -195,16 +205,34 @@ export default function App() {
     }
     window.history.pushState({}, '', href)
     setRoute(parseAppRoute(window.location))
-  }
+  }, [])
 
-  function openRecallSection(section: RecallSection, options?: Omit<RecallWorkspaceFocusRequest, 'section' | 'token'>) {
-    const hasFocusedTarget = Boolean(options?.documentId || options?.noteId || options?.nodeId || options?.cardId)
+  const syncRecallSectionRoute = useCallback((section: RecallSection) => {
+    if (route.path !== 'recall') {
+      return
+    }
+    const href = buildAppHref('recall', null, { recallSection: section })
+    const currentHref = `${window.location.pathname}${window.location.search}`
+    if (currentHref === href) {
+      return
+    }
+    window.history.replaceState({}, '', href)
+    setRoute(parseAppRoute(window.location))
+  }, [route.path])
+
+  const handleRecallSectionChange = useCallback((section: RecallSection) => {
     setActiveRecallSection(section)
+    syncRecallSectionRoute(section)
+  }, [syncRecallSectionRoute])
+
+  const openRecallSection = useCallback((section: RecallSection, options?: Omit<RecallWorkspaceFocusRequest, 'section' | 'token'>) => {
+    const hasFocusedTarget = Boolean(options?.documentId || options?.noteId || options?.nodeId || options?.cardId)
+    handleRecallSectionChange(section)
     setRecallContinuityState((current) => ({
       ...current,
       browseDrawers: {
         ...current.browseDrawers,
-        [section]: !hasFocusedTarget,
+        [section]: shouldOpenRecallBrowseDrawerByDefault(section, hasFocusedTarget),
       },
       sourceWorkspace: {
         ...current.sourceWorkspace,
@@ -219,9 +247,58 @@ export default function App() {
       ...options,
     })
     if (route.path !== 'recall') {
-      navigate('recall')
+      navigate('recall', null, { recallSection: section })
     }
-  }
+  }, [handleRecallSectionChange, navigate, route.path])
+
+  const handleOpenReader = useCallback(
+    (documentId: string, options?: { sentenceEnd?: number | null; sentenceStart?: number | null }) => {
+      navigate('reader', documentId, options)
+    },
+    [navigate],
+  )
+
+  const handleOpenRecallGraph = useCallback(
+    (documentId: string) => {
+      openRecallSection('graph', { documentId })
+    },
+    [openRecallSection],
+  )
+
+  const handleOpenRecallLibrary = useCallback(
+    (documentId: string) => {
+      openRecallSection('library', { documentId })
+    },
+    [openRecallSection],
+  )
+
+  const handleOpenRecallNotes = useCallback(
+    (documentId: string, noteId?: string | null) => {
+      openRecallSection('notes', { documentId, noteId })
+    },
+    [openRecallSection],
+  )
+
+  const handleOpenRecallStudy = useCallback(
+    (documentId: string) => {
+      openRecallSection('study', { documentId })
+    },
+    [openRecallSection],
+  )
+
+  const handleOpenGraphResult = useCallback(
+    (nodeId: string | null) => {
+      openRecallSection('graph', { nodeId: nodeId ?? undefined })
+    },
+    [openRecallSection],
+  )
+
+  const handleOpenStudyResult = useCallback(
+    (cardId: string | null) => {
+      openRecallSection('study', { cardId: cardId ?? undefined })
+    },
+    [openRecallSection],
+  )
 
   function handleRequestNewSource() {
     setAddSourceError(null)
@@ -319,12 +396,12 @@ export default function App() {
       navigate('reader')
       return
     }
-    setActiveRecallSection(section)
+    handleRecallSectionChange(section)
     setRecallContinuityState((current) => ({
       ...current,
       browseDrawers: {
         ...current.browseDrawers,
-        [section]: true,
+        [section]: shouldOpenRecallBrowseDrawerByDefault(section),
       },
       sourceWorkspace: {
         ...current.sourceWorkspace,
@@ -333,7 +410,7 @@ export default function App() {
       },
     }))
     if (route.path !== 'recall') {
-      navigate('recall')
+      navigate('recall', null, { recallSection: section })
     }
   }
 
@@ -542,11 +619,11 @@ export default function App() {
             focusRequest={recallFocusRequest}
             onContinuityStateChange={setRecallContinuityState}
             onShellContextChange={setShellContext}
-            onSectionChange={setActiveRecallSection}
+            onSectionChange={handleRecallSectionChange}
             onShellHeroChange={setShellHero}
             onRequestNewSource={handleRequestNewSource}
             onShellSourceWorkspaceChange={setShellSourceWorkspace}
-            onOpenReader={(documentId, options) => navigate('reader', documentId, options)}
+            onOpenReader={handleOpenReader}
             settings={settings}
             section={activeRecallSection}
           />
@@ -554,13 +631,13 @@ export default function App() {
           <ReaderWorkspace
             key={`reader-${route.documentId ?? 'session'}-${route.sentenceStart ?? 'none'}-${route.sentenceEnd ?? 'none'}`}
             health={health}
-            onOpenRecallGraph={(documentId) => openRecallSection('graph', { documentId })}
-            onOpenRecallLibrary={(documentId) => openRecallSection('library', { documentId })}
+            onOpenRecallGraph={handleOpenRecallGraph}
+            onOpenRecallLibrary={handleOpenRecallLibrary}
             onShellHeroChange={setShellHero}
             onShellContextChange={setShellContext}
             onShellSourceWorkspaceChange={setShellSourceWorkspace}
-            onOpenRecallNotes={(documentId, noteId) => openRecallSection('notes', { documentId, noteId })}
-            onOpenRecallStudy={(documentId) => openRecallSection('study', { documentId })}
+            onOpenRecallNotes={handleOpenRecallNotes}
+            onOpenRecallStudy={handleOpenRecallStudy}
             onRequestNewSource={handleRequestNewSource}
             routeDocumentId={route.documentId}
             routeSentenceEnd={route.sentenceEnd}
@@ -597,10 +674,10 @@ export default function App() {
       <WorkspaceSearchDialog
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
-        onOpenGraph={(nodeId) => openRecallSection('graph', { nodeId })}
-        onOpenNote={(documentId, noteId) => openRecallSection('notes', { documentId, noteId })}
-        onOpenReader={(documentId, options) => navigate('reader', documentId, options)}
-        onOpenStudy={(cardId) => openRecallSection('study', { cardId })}
+        onOpenGraph={handleOpenGraphResult}
+        onOpenNote={handleOpenRecallNotes}
+        onOpenReader={handleOpenReader}
+        onOpenStudy={handleOpenStudyResult}
         onQueryChange={handleWorkspaceSearchQueryChange}
         onSelectResult={handleSelectWorkspaceSearchResult}
         searchSession={workspaceSearchSession}

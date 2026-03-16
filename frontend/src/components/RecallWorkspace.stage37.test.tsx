@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { useState, type ReactElement } from 'react'
 
@@ -245,10 +245,10 @@ const nodeDetail: KnowledgeNodeDetail = {
 }
 
 const studyOverview: StudyOverview = {
-  due_count: 1,
-  new_count: 0,
-  scheduled_count: 0,
-  review_event_count: 0,
+  due_count: 2,
+  new_count: 2,
+  scheduled_count: 1,
+  review_event_count: 6,
   next_due_at: '2026-03-15T08:00:00Z',
 }
 
@@ -274,6 +274,94 @@ const studyCards: StudyCardRecord[] = [
     review_count: 0,
     status: 'due',
     last_rating: null,
+  },
+  {
+    id: 'card-stage10-new',
+    source_document_id: 'doc-stage10',
+    document_title: 'Stage 10 Debug Article',
+    prompt: 'What remained source-grounded after Stage 10?',
+    answer: 'The debug article work stayed tied to saved source evidence.',
+    card_type: 'fact',
+    source_spans: [
+      {
+        excerpt: 'Stage ten sentence four.',
+        global_sentence_end: 3,
+        global_sentence_start: 3,
+        sentence_end: 3,
+        sentence_start: 3,
+      },
+    ],
+    scheduling_state: { due_at: '2026-03-16T08:00:00Z', review_count: 0 },
+    due_at: '2026-03-16T08:00:00Z',
+    review_count: 0,
+    status: 'new',
+    last_rating: null,
+  },
+  {
+    id: 'card-stage10-scheduled',
+    source_document_id: 'doc-stage10',
+    document_title: 'Stage 10 Debug Article',
+    prompt: 'Which flow kept the browser evidence anchored?',
+    answer: 'The browser note reopen stayed anchored to the saved sentence range.',
+    card_type: 'fact',
+    source_spans: [
+      {
+        excerpt: 'Stage ten sentence five.',
+        global_sentence_end: 4,
+        global_sentence_start: 4,
+        sentence_end: 4,
+        sentence_start: 4,
+      },
+    ],
+    scheduling_state: { due_at: '2026-03-17T08:00:00Z', review_count: 2 },
+    due_at: '2026-03-17T08:00:00Z',
+    review_count: 2,
+    status: 'scheduled',
+    last_rating: 'good',
+  },
+  {
+    id: 'card-stage10-due-late',
+    source_document_id: 'doc-stage10',
+    document_title: 'Stage 10 Debug Article',
+    prompt: 'Which edge case was fixed before closeout?',
+    answer: 'The promoted-card Study landing edge case was corrected before closeout.',
+    card_type: 'fact',
+    source_spans: [
+      {
+        excerpt: 'Stage ten sentence six.',
+        global_sentence_end: 5,
+        global_sentence_start: 5,
+        sentence_end: 5,
+        sentence_start: 5,
+      },
+    ],
+    scheduling_state: { due_at: '2026-03-18T08:00:00Z', review_count: 1 },
+    due_at: '2026-03-18T08:00:00Z',
+    review_count: 1,
+    status: 'due',
+    last_rating: 'hard',
+  },
+  {
+    id: 'card-stage10-hidden',
+    source_document_id: 'doc-stage10',
+    document_title: 'Stage 10 Debug Article',
+    prompt: 'Which fallback flow stays source-grounded?',
+    answer: 'The saved-note fallback keeps the review loop grounded in local evidence.',
+    card_type: 'fact',
+    source_spans: [
+      {
+        excerpt: 'Stage ten sentence seven.',
+        global_sentence_end: 6,
+        global_sentence_start: 6,
+        sentence_end: 6,
+        sentence_start: 6,
+      },
+    ],
+    scheduling_state: { due_at: '2026-03-19T08:00:00Z', review_count: 4 },
+    due_at: '2026-03-19T08:00:00Z',
+    review_count: 4,
+    status: 'new',
+    last_rating: 'easy',
   },
 ]
 
@@ -401,13 +489,42 @@ function makeBrowseContinuityState(): RecallWorkspaceContinuityState {
   }
 }
 
+function makeNoResumeHomeContinuityState(): RecallWorkspaceContinuityState {
+  return {
+    ...structuredClone(defaultRecallWorkspaceContinuityState),
+    library: {
+      filterQuery: '',
+      selectedDocumentId: null,
+    },
+    notes: {
+      searchQuery: '',
+      selectedDocumentId: null,
+      selectedNoteId: null,
+    },
+    sourceWorkspace: {
+      activeDocumentId: null,
+      activeTab: 'overview',
+      mode: 'browse',
+      readerAnchor: null,
+    },
+    study: {
+      activeCardId: 'card-stage10',
+      filter: 'all',
+    },
+  }
+}
+
 function renderHarness(options?: {
+  initialContinuityState?: RecallWorkspaceContinuityState
   initialSection?: RecallSection
 }) {
+  const onOpenReader = vi.fn()
   const onRequestNewSource = vi.fn()
 
   function Harness(): ReactElement {
-    const [continuityState, setContinuityState] = useState<RecallWorkspaceContinuityState>(makeBrowseContinuityState())
+    const [continuityState, setContinuityState] = useState<RecallWorkspaceContinuityState>(
+      options?.initialContinuityState ?? makeBrowseContinuityState(),
+    )
     const [section, setSection] = useState<RecallSection>(options?.initialSection ?? 'library')
 
     return (
@@ -416,7 +533,7 @@ function renderHarness(options?: {
         <RecallWorkspace
           continuityState={continuityState}
           onContinuityStateChange={setContinuityState}
-          onOpenReader={() => undefined}
+          onOpenReader={onOpenReader}
           onRequestNewSource={onRequestNewSource}
           onSectionChange={setSection}
           onShellContextChange={() => undefined}
@@ -430,14 +547,14 @@ function renderHarness(options?: {
   }
 
   render(<Harness />)
-  return { onRequestNewSource }
+  return { onOpenReader, onRequestNewSource }
 }
 
 test('populated Recall library stays browse-first and shows a resume card instead of source detail panels', async () => {
   renderHarness()
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Saved sources', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   })
 
   expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
@@ -448,19 +565,72 @@ test('populated Recall library stays browse-first and shows a resume card instea
   expect(screen.queryByRole('heading', { name: 'Search workspace', level: 2 })).not.toBeInTheDocument()
 })
 
-test('browse-first library groups sources by recency instead of one undifferentiated wall', async () => {
+test('Home utility rail keeps collection snapshot and search entry close without adding a second heavy card stack', async () => {
   renderHarness()
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Today', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   })
 
-  const thisWeekSection = screen.getByRole('heading', { name: 'This week', level: 3 }).closest('section')
+  const homeRail = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-library-home-inline-shell')
 
-  expect(screen.getByRole('heading', { name: 'This week', level: 3 })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Open Stage 10 Debug Article' })).toBeInTheDocument()
-  expect(thisWeekSection).not.toBeNull()
-  expect((thisWeekSection as HTMLElement).querySelector('[aria-label="Open Stage 13 Debug Notes"]')).not.toBeNull()
+  expect(homeRail).not.toBeNull()
+  expect(within(homeRail as HTMLElement).getByRole('list', { name: 'Collection snapshot' })).toBeInTheDocument()
+  expect(within(homeRail as HTMLElement).getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(within(homeRail as HTMLElement).getByRole('button', { name: 'Add source' })).toBeInTheDocument()
+  expect((homeRail as HTMLElement).querySelector('.recall-library-home-inline-summary')).toBeNull()
+  expect(within(homeRail as HTMLElement).queryByText('Older or specific sources.')).not.toBeInTheDocument()
+})
+
+test('browse-first Home groups sources into deliberate resume and reopen sections instead of one undifferentiated wall', async () => {
+  renderHarness()
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Resume now', level: 3 })).toBeInTheDocument()
+  })
+
+  const earlierSection = screen.getByRole('heading', { name: 'Earlier', level: 3 }).closest('section')
+  const resumeSection = screen.getByRole('heading', { name: 'Resume now', level: 3 }).closest('section')
+
+  expect(screen.getByRole('button', { name: 'Resume Notes' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Show all \d+ earlier sources/i })).toBeInTheDocument()
+  expect(resumeSection).not.toBeNull()
+  expect(earlierSection).not.toBeNull()
+  expect(within(resumeSection as HTMLElement).getByText('Stage 10 Debug Article')).toBeInTheDocument()
+  expect(within(resumeSection as HTMLElement).getByRole('button', { name: 'Open Stage 13 Debug Notes' })).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).getByText('Start here')).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).getAllByText('Nearby')).toHaveLength(2)
+  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 1' })).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).getByText('Keep going')).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).getByRole('list', { name: 'Earlier follow-on sources' })).toHaveClass('recall-library-follow-on-list')
+  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 2' })).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).queryByRole('button', { name: 'Open Archived Reference 5' })).not.toBeInTheDocument()
+})
+
+test('no-resume Home merges the landing header into the first reopen section so the first reopen point starts immediately', async () => {
+  renderHarness({ initialContinuityState: makeNoResumeHomeContinuityState() })
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
+  })
+
+  const homeInlineHeader = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-library-home-inline-shell')
+  const savedSourcesSection = screen.getByText('Start here').closest('section')
+
+  expect(homeInlineHeader).not.toBeNull()
+  expect(within(homeInlineHeader as HTMLElement).getByRole('list', { name: 'Collection snapshot' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Saved sources', level: 2 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Earlier', level: 3 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Resume now', level: 3 })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Add source' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Show all \d+ earlier sources/i })).toBeInTheDocument()
+  expect(savedSourcesSection).not.toBeNull()
+  expect((homeInlineHeader as HTMLElement).querySelector('.recall-library-home-inline-summary')).toBeNull()
+  expect(within(savedSourcesSection as HTMLElement).getByText('Start here')).toBeInTheDocument()
+  expect(within(savedSourcesSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 1' })).toBeInTheDocument()
+  expect(within(savedSourcesSection as HTMLElement).getByText('Keep going')).toBeInTheDocument()
+  expect(within(savedSourcesSection as HTMLElement).getByRole('list', { name: 'Earlier follow-on sources' })).toHaveClass('recall-library-follow-on-list')
+  expect(within(savedSourcesSection as HTMLElement).queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
 })
 
 test('earlier Home sources stay collapsed until expanded intentionally', async () => {
@@ -470,10 +640,10 @@ test('earlier Home sources stay collapsed until expanded intentionally', async (
     expect(screen.getByRole('heading', { name: 'Earlier', level: 3 })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('button', { name: /show all 7 earlier sources/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /show all \d+ earlier sources/i })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Open Archived Reference 7' })).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: /show all 7 earlier sources/i }))
+  fireEvent.click(screen.getByRole('button', { name: /show all \d+ earlier sources/i }))
 
   expect(screen.getByRole('button', { name: 'Open Archived Reference 7' })).toBeInTheDocument()
 })
@@ -482,7 +652,7 @@ test('clicking a source card enters focused library overview mode', async () => 
   renderHarness()
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Saved sources', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   })
 
   fireEvent.click(screen.getByRole('button', { name: 'Open Stage 10 Debug Article' }))
@@ -492,6 +662,62 @@ test('clicking a source card enters focused library overview mode', async () => 
   })
 
   expect(screen.queryByRole('heading', { name: 'Search workspace', level: 2 })).not.toBeInTheDocument()
+})
+
+test('focused library overview keeps a Reader handoff for the selected source', async () => {
+  const { onOpenReader } = renderHarness()
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Stage 10 Debug Article' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open Stage 10 Debug Article' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Stage 10 Debug Article', level: 3 })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open in Reader' }))
+
+  expect(onOpenReader).toHaveBeenCalledWith('doc-stage10')
+})
+
+test('focused library overview stays pinned while Home filtering narrows the source rail', async () => {
+  renderHarness()
+
+  await waitFor(() => {
+    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Open Stage 13 Debug Notes' })[0])
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Stage 13 Debug Notes', level: 3 })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('searchbox', { name: 'Filter sources' })).toBeInTheDocument()
+  })
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Filter sources' }), {
+    target: { value: 'Stage 10' },
+  })
+
+  const homeSection = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('section')
+  expect(homeSection).not.toBeNull()
+
+  await waitFor(() => {
+    expect(
+      within(homeSection as HTMLElement).queryByRole('button', { name: 'Open Stage 13 Debug Notes' }),
+    ).not.toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('heading', { name: 'Stage 13 Debug Notes', level: 3 })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Open in Reader' })).toBeInTheDocument()
+  expect(screen.getByText('1 matches')).toBeInTheDocument()
 })
 
 test('resume card re-enters the last focused source tab intentionally', async () => {
@@ -539,14 +765,92 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   })
 })
 
-test('study browse mode now centers the review flow instead of leading with the old dashboard stack', async () => {
+test('study browse mode now lands summary-first while keeping the review card dominant', async () => {
   renderHarness({ initialSection: 'study' })
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Recall review', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Session', level: 2 })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Recall review', level: 2 })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Show answer' })).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: 'All', selected: true })).toBeInTheDocument()
+  expect(screen.getByText(/^Ready$/)).toBeInTheDocument()
+  const studyQueueSummary = screen.getByLabelText('Active study queue summary')
+  const reviewSessionStrip = screen.getByText(/^Ready$/).closest('.recall-study-session-strip')
+  expect(within(studyQueueSummary).queryByText(/^\d+\s+cards$/i)).not.toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText(/reviews logged/i)).not.toBeInTheDocument()
+  expect(within(studyQueueSummary).getByText(/^Up next$/)).toBeInTheDocument()
+  expect(within(studyQueueSummary).getByText(/^\d+\s+due$/i)).toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText(/^\d+\s+new$/i)).not.toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText('Stage 10 Debug Article')).not.toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText('What do Knowledge Graphs support?')).not.toBeInTheDocument()
+  expect(reviewSessionStrip).not.toBeNull()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/Due /i)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText('Stage 10 Debug Article')).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/0 reviews/i)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/evidence span/i)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/^Choose$/)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/^Reveal$/)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/^Rate$/)).not.toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: /Open .* in Reader/ })).toHaveLength(1)
+  expect(screen.getByRole('button', { name: 'Open Stage 10 Debug Article in Reader' })).toBeInTheDocument()
+  expect(screen.getByText('Grounded')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+  expect(screen.getByText(/^Source (chunk|evidence|graph relation|saved note)$/i)).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Source evidence', level: 3 })).not.toBeInTheDocument()
+  expect(screen.queryByText('Stage ten sentence three.')).not.toBeInTheDocument()
+  expect(screen.getByText('Reveal the answer to rate recall.')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Forgot' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Queue support is hidden until you want to switch cards or change the filter.')).not.toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: 'All', selected: true })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show answer' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Forgot' })).toBeInTheDocument()
+  })
+
+  expect(screen.getByText('Rate to schedule the next review.')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Source evidence', level: 3 })).toBeInTheDocument()
+  expect(screen.getByText('Stage ten sentence three.')).toBeInTheDocument()
+})
+
+test('study browse can preview evidence before revealing the answer', async () => {
+  renderHarness({ initialSection: 'study' })
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Preview evidence' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source evidence', level: 3 })).toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('button', { name: 'Hide preview' })).toBeInTheDocument()
+  expect(screen.getByText('Stage ten sentence three.')).toBeInTheDocument()
+})
+
+test('study browse queue stays intentionally truncated until expanded', async () => {
+  renderHarness({ initialSection: 'study' })
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Show all 5 cards' })).toBeInTheDocument()
+  })
+
+  expect(screen.queryByText('Which fallback flow stays source-grounded?')).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show all 5 cards' }))
+
+  expect(screen.getByText('Which fallback flow stays source-grounded?')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Show fewer cards' })).toBeInTheDocument()
 })

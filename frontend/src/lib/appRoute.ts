@@ -88,6 +88,7 @@ export interface RecallWorkspaceContinuityState {
 export interface AppRoute {
   documentId: string | null
   path: AppSection
+  recallSection: RecallSection
   sentenceEnd: number | null
   sentenceStart: number | null
 }
@@ -97,7 +98,7 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
     graph: true,
     library: true,
     notes: true,
-    study: true,
+    study: false,
   },
   graph: {
     selectedNodeId: null,
@@ -123,22 +124,31 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
   },
 }
 
+export function shouldOpenRecallBrowseDrawerByDefault(section: RecallSection, hasFocusedTarget = false) {
+  if (hasFocusedTarget) {
+    return false
+  }
+  return section !== 'study'
+}
+
 
 export function parseAppRoute(locationLike: Pick<Location, 'pathname' | 'search'>): AppRoute {
   const pathname = locationLike.pathname.replace(/\/+$/, '') || '/'
   const searchParams = new URLSearchParams(locationLike.search)
   const documentId = searchParams.get('document')
+  const recallSection = parseRecallSection(searchParams.get('section'))
   const sentenceStart = parseRouteSentenceIndex(searchParams.get('sentenceStart'))
   const sentenceEnd = parseRouteSentenceIndex(searchParams.get('sentenceEnd'))
   if (pathname === '/reader') {
     return {
       path: 'reader',
       documentId,
+      recallSection,
       sentenceStart,
       sentenceEnd: sentenceEnd ?? sentenceStart,
     }
   }
-  return { path: 'recall', documentId: null, sentenceStart: null, sentenceEnd: null }
+  return { path: 'recall', documentId: null, recallSection, sentenceStart: null, sentenceEnd: null }
 }
 
 
@@ -146,6 +156,7 @@ export function buildAppHref(
   path: AppSection,
   documentId?: string | null,
   options?: {
+    recallSection?: RecallSection | null
     sentenceEnd?: number | null
     sentenceStart?: number | null
   },
@@ -162,6 +173,10 @@ export function buildAppHref(
     }
     return `/reader?${search.toString()}`
   }
+  if (path === 'recall' && options?.recallSection && options.recallSection !== 'library') {
+    const search = new URLSearchParams({ section: options.recallSection })
+    return `/recall?${search.toString()}`
+  }
   return `/${path}`
 }
 
@@ -171,4 +186,11 @@ function parseRouteSentenceIndex(value: string | null) {
   }
   const parsed = Number.parseInt(value, 10)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+function parseRecallSection(value: string | null): RecallSection {
+  if (value === 'graph' || value === 'study' || value === 'notes') {
+    return value
+  }
+  return 'library'
 }

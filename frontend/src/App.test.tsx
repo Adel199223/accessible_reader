@@ -782,8 +782,11 @@ beforeEach(() => {
 
 async function ensureLibraryOpen() {
   const getLibrarySection = () => {
-    const libraryHeading = screen.getByRole('heading', { name: 'Source library', level: 2 })
-    const librarySection = libraryHeading.closest('section')
+    const libraryHeading =
+      screen.queryByRole('heading', { name: 'Home', level: 2 }) ??
+      screen.queryByRole('heading', { name: 'Source library', level: 2 })
+    expect(libraryHeading).not.toBeNull()
+    const librarySection = libraryHeading?.closest('section')
     expect(librarySection).not.toBeNull()
     return librarySection as HTMLElement
   }
@@ -805,8 +808,22 @@ async function ensureLibraryOpen() {
 async function ensureAddSourceDialogOpen() {
   fireEvent.click(screen.getByRole('button', { name: 'New' }))
   await waitFor(() => {
-    expect(screen.getByRole('dialog', { name: 'Add source' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Add content' })).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Paste text here')).toBeInTheDocument()
+  })
+}
+
+async function focusRecallSourceFromHome(documentTitle = 'Search target only') {
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: `Open ${documentTitle}` })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: `Open ${documentTitle}` }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: `${documentTitle} workspace` })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: documentTitle, level: 3 })).toBeInTheDocument()
   })
 }
 
@@ -831,7 +848,9 @@ test('app lands on Recall by default and normalizes the URL to /recall', async (
   })
 
   expect(screen.getByRole('heading', { name: 'Recall', level: 1 })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
   expect(fetchRecallDocumentsMock).toHaveBeenCalled()
 })
 
@@ -847,11 +866,21 @@ test('Recall shows unavailable states when its initial API loads fail', async ()
     expect(screen.getByText(localServiceUnavailableMessage)).toBeInTheDocument()
   })
 
-  expect(screen.getAllByText('Home unavailable').length).toBeGreaterThan(0)
+  expect(screen.getByText('Reconnect the local service to reload saved sources.')).toBeInTheDocument()
+  expect(screen.getByText('Saved sources are unavailable until the local service reconnects.')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Graph' }))
+
   await waitFor(() => {
-    expect(screen.getAllByText('Graph unavailable').length).toBeGreaterThan(0)
-    expect(screen.getByText('Study unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Graph unavailable')).toBeInTheDocument()
   })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
+
+  await waitFor(() => {
+    expect(screen.getAllByText('Study unavailable').length).toBeGreaterThan(0)
+  })
+
   expect(screen.getAllByRole('button', { name: 'Retry loading' }).length).toBeGreaterThan(0)
 })
 
@@ -869,24 +898,31 @@ test('Recall retry recovers after a transient initial load failure', async () =>
   fireEvent.click(screen.getAllByRole('button', { name: 'Retry loading' })[0])
 
   await waitFor(() => {
-    expect(screen.getAllByText('2 source documents').length).toBeGreaterThan(0)
+    expect(screen.queryByText(localServiceUnavailableMessage)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
   })
 
-  await waitFor(() => {
-    expect(screen.getByText('2 visible nodes')).toBeInTheDocument()
-    expect(screen.getByText('2 cards')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open in Reader' })).toBeInTheDocument()
-  })
+  expect(screen.getByRole('tab', { name: 'Graph', selected: false })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Study', selected: false })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Add source' })).toBeInTheDocument()
 })
 
-test('Recall workspace search keeps graph-aware hits focused without replacing the selected document detail', async () => {
+test('Recall global Search surfaces graph-aware hits from the Home workflow', async () => {
   renderRecallApp('/recall')
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i })).toBeInTheDocument()
   })
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search workspace' }), {
+  fireEvent.click(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
+  })
+
+  const searchDialog = screen.getByRole('dialog', { name: 'Search your workspace' })
+
+  fireEvent.change(within(searchDialog).getByRole('searchbox', { name: 'Search' }), {
     target: { value: 'Search sentence' },
   })
 
@@ -894,25 +930,18 @@ test('Recall workspace search keeps graph-aware hits focused without replacing t
     expect(retrieveRecallMock).toHaveBeenCalledWith('Search sentence', 8)
   })
 
-  const searchSection = screen.getByRole('heading', { name: 'Search workspace', level: 2 }).closest('section')
-  expect(searchSection).not.toBeNull()
-
   await waitFor(() => {
-    expect(within(searchSection as HTMLElement).getByRole('button', { name: 'Open note' })).toBeInTheDocument()
+    expect(within(searchDialog).getByRole('button', { name: /Knowledge Graphs/i })).toBeInTheDocument()
   })
 
-  fireEvent.click(within(searchSection as HTMLElement).getByRole('button', { name: /Knowledge Graphs/i }))
+  fireEvent.click(within(searchDialog).getByRole('button', { name: /Knowledge Graphs/i }))
 
   await waitFor(() => {
-    expect(within(searchSection as HTMLElement).getByRole('button', { name: 'Open in Graph' })).toBeInTheDocument()
+    expect(within(searchDialog).getByRole('button', { name: 'Open in Graph' })).toBeInTheDocument()
   })
-  expect(screen.getByRole('link', { name: 'Export Markdown' })).toHaveAttribute(
-    'href',
-    '/api/recall/documents/doc-search/export.md',
-  )
 })
 
-test('Recall graph shows node detail and lets the user confirm an inferred edge', async () => {
+test('Recall graph browse mode opens a focused node detail and lets the user confirm an inferred edge', async () => {
   renderRecallApp('/recall')
 
   await waitFor(() => {
@@ -922,20 +951,58 @@ test('Recall graph shows node detail and lets the user confirm an inferred edge'
   fireEvent.click(screen.getByRole('tab', { name: 'Graph' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Node detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Knowledge graph canvas' })).toBeInTheDocument()
   })
 
-  const nodeDetailSection = screen.getByRole('heading', { name: 'Node detail', level: 2 }).closest('section')
+  expect(screen.getByRole('heading', { name: 'Quick picks', level: 3 })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Select node Knowledge Graphs' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+  })
+
+  const nodeDetailSection = screen.getByRole('button', { name: 'Focus source' }).closest('section')
   expect(nodeDetailSection).not.toBeNull()
-  expect(within(nodeDetailSection as HTMLElement).getByText('Grounded description')).toBeInTheDocument()
+  expect(within(nodeDetailSection as HTMLElement).getByText('Status')).toBeInTheDocument()
   expect(within(nodeDetailSection as HTMLElement).getAllByText('Knowledge Graphs support Study Cards.').length).toBeGreaterThan(0)
   expect(
     within(nodeDetailSection as HTMLElement).getAllByRole('button', { name: 'Open Search target only in Reader' }).length,
   ).toBeGreaterThan(0)
-  fireEvent.click(within(nodeDetailSection as HTMLElement).getByRole('button', { name: 'Confirm' }))
+
+  const relationsSectionHeading = within(nodeDetailSection as HTMLElement).getByRole('heading', {
+    name: 'Relations',
+    level: 4,
+  })
+  const relationsSection = relationsSectionHeading.parentElement?.parentElement as HTMLElement | null
+  expect(relationsSection).not.toBeNull()
+  fireEvent.click(within(relationsSection as HTMLElement).getByRole('button', { name: 'Confirm' }))
 
   await waitFor(() => {
     expect(decideRecallGraphEdgeMock).toHaveBeenCalledWith('edge-graph-supports-card', 'confirmed')
+  })
+})
+
+test('Recall keeps the active section through a hard refresh', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: false })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(window.location.search).toBe('?section=study')
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+  })
+
+  cleanup()
+  renderRecallApp(`${window.location.pathname}${window.location.search}`)
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
   })
 })
 
@@ -952,14 +1019,40 @@ test('Recall study queue shows an active card and records a review after reveali
     expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('heading', { name: 'Recall review', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Session', level: 2 })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Recall review', level: 2 })).not.toBeInTheDocument()
 
   const activeCardSection = screen.getByRole('heading', { name: 'Review card', level: 2 }).closest('section')
+  const studyQueueSummary = screen.getByLabelText('Active study queue summary')
+  const reviewSessionStrip = screen.getByText(/^Ready$/).closest('.recall-study-session-strip')
   expect(activeCardSection).not.toBeNull()
+  expect(reviewSessionStrip).not.toBeNull()
+  expect(within(studyQueueSummary).queryByText(/^\d+\s+cards$/i)).not.toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText(/reviews logged/i)).not.toBeInTheDocument()
+  expect(within(studyQueueSummary).getByText(/^Up next$/)).toBeInTheDocument()
+  expect(within(studyQueueSummary).getByText(/^\d+\s+due$/i)).toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText(/^\d+\s+new$/i)).not.toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText('Search target only')).not.toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText('What do Knowledge Graphs support?')).not.toBeInTheDocument()
   expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
-  expect(within(activeCardSection as HTMLElement).getByRole('heading', { name: 'Source evidence', level: 3 })).toBeInTheDocument()
-  expect(within(activeCardSection as HTMLElement).getAllByText('Knowledge Graphs support Study Cards.').length).toBeGreaterThan(0)
+  expect(screen.getByText('Grounded')).toBeInTheDocument()
+  expect(screen.getByText(/^Source (chunk|evidence|graph relation|saved note)$/i)).toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/Due /i)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText('Search target only')).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/0 reviews/i)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/evidence span/i)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/^Choose$/)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/^Reveal$/)).not.toBeInTheDocument()
+  expect(within(reviewSessionStrip as HTMLElement).queryByText(/^Rate$/)).not.toBeInTheDocument()
+  expect(within(activeCardSection as HTMLElement).queryByRole('heading', { name: 'Source evidence', level: 3 })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Show answer' }))
+
+  await waitFor(() => {
+    expect(within(activeCardSection as HTMLElement).getByRole('heading', { name: 'Source evidence', level: 3 })).toBeInTheDocument()
+  })
+
+  expect(screen.getByText('Rate to schedule the next review.')).toBeInTheDocument()
+  expect(within(activeCardSection as HTMLElement).getAllByText('Knowledge Graphs support Study Cards.').length).toBeGreaterThan(0)
   expect(screen.getByText('Study Cards')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Good' }))
 
@@ -996,104 +1089,6 @@ test('Recall study detail keeps a Reader handoff next to source evidence', async
   expect(window.location.search).toContain('sentenceEnd=2')
 })
 
-test('Recall handoff opens the selected document in Reader', async () => {
-  renderRecallApp('/recall')
-
-  await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Search target only', level: 3 })).toBeInTheDocument()
-  })
-
-  const detailSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
-  expect(detailSection).not.toBeNull()
-  fireEvent.click(within(detailSection as HTMLElement).getByRole('button', { name: 'Open in Reader' }))
-
-  await waitFor(() => {
-    expect(window.location.pathname).toBe('/reader')
-  })
-
-  expect(window.location.search).toContain('document=doc-search')
-  await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
-  })
-})
-
-test('Recall library filter narrows the source rail without clearing selected detail', async () => {
-  renderRecallApp('/recall')
-
-  await waitFor(() => {
-    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
-  })
-
-  fireEvent.click(screen.getByRole('button', { name: 'Open Reader stays here' }))
-
-  await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
-  })
-
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search saved sources' }), {
-    target: { value: 'Search target' },
-  })
-
-  const homeSection = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('section')
-  expect(homeSection).not.toBeNull()
-
-  await waitFor(() => {
-    expect(
-      within(homeSection as HTMLElement).queryByRole('button', { name: /Reader stays here/i }),
-    ).not.toBeInTheDocument()
-  })
-
-  expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
-  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
-  expect(sourceOverviewSection).not.toBeNull()
-  expect(within(sourceOverviewSection as HTMLElement).getAllByRole('button', { name: 'View notes' }).length).toBeGreaterThan(0)
-  expect(within(homeSection as HTMLElement).getByText('1 matches')).toBeInTheDocument()
-})
-
-test('Home detail and filter survive Reader handoff and return', async () => {
-  renderRecallApp('/recall')
-
-  await waitFor(() => {
-    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
-  })
-
-  fireEvent.click(screen.getByRole('button', { name: 'Open Reader stays here' }))
-
-  await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
-  })
-
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search saved sources' }), {
-    target: { value: 'Search target' },
-  })
-
-  const documentDetailSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
-  expect(documentDetailSection).not.toBeNull()
-
-  fireEvent.click(within(documentDetailSection as HTMLElement).getByRole('button', { name: 'Open in Reader' }))
-
-  await waitFor(() => {
-    expect(window.location.pathname).toBe('/reader')
-  })
-
-  window.history.back()
-  window.dispatchEvent(new PopStateEvent('popstate'))
-
-  const homeSection = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('section')
-  expect(homeSection).not.toBeNull()
-
-  await waitFor(() => {
-    expect(window.location.pathname).toBe('/recall')
-    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
-    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toHaveValue('Search target')
-    expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
-  })
-
-  expect(
-    within(homeSection as HTMLElement).queryByRole('button', { name: /Reader stays here/i }),
-  ).not.toBeInTheDocument()
-})
-
 test('returning from Reader restores the prior Recall section and selected graph node', async () => {
   nodeDetailById['node-study-cards'] = {
     node: structuredClone(baseRecallGraph.nodes[1]),
@@ -1124,19 +1119,17 @@ test('returning from Reader restores the prior Recall section and selected graph
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Node detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Knowledge graph canvas' })).toBeInTheDocument()
   })
 
-  const graphRail = screen.getByRole('heading', { name: 'Knowledge graph', level: 2 }).closest('section')
-  expect(graphRail).not.toBeNull()
-
-  fireEvent.click(within(graphRail as HTMLElement).getByRole('button', { name: /Study Cards.*86%/i }))
+  fireEvent.click(screen.getByRole('button', { name: 'Select node Study Cards' }))
 
   await waitFor(() => {
-    expect(within(graphRail as HTMLElement).getByRole('button', { name: /Study Cards.*86%/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Select node Study Cards' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
   })
 
-  const nodeDetailSection = screen.getByRole('heading', { name: 'Node detail', level: 2 }).closest('section')
+  const nodeDetailSection = screen.getByRole('button', { name: 'Focus source' }).closest('section')
   expect(nodeDetailSection).not.toBeNull()
 
   fireEvent.click(
@@ -1154,47 +1147,9 @@ test('returning from Reader restores the prior Recall section and selected graph
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
     expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Node detail', level: 2 })).toBeInTheDocument()
-    expect(within(graphRail as HTMLElement).getByRole('button', { name: /Study Cards.*86%/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Select node Study Cards' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
   })
-})
-
-test('Recall retrieval note hits open the Notes section with the selected note', async () => {
-  renderRecallApp('/recall')
-
-  await waitFor(() => {
-    expect(screen.getByRole('searchbox', { name: 'Search workspace' })).toBeInTheDocument()
-  })
-
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search workspace' }), {
-    target: { value: 'Useful search note' },
-  })
-
-  await waitFor(() => {
-    expect(retrieveRecallMock).toHaveBeenCalledWith('Useful search note', 8)
-  })
-
-  const searchSection = screen.getByRole('heading', { name: 'Search workspace', level: 2 }).closest('section')
-  expect(searchSection).not.toBeNull()
-
-  const notesSection = within(searchSection as HTMLElement).getByRole('heading', { name: 'Notes', level: 3 }).closest('section')
-  expect(notesSection).not.toBeNull()
-
-  fireEvent.click(within(notesSection as HTMLElement).getByRole('button', { name: /Useful search note/i }))
-  fireEvent.click(within(searchSection as HTMLElement).getByRole('button', { name: 'Open note' }))
-
-  await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
-  })
-
-  const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
-  expect(noteDetailSection).not.toBeNull()
-  expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
-  expect(
-    within(noteDetailSection as HTMLElement).getByText('This note stays included in workspace exports and merge previews.'),
-  ).toBeInTheDocument()
-  expect(within(noteDetailSection as HTMLElement).queryByText('Anchor range')).not.toBeInTheDocument()
-  expect(within(noteDetailSection as HTMLElement).queryByText('Workspace portability')).not.toBeInTheDocument()
 })
 
 test('Notes document selection, search, and selected note survive Reader handoff and return', async () => {
@@ -1277,6 +1232,12 @@ test('Study filter and targeted card survive Reader handoff and return', async (
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Due' })).toBeInTheDocument()
   })
 
   fireEvent.click(screen.getByRole('tab', { name: 'Due' }))
@@ -1468,7 +1429,11 @@ test('Recall notes keep grouped promotion actions near the anchored passage', as
 })
 
 test('library selection updates the reader and search does not replace the active document', async () => {
-  render(<App />)
+  renderRecallApp('/reader')
+
+  await waitFor(() => {
+    expect(fetchDocumentsMock).toHaveBeenCalled()
+  })
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
@@ -1481,22 +1446,23 @@ test('library selection updates the reader and search does not replace the activ
   fireEvent.click(screen.getByTitle('Reader stays here'))
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Reader stays here', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
   })
 
   await ensureLibraryOpen()
-  await waitFor(() => {
-    expect(screen.getByTitle('Search target only')).toBeInTheDocument()
-  })
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), {
+  const librarySection = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('section')
+  expect(librarySection).not.toBeNull()
+
+  fireEvent.change(within(librarySection as HTMLElement).getByRole('searchbox', { name: 'Search' }), {
     target: { value: 'Search target' },
   })
 
   await waitFor(() => {
-    expect(screen.getByTitle('Search target only')).toBeInTheDocument()
+    expect(within(librarySection as HTMLElement).getByTitle('Search target only')).toBeInTheDocument()
+    expect(within(librarySection as HTMLElement).queryByTitle('Reader stays here')).not.toBeInTheDocument()
   })
 
-  expect(screen.getByRole('heading', { name: 'Reader stays here', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
 })
 
 test('Reader shows a service unavailable state when initial document loading fails', async () => {
@@ -1694,13 +1660,13 @@ test('shell exposes global New and Search while source library remains in reader
   renderRecallApp('/reader')
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   })
 
   expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Reading context', level: 2 })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current source', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Add source', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByText('Info')).not.toBeInTheDocument()
@@ -1710,22 +1676,23 @@ test('compact shell styling keeps Reader context in the dock while the sidecar s
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
   })
 
-  const shellHeader = document.querySelector('header.shell-header')
+  const shellHeader = document.querySelector('header.workspace-topbar')
   expect(shellHeader).not.toBeNull()
-  expect(shellHeader).toHaveClass('shell-header-compact')
-  await waitFor(() => {
-    const currentContextPanel = getCurrentContextPanel()
-    expect(currentContextPanel).not.toBeNull()
-    expect(within(currentContextPanel as HTMLElement).getByText('Search target only')).toBeInTheDocument()
-    expect(
-      within(currentContextPanel as HTMLElement).queryByText('Keep your active focus and the next useful jump visible in the shell.'),
-    ).not.toBeInTheDocument()
-  })
+  expect(shellHeader).not.toHaveClass('workspace-topbar-quiet')
+  expect(screen.getByText('Reader workspace')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Reader', level: 1 })).toBeInTheDocument()
+
+  const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
+  expect(within(sourceWorkspace).getByText('Focused source')).toBeInTheDocument()
+  expect(within(sourceWorkspace).getByText('Search target only')).toBeInTheDocument()
+  expect(within(sourceWorkspace).getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
+
   const readerContextSection = screen.getByRole('heading', { name: 'Reading context', level: 2 }).closest('section')
   expect(readerContextSection).not.toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current source', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByText('PASTE source')).not.toBeInTheDocument()
   expect(within(readerContextSection as HTMLElement).getByRole('button', { name: 'View notes' })).toBeInTheDocument()
@@ -1734,18 +1701,7 @@ test('compact shell styling keeps Reader context in the dock while the sidecar s
 test('workspace dock tracks current source context and recent note handoffs', async () => {
   renderRecallApp('/recall')
 
-  await waitFor(() => {
-    const currentContextPanel = getCurrentContextPanel()
-    expect(currentContextPanel).not.toBeNull()
-    expect(within(currentContextPanel as HTMLElement).getByText('Search target only')).toBeInTheDocument()
-    expect(within(currentContextPanel as HTMLElement).getByRole('button', { name: /View note/i })).toBeInTheDocument()
-  })
-
-  fireEvent.click(within(getCurrentContextPanel() as HTMLElement).getByRole('button', { name: /View note/i }))
-
-  await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
-  })
+  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
 
   await waitFor(() => {
     const currentContextPanel = getCurrentContextPanel()
@@ -1753,41 +1709,35 @@ test('workspace dock tracks current source context and recent note handoffs', as
     expect(
       within(currentContextPanel as HTMLElement).getByText('Search sentence one. Search sentence two.'),
     ).toBeInTheDocument()
+    expect(within(currentContextPanel as HTMLElement).getByText(/Search target only/i)).toBeInTheDocument()
     expect(within(currentContextPanel as HTMLElement).getByRole('button', { name: 'Open in Reader' })).toBeInTheDocument()
-    expect(
-      within(currentContextPanel as HTMLElement).queryByText('Keep your active focus and the next useful jump visible in the shell.'),
-    ).not.toBeInTheDocument()
+    expect(within(currentContextPanel as HTMLElement).getByRole('button', { name: 'Source' })).toBeInTheDocument()
   })
 
   const recentWorkPanel = getRecentWorkPanel()
   expect(recentWorkPanel).not.toBeNull()
-  expect(within(recentWorkPanel as HTMLElement).getByRole('button', { name: /Search target only/i })).toBeInTheDocument()
+  expect(
+    within(recentWorkPanel as HTMLElement).getByText(
+      'Recent note, source, graph, and study jumps will collect here as you move through Recall.',
+    ),
+  ).toBeInTheDocument()
 
   fireEvent.click(within(getCurrentContextPanel() as HTMLElement).getByRole('button', { name: 'Open in Reader' }))
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/reader')
-  })
-
-  await waitFor(() => {
-    const currentContextPanel = getCurrentContextPanel()
-    expect(currentContextPanel).not.toBeNull()
-    expect(within(currentContextPanel as HTMLElement).getByText('Search target only')).toBeInTheDocument()
-  })
-
-  await waitFor(() => {
-    const updatedRecentWorkPanel = getRecentWorkPanel()
-    expect(updatedRecentWorkPanel).not.toBeNull()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
     expect(
-      within(updatedRecentWorkPanel as HTMLElement).getByRole('button', {
-        name: /Search sentence one\. Search sentence two\./i,
+      within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+        name: 'Source workspace Reader',
+        selected: true,
       }),
     ).toBeInTheDocument()
   })
 
   fireEvent.click(
-    within(getRecentWorkPanel() as HTMLElement).getByRole('button', {
-      name: /Search sentence one\. Search sentence two\./i,
+    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+      name: 'Source workspace Notes',
     }),
   )
 
@@ -1795,45 +1745,79 @@ test('workspace dock tracks current source context and recent note handoffs', as
     expect(window.location.pathname).toBe('/recall')
     expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Search target only', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+        name: 'Source workspace Notes',
+        selected: true,
+      }),
+    ).toBeInTheDocument()
+  })
+
+  await waitFor(() => {
+    expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
   })
 })
 
 test('workspace dock surfaces graph and study focus with quick switching', async () => {
-  renderRecallApp('/recall')
-
-  fireEvent.click(screen.getByRole('tab', { name: 'Graph' }))
+  renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
-    const currentContextPanel = getCurrentContextPanel()
-    expect(currentContextPanel).not.toBeNull()
-    expect(within(currentContextPanel as HTMLElement).getByText('Knowledge Graphs')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+      name: 'Source workspace Graph',
+    }),
+  )
 
   await waitFor(() => {
-    const currentContextPanel = getCurrentContextPanel()
-    expect(currentContextPanel).not.toBeNull()
-    expect(within(currentContextPanel as HTMLElement).getByText('What do Knowledge Graphs support?')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Node detail', level: 2 })).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+        name: 'Source workspace Graph',
+        selected: true,
+      }),
+    ).toBeInTheDocument()
   })
+
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+      name: 'Source workspace Study',
+    }),
+  )
 
   await waitFor(() => {
-    const recentWorkPanel = getRecentWorkPanel()
-    expect(recentWorkPanel).not.toBeNull()
-    expect(within(recentWorkPanel as HTMLElement).getByRole('button', { name: /Knowledge Graphs/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Active card', level: 2 })).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+        name: 'Source workspace Study',
+        selected: true,
+      }),
+    ).toBeInTheDocument()
   })
 
-  fireEvent.click(within(getRecentWorkPanel() as HTMLElement).getByRole('button', { name: /Knowledge Graphs/i }))
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+      name: 'Source workspace Graph',
+    }),
+  )
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
   })
 
-  const currentContextPanel = getCurrentContextPanel()
-  expect(currentContextPanel).not.toBeNull()
-  expect(within(currentContextPanel as HTMLElement).getByText('Knowledge Graphs')).toBeInTheDocument()
+  expect(
+    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
+      name: 'Source workspace Graph',
+      selected: true,
+    }),
+  ).toBeInTheDocument()
 })
 
 test('global Search dialog remembers the active query and supports the keyboard shortcut', async () => {
@@ -2039,9 +2023,7 @@ test('Reader source workspace tabs hand the active source into Recall notes and 
 test('Recall source workspace tabs reopen Reader for the selected source', async () => {
   renderRecallApp('/recall')
 
-  await waitFor(() => {
-    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
-  })
+  await focusRecallSourceFromHome()
 
   const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
   expect(within(sourceWorkspace).getByRole('tab', { name: 'Source workspace Overview', selected: true })).toBeInTheDocument()
@@ -2087,7 +2069,7 @@ test('manual Home clicks return to the browse-first landing without forgetting t
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
-    expect(screen.getByRole('heading', { name: 'Saved sources', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open Reader' })).toBeInTheDocument()
   })
 
@@ -2098,9 +2080,7 @@ test('manual Home clicks return to the browse-first landing without forgetting t
 test('Recall source overview surfaces nearby notes, graph, and study context for the active source', async () => {
   renderRecallApp('/recall')
 
-  await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Search target only', level: 3 })).toBeInTheDocument()
-  })
+  await focusRecallSourceFromHome()
 
   expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
   expect(screen.getByText('Saved notes')).toBeInTheDocument()
@@ -2172,13 +2152,33 @@ test('source-focused graph evidence retargets the embedded Reader without leavin
     expect(window.location.pathname).toBe('/recall')
     expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Reader', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Browse' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Select node Knowledge Graphs' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Select node Knowledge Graphs' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Focus source' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Reader', level: 2 })).toBeInTheDocument()
   })
 
   const nodeDetailSection = screen.getByRole('heading', { name: 'Node detail', level: 2 }).closest('section')
   expect(nodeDetailSection).not.toBeNull()
 
   fireEvent.click(
-    within(nodeDetailSection as HTMLElement).getAllByRole('button', { name: 'Show Search target only in Reader' })[0],
+    within(nodeDetailSection as HTMLElement).getAllByRole('button', { name: /Show .* in Reader/ })[0],
   )
 
   await waitFor(() => {
@@ -2209,7 +2209,7 @@ test('source-focused study handoff keeps Reader visible while manual Study brows
 
   const focusedStudySection = screen.getByRole('heading', { name: 'Study queue', level: 2 }).closest('section')
   expect(focusedStudySection).not.toBeNull()
-  expect(within(focusedStudySection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
+  expect(within(focusedStudySection as HTMLElement).getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
   expect(within(focusedStudySection as HTMLElement).queryByRole('tab', { name: 'All', selected: true })).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
@@ -2224,10 +2224,12 @@ test('source-focused study handoff keeps Reader visible while manual Study brows
     expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
   })
 
-  const browseStudySection = screen.getByRole('heading', { name: 'Study queue', level: 2 }).closest('section')
+  const browseStudySection = screen.getByRole('heading', { name: 'Session', level: 2 }).closest('section')
   expect(browseStudySection).not.toBeNull()
-  expect(within(browseStudySection as HTMLElement).getByRole('button', { name: 'Hide' })).toBeInTheDocument()
-  expect(within(browseStudySection as HTMLElement).getByRole('tab', { name: 'All', selected: true })).toBeInTheDocument()
+  expect(within(browseStudySection as HTMLElement).getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
+  expect(within(browseStudySection as HTMLElement).queryByRole('tab', { name: 'All', selected: true })).not.toBeInTheDocument()
+  expect(within(browseStudySection as HTMLElement).getByText('Up next')).toBeInTheDocument()
+  expect(within(browseStudySection as HTMLElement).queryByText('What do Knowledge Graphs support?')).not.toBeInTheDocument()
 })
 
 test('global Search note handoff preserves prior Home context', async () => {
@@ -2240,10 +2242,13 @@ test('global Search note handoff preserves prior Home context', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Open Reader stays here' }))
 
   await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Reader stays here workspace' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
   })
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search saved sources' }), {
+  await ensureLibraryOpen()
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Filter sources' }), {
     target: { value: 'Search target' },
   })
 
@@ -2274,19 +2279,16 @@ test('global Search note handoff preserves prior Home context', async () => {
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
   })
 
-  await waitFor(() => {
-    const recentWorkPanel = getRecentWorkPanel()
-    expect(recentWorkPanel).not.toBeNull()
-    expect(within(recentWorkPanel as HTMLElement).getByRole('button', { name: /Reader stays here/i })).toBeInTheDocument()
-  })
-
   fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toHaveValue('Search target')
-    expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
   })
+
+  expect(screen.queryByRole('heading', { name: 'Source overview', level: 2 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Open Reader stays here' })).not.toBeInTheDocument()
 })
 
 test('web page import stays behind a compact disclosure and imports into the reader', async () => {
@@ -2330,7 +2332,7 @@ test('web page import stays behind a compact disclosure and imports into the rea
   expect(screen.queryByLabelText('Article URL')).not.toBeInTheDocument()
 
   await ensureAddSourceDialogOpen()
-  fireEvent.click(screen.getByRole('button', { name: 'Web page' }))
+  fireEvent.click(screen.getByRole('tab', { name: /^Web page/i }))
   fireEvent.change(screen.getByLabelText('Article URL'), {
     target: { value: 'example.com/article' },
   })
@@ -2359,7 +2361,7 @@ test('web page import shows a bounded error without breaking the rest of the imp
   })
 
   await ensureAddSourceDialogOpen()
-  fireEvent.click(screen.getByRole('button', { name: 'Web page' }))
+  fireEvent.click(screen.getByRole('tab', { name: /^Web page/i }))
   fireEvent.change(screen.getByLabelText('Article URL'), {
     target: { value: 'https://example.com/app' },
   })
@@ -2369,8 +2371,8 @@ test('web page import shows a bounded error without breaking the rest of the imp
     expect(screen.getByText('Only public webpage articles are supported here.')).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('button', { name: 'Import text' })).toBeInTheDocument()
-  expect(screen.getByText('Choose file')).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /^Paste text/i })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /^Choose file/i })).toBeInTheDocument()
 })
 
 test('active reading routes add source through the global New dialog instead of an inline import column', async () => {
@@ -2388,7 +2390,7 @@ test('active reading routes add source through the global New dialog instead of 
 
   await ensureAddSourceDialogOpen()
   expect(screen.getByPlaceholderText('Paste text here')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Web page' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /^Web page/i })).toBeInTheDocument()
 })
 
 test('active reading collapses the library by default and lets the user expand it on demand', async () => {
@@ -2398,7 +2400,7 @@ test('active reading collapses the library by default and lets the user expand i
     expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
   })
 
-  const librarySection = screen.getByRole('heading', { name: 'Source library', level: 2 }).closest('section')
+  const librarySection = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('section')
   expect(librarySection).not.toBeNull()
   expect(within(librarySection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
   expect(screen.queryByPlaceholderText('Search saved sources')).not.toBeInTheDocument()
@@ -2428,12 +2430,14 @@ test('reader hero uses Recall-first copy instead of standalone reader branding',
   renderRecallApp('/reader')
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Read what you saved.', level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Open a source to start reading', level: 2 })).toBeInTheDocument()
   })
 
+  expect(screen.getByText('Reader workspace')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Reader', level: 1 })).toBeInTheDocument()
   expect(
     screen.getByText(
-      'Open a saved source or use New without leaving the Recall workspace.',
+      'Use New to add a source from anywhere in Recall, or reopen something from Home.',
     ),
   ).toBeInTheDocument()
   expect(screen.queryByText('Accessible Reader')).not.toBeInTheDocument()
@@ -2551,7 +2555,7 @@ test('main reading controls keep only transport visible and move secondary items
 
   expect(screen.queryByRole('heading', { name: 'View', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByRole('group', { name: 'Document view' })).not.toBeInTheDocument()
-  expect(screen.queryByText('Sentence 1 of 2')).not.toBeInTheDocument()
+  expect(screen.queryByText('Sentence 1 of 3')).not.toBeInTheDocument()
   expect(screen.queryByText('Tips')).not.toBeInTheDocument()
   expect(screen.queryByRole('combobox', { name: 'Voice' })).not.toBeInTheDocument()
   expect(screen.getByLabelText('Read aloud controls')).toBeInTheDocument()
@@ -2560,7 +2564,7 @@ test('main reading controls keep only transport visible and move secondary items
   fireEvent.click(screen.getByRole('button', { name: 'More reading controls' }))
 
   const overflow = screen.getByRole('group', { name: 'More reading controls' })
-  expect(within(overflow).getByText('Sentence 1 of 2')).toBeInTheDocument()
+  expect(within(overflow).getByText('Sentence 1 of 3')).toBeInTheDocument()
   expect(within(overflow).getByRole('combobox', { name: 'Voice' })).toBeInTheDocument()
   expect(within(overflow).getByText(/Shortcuts: Alt\+Left, Alt\+Right, or Space\./i)).toBeInTheDocument()
   expect(within(overflow).queryByRole('combobox', { name: 'Summary detail' })).not.toBeInTheDocument()
