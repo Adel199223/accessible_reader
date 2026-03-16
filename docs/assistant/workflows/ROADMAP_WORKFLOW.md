@@ -54,3 +54,4 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - Validation status is recorded in the user-facing handoff.
 - If the work is benchmark-driven UI work, the benchmark matrix and latest screenshot artifacts are referenced in the handoff docs.
 - `docs/assistant/APP_KNOWLEDGE.md`, `docs/assistant/manifest.json`, `docs/assistant/INDEX.md`, and `agent.md` stay in sync with the current milestone and workflow constraints after assistant-doc sync.
+- If the user asks for a checkpoint or new-chat anchor, sync `docs/ROADMAP_ANCHOR.md` with those assistant docs in the same pass so the resume shortcut, active plan, and validation story agree.

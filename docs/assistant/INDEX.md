@@ -2,6 +2,12 @@
 
 Use this folder as a lightweight routing layer. Do not treat it as the canonical source of product truth.
 
+## Current Checkpoint
+- Active plan: `docs/exec_plans/active/2026-03-16_stage128_post_stage127_benchmark_audit.md`
+- Resume shortcut: `resume from Stage 128`
+- Current benchmark note: Stage 127 removed the ghost browse-mode Study top strip and lifted the review card higher; Stage 128 should now decide whether Study still leads the remaining mismatch list.
+- Deferred issue to revisit only when it becomes the highest-leverage blocker: the narrower-width Recall rail/top-grid reflow regression.
+
 ## Start Here
 1. `BUILD_BRIEF.md`
 2. `docs/ROADMAP.md`

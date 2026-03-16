@@ -6,7 +6,7 @@
     "docs/ROADMAP.md",
     "docs/ROADMAP_ANCHOR.md",
     "docs/ux/recall_benchmark_matrix.md",
-    "docs/exec_plans/active/2026-03-16_stage110_post_stage109_benchmark_audit.md"
+    "docs/exec_plans/active/2026-03-16_stage128_post_stage127_benchmark_audit.md"
   ],
   "bridges": [
     "agent.md",
@@ -23,7 +23,7 @@
         "docs/ROADMAP.md",
         "docs/ROADMAP_ANCHOR.md",
         "docs/ux/recall_benchmark_matrix.md",
-        "docs/exec_plans/active/2026-03-16_stage110_post_stage109_benchmark_audit.md"
+        "docs/exec_plans/active/2026-03-16_stage128_post_stage127_benchmark_audit.md"
       ],
       "validation_commands": [
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'",

@@ -2,6 +2,12 @@
 
 Short runbook for future Codex chats in this repo. Treat `BUILD_BRIEF.md`, `docs/ROADMAP.md`, `docs/ROADMAP_ANCHOR.md`, and the active ExecPlan as canonical project truth.
 
+## Current Checkpoint
+- Active plan: `docs/exec_plans/active/2026-03-16_stage128_post_stage127_benchmark_audit.md`
+- Resume shortcut: `resume from Stage 128`
+- Current benchmark note: Stage 127 removed the ghost browse-mode Study top strip and lifted the review card higher; Stage 128 should now decide from fresh captures whether Study still leads the remaining mismatch list.
+- Deferred issue to keep parked unless it becomes the next blocker: the narrower-width Recall rail/top-grid reflow regression.
+
 ## Read Order
 1. `AGENTS.md`
 2. `BUILD_BRIEF.md`
