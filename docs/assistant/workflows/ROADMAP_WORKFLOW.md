@@ -38,8 +38,9 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - Backend `pytest` only when backend files are touched.
 - Manual Windows Edge validation when the milestone includes speech or reading behavior.
 - Screenshot-based browser validation when the milestone changes Recall shell or top-level surface UI.
-- Prefer targeted Vitest coverage before broad `npm test -- --run` sweeps when UI slices touch Recall shell or surface work.
-- If `frontend/src/App.test.tsx` stalls in its known long-running mode, use isolated `-t` checks plus component-level coverage and the Edge screenshot harness instead of treating the stall as a product regression.
+- Prefer targeted Vitest coverage before broad `npm test -- --run` sweeps when UI slices touch Recall shell or surface work, then use the broad `frontend/src/App.test.tsx` pass when shell or route continuity changed.
+- Keep the repo-owned Edge screenshot harness as the visual truth source for Recall shell and surface work even when the broad App integration pass is green.
+- If the broad `frontend/src/App.test.tsx` file ever appears to stall again, inspect App-level callback identity and `ReaderWorkspace` effect dependencies before treating it as a Vitest-only failure; the last real stall was a render/effect loop in app shell handoff props.
 
 ## Failure Modes and Fallback Steps
 - If the active plan is already complete, move it to `docs/exec_plans/completed/` and create a new active plan before proceeding.

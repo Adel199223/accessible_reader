@@ -19,7 +19,8 @@ Use this folder as a lightweight routing layer. Do not treat it as the canonical
 - Keep AI opt-in and limited to `Simplify` and `Summary`.
 - Use targeted validation before broad sweeps.
 - Treat the benchmark matrix plus fresh screenshots as required when changing Recall shell or top-level surface UI.
-- Prefer targeted component tests plus the repo-owned Edge screenshot harness when the large `frontend/src/App.test.tsx` file shows its long-standing stall behavior.
+- Prefer targeted component tests first, then use the broad `frontend/src/App.test.tsx` pass when shell or route continuity changes, and keep the repo-owned Edge screenshot harness as the visual truth source for Recall surface work.
+- If the broad `App.test.tsx` file ever appears to stall again, check for App-level callback identity churn and `ReaderWorkspace` effect loops before downgrading the whole-file suite; that was the root cause of the last real stall.
 - Keep push explicit.
 
 ## Use When

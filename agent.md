@@ -21,7 +21,7 @@ Short runbook for future Codex chats in this repo. Treat `BUILD_BRIEF.md`, `docs
 - Major or multi-file work starts by creating or updating an ExecPlan in `docs/exec_plans/active/`.
 - Run targeted validation before broader checks.
 - Treat screenshot-based benchmark comparison as required when changing Recall shell or top-level surface UI.
-- Treat `frontend/src/App.test.tsx` as a known unstable broad-runner: prefer isolated `-t` checks, targeted component tests, and the repo-owned Edge screenshot harness when that file stalls.
+- Treat `frontend/src/App.test.tsx` as a valid broad shell/route check again. Prefer targeted component tests first, then run the whole file when shell or route continuity changes. If the file ever stalls again, inspect App-level callback identity and `ReaderWorkspace` effect dependencies before assuming Vitest itself is the problem; the last real stall came from callback churn in `App.tsx` creating a render/effect loop.
 - Do not push unless the user explicitly asks.
 
 ## Routing
