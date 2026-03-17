@@ -53,6 +53,24 @@
 - screenshot-led manual review of the fresh Home, Graph, Study, and focused-Study captures
 - `Get-Content .\docs\assistant\manifest.json -Raw | ConvertFrom-Json | Out-Null`
 
+## Findings
+- Home:
+  - Home now leads the remaining mismatch list again.
+  - The landing is calmer than earlier passes, but it still reads as one boxed archive panel instead of a lighter collection canvas.
+  - The large shared frame, repeated `Nearby` and `Next` row labels, and right-heavy timestamp/meta treatment keep the reopen flow more utilitarian than the benchmark direction wants.
+- Study:
+  - Study no longer leads after Stage 127.
+  - Removing the ghost top strip and lifting the review card was enough to make browse-mode Study read as one guided review task with light supporting utility.
+- Graph:
+  - Graph stayed stable and remains a lower-priority mismatch.
+- Focused regression:
+  - Focused Study preserved the reader-led split and stayed stable during the audit.
+
+## Decision
+- Stage 128 is complete.
+- Stage 129 should be `Recall Home Collection Frame Flattening And Row Meta Demotion`.
+- Stage 129 should stay tightly bounded to Home browse mode: soften or flatten the large collection frame, demote repeated row labels and timestamp/meta weight, and preserve the calmer Study, Graph, focused Study, and deferred narrow-width shell baseline.
+
 ## Exit Criteria
 - Fresh post-Stage-127 captures are reviewed and the clearest remaining blocker is identified.
 - The roadmap, benchmark matrix, and assistant handoff docs point at the correct next bounded slice.

@@ -126,6 +126,292 @@ const recallDocuments: RecallDocumentRecord[] = [
     available_modes: ['original'],
     chunk_count: 1,
   },
+  {
+    id: 'doc-archive-8',
+    title: 'Archived Reference 8',
+    source_type: 'txt',
+    file_name: 'archive-8.txt',
+    source_locator: null,
+    created_at: '2026-02-13T09:00:00Z',
+    updated_at: '2026-02-13T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-9',
+    title: 'Archived Reference 9',
+    source_type: 'txt',
+    file_name: 'archive-9.txt',
+    source_locator: null,
+    created_at: '2026-02-12T09:00:00Z',
+    updated_at: '2026-02-12T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-10',
+    title: 'Archived Reference 10',
+    source_type: 'txt',
+    file_name: 'archive-10.txt',
+    source_locator: null,
+    created_at: '2026-02-11T09:00:00Z',
+    updated_at: '2026-02-11T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-11',
+    title: 'Archived Reference 11',
+    source_type: 'txt',
+    file_name: 'archive-11.txt',
+    source_locator: null,
+    created_at: '2026-02-10T09:00:00Z',
+    updated_at: '2026-02-10T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-12',
+    title: 'Archived Reference 12',
+    source_type: 'txt',
+    file_name: 'archive-12.txt',
+    source_locator: null,
+    created_at: '2026-02-09T09:00:00Z',
+    updated_at: '2026-02-09T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-13',
+    title: 'Archived Reference 13',
+    source_type: 'txt',
+    file_name: 'archive-13.txt',
+    source_locator: null,
+    created_at: '2026-02-08T09:00:00Z',
+    updated_at: '2026-02-08T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-14',
+    title: 'Archived Reference 14',
+    source_type: 'txt',
+    file_name: 'archive-14.txt',
+    source_locator: null,
+    created_at: '2026-02-07T09:00:00Z',
+    updated_at: '2026-02-07T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-15',
+    title: 'Archived Reference 15',
+    source_type: 'txt',
+    file_name: 'archive-15.txt',
+    source_locator: null,
+    created_at: '2026-02-06T09:00:00Z',
+    updated_at: '2026-02-06T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-16',
+    title: 'Archived Reference 16',
+    source_type: 'txt',
+    file_name: 'archive-16.txt',
+    source_locator: null,
+    created_at: '2026-02-05T09:00:00Z',
+    updated_at: '2026-02-05T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-17',
+    title: 'Archived Reference 17',
+    source_type: 'txt',
+    file_name: 'archive-17.txt',
+    source_locator: null,
+    created_at: '2026-02-04T09:00:00Z',
+    updated_at: '2026-02-04T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-18',
+    title: 'Archived Reference 18',
+    source_type: 'txt',
+    file_name: 'archive-18.txt',
+    source_locator: null,
+    created_at: '2026-02-03T09:00:00Z',
+    updated_at: '2026-02-03T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-19',
+    title: 'Archived Reference 19',
+    source_type: 'txt',
+    file_name: 'archive-19.txt',
+    source_locator: null,
+    created_at: '2026-02-02T09:00:00Z',
+    updated_at: '2026-02-02T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-20',
+    title: 'Archived Reference 20',
+    source_type: 'txt',
+    file_name: 'archive-20.txt',
+    source_locator: null,
+    created_at: '2026-02-01T09:00:00Z',
+    updated_at: '2026-02-01T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-21',
+    title: 'Archived Reference 21',
+    source_type: 'txt',
+    file_name: 'archive-21.txt',
+    source_locator: null,
+    created_at: '2026-01-31T09:00:00Z',
+    updated_at: '2026-01-31T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-22',
+    title: 'Archived Reference 22',
+    source_type: 'txt',
+    file_name: 'archive-22.txt',
+    source_locator: null,
+    created_at: '2026-01-30T09:00:00Z',
+    updated_at: '2026-01-30T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-23',
+    title: 'Archived Reference 23',
+    source_type: 'txt',
+    file_name: 'archive-23.txt',
+    source_locator: null,
+    created_at: '2026-01-29T09:00:00Z',
+    updated_at: '2026-01-29T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-24',
+    title: 'Archived Reference 24',
+    source_type: 'txt',
+    file_name: 'archive-24.txt',
+    source_locator: null,
+    created_at: '2026-01-28T09:00:00Z',
+    updated_at: '2026-01-28T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-25',
+    title: 'Archived Reference 25',
+    source_type: 'txt',
+    file_name: 'archive-25.txt',
+    source_locator: null,
+    created_at: '2026-01-27T09:00:00Z',
+    updated_at: '2026-01-27T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-26',
+    title: 'Archived Reference 26',
+    source_type: 'txt',
+    file_name: 'archive-26.txt',
+    source_locator: null,
+    created_at: '2026-01-26T09:00:00Z',
+    updated_at: '2026-01-26T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-27',
+    title: 'Archived Reference 27',
+    source_type: 'txt',
+    file_name: 'archive-27.txt',
+    source_locator: null,
+    created_at: '2026-01-25T09:00:00Z',
+    updated_at: '2026-01-25T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-28',
+    title: 'Archived Reference 28',
+    source_type: 'txt',
+    file_name: 'archive-28.txt',
+    source_locator: null,
+    created_at: '2026-01-24T09:00:00Z',
+    updated_at: '2026-01-24T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-29',
+    title: 'Archived Reference 29',
+    source_type: 'txt',
+    file_name: 'archive-29.txt',
+    source_locator: null,
+    created_at: '2026-01-23T09:00:00Z',
+    updated_at: '2026-01-23T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-30',
+    title: 'Archived Reference 30',
+    source_type: 'txt',
+    file_name: 'archive-30.txt',
+    source_locator: null,
+    created_at: '2026-01-22T09:00:00Z',
+    updated_at: '2026-01-22T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-31',
+    title: 'Archived Reference 31',
+    source_type: 'txt',
+    file_name: 'archive-31.txt',
+    source_locator: null,
+    created_at: '2026-01-21T09:00:00Z',
+    updated_at: '2026-01-21T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-32',
+    title: 'Archived Reference 32',
+    source_type: 'txt',
+    file_name: 'archive-32.txt',
+    source_locator: null,
+    created_at: '2026-01-20T09:00:00Z',
+    updated_at: '2026-01-20T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
+  {
+    id: 'doc-archive-33',
+    title: 'Archived Reference 33',
+    source_type: 'txt',
+    file_name: 'archive-33.txt',
+    source_locator: null,
+    created_at: '2026-01-19T09:00:00Z',
+    updated_at: '2026-01-19T09:00:00Z',
+    available_modes: ['original'],
+    chunk_count: 1,
+  },
 ]
 
 const views: Record<string, DocumentView> = {
@@ -573,8 +859,11 @@ test('Home utility rail keeps collection snapshot and search entry close without
   })
 
   const homeRail = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-library-home-inline-shell')
+  const homeLanding = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-library-landing')
 
   expect(homeRail).not.toBeNull()
+  expect(homeLanding).toHaveClass('recall-library-landing-unboxed')
+  expect(homeLanding).not.toHaveClass('card')
   expect(within(homeRail as HTMLElement).getByRole('list', { name: 'Collection snapshot' })).toBeInTheDocument()
   expect(within(homeRail as HTMLElement).getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
   expect(within(homeRail as HTMLElement).getByRole('button', { name: 'Add source' })).toBeInTheDocument()
@@ -599,33 +888,63 @@ test('browse-first Home groups sources into deliberate resume and reopen section
   expect(earlierSection).not.toBeNull()
   expect(within(resumeSection as HTMLElement).getByText('Stage 10 Debug Article')).toBeInTheDocument()
   expect(within(resumeSection as HTMLElement).getByRole('button', { name: 'Open Stage 13 Debug Notes' })).toBeInTheDocument()
-  expect(within(earlierSection as HTMLElement).getByText('Start here')).toBeInTheDocument()
-  expect(within(earlierSection as HTMLElement).getAllByText('Nearby')).toHaveLength(2)
+  expect(within(earlierSection as HTMLElement).queryByText('Start here')).not.toBeInTheDocument()
+  const earlierSpotlightRow = (earlierSection as HTMLElement).querySelector('.recall-library-featured-spotlight-flat')
+  expect(earlierSpotlightRow).not.toBeNull()
+  expect(earlierSpotlightRow).toHaveClass('recall-library-featured-spotlight-flat')
+  expect((earlierSpotlightRow as HTMLElement).querySelector('.recall-library-featured-spotlight-kicker')).toBeNull()
+  expect((earlierSpotlightRow as HTMLElement).querySelector('.recall-library-featured-spotlight-meta .recall-library-row-cue')).toBeNull()
+  expect((earlierSpotlightRow as HTMLElement).querySelector('.recall-library-featured-spotlight-topline .recall-library-row-timestamp')).toBeNull()
+  expect((earlierSpotlightRow as HTMLElement).querySelector('.recall-library-featured-spotlight-meta .recall-library-row-timestamp')).not.toBeNull()
+  expect((earlierSection as HTMLElement).querySelector('.recall-library-featured-layout')).toHaveClass(
+    'recall-library-featured-layout-collapsed',
+  )
+  expect((earlierSection as HTMLElement).querySelector('.recall-library-featured-layout')).not.toHaveClass(
+    'recall-library-featured-layout-balanced',
+  )
   const earlierSecondarySources = within(earlierSection as HTMLElement).getByRole('list', {
     name: 'Earlier secondary sources',
   })
-  expect(earlierSecondarySources).toHaveClass('recall-library-featured-support')
-  expect(within(earlierSecondarySources).getByRole('button', { name: 'Open Archived Reference 1' })).toHaveClass(
+  expect(earlierSecondarySources).toHaveClass('recall-library-featured-support', 'recall-library-featured-support-inline')
+  const earlierSecondaryRow = within(earlierSecondarySources).getByRole('button', { name: 'Open Archived Reference 1' })
+  expect(earlierSecondaryRow).toHaveClass(
     'recall-library-reopen-row-inline',
   )
+  expect(within(earlierSecondaryRow).queryByText('Nearby')).not.toBeInTheDocument()
+  expect(within(earlierSecondaryRow).getByText('TXT')).toBeInTheDocument()
+  expect(within(earlierSecondaryRow).getByText('1 view ready')).toBeInTheDocument()
+  expect(earlierSecondaryRow.querySelector('.recall-library-reopen-row-head .recall-library-row-timestamp')).toBeNull()
+  expect(earlierSecondaryRow.querySelector('.recall-library-reopen-row-meta .recall-library-row-timestamp')).not.toBeNull()
   expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 1' })).toBeInTheDocument()
-  expect(within(earlierSection as HTMLElement).getByText('Keep going')).toBeInTheDocument()
   const earlierFollowOnList = within(earlierSection as HTMLElement).getByRole('list', { name: 'Earlier follow-on sources' })
   const earlierFollowOnSection = earlierFollowOnList.closest('.recall-library-follow-on')
   expect(earlierFollowOnList).toHaveClass('recall-library-follow-on-list')
   expect(earlierFollowOnSection).toHaveClass('recall-library-follow-on-bridged')
-  expect(within(earlierFollowOnList).getByRole('button', { name: 'Open Archived Reference 2' })).toHaveClass(
+  expect(within(earlierSection as HTMLElement).queryByText('Keep going')).not.toBeInTheDocument()
+  const earlierFollowOnIntro = (earlierFollowOnSection as HTMLElement).querySelector('.recall-library-follow-on-intro')
+  expect(earlierFollowOnIntro).not.toBeNull()
+  expect(earlierFollowOnIntro).toHaveTextContent('More earlier sources stay in the same flow when you want the next one.')
+  const earlierFollowOnRow = within(earlierFollowOnList).getByRole('button', { name: 'Open Archived Reference 2' })
+  expect(earlierFollowOnRow).toHaveClass(
     'recall-library-continuation-row-flat',
   )
-  const earlierFollowOnFooter = within(earlierFollowOnSection as HTMLElement).getByText(/more earlier sources stay grouped/i).closest(
-    '.recall-library-follow-on-footer',
-  )
-  expect(earlierFollowOnFooter).not.toBeNull()
-  expect(within(earlierFollowOnFooter as HTMLElement).getByRole('button', { name: /Show all \d+ earlier sources/i })).toHaveClass(
-    'recall-library-follow-on-reveal-button',
-  )
+  expect(within(earlierFollowOnRow).queryByText('Next')).not.toBeInTheDocument()
+  expect(within(earlierFollowOnRow).getByText('TXT')).toBeInTheDocument()
+  expect(within(earlierFollowOnRow).getByText('1 view ready')).toBeInTheDocument()
+  expect(earlierFollowOnRow.querySelector('.recall-library-continuation-row-head .recall-library-row-timestamp')).toBeNull()
+  expect(earlierFollowOnRow.querySelector('.recall-library-continuation-row-meta .recall-library-row-timestamp')).not.toBeNull()
+  expect(within(earlierFollowOnList).getByRole('button', { name: 'Open Archived Reference 5' })).toBeInTheDocument()
+  expect(within(earlierFollowOnList).queryByRole('button', { name: 'Open Archived Reference 6' })).not.toBeInTheDocument()
+  expect((earlierFollowOnSection as HTMLElement).querySelector('.recall-library-follow-on-footer')).toBeNull()
+  const earlierRevealButton = within(earlierFollowOnList).getByRole('button', { name: /Show all \d+ earlier sources/i })
+  expect(earlierRevealButton).toHaveClass('recall-library-continuation-row-reveal')
+  expect(earlierRevealButton).toHaveClass('recall-library-continuation-row-reveal-inline')
+  expect(earlierRevealButton).toHaveClass('recall-library-continuation-row-flat')
+  expect(earlierRevealButton.querySelector('.recall-library-continuation-row-head')).toBeNull()
+  expect(earlierRevealButton.querySelector('.recall-library-continuation-row-meta')).toBeNull()
+  expect(earlierRevealButton).toHaveTextContent(/hidden in the full collection/i)
   expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 2' })).toBeInTheDocument()
-  expect(within(earlierSection as HTMLElement).queryByRole('button', { name: 'Open Archived Reference 5' })).not.toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).queryByRole('button', { name: 'Open Archived Reference 6' })).not.toBeInTheDocument()
 })
 
 test('no-resume Home merges the landing header into the first reopen section so the first reopen point starts immediately', async () => {
@@ -636,7 +955,8 @@ test('no-resume Home merges the landing header into the first reopen section so 
   })
 
   const homeInlineHeader = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-library-home-inline-shell')
-  const savedSourcesSection = screen.getByText('Start here').closest('section')
+  const mergedLeadRow = screen.getByRole('button', { name: 'Open Stage 10 Debug Article' })
+  const savedSourcesSection = mergedLeadRow.closest('section')
 
   expect(homeInlineHeader).not.toBeNull()
   expect(within(homeInlineHeader as HTMLElement).getByRole('list', { name: 'Collection snapshot' })).toBeInTheDocument()
@@ -646,30 +966,52 @@ test('no-resume Home merges the landing header into the first reopen section so 
   expect(screen.getByRole('button', { name: 'Add source' })).toBeInTheDocument()
   expect(savedSourcesSection).not.toBeNull()
   expect((homeInlineHeader as HTMLElement).querySelector('.recall-library-home-inline-summary')).toBeNull()
-  expect(within(savedSourcesSection as HTMLElement).getByText('Start here')).toBeInTheDocument()
-  const mergedSecondarySources = within(savedSourcesSection as HTMLElement).getByRole('list', {
-    name: 'Earlier secondary sources',
-  })
-  expect(mergedSecondarySources).toBeInTheDocument()
-  expect(within(mergedSecondarySources).getByRole('button', { name: 'Open Archived Reference 1' })).toHaveClass(
-    'recall-library-reopen-row-inline',
+  expect(within(savedSourcesSection as HTMLElement).queryByText('Start here')).not.toBeInTheDocument()
+  expect(mergedLeadRow).not.toBeNull()
+  expect(mergedLeadRow).toHaveClass(
+    'recall-library-continuation-row-leading',
+    'recall-library-continuation-row-flat',
   )
-  expect(within(savedSourcesSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 1' })).toBeInTheDocument()
-  expect(within(savedSourcesSection as HTMLElement).getByText('Keep going')).toBeInTheDocument()
+  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-featured-spotlight-kicker')).toBeNull()
+  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-continuation-row-head .recall-library-row-cue')).toBeNull()
+  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-continuation-row-meta .recall-library-row-cue')).toBeNull()
+  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-continuation-row-head .recall-library-row-timestamp')).toBeNull()
+  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-continuation-row-meta .recall-library-row-timestamp')).not.toBeNull()
+  expect((savedSourcesSection as HTMLElement).querySelector('.recall-library-featured-layout')).toBeNull()
+  expect(within(savedSourcesSection as HTMLElement).queryByRole('list', {
+    name: 'Earlier secondary sources',
+  })).not.toBeInTheDocument()
   const mergedFollowOnList = within(savedSourcesSection as HTMLElement).getByRole('list', { name: 'Earlier follow-on sources' })
   const mergedFollowOnSection = mergedFollowOnList.closest('.recall-library-follow-on')
   expect(mergedFollowOnList).toHaveClass('recall-library-follow-on-list')
-  expect(mergedFollowOnSection).toHaveClass('recall-library-follow-on-bridged')
-  expect(within(mergedFollowOnList).getByRole('button', { name: 'Open Archived Reference 2' })).toHaveClass(
+  expect(mergedFollowOnList).toHaveClass('recall-library-follow-on-list-leading')
+  expect(mergedFollowOnSection).toHaveClass('recall-library-follow-on-leading')
+  expect(mergedFollowOnSection).not.toHaveClass('recall-library-follow-on-bridged')
+  expect((mergedFollowOnSection as HTMLElement).querySelector('.recall-library-follow-on-intro')).toBeNull()
+  const mergedLeadCarryRow = within(mergedFollowOnList).getByRole('button', { name: 'Open Stage 13 Debug Notes' })
+  expect(mergedLeadCarryRow).toHaveClass(
     'recall-library-continuation-row-flat',
   )
-  const mergedFollowOnFooter = within(mergedFollowOnSection as HTMLElement).getByText(/more earlier sources stay grouped/i).closest(
-    '.recall-library-follow-on-footer',
+  expect(within(mergedLeadCarryRow).queryByText('Next')).not.toBeInTheDocument()
+  expect(within(mergedLeadCarryRow).getByText('PASTE')).toBeInTheDocument()
+  expect(within(mergedLeadCarryRow).getByText('1 view ready')).toBeInTheDocument()
+  expect(mergedLeadCarryRow.querySelector('.recall-library-continuation-row-head .recall-library-row-timestamp')).toBeNull()
+  expect(mergedLeadCarryRow.querySelector('.recall-library-continuation-row-meta .recall-library-row-timestamp')).not.toBeNull()
+  const mergedFollowOnRow = within(mergedFollowOnList).getByRole('button', { name: 'Open Archived Reference 1' })
+  expect(mergedFollowOnRow).toHaveClass(
+    'recall-library-continuation-row-flat',
   )
-  expect(mergedFollowOnFooter).not.toBeNull()
-  expect(within(mergedFollowOnFooter as HTMLElement).getByRole('button', { name: /Show all \d+ earlier sources/i })).toHaveClass(
-    'recall-library-follow-on-reveal-button',
-  )
+  expect(within(mergedFollowOnRow).getByText('TXT')).toBeInTheDocument()
+  expect(within(mergedFollowOnList).getByRole('button', { name: 'Open Archived Reference 30' })).toBeInTheDocument()
+  expect(within(mergedFollowOnList).queryByRole('button', { name: 'Open Archived Reference 31' })).not.toBeInTheDocument()
+  expect((mergedFollowOnSection as HTMLElement).querySelector('.recall-library-follow-on-footer')).toBeNull()
+  const mergedRevealButton = within(mergedFollowOnList).getByRole('button', { name: /Show all \d+ earlier sources/i })
+  expect(mergedRevealButton).toHaveClass('recall-library-continuation-row-reveal')
+  expect(mergedRevealButton).toHaveClass('recall-library-continuation-row-reveal-inline')
+  expect(mergedRevealButton).toHaveClass('recall-library-continuation-row-flat')
+  expect(mergedRevealButton.querySelector('.recall-library-continuation-row-head')).toBeNull()
+  expect(mergedRevealButton.querySelector('.recall-library-continuation-row-meta')).toBeNull()
+  expect(mergedRevealButton).toHaveTextContent(/hidden in the full collection/i)
   expect(within(savedSourcesSection as HTMLElement).queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
 })
 
@@ -795,14 +1137,76 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
     expect(screen.getByRole('region', { name: 'Knowledge graph canvas' })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('heading', { name: 'Quick picks', level: 3 })).toBeInTheDocument()
+  const graphRail = screen.getByRole('complementary', { name: 'Graph selector strip' })
+  const graphSurface = screen.getByRole('region', { name: 'Knowledge graph canvas' }).closest('.recall-graph-browser-surface')
+
+  expect(graphRail).not.toBeNull()
+  expect(graphRail).toHaveClass('recall-graph-sidebar-unboxed')
+  expect(graphRail).toHaveClass('recall-graph-sidebar-rail-slim')
+  expect(graphRail).toHaveClass('recall-graph-sidebar-rail-narrower')
+  expect(graphRail).not.toHaveClass('card')
+  expect(graphSurface).not.toBeNull()
+  expect(graphSurface).toHaveClass('recall-graph-browser-surface-unboxed')
+  expect(graphSurface).not.toHaveClass('card')
+  const graphGlance = screen.getByLabelText('Graph glance')
+  const quickPickList = screen.getByRole('list', { name: 'Quick picks' })
+  const quickPickSection = quickPickList.closest('section')
+  const graphSurfaceIntro = screen.getByLabelText('Graph surface intro')
+  expect(within(graphGlance).getByText('1 node')).toBeInTheDocument()
+  expect(within(graphGlance).queryByText(/last source:/i)).toBeNull()
+  expect(screen.queryByRole('list', { name: 'Graph metrics' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Last focused source')).not.toBeInTheDocument()
+  expect(screen.queryByText('See the graph before you validate it.')).not.toBeInTheDocument()
+  expect(within(graphSurfaceIntro).getByText(/grounded evidence/i)).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Quick picks', level: 3 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Graph', level: 2 })).toBeNull()
+  expect(quickPickSection).not.toBeNull()
+  expect(quickPickSection).toHaveClass('recall-graph-sidebar-picker-flat')
+  expect(quickPickSection).toContainElement(graphGlance)
+  expect(screen.getByRole('button', { name: 'Hide graph selector strip' })).toBeInTheDocument()
+  expect(within(quickPickSection as HTMLElement).queryByText('Quick picks')).toBeNull()
+  expect(within(quickPickSection as HTMLElement).queryByText(/start from/i)).toBeNull()
+  expect(within(quickPickSection as HTMLElement).getByText(/1 source doc/i)).toBeInTheDocument()
+  expect(within(quickPickSection as HTMLElement).queryByText('Stage ten sentence three.')).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Node detail', level: 2 })).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Select node Stage 10 node' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
   })
+
+  const graphOverlay = screen.getByRole('button', { name: 'Show detail' }).closest('.recall-graph-detail-overlay')
+  expect(graphOverlay).not.toBeNull()
+  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-compact')
+  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-slim')
+  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-peek')
+  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-peek-compact')
+  const overlaySummary = within(graphOverlay as HTMLElement).getByRole('list', { name: 'Selected node summary' })
+  expect(within(overlaySummary).getByText(/confidence/i)).toBeInTheDocument()
+  expect((graphOverlay as HTMLElement).querySelector('.recall-graph-detail-title-meta')).toBeNull()
+  expect(within(graphOverlay as HTMLElement).queryByRole('list', { name: 'Selected node mentions' })).toBeNull()
+  expect(within(graphOverlay as HTMLElement).queryByRole('list', { name: 'Selected node relations' })).toBeNull()
+  expect(within(graphOverlay as HTMLElement).queryByRole('button', { name: 'Confirm' })).toBeNull()
+  expect(within(graphOverlay as HTMLElement).queryByRole('button', { name: 'Reject' })).toBeNull()
+  expect((graphOverlay as HTMLElement).querySelector('.recall-graph-detail-peek-inline')).not.toBeNull()
+  expect((graphOverlay as HTMLElement).querySelector('.recall-graph-detail-peek-card')).toBeNull()
+  expect(within(graphOverlay as HTMLElement).getByText('Open source')).toBeInTheDocument()
+
+  fireEvent.click(within(graphOverlay as HTMLElement).getByRole('button', { name: 'Show detail' }))
+
+  await waitFor(() => {
+    expect(within(graphOverlay as HTMLElement).getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+  })
+
+  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-expanded')
+  const graphToolbarActions = (graphOverlay as HTMLElement).querySelector('.recall-graph-detail-toolbar-actions')
+  expect(graphToolbarActions).not.toBeNull()
+  expect(within(graphToolbarActions as HTMLElement).getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+  expect(within(graphToolbarActions as HTMLElement).getByRole('button', { name: 'Reject' })).toBeInTheDocument()
+  const mentionsList = within(graphOverlay as HTMLElement).getByRole('list', { name: 'Selected node mentions' })
+  expect(mentionsList).toHaveClass('recall-graph-detail-list-compact')
+  expect(within(graphOverlay as HTMLElement).queryByRole('list', { name: 'Selected node relations' })).toBeNull()
 })
 
 test('study browse mode now lands summary-first while keeping the review card dominant', async () => {

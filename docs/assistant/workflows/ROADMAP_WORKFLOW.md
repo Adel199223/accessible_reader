@@ -9,6 +9,7 @@ Use this workflow for roadmap-driven product work, milestone continuation, and b
 - Targeted validation list matches the files and behavior touched.
 - When the milestone is UI-benchmark-sensitive, the benchmark matrix and screenshot artifacts are current enough to guide the next slice.
 - Assistant routing docs stay aligned with the current milestone and validation strategy after the product/docs work lands.
+- When one surface remains the clear benchmark blocker across repeated audits and the defect is localized, the workflow switches into bundled dominant-surface mode: batch 2-3 related fixes before the next full benchmark audit instead of reopening cross-surface selection after every tiny delta.
 
 ## When To Use
 - The user says `roadmap`, `master plan`, or `next milestone`.
@@ -24,7 +25,7 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - `docs/ROADMAP.md`
 - `docs/ROADMAP_ANCHOR.md`
 - `docs/ux/recall_benchmark_matrix.md` for Recall shell and surface work
-- the latest active ExecPlan in `docs/exec_plans/active/`
+- the current active ExecPlan named in `docs/ROADMAP_ANCHOR.md`
 
 ## Minimal Commands
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git status --short --branch'`
@@ -40,12 +41,14 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - Screenshot-based browser validation when the milestone changes Recall shell or top-level surface UI.
 - Prefer targeted Vitest coverage before broad `npm test -- --run` sweeps when UI slices touch Recall shell or surface work, then use the broad `frontend/src/App.test.tsx` pass when shell or route continuity changed.
 - Keep the repo-owned Edge screenshot harness as the visual truth source for Recall shell and surface work even when the broad App integration pass is green.
+- In later-phase benchmark work, keep the early cross-surface audit method only while the lead blocker is still moving; once one surface holds the lead across repeated audits, stay on that dominant surface through a small bundle before rerunning the full benchmark audit.
 - If the broad `frontend/src/App.test.tsx` file ever appears to stall again, inspect App-level callback identity and `ReaderWorkspace` effect dependencies before treating it as a Vitest-only failure; the last real stall was a render/effect loop in app shell handoff props.
 
 ## Failure Modes and Fallback Steps
 - If the active plan is already complete, move it to `docs/exec_plans/completed/` and create a new active plan before proceeding.
 - If a blocker forces a detour, log it in the active ExecPlan and `docs/ROADMAP_ANCHOR.md`, then return to the next milestone item.
 - If roadmap docs conflict with source code, trust the source code and update the docs.
+- In bundled dominant-surface mode, `docs/exec_plans/active/` may temporarily contain both the current implementation plan and one pre-staged next audit plan; use `docs/ROADMAP_ANCHOR.md`, `agent.md`, and `docs/assistant/INDEX.md` to identify the current plan instead of assuming the lexically latest filename is current.
 - If Windows-side `npm` or `node` calls behave unreliably on the UNC workspace path, rerun them through `wsl.exe bash -lc ...` or use the repo-owned Windows Playwright harness only for Edge screenshots.
 
 ## Handoff Checklist
@@ -55,3 +58,4 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - If the work is benchmark-driven UI work, the benchmark matrix and latest screenshot artifacts are referenced in the handoff docs.
 - `docs/assistant/APP_KNOWLEDGE.md`, `docs/assistant/manifest.json`, `docs/assistant/INDEX.md`, and `agent.md` stay in sync with the current milestone and workflow constraints after assistant-doc sync.
 - If the user asks for a checkpoint or new-chat anchor, sync `docs/ROADMAP_ANCHOR.md` with those assistant docs in the same pass so the resume shortcut, active plan, and validation story agree.
+- Keep reusable cadence guidance here first; only propagate it into `docs/assistant/templates/*` later if the user explicitly asks for template updates.

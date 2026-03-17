@@ -954,26 +954,71 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
     expect(screen.getByRole('region', { name: 'Knowledge graph canvas' })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('heading', { name: 'Quick picks', level: 3 })).toBeInTheDocument()
+  const graphGlance = screen.getByLabelText('Graph glance')
+  const quickPickList = screen.getByRole('list', { name: 'Quick picks' })
+  const quickPickSection = quickPickList.closest('section')
+  const graphSurfaceIntro = screen.getByLabelText('Graph surface intro')
+  expect(within(graphGlance).getByText('2 nodes')).toBeInTheDocument()
+  expect(within(graphGlance).queryByText(/last source:/i)).toBeNull()
+  expect(screen.queryByRole('list', { name: 'Graph metrics' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Last focused source')).not.toBeInTheDocument()
+  expect(quickPickSection).not.toBeNull()
+  expect(screen.queryByText('See the graph before you validate it.')).not.toBeInTheDocument()
+  expect(within(graphSurfaceIntro).getByText(/grounded evidence/i)).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Quick picks', level: 3 })).not.toBeInTheDocument()
+  expect(quickPickSection).toHaveClass('recall-graph-sidebar-picker-flat')
+  expect(quickPickSection).toContainElement(graphGlance)
+  expect(screen.queryByRole('heading', { name: 'Graph', level: 2 })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Hide graph selector strip' })).toBeInTheDocument()
+  expect(screen.getByRole('complementary', { name: 'Graph selector strip' })).toHaveClass('recall-graph-sidebar-rail-narrower')
+  expect(within(quickPickSection as HTMLElement).queryByText('Quick picks')).toBeNull()
+  expect(within(quickPickSection as HTMLElement).queryByText(/start from/i)).toBeNull()
+  expect(within(quickPickSection as HTMLElement).getByText(/2 mentions/i)).toBeInTheDocument()
+  expect(within(quickPickSection as HTMLElement).queryByText('Knowledge Graphs support Study Cards.')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Select node Knowledge Graphs' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
   })
 
-  const nodeDetailSection = screen.getByRole('button', { name: 'Focus source' }).closest('section')
+  const nodeDetailSection = screen.getByRole('button', { name: 'Show detail' }).closest('.recall-graph-detail-overlay')
   expect(nodeDetailSection).not.toBeNull()
-  expect(within(nodeDetailSection as HTMLElement).getByText('Status')).toBeInTheDocument()
+  expect(nodeDetailSection).toHaveClass('recall-graph-detail-overlay-slim')
+  expect(nodeDetailSection).toHaveClass('recall-graph-detail-overlay-peek')
+  expect(nodeDetailSection).toHaveClass('recall-graph-detail-overlay-peek-compact')
+  const nodeSummary = within(nodeDetailSection as HTMLElement).getByRole('list', { name: 'Selected node summary' })
+  expect(within(nodeSummary).getByText(/confidence/i)).toBeInTheDocument()
+  expect((nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-title-meta')).toBeNull()
+  expect(within(nodeDetailSection as HTMLElement).queryByRole('list', { name: 'Selected node mentions' })).toBeNull()
+  expect(within(nodeDetailSection as HTMLElement).queryByRole('list', { name: 'Selected node relations' })).toBeNull()
+  expect(within(nodeDetailSection as HTMLElement).queryByRole('button', { name: 'Confirm' })).toBeNull()
+  expect(within(nodeDetailSection as HTMLElement).queryByRole('button', { name: 'Reject' })).toBeNull()
+  expect((nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-peek-inline')).not.toBeNull()
+  expect((nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-peek-card')).toBeNull()
+  expect(within(nodeDetailSection as HTMLElement).getByText('Open source')).toBeInTheDocument()
+
+  fireEvent.click(within(nodeDetailSection as HTMLElement).getByRole('button', { name: 'Show detail' }))
+
+  await waitFor(() => {
+    expect(within(nodeDetailSection as HTMLElement).getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+  })
+
+  expect(nodeDetailSection).toHaveClass('recall-graph-detail-overlay-expanded')
+  const nodeToolbarActions = (nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-toolbar-actions')
+  expect(nodeToolbarActions).not.toBeNull()
+  expect(within(nodeToolbarActions as HTMLElement).getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+  expect(within(nodeToolbarActions as HTMLElement).getByRole('button', { name: 'Reject' })).toBeInTheDocument()
+  const mentionsList = within(nodeDetailSection as HTMLElement).getByRole('list', { name: 'Selected node mentions' })
+  const relationsList = within(nodeDetailSection as HTMLElement).getByRole('list', { name: 'Selected node relations' })
+  expect(mentionsList).toHaveClass('recall-graph-detail-list-compact')
+  expect(relationsList).toHaveClass('recall-graph-detail-list-compact')
   expect(within(nodeDetailSection as HTMLElement).getAllByText('Knowledge Graphs support Study Cards.').length).toBeGreaterThan(0)
   expect(
     within(nodeDetailSection as HTMLElement).getAllByRole('button', { name: 'Open Search target only in Reader' }).length,
   ).toBeGreaterThan(0)
 
-  const relationsSectionHeading = within(nodeDetailSection as HTMLElement).getByRole('heading', {
-    name: 'Relations',
-    level: 4,
-  })
-  const relationsSection = relationsSectionHeading.parentElement?.parentElement as HTMLElement | null
+  const relationsSectionLabel = within(nodeDetailSection as HTMLElement).getByText('Relations')
+  const relationsSection = relationsSectionLabel.closest('.recall-graph-detail-section') as HTMLElement | null
   expect(relationsSection).not.toBeNull()
   fireEvent.click(within(relationsSection as HTMLElement).getByRole('button', { name: 'Confirm' }))
 
@@ -1132,10 +1177,16 @@ test('returning from Reader restores the prior Recall section and selected graph
 
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Select node Study Cards' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show detail' }))
+
+  await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
   })
 
-  const nodeDetailSection = screen.getByRole('button', { name: 'Focus source' }).closest('section')
+  const nodeDetailSection = screen.getByRole('button', { name: 'Focus source' }).closest('.recall-graph-detail-overlay')
   expect(nodeDetailSection).not.toBeNull()
 
   fireEvent.click(
@@ -1154,7 +1205,7 @@ test('returning from Reader restores the prior Recall section and selected graph
     expect(window.location.pathname).toBe('/recall')
     expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Select node Study Cards' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
   })
 })
 
@@ -1365,6 +1416,11 @@ test('Recall notes can promote manual graph nodes and study cards', async () => 
   })
 
   fireEvent.click(screen.getByRole('button', { name: 'Promote to Graph' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('textbox', { name: 'Graph label' })).toBeInTheDocument()
+  })
+
   fireEvent.change(screen.getByRole('textbox', { name: 'Graph label' }), {
     target: { value: 'Search Concept' },
   })
@@ -2168,6 +2224,12 @@ test('source-focused graph evidence retargets the embedded Reader without leavin
   })
 
   fireEvent.click(screen.getByRole('button', { name: 'Select node Knowledge Graphs' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show detail' }))
 
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()

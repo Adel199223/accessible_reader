@@ -10,6 +10,13 @@ Keep this repository as one local-first workspace.
 - Shared storage and domain contracts must support current reading behavior first, then expand toward Recall graph/study/export features without a rewrite.
 - The original Recall app is the workflow benchmark for navigation clarity, reading focus, note adjacency, split-view usefulness, and obvious next actions; use it directionally without requiring pixel-perfect visual parity.
 
+## Execution Strategy
+
+- Keep the benchmark-led cross-surface audit method during early and mid-phase UX work while the lead blocker is still moving between `Home`, `Graph`, `Study`, or another top-level surface.
+- Once the same surface remains the clear blocker across repeated audits and the remaining mismatch is localized, switch into bundled dominant-surface mode: batch 2-3 tightly related fixes inside that surface before the next full benchmark audit.
+- Only switch surfaces sooner if a direct regression appears or a fresh audit materially changes the lead blocker.
+- Current mode: bundled dominant-surface `Graph` convergence. Stage 210 confirmed that Graph still leads after the Stage 209 pass, and Stage 211 now targets the remaining selector-strip utility-column feel and default detail-peek framing before Stage 212 reruns the benchmark.
+
 ## Status As Of 2026-03-15
 
 - The accessible-reader app already provides local import for TXT, Markdown, HTML, DOCX, and text-based PDF, deterministic `Original` and `Reflowed` views, opt-in AI `Simplify` and `Summary`, local library/search, saved progress/settings, and Edge-first browser speech.
@@ -515,18 +522,302 @@ Keep this repository as one local-first workspace.
   - browse-mode Study no longer renders the ghost top support strip above the review card
   - the review task now starts higher and feels more immediate in the fresh Study capture
   - Home, Graph, and focused Study stayed stable after the pass
+- Stage 128 Post-Stage-127 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Study no longer leads after the ghost-strip removal
+  - Home now leads again because the landing still reads as one boxed archive panel with repeated row labels and timestamp/meta weight
+  - the next slice is now a bounded Home collection-frame-flattening and row-meta-demotion pass
+- Stage 129 Recall Home collection frame flattening and row meta demotion is complete:
+  - the Home landing shell now uses a flatter collection frame instead of reading like one heavy archive panel
+  - Home reopen rows now demote repeated row labels, shorten timestamp treatment, and let titles and previews lead
+  - Study, Graph, and focused Study stayed stable after the pass
+- Stage 130 Post-Stage-129 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Home still leads after the flattening pass
+  - the remaining mismatch is now more specific: the landing still reads like one broad boxed ledger with a strong right-side date gutter
+  - the next slice is now a bounded Home collection-unboxing and date-gutter-collapse pass
+- Stage 131 Recall Home collection unboxing and date gutter collapse is complete:
+  - the Home landing now reads as an unboxed collection zone instead of one broad ledger shell
+  - Home spotlight, reopen, and follow-on rows now place dates inside inline meta instead of a right-side gutter
+  - Study, Graph, and focused Study stayed stable after the pass
+- Stage 132 Post-Stage-131 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Home no longer leads after the Stage 131 pass
+  - Graph now leads because the support rail and selected-node overlay still over-frame the page relative to the graph canvas
+  - the next slice is now a bounded Graph support-rail-collapse and detail-overlay-compaction pass
+- Stage 133 Recall Graph support rail collapse and detail overlay compaction is complete:
+  - Graph now uses a slimmer utility rail and denser quick-pick stack instead of a tall boxed support column
+  - the selected-node overlay now uses a more compact chip-led summary and lighter framing so the canvas stays dominant
+  - Home, Study, and focused Study stayed stable after the pass
+- Stage 134 Post-Stage-133 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Graph is materially closer after Stage 133 but still leads
+  - the remaining Graph mismatch is now narrower: the quick-pick rail still reads too much like a second card column, and the overlay still occupies too much of the stage
+  - the next slice is now a bounded Graph quick-pick-rail-slimming and overlay-footprint-reduction pass
+- Stage 135 Recall Graph quick-pick rail slimming and overlay footprint reduction is complete:
+  - Graph quick picks now read as a slimmer selector rail with denser node meta instead of excerpt-heavy preview cards
+  - the selected-node overlay now defaults to a smaller summary with one grounded mention visible and relations only when present
+  - Home, Study, and focused Study stayed stable after the pass
+- Stage 136 Post-Stage-135 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Graph is materially closer after Stage 135 but still leads
+  - the remaining Graph mismatch is now narrower: the left rail still opens with stacked metrics, a focused-source block, and a longer-than-needed quick-pick list, while the overlay is no longer the main blocker
+  - the next slice is now a bounded Graph utility-metrics-collapse and quick-pick-truncation pass
+- Stage 137 Recall Graph utility metrics collapse and quick-pick truncation is complete:
+  - Graph now collapses the left rail metrics and focused-source framing into one compact glance summary
+  - the default quick-pick stack is shorter and calmer, so the rail reads more like a thin selector strip beside the canvas
+  - Home, Study, and focused Study stayed stable after the pass
+- Stage 138 Post-Stage-137 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Graph still leads after Stage 137, but more narrowly than before
+  - the remaining Graph mismatch is now concentrated in the left selector strip, where the search field, glance summary, and quick-pick stack still read like a dedicated support column beside the canvas
+  - the next slice is now a bounded Graph selector-strip-flattening and glance-stack-compaction pass
+- Stage 139 Recall Graph selector strip flattening and glance-stack compaction is complete:
+  - Graph now uses a flatter selector strip with an inline glance summary and a compact quick-picks kicker row instead of a stacked search/glance/header block
+  - the quick-pick list is slimmer and the rail is slightly narrower, so the graph canvas keeps more of the page
+  - Home, Study, and focused Study stayed stable after the pass
+- Stage 140 Post-Stage-139 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Graph still leads after Stage 139
+  - the remaining Graph mismatch now sits mostly in duplicated intro framing above the canvas and a still-tall selected-node overlay on the right
+  - the next slice is now a bounded Graph intro-shell-demotion and detail-overlay-compaction pass
+- Stage 141 Recall Graph intro shell demotion and detail overlay compaction is complete:
+  - Graph now reaches the canvas more directly with the duplicated intro framing collapsed into a lighter inline surface note
+  - the selected-node overlay is materially smaller and calmer, so grounded evidence reads as support instead of a second major panel
+  - Home, Study, and focused Study stayed stable after the pass
+- Stage 142 Post-Stage-141 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Graph still leads after Stage 141, but more narrowly than before
+  - the remaining Graph mismatch is now concentrated in the combined support framing around the canvas: the left quick-pick strip still reads too card-like, and the selected-node detail still defaults to a fully open right-side panel
+  - the next slice is now a bounded Graph support-framing-collapse and detail-peek-default pass
+- Stage 143 Recall Graph support framing collapse and detail peek default is complete:
+  - Graph quick picks now read as a flatter utility list instead of a stack of bordered mini-cards
+  - the selected-node detail now opens in a smaller peek state, with the full mention and relation stack revealed only when the user asks for it
+  - Home, Study, and focused Study stayed stable after the pass
+- Stage 144 Post-Stage-143 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Graph is materially closer after Stage 143 and no longer leads the mismatch list
+  - Home now leads because the landing still reads as one oversized lead band followed by a sparse lower continuation and too much empty lower canvas
+  - the next slice is now a bounded Home lead-card-deflation and lower-canvas-continuation-fill pass
+- Stage 145 Recall Home lead card deflation and lower canvas continuation fill is complete:
+  - Home now opens with a split lead-plus-nearby frame instead of one oversized full-width feature band
+  - the grouped reveal action now sits inside the lower continuation grid, so the landing carries downward more deliberately instead of ending with a detached footer action
+  - Graph, Study, and focused Study stayed stable after the pass
+- Stage 146 Post-Stage-145 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures confirmed that Home is materially closer after Stage 145 and no longer leads the mismatch list
+  - Graph now leads because the left selector strip and right selected-node dock still bracket the canvas like standing support framing
+  - the next slice is now a bounded Graph selector-rail-narrowing and detail-dock-slimming pass
+- Stage 147 Recall Graph selector rail narrowing and detail dock slimming is complete:
+  - Graph now uses a narrower selector rail with a shorter default quick-pick stack and less stacked support copy
+  - the selected-node detail opens in a slimmer dock so the canvas keeps more of the page while grounded actions stay available
+  - Home, Study, and focused Study stayed stable after the pass
+- Stage 148 post-Stage-147 benchmark audit is complete:
+  - the audit confirmed that Graph is materially calmer after the selector-rail/detail-dock pass and no longer leads the mismatch list
+  - Home now leads because the landing still reads as a staged split opening cluster and leaves too much empty lower canvas
+  - the next slice is now a bounded Home opening-cluster compaction and lower-canvas-fill pass
+- Stage 149 Recall Home opening cluster compaction and lower canvas fill is complete:
+  - Home now uses one nearby support row instead of a broader split opening stack on the no-resume landing
+  - the lower continuation now carries farther down the page before the reveal control, so the opening reads less staged and the lower canvas fills more deliberately
+  - Graph, Study, and focused Study stayed stable after the pass
+- Stage 150 post-Stage-149 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 149, but still leads more narrowly because the lower continuation still ends too quickly and the reveal card still reads like a separate boxed endpoint
+  - Graph, Study, and focused Study stayed lower-priority in the fresh artifacts
+  - the next slice is now a bounded Home continuation-grid-fill and reveal-card-demotion pass
+- Stage 151 Recall Home continuation grid fill and reveal card demotion is complete:
+  - Home now shows more continuation rows before expansion and no longer ends the grid with a boxed reveal card
+  - the reveal now sits in a lighter footer affordance, so the lower canvas reads more like in-flow continuation than a separate endpoint
+  - Graph, Study, and focused Study stayed stable after the pass
+- Stage 152 post-Stage-151 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 151, but still leads more narrowly because the boxed `Start here` spotlight and the separate `Keep going` restart still stage the landing
+  - Graph, Study, and focused Study stayed lower-priority in the fresh artifacts
+  - the next slice is now a bounded Home spotlight-deflation and follow-on-header-demotion pass
+- Stage 153 Recall Home spotlight deflation and follow-on header demotion is complete:
+  - Home now uses a flatter overline-led spotlight instead of a chip-led boxed lead card
+  - the `Keep going` restart is now a quieter in-flow continuation line, so the lower rows read more like the same collection surface
+  - Graph, Study, and focused Study stayed stable after the pass
+- Stage 154 post-Stage-153 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 153, but still leads more narrowly because the opening still reads as a split lead-plus-support stage
+  - Graph, Study, and focused Study stayed lower-priority in the fresh artifacts
+  - the next slice is now a bounded Home opening-column-collapse and support-row-inline-merge pass
+- Stage 155 Recall Home opening column collapse and support row inline merge is complete:
+  - Home now uses one calmer stacked opening flow instead of a split lead-plus-support stage
+  - the nearby support row now reads more like the next reopen step inside the same opening sequence
+  - Graph, Study, and focused Study stayed stable after the pass
+- Stage 156 post-Stage-155 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 155, but still leads more narrowly because the opening still reads like a spotlight row and the continuation still ends with a separate reveal endpoint
+  - the rerun matched the validated Stage 155 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home lead-row-flattening and footer-reveal-inline-merge pass
+- Stage 157 Recall Home lead row flattening and footer reveal inline merge is complete:
+  - Home now opens with a flatter lead row instead of a boxed spotlight-style first item
+  - the grouped `Show all ...` action now lives as the last continuation row instead of a separate footer endpoint
+  - Graph, Study, and focused Study stayed stable after the pass
+- Stage 158 post-Stage-157 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 157, but still leads more narrowly because the top of the landing still reads like a deliberate opening pair and the lower continuation still stays too sparse
+  - the rerun matched the validated Stage 157 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home opening-pair-equalization and continuation-density-lift pass
+- Stage 159 Recall Home opening pair equalization and continuation density lift is complete:
+  - Home now opens with one lead `Start here` row instead of a deliberate opening pair
+  - one former nearby support item now carries into the visible continuation flow before the inline reveal row
+  - Graph, Study, and focused Study stayed stable after the pass
+- Stage 160 post-Stage-159 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 159, but still leads more narrowly because the top still reads like a singled-out lead row and the visible continuation still ends too soon
+  - the rerun matched the validated Stage 159 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home lead-row-demotion and visible-continuation-extension pass
+- Stage 161 Recall Home lead row demotion and visible continuation extension is complete:
+  - Home now starts the merged landing inside the same continuation grid instead of staging the first item in a separate spotlight block
+  - the shared reopen flow carries farther down the page before the inline reveal row
+  - Graph, Study, and focused Study stayed stable after the pass
+- Stage 162 post-Stage-161 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 161, but still leads more narrowly because the `Start here` kicker and the `Show all ...` reveal row still bracket the grid too strongly
+  - the rerun matched the validated Stage 161 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home start-here-kicker-demotion and reveal-row-deflation pass
+- Stage 163 Recall Home start here kicker demotion and reveal row deflation is complete:
+  - Home now demotes the remaining `Start here` emphasis into quieter inline meta across the lead row variants
+  - the reveal control now spans the continuation footer as a flatter full-width row instead of a separate endpoint tile
+  - Graph, Study, and focused Study stayed stable after the pass
+- Stage 164 post-Stage-163 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 163, but still leads more narrowly because the first cell still carries an extra lead cue and the footer reveal still splits attention across the lower edge
+  - the rerun matched the validated Stage 163 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home lead-row-meta-equalization and reveal-footer-utility-merge pass
+- Stage 165 Recall Home lead row meta equalization and reveal footer utility merge is complete:
+  - Home no longer shows an extra visible first-row cue, so the opening reads more like one even reopen flow
+  - the reveal footer utility now reads as one calmer continuation line instead of splitting attention across the lower edge
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 166 post-Stage-165 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 165, but still leads more narrowly because the landing still ends too soon after the first visible rows and leaves too much empty lower canvas
+  - the rerun matched the validated Stage 165 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home visible-continuation-extension and lower-canvas-fill pass
+- Stage 167 Recall Home visible continuation extension and lower canvas fill is complete:
+  - Home now carries farther before the reveal row and fills more of the lower canvas without reviving the old archive wall
+  - the merged landing keeps the calmer Stage 165 opening treatment while showing more visible continuation rows
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 168 post-Stage-167 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 167, but still leads more narrowly because the reveal row still arrives too early and the landing still leaves too much empty lower canvas after the visible continuation
+  - the rerun matched the validated Stage 167 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home continuation-density-lift and reveal-row-pushdown pass
+- Stage 169 Recall Home continuation density lift and reveal row pushdown is complete:
+  - Home now shows slightly more visible continuation before the reveal row so the landing carries farther before the endpoint
+  - the reveal row lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 170 post-Stage-169 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 169, but still leads more narrowly because the visible continuation still ends too soon and the reveal row still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 169 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home continuation-carry-extension and reveal-row-delay pass
+- Stage 171 Recall Home continuation carry extension and reveal row delay is complete:
+  - Home now carries one more visible reopen item before the reveal row so the landing ends later
+  - the reveal row lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 172 post-Stage-171 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 171, but still leads more narrowly because the visible continuation still ends too soon and the reveal row still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 171 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home continuation-tail-extension and reveal-footer-pushdown pass
+- Stage 173 Recall Home continuation tail extension and reveal footer pushdown is complete:
+  - Home now carries one more visible reopen item through the continuation tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 174 post-Stage-173 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 173, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 173 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home continuation-tail-density-lift and reveal-footer-delay pass
+- Stage 175 Recall Home continuation tail density lift and reveal footer delay is complete:
+  - Home now shows slightly more visible continuation through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 176 post-Stage-175 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 175, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 175 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home tail-carry-extension and reveal-footer-lowering pass
+- Stage 177 Recall Home tail carry extension and reveal footer lowering is complete:
+  - Home now carries one more visible continuation item through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 178 post-Stage-177 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 177, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 177 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home tail-density-lift and reveal-footer-pushdown pass
+- Stage 179 Recall Home tail density lift and reveal footer pushdown is complete:
+  - Home now shows slightly more visible continuation through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 180 post-Stage-179 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 179, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 179 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home tail-carry-extension and reveal-footer-delay pass
+- Stage 181 Recall Home tail carry extension and reveal footer delay is complete:
+  - Home now carries one more visible continuation item through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 182 post-Stage-181 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 181, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 181 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home continuation-tail-extension and reveal-footer-lowering pass
+- Stage 183 Recall Home continuation tail extension and reveal footer lowering is complete:
+  - Home now carries one more visible continuation item through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 184 post-Stage-183 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 183, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 183 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home tail-carry-extension and reveal-footer-lowering pass
+- Stage 185 Recall Home tail carry extension and reveal footer lowering is complete:
+  - Home now carries one more visible continuation item through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 186 post-Stage-185 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 185, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 185 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home tail-density-lift and reveal-footer-pushdown pass
+- Stage 187 Recall Home tail density lift and reveal footer pushdown is complete:
+  - Home now carries one more visible continuation item through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 188 post-Stage-187 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 187, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 187 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home tail-carry-extension and reveal-footer-delay pass
+- Stage 189 Recall Home tail carry extension and reveal footer delay is complete:
+  - Home now carries one more visible continuation item through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 190 post-Stage-189 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 189, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 189 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home tail-density-lift and reveal-footer-pushdown pass
+- Stage 191 Recall Home tail density lift and reveal footer pushdown is complete:
+  - Home now carries one more visible continuation item through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 192 post-Stage-191 benchmark audit is complete:
+  - the audit confirmed that Home is materially calmer after Stage 191, but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the rerun matched the validated Stage 191 captures without drift, and Graph, Study, and focused Study stayed lower-priority
+  - the next slice is now a bounded Home tail-carry-extension and reveal-footer-delay pass
+- Stage 193 Recall Home tail carry extension and reveal footer delay is complete:
+  - Home now carries one more visible continuation item through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 194 Post-Stage-193 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures matched the validated Stage 193 artifacts without drift
+  - Home still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the next slice is now a bounded Home tail-density-lift and reveal-footer-pushdown pass
+- Stage 195 Recall Home tail density lift and reveal footer pushdown is complete:
+  - Home now carries slightly more visible continuation through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 196 Post-Stage-195 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures matched the validated Stage 195 artifacts without drift
+  - Home still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the next slice is now a bounded Home tail-carry-extension and reveal-footer-delay pass
+- Stage 197 Recall Home tail carry extension and reveal footer delay is complete:
+  - Home now carries the visible continuation farther through the landing tail before the reveal footer row
+  - the reveal footer lands lower without reviving the old archive-wall feel
+  - Graph, Study, and focused Study stayed byte-stable after the pass
+- Stage 198 Post-Stage-197 benchmark audit is complete:
+  - fresh Home, Graph, Study, and focused-Study captures matched the validated Stage 197 artifacts without drift
+  - Home still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas
+  - the next slice is now a bounded Home tail-density-lift and reveal-footer-pushdown pass
 
 ## Active Milestone
 
-1. Stage 128: Post-Stage-127 benchmark audit
-   - compare the refreshed Study surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
-   - keep screenshot review as the gate instead of guessing at another broad rewrite
+1. Stage 199: Recall Home tail density lift and reveal footer pushdown
+   - carry slightly more visible Home continuation through the landing tail before the reveal footer row so the page ends later again
+   - push the reveal footer lower without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
 
 ## Next Milestone
 
-1. Stage 129: Next bounded implementation slice selected by the Stage 128 audit
-   - apply the next screenshot-led surface correction only after the fresh Stage 127 audit identifies the clearest blocker
-   - keep the redesign bounded and benchmark-led
+1. Stage 200: Post-Stage-199 benchmark audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-density-lift pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the denser visible tail and lower reveal footer
 
 ## Stage Map
 
@@ -921,9 +1212,258 @@ Keep this repository as one local-first workspace.
 128. Stage 128: Post-Stage-127 Benchmark Audit
    - compare the refreshed Study surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
    - keep screenshot review as the gate instead of guessing at another broad rewrite
-129. Stage 129: Next bounded implementation slice
-   - implement the next benchmark-led surface correction selected by the Stage 128 audit
+129. Stage 129: Recall Home Collection Frame Flattening And Row Meta Demotion
+   - flatten or materially soften the large Home collection frame so the landing reads more like a lighter collection canvas
+   - demote repeated row labels, timestamps, and supporting meta while preserving the selective reopen flow
+130. Stage 130: Post-Stage-129 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
    - keep the scope narrow and protect the calmer Home, Graph, Study, and focused-Study baselines
+131. Stage 131: Recall Home Collection Unboxing And Date Gutter Collapse
+   - reduce the remaining full-width panel feel on Home so the landing reads more like a lighter collection zone
+   - collapse the strong right-side date gutter into quieter inline meta while preserving the selective reopen flow
+132. Stage 132: Post-Stage-131 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep the scope narrow and protect the calmer Home, Graph, Study, and focused-Study baselines
+133. Stage 133: Recall Graph Support Rail Collapse And Detail Overlay Compaction
+   - collapse the left Graph support rail so the canvas reclaims more of the browse surface
+   - compact the selected-node overlay so evidence stays nearby without over-framing the graph stage
+134. Stage 134: Post-Stage-133 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep the scope narrow and protect the calmer Home, Study, Graph, and focused-Study baselines
+135. Stage 135: Recall Graph Quick-Pick Rail Slimming And Overlay Footprint Reduction
+   - slim the left quick-pick rail so it behaves more like a light selector than a second card column
+   - reduce the selected-node overlay footprint so the canvas stays clearly dominant
+136. Stage 136: Post-Stage-135 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures before choosing the next bounded surface pass
+   - keep the scope narrow and protect the calmer Home, Study, Graph, and focused-Study baselines
+137. Stage 137: Recall Graph Utility Metrics Collapse And Quick-Pick Truncation
+   - collapse the left Graph utility metrics and focused-source framing into a smaller glance-level summary
+   - shorten the default quick-pick stack so the rail reads like a thinner selector strip beside the canvas
+138. Stage 138: Post-Stage-137 Benchmark Audit
+   - confirm whether Graph still leads after the utility-metrics-collapse and quick-pick-truncation pass using fresh benchmark artifacts
+   - identify the remaining mismatch within Graph more precisely before changing the surface again
+139. Stage 139: Recall Graph Selector Strip Flattening And Glance-Stack Compaction
+   - flatten the remaining search, glance, and quick-pick stack so the rail reads like one lighter selector strip
+   - reduce the dedicated-column feel while preserving the calmer overlay, grounding, and handoffs
+140. Stage 140: Post-Stage-139 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures after the selector-strip pass
+   - keep the scope narrow and protect the calmer Home, Study, Graph, and focused-Study baselines
+141. Stage 141: Recall Graph Intro Shell Demotion And Detail Overlay Compaction
+   - demote duplicated intro framing around the Graph canvas so the stage starts sooner
+   - compact the selected-node overlay while preserving the calmer selector strip, grounding, and handoffs
+142. Stage 142: Post-Stage-141 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures after the intro/overlay pass
+   - keep the scope narrow and protect the calmer Home, Study, Graph, and focused-Study baselines
+143. Stage 143: Recall Graph Support Framing Collapse And Detail Peek Default
+   - flatten the remaining left selector-strip card framing so the support rail reads more like light utility beside the canvas
+   - reduce the selected-node detail to a smaller default peek state while preserving grounded actions and handoffs
+144. Stage 144: Post-Stage-143 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures after the support-framing pass
+   - keep the scope narrow and protect the calmer Home, Study, Graph, and focused-Study baselines
+145. Stage 145: Recall Home Lead Card Deflation And Lower Canvas Continuation Fill
+   - reduce the oversized top lead-band footprint so Home feels less dominated by one boxed feature
+   - strengthen the lower continuation rhythm so the landing carries downward without reviving the old archive wall
+146. Stage 146: Post-Stage-145 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the lead-card/continuation pass
+   - keep the scope narrow and protect the calmer Home, Study, Graph, and focused-Study baselines
+147. Stage 147: Recall Graph Selector Rail Narrowing And Detail Dock Slimming
+   - narrow the remaining left selector strip so it reads more like light utility beside the canvas
+   - slim the right selected-node dock so the graph canvas keeps more of the page without losing grounded actions or handoffs
+148. Stage 148: Post-Stage-147 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures after the selector-rail/detail-dock pass
+   - use screenshot evidence to decide whether Graph still leads or whether another surface now becomes the clearest follow-up
+149. Stage 149: Recall Home Opening Cluster Compaction And Lower Canvas Fill
+   - compact the staged lead-plus-nearby opening so Home reads more like one selective collection zone
+   - carry the lower continuation farther into the page without reviving the dense archive wall
+150. Stage 150: Post-Stage-149 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the opening-cluster/lower-canvas pass
+   - keep the scope narrow and protect the calmer Graph, Study, and focused-Study baselines
+151. Stage 151: Recall Home Continuation Grid Fill And Reveal Card Demotion
+   - extend the lower continuation so it fills more of the landing before the reveal endpoint
+   - demote the reveal control into a lighter in-flow continuation affordance without reviving the archive wall
+152. Stage 152: Post-Stage-151 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the continuation-grid/reveal-control pass
+   - confirm whether the remaining mismatch stays in Home or shifts after the fuller continuation and lighter footer reveal
+153. Stage 153: Recall Home Spotlight Deflation And Follow-On Header Demotion
+   - reduce the boxed `Start here` emphasis so the opening reads less like a staged hero cluster
+   - demote the `Keep going` restart framing so the continuation feels like one calmer collection flow
+154. Stage 154: Post-Stage-153 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the spotlight/header pass
+   - confirm whether the remaining mismatch stays in Home or shifts after the flatter spotlight and quieter continuation intro
+155. Stage 155: Recall Home Opening Column Collapse And Support Row Inline Merge
+   - collapse the remaining lead-plus-support split so the opening reads more like one calmer reopen flow
+   - reduce the right-column support-panel feel without reviving the archive wall
+156. Stage 156: Post-Stage-155 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the opening-column pass
+   - confirm whether the remaining mismatch stays in Home or shifts after the calmer stacked opening flow
+157. Stage 157: Recall Home Lead Row Flattening And Footer Reveal Inline Merge
+   - flatten the remaining spotlight-row feel so the first reopen point reads more like part of one calmer collection flow
+   - integrate the lower reveal affordance more directly into the continuation rhythm without reviving the old archive wall
+158. Stage 158: Post-Stage-157 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the lead-row/reveal pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the flatter opening and ending rhythm
+159. Stage 159: Recall Home Opening Pair Equalization And Continuation Density Lift
+   - equalize the remaining opening pair so the first visible rows read less like a staged duo
+   - lift the visible continuation density slightly without reviving the old archive wall
+160. Stage 160: Post-Stage-159 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the opening-pair/density pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the calmer opening and fuller visible continuation
+161. Stage 161: Recall Home Lead Row Demotion And Visible Continuation Extension
+   - demote the remaining singled-out lead row so the opening reads more like one continuous reopen flow
+   - extend the visible continuation slightly without reviving the old archive wall
+162. Stage 162: Post-Stage-161 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the lead-row/continuation pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the calmer opening and fuller lower carry
+163. Stage 163: Recall Home Start Here Kicker Demotion And Reveal Row Deflation
+   - soften the remaining `Start here` cue so the first visible cell reads less like a special stage
+   - reduce the reveal row's separate-endpoint feel without reviving the old archive wall
+164. Stage 164: Post-Stage-163 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the kicker/reveal pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the quieter first cell and calmer landing endpoint
+165. Stage 165: Recall Home Lead Row Meta Equalization And Reveal Footer Utility Merge
+   - equalize the remaining first-row meta treatment so the opening reads more like one even reopen flow
+   - merge the reveal footer utility into one calmer continuation line without reviving the old archive wall
+166. Stage 166: Post-Stage-165 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the lead-row/footer-merge pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the calmer first-row meta and merged footer utility
+167. Stage 167: Recall Home Visible Continuation Extension And Lower Canvas Fill
+   - extend the visible Home continuation so the landing carries farther before the reveal row
+   - fill more of the lower canvas without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+168. Stage 168: Post-Stage-167 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the visible-continuation-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the fuller lower-canvas carry
+169. Stage 169: Recall Home Continuation Density Lift And Reveal Row Pushdown
+   - show slightly more visible continuation before the reveal row so the landing ends later
+   - push the reveal row lower without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+170. Stage 170: Post-Stage-169 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the continuation-density-lift pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal row and denser visible continuation
+171. Stage 171: Recall Home Continuation Carry Extension And Reveal Row Delay
+   - carry the visible Home continuation farther before the reveal row so the landing ends later
+   - delay the reveal row without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+172. Stage 172: Post-Stage-171 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the continuation-carry-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal row and fuller landing carry
+173. Stage 173: Recall Home Continuation Tail Extension And Reveal Footer Pushdown
+   - carry the visible tail of the Home continuation farther before the reveal footer row so the landing ends later
+   - push the reveal footer lower without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+174. Stage 174: Post-Stage-173 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the continuation-tail-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal footer and fuller landing carry
+175. Stage 175: Recall Home Continuation Tail Density Lift And Reveal Footer Delay
+   - show slightly more visible continuation through the Home landing tail before the reveal footer row so the page ends later
+   - delay the reveal footer without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+176. Stage 176: Post-Stage-175 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the continuation-tail-density-lift pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal footer and fuller landing tail
+177. Stage 177: Recall Home Tail Carry Extension And Reveal Footer Lowering
+   - carry the visible Home continuation farther through the landing tail before the reveal footer row so the page ends later again
+   - lower the reveal footer without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+178. Stage 178: Post-Stage-177 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-carry-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal footer and fuller landing tail
+179. Stage 179: Recall Home Tail Density Lift And Reveal Footer Pushdown
+   - carry slightly more visible Home continuation through the landing tail before the reveal footer row so the page ends later again
+   - push the reveal footer lower without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+180. Stage 180: Post-Stage-179 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-density-lift pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal footer and fuller landing tail
+181. Stage 181: Recall Home Tail Carry Extension And Reveal Footer Delay
+   - carry the visible Home continuation farther through the landing tail before the reveal footer row so the page ends later again
+   - delay the reveal footer without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+182. Stage 182: Post-Stage-181 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-carry-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal footer and fuller landing tail
+183. Stage 183: Recall Home Continuation Tail Extension And Reveal Footer Lowering
+   - carry the visible Home continuation farther through the landing tail before the reveal footer row so the page ends later again
+   - lower the reveal footer without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+184. Stage 184: Post-Stage-183 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the continuation-tail-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal footer and fuller landing tail
+185. Stage 185: Recall Home Tail Carry Extension And Reveal Footer Lowering
+   - carry the visible Home continuation farther through the landing tail before the reveal footer row so the page ends later again
+   - lower the reveal footer without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+186. Stage 186: Post-Stage-185 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-carry-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal footer and fuller landing tail
+187. Stage 187: Recall Home Tail Density Lift And Reveal Footer Pushdown
+   - carry slightly more visible Home continuation through the landing tail before the reveal footer row so the page ends later again
+   - push the reveal footer lower without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+188. Stage 188: Post-Stage-187 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-density-lift pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal footer and fuller landing tail
+189. Stage 189: Recall Home Tail Carry Extension And Reveal Footer Delay
+   - carry the visible Home continuation farther through the landing tail before the reveal footer row so the page ends later again
+   - delay the reveal footer without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+190. Stage 190: Post-Stage-189 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-carry-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the farther visible tail and later reveal footer
+191. Stage 191: Recall Home Tail Density Lift And Reveal Footer Pushdown
+   - carry slightly more visible Home continuation through the landing tail before the reveal footer row so the page ends later again
+   - push the reveal footer lower without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+192. Stage 192: Post-Stage-191 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-density-lift pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the later reveal footer and fuller landing tail
+193. Stage 193: Recall Home Tail Carry Extension And Reveal Footer Delay
+   - carry the visible Home continuation farther through the landing tail before the reveal footer row so the page ends later again
+   - delay the reveal footer without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+194. Stage 194: Post-Stage-193 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-carry-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the farther visible tail and later reveal footer
+195. Stage 195: Recall Home Tail Density Lift And Reveal Footer Pushdown
+   - carry slightly more visible Home continuation through the landing tail before the reveal footer row so the page ends later again
+   - push the reveal footer lower without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+196. Stage 196: Post-Stage-195 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-density-lift pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the denser visible tail and lower reveal footer
+197. Stage 197: Recall Home Tail Carry Extension And Reveal Footer Delay
+   - carry the visible Home continuation farther through the landing tail before the reveal footer row so the page ends later again
+   - delay the reveal footer without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+198. Stage 198: Post-Stage-197 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-carry-extension pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the fuller visible tail and later reveal footer
+199. Stage 199: Recall Home Tail Density Lift And Reveal Footer Pushdown
+   - carry slightly more visible Home continuation through the landing tail before the reveal footer row so the page ends later again
+   - push the reveal footer lower without reviving the old archive wall or destabilizing the calmer Graph and Study surfaces
+200. Stage 200: Post-Stage-199 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the tail-density-lift pass
+   - confirm whether Home still leads or whether the next bounded follow-up should shift after the denser visible tail and lower reveal footer
+201. Stage 201: Recall Home Landing Endpoint Convergence Bundle
+   - extend the visible Home continuation by more than one additional reopen item and delay the reveal footer in one bundled landing-endpoint pass
+   - tighten lower-canvas spacing and meta only as needed so the fuller tail stays calm before the next full benchmark audit
+202. Stage 202: Post-Stage-201 Benchmark Audit
+   - compare the refreshed Home surface against the benchmark and fresh localhost captures after the bundled landing-endpoint convergence pass
+   - confirm whether Home still leads or whether the next bounded follow-up should stay on Home or finally shift surfaces
+203. Stage 203: Recall Graph Canvas Bracketing Reduction And Detail Dock Softening
+   - slim the Graph selector rail and soften the selected-node detail dock so the canvas reads more primary
+   - preserve grounded evidence, source handoffs, and decision actions while reducing browse-mode support framing
+204. Stage 204: Post-Stage-203 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures after the canvas-bracketing reduction pass
+   - confirm whether Graph still leads or whether the next bounded follow-up should stay on Graph or shift surfaces
+205. Stage 205: Recall Graph Selector Strip Collapse And Detail Peek Deflation
+   - collapse the open Graph selector strip into lighter utility and reduce the default selected-node peek so the canvas feels less bracketed
+   - preserve grounded evidence, source handoffs, and explicit decision actions in expanded detail while the browse surface converges further
+206. Stage 206: Post-Stage-205 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures after the selector-strip collapse and detail-peek deflation pass
+   - confirm whether Graph still leads or whether the next bounded follow-up should stay on Graph or shift surfaces
+207. Stage 207: Recall Graph Selector Strip Header Collapse And Detail Dock Header Demotion
+   - collapse the open selector-strip header chrome and demote the default detail-dock header/meta framing so the canvas feels less bracketed
+   - preserve grounded evidence, source handoffs, and explicit decision actions in expanded detail while the browse surface converges further
+208. Stage 208: Post-Stage-207 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures after the selector-strip header and dock-header demotion pass
+   - confirm whether Graph still leads or whether the next bounded follow-up should stay on Graph or shift surfaces
+209. Stage 209: Recall Graph Selector Strip Narrowing And Detail Peek Footprint Reduction
+   - narrow the open selector strip and shrink the default selected-node peek so the browse canvas feels less bracketed by side columns
+   - preserve grounded evidence, source handoffs, and explicit decision actions in expanded detail while the browse surface converges further
+210. Stage 210: Post-Stage-209 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures after the selector-strip narrowing and detail-peek footprint reduction pass
+   - confirm whether Graph still leads or whether the next bounded follow-up should stay on Graph or shift surfaces
+211. Stage 211: Recall Graph Selector Strip Utility Collapse And Detail Peek Softening
+   - collapse the remaining selector-strip utility stack and soften the default detail peek so the browse canvas feels less bracketed by standing side structures
+   - preserve grounded evidence, source handoffs, and explicit decision actions in expanded detail while the browse surface converges further
+212. Stage 212: Post-Stage-211 Benchmark Audit
+   - compare the refreshed Graph surface against the benchmark and fresh localhost captures after the selector-strip utility collapse and detail-peek softening pass
+   - confirm whether Graph still leads or whether the next bounded follow-up should stay on Graph or shift surfaces
 
 ## Deferred Follow-Ups
 
@@ -1039,3 +1579,87 @@ Keep this repository as one local-first workspace.
 - 2026-03-16: completed Stage 125 with a softer lower Home continuation band, a quieter reveal footer control, targeted plus broad frontend validation, fresh real Edge captures, and the Stage 126 audit harness for the next benchmark decision
 - 2026-03-16: completed the Stage 126 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is no longer the clearest blocker after Stage 125, and opened Stage 127 for a bounded Study support-strip-removal and review-canvas-lift pass
 - 2026-03-16: completed Stage 127 by removing the ghost Study support strip from browse mode, lifting the review card higher into the page, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 128 for the next benchmark audit
+- 2026-03-16: completed the Stage 128 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Study no longer leads after the ghost-strip removal, identified Home as the new clearest blocker because the landing still reads as one boxed archive panel with repeated row/meta chrome, and opened Stage 129 for a bounded Home collection-frame-flattening and row-meta-demotion pass
+- 2026-03-16: completed Stage 129 with a flatter Home landing shell, quieter row/meta treatment, targeted and broad frontend validation, a rerun real Edge screenshot capture after the production build, and the Stage 130 audit harness for the next benchmark decision
+- 2026-03-16: completed the Stage 130 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still leads after the flattening pass because the landing still reads as one broad boxed ledger with a strong right-side date gutter, and opened Stage 131 for a bounded Home collection-unboxing and date-gutter-collapse pass
+- 2026-03-16: completed Stage 131 by unboxing the remaining Home collection shell, collapsing Home row dates into inline meta, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 132 for the next benchmark audit
+- 2026-03-16: completed the Stage 132 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home no longer leads after the Stage 131 pass, identified Graph as the clearest remaining mismatch because its support rail and detail overlay still over-frame the canvas, and opened Stage 133 for a bounded Graph support-rail-collapse and detail-overlay-compaction pass
+- 2026-03-16: completed Stage 133 by collapsing the Graph support rail, tightening quick picks, compacting the selected-node overlay, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 134 for the next benchmark audit
+- 2026-03-16: completed the Stage 134 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Graph is materially closer after Stage 133 but still leads because the quick-pick rail remains too card-heavy and the overlay still occupies too much of the stage, and opened Stage 135 for a bounded Graph quick-pick-rail-slimming and overlay-footprint-reduction pass
+- 2026-03-16: completed Stage 135 by slimming the Graph quick-pick rail into a lighter selector strip, shrinking the default selected-node overlay while keeping one grounded mention visible, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 136 for the next benchmark audit
+- 2026-03-16: completed the Stage 136 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Graph is materially closer after Stage 135 but still leads because the left rail still opens with stacked metrics and a longer-than-needed quick-pick list, and opened Stage 137 for a bounded Graph utility-metrics-collapse and quick-pick-truncation pass
+- 2026-03-16: completed Stage 137 by collapsing the Graph rail metrics into one glance summary, shortening the default quick-pick stack, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 138 for the next benchmark audit
+- 2026-03-16: completed the Stage 138 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Graph still leads but more narrowly because the remaining mismatch is now the left selector strip's search/glance/quick-pick stack, and opened Stage 139 for a bounded Graph selector-strip-flattening and glance-stack-compaction pass
+- 2026-03-16: completed Stage 139 by flattening the remaining Graph selector strip into a lighter search-plus-glance utility layer, slimming the quick-pick framing, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 140 for the next benchmark audit
+- 2026-03-16: completed the Stage 140 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Graph still leads after Stage 139 because duplicated intro framing and the right-side selected-node overlay still over-frame the canvas, and opened Stage 141 for a bounded Graph intro-shell-demotion and detail-overlay-compaction pass
+- 2026-03-16: completed Stage 141 by collapsing the remaining Graph intro shell into a lighter inline surface note, compacting the selected-node overlay, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 142 for the next benchmark audit
+- 2026-03-16: completed the Stage 142 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Graph still leads after Stage 141 but now mainly because the left quick-pick strip and fully open detail overlay still frame the canvas like a support dashboard, and opened Stage 143 for a bounded Graph support-framing-collapse and detail-peek-default pass
+- 2026-03-16: completed Stage 143 by flattening the remaining Graph quick-pick card treatment into a lighter utility list, reducing the selected-node detail to a smaller default peek state, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 144 for the next benchmark audit
+- 2026-03-16: completed the Stage 144 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home now leads because the landing still reads as one oversized lead band followed by sparse lower continuation and too much empty lower canvas, and opened Stage 145 for a bounded Home lead-card-deflation and lower-canvas-continuation-fill pass
+- 2026-03-16: completed Stage 145 by splitting the Home lead band into a calmer lead-plus-nearby frame, moving the grouped reveal action into the lower continuation grid, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 146 for the next benchmark audit
+- 2026-03-16: completed the Stage 146 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially closer after Stage 145 and that Graph now leads because the selector strip and selected-node dock still over-frame the canvas, and opened Stage 147 for a bounded Graph selector-rail-narrowing and detail-dock-slimming pass
+- 2026-03-16: completed Stage 147 by narrowing the Graph selector rail, trimming the default quick-pick stack, slimming the selected-node detail dock, validating with targeted plus broad frontend coverage and fresh real Edge captures, and then opened Stage 148 for the next benchmark audit
+- 2026-03-16: completed the Stage 148 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Graph is materially calmer and no longer leads after the selector-rail/detail-dock pass, and opened Stage 149 for a bounded Home opening-cluster-compaction and lower-canvas-fill pass
+- 2026-03-16: completed Stage 149 by compacting the no-resume Home opening cluster into a slimmer lead-plus-one-nearby frame, extending the lower continuation before the reveal card, validating with targeted plus broad frontend coverage, lint/build, a Stage 150 harness check, and fresh real Edge captures, and then opened Stage 150 for the next benchmark audit
+- 2026-03-16: completed the Stage 150 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer but still leads more narrowly because the lower continuation still ends too quickly and the reveal card still reads too boxed, and opened Stage 151 for a bounded Home continuation-grid-fill and reveal-card-demotion pass
+- 2026-03-16: completed Stage 151 by extending the Home continuation grid, demoting the reveal into a lighter footer affordance, validating with targeted plus broad frontend coverage, lint/build, a Stage 152 harness check, and fresh real Edge captures, and then opened Stage 152 for the next benchmark audit
+- 2026-03-16: completed the Stage 152 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 151 but still leads more narrowly because the boxed spotlight and separate `Keep going` restart still stage the landing, and opened Stage 153 for a bounded Home spotlight-deflation and follow-on-header-demotion pass
+- 2026-03-16: completed Stage 153 by flattening the Home spotlight into a quieter overline-led lead row, demoting the `Keep going` restart into a muted continuation line, validating with targeted plus broad frontend coverage, lint/build, a Stage 154 harness check, and fresh real Edge captures, and then opened Stage 154 for the next benchmark audit
+- 2026-03-16: completed the Stage 154 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 153 but still leads more narrowly because the opening still reads as a split lead-plus-support stage, and opened Stage 155 for a bounded Home opening-column-collapse and support-row-inline-merge pass
+- 2026-03-16: completed Stage 155 by collapsing the Home opening split into one calmer stacked flow, softening the nearby support row into the same opening sequence, validating with targeted plus broad frontend coverage, lint/build, a Stage 156 harness check, and fresh real Edge captures, and then opened Stage 156 for the next benchmark audit
+- 2026-03-16: completed the Stage 156 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 155 but still leads more narrowly because the opening still reads like a spotlight row and the continuation still ends with a separate reveal endpoint, and opened Stage 157 for a bounded Home lead-row-flattening and footer-reveal-inline-merge pass
+- 2026-03-16: completed Stage 157 by flattening the remaining Home lead row and moving the grouped reveal action into the continuation list, validating with targeted plus broad frontend coverage, lint/build, a Stage 158 harness check, and fresh real Edge captures, and then opened Stage 158 for the next benchmark audit
+- 2026-03-16: completed the Stage 158 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 157 but still leads more narrowly because the opening still reads like a deliberate pair and the lower continuation stays too sparse, and opened Stage 159 for a bounded Home opening-pair-equalization and continuation-density-lift pass
+- 2026-03-16: completed Stage 159 by equalizing the remaining Home opening pair into one lead row, lifting the visible continuation density before the inline reveal row, validating with targeted plus broad frontend coverage, lint/build, a Stage 160 harness check, and fresh real Edge captures, and then opened Stage 160 for the next benchmark audit
+- 2026-03-16: completed the Stage 160 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 159 but still leads more narrowly because the top still reads like a singled-out lead row and the visible continuation still ends too soon, and opened Stage 161 for a bounded Home lead-row-demotion and visible-continuation-extension pass
+- 2026-03-16: completed Stage 161 by pulling the merged Home lead row into the shared continuation grid, extending the visible reopen carry before the inline reveal row, validating with targeted plus broad frontend coverage, lint/build, a Stage 162 harness check, and fresh real Edge captures, and then opened Stage 162 for the next benchmark audit
+- 2026-03-16: completed the Stage 162 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 161 but still leads more narrowly because the `Start here` kicker and `Show all ...` reveal row still bracket the grid too strongly, and opened Stage 163 for a bounded Home start-here-kicker-demotion and reveal-row-deflation pass
+- 2026-03-16: completed Stage 163 by moving the remaining `Start here` cue into quieter inline meta, flattening the `Show all ...` control into a footer-style reveal row, validating with targeted plus broad frontend coverage, lint/build, a Stage 164 harness check, and fresh real Edge captures, and then opened Stage 164 for the next benchmark audit
+- 2026-03-16: completed the Stage 164 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 163 but still leads more narrowly because the first cell still carries an extra lead cue and the footer reveal still splits attention across the lower edge, and opened Stage 165 for a bounded Home lead-row-meta-equalization and reveal-footer-utility-merge pass
+- 2026-03-16: completed Stage 165 by removing the extra visible first-row cue, merging the reveal footer utility into one calmer continuation line, validating with targeted plus broad frontend coverage, lint/build, a Stage 166 harness check, and fresh real Edge captures, and then opened Stage 166 for the next benchmark audit
+- 2026-03-16: completed the Stage 166 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 165 but still leads more narrowly because the landing still ends too soon and leaves too much empty lower canvas, and opened Stage 167 for a bounded Home visible-continuation-extension and lower-canvas-fill pass
+- 2026-03-16: completed Stage 167 by extending the visible Home continuation and filling more of the lower canvas before the reveal row, validating with targeted plus broad frontend coverage, lint/build, a Stage 168 harness check, and fresh real Edge captures, and then opened Stage 168 for the next benchmark audit
+- 2026-03-17: completed the Stage 168 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 167 but still leads more narrowly because the reveal row still arrives too early and the landing still leaves too much empty lower canvas after the visible continuation, and opened Stage 169 for a bounded Home continuation-density-lift and reveal-row-pushdown pass
+- 2026-03-17: completed Stage 169 by lifting the visible Home continuation density and pushing the reveal row lower, validating with targeted plus broad frontend coverage, lint/build, a Stage 170 harness check, and fresh real Edge captures, and then opened Stage 170 for the next benchmark audit
+- 2026-03-17: completed the Stage 170 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 169 but still leads more narrowly because the visible continuation still ends too soon and the reveal row still lands above too much empty lower canvas, and opened Stage 171 for a bounded Home continuation-carry-extension and reveal-row-delay pass
+- 2026-03-17: completed Stage 171 by carrying the visible Home continuation farther and delaying the reveal row, validating with targeted plus broad frontend coverage, lint/build, a Stage 172 harness check, and fresh real Edge captures, and then opened Stage 172 for the next benchmark audit
+- 2026-03-17: completed the Stage 172 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 171 but still leads more narrowly because the visible continuation still ends too soon and the reveal row still lands above too much empty lower canvas, and opened Stage 173 for a bounded Home continuation-tail-extension and reveal-footer-pushdown pass
+- 2026-03-17: completed Stage 173 by carrying the visible Home continuation tail farther and pushing the reveal footer lower, validating with targeted plus broad frontend coverage, lint/build, a Stage 174 harness check, and fresh real Edge captures, and then opened Stage 174 for the next benchmark audit
+- 2026-03-17: completed the Stage 174 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 173 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 175 for a bounded Home continuation-tail-density-lift and reveal-footer-delay pass
+- 2026-03-17: completed Stage 175 by lifting the visible Home continuation tail again and delaying the reveal footer, validating with targeted plus broad frontend coverage, lint/build, Stage 175/176 harness checks, and fresh real Edge captures, and then opened Stage 176 for the next benchmark audit
+- 2026-03-17: completed the Stage 176 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 175 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 177 for a bounded Home tail-carry-extension and reveal-footer-lowering pass
+- 2026-03-17: completed Stage 177 by carrying the visible Home continuation farther and lowering the reveal footer, validating with targeted plus broad frontend coverage, lint/build, Stage 177/178 harness checks, and fresh real Edge captures, and then opened Stage 178 for the next benchmark audit
+- 2026-03-17: completed the Stage 178 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 177 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 179 for a bounded Home tail-density-lift and reveal-footer-pushdown pass
+- 2026-03-17: completed Stage 179 by carrying slightly more visible Home continuation through the landing tail and pushing the reveal footer lower, validating with targeted plus broad frontend coverage, lint/build, Stage 179/180 harness checks, and fresh real Edge captures, and then opened Stage 180 for the next benchmark audit
+- 2026-03-17: completed the Stage 180 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 179 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 181 for a bounded Home tail-carry-extension and reveal-footer-delay pass
+- 2026-03-17: completed Stage 181 by carrying the visible Home continuation farther and delaying the reveal footer, validating with targeted plus broad frontend coverage, lint/build, Stage 181/182 harness checks, and fresh real Edge captures, and then opened Stage 182 for the next benchmark audit
+- 2026-03-17: completed the Stage 182 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 181 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 183 for a bounded Home continuation-tail-extension and reveal-footer-lowering pass
+- 2026-03-17: completed Stage 183 by carrying one more visible Home continuation item through the landing tail and lowering the reveal footer, validating with focused plus broad frontend coverage, lint/build, Stage 183/184 harness checks, and fresh real Edge captures, and then opened Stage 184 for the next benchmark audit
+- 2026-03-17: completed the Stage 184 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 183 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 185 for a bounded Home tail-carry-extension and reveal-footer-lowering pass
+- 2026-03-17: completed Stage 185 by carrying one more visible Home continuation item through the landing tail and lowering the reveal footer, validating with focused plus broad frontend coverage, lint/build, Stage 185/186 harness checks, and fresh real Edge captures, and then opened Stage 186 for the next benchmark audit
+- 2026-03-17: completed the Stage 186 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 185 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 187 for a bounded Home tail-density-lift and reveal-footer-pushdown pass
+- 2026-03-17: completed Stage 187 by carrying one more visible Home continuation item through the landing tail and lowering the reveal footer, validating with focused plus broad frontend coverage, lint/build, Stage 187/188 harness checks, and fresh real Edge captures, and then opened Stage 188 for the next benchmark audit
+- 2026-03-17: completed the Stage 188 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 187 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 189 for a bounded Home tail-carry-extension and reveal-footer-delay pass
+- 2026-03-17: completed Stage 189 by carrying one more visible Home continuation item through the landing tail and delaying the reveal footer, validating with focused plus broad frontend coverage, lint/build, Stage 189/190 harness checks, and fresh real Edge captures, and then opened Stage 190 for the next benchmark audit
+- 2026-03-17: completed the Stage 190 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 189 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 191 for a bounded Home tail-density-lift and reveal-footer-pushdown pass
+- 2026-03-17: completed Stage 191 by carrying one more visible Home continuation item through the landing tail and lowering the reveal footer, validating with focused plus broad frontend coverage, lint/build, Stage 191/192 harness checks, and fresh real Edge captures, and then opened Stage 192 for the next benchmark audit
+- 2026-03-17: completed the Stage 192 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 191 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 193 for a bounded Home tail-carry-extension and reveal-footer-delay pass
+- 2026-03-17: completed Stage 193 by carrying one more visible Home continuation item through the landing tail and delaying the reveal footer, validating with focused plus broad frontend coverage, lint/build, Stage 193/194 harness checks, and fresh real Edge captures, and then opened Stage 194 for the next benchmark audit
+- 2026-03-17: completed the Stage 194 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 193 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 195 for a bounded Home tail-density-lift and reveal-footer-pushdown pass
+- 2026-03-17: completed Stage 195 by carrying slightly more visible Home continuation through the landing tail and lowering the reveal footer, validating with focused plus broad frontend coverage, lint/build, Stage 195/196 harness checks, and fresh real Edge captures, and then opened Stage 196 for the next benchmark audit
+- 2026-03-17: completed the Stage 196 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 195 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 197 for a bounded Home tail-carry-extension and reveal-footer-delay pass
+- 2026-03-17: completed Stage 197 by carrying the visible Home continuation farther through the landing tail and delaying the reveal footer, validating with focused plus broad frontend coverage, lint/build, Stage 197/198 harness checks, and fresh real Edge captures, and then opened Stage 198 for the next benchmark audit
+- 2026-03-17: completed the Stage 198 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home is materially calmer after Stage 197 but still leads more narrowly because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, and opened Stage 199 for a bounded Home tail-density-lift and reveal-footer-pushdown pass
+- 2026-03-17: completed Stage 199 by carrying slightly more visible Home continuation through the landing tail and pushing the reveal footer lower again, validating with focused plus broad frontend coverage, lint/build, Stage 199/200 harness checks, and a fresh real Edge capture where Study and focused Study stayed byte-stable while Graph rerendered without material visual drift, and then opened Stage 200 for the next benchmark audit
+- 2026-03-17: completed the Stage 200 benchmark audit against fresh Home, Study, Graph, and focused-Study captures, confirmed that Home still leads more narrowly after Stage 199 because the visible continuation tail still ends too soon and the reveal footer still lands above too much empty lower canvas, verified that the Stage 199 Graph and Stage 200 Study rerenders did not introduce material visual drift, and initially opened a narrow Stage 201 Home follow-up before the later same-day cadence readjustment widened it into the bundled landing-endpoint convergence pass
+- 2026-03-17: readjusted the roadmap cadence into moderate bundled dominant-surface mode for the current `Home` work: keep early cross-surface audits while the lead blocker moves, but once one surface remains dominant across repeated audits, batch 2-3 related fixes before the next full audit; Stage 201 is now the bundled Home landing-endpoint convergence pass and Stage 202 is the pre-staged next benchmark audit
+- 2026-03-17: completed Stage 201 by extending the visible Home landing tail in one bundled pass, delaying the reveal footer, lightly calming lower-tail spacing and meta, validating with focused plus broad frontend coverage, lint/build, Stage 201/202 harness checks, and a fresh real Edge capture where Graph and focused Study stayed byte-stable while Study rerendered without material visual drift, and then promoted Stage 202 as the current benchmark audit
+- 2026-03-17: completed the Stage 202 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Home no longer leads after the bundled Stage 201 landing-endpoint convergence pass, verified that Graph and Study rerenders did not introduce material visual drift, and opened Stage 203 plus pre-staged Stage 204 for the next bounded Graph browse-mode correction
+- 2026-03-17: completed Stage 203 by slimming the Graph selector rail, reducing default quick-pick framing, softening the selected-node detail dock, validating with focused plus broad frontend coverage, lint/build, Stage 203/204 harness checks, and a fresh real Edge capture where Home and focused Study matched Stage 202 exactly while Study rerendered without material visual drift, and then promoted Stage 204 as the current benchmark audit
+- 2026-03-17: completed the Stage 204 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that the rerun matched Stage 203 exactly without drift, and kept Graph as the leading mismatch because the selector strip and selected-node dock still bracket the canvas like standing support columns
+- 2026-03-17: completed Stage 205 by merging the Graph glance into the selector-strip picker bar, shortening the default quick-pick stack, and deflating the default selected-node peek, validating with focused plus broad frontend coverage, lint/build, Stage 205/206 harness checks, and a fresh real Edge capture where Home, Study, and focused Study matched Stage 204 exactly, and then promoted Stage 206 as the current benchmark audit
+- 2026-03-17: completed the Stage 206 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Home, Study, and focused Study matched Stage 205 exactly, verified that the Graph rerender did not introduce material visual drift, and opened Stage 207 plus pre-staged Stage 208 for the next bounded Graph browse-mode correction
+- 2026-03-17: completed Stage 207 by collapsing the open Graph selector strip into one lighter search-plus-toggle utility row and demoting default selected-node confidence/status into the summary, validating with focused plus broad frontend coverage, lint/build, Stage 207/208 harness checks, and a fresh real Edge capture where Home, Study, and focused Study stayed stable, and then promoted Stage 208 as the current benchmark audit
+- 2026-03-17: completed the Stage 208 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that the full capture set matched Stage 207 without drift, verified that Graph still leads because the browse canvas remains bracketed by a standing selector strip and a persistent right detail peek, and opened Stage 209 plus pre-staged Stage 210 for the next bounded Graph browse-mode correction
+- 2026-03-17: completed Stage 209 by narrowing the open Graph selector strip and reducing the default selected-node peek footprint, validating with focused plus broad frontend coverage, lint/build, Stage 209/210 harness checks, and a fresh real Edge capture where Home, Study, and focused Study stayed byte-stable, and then promoted Stage 210 as the current benchmark audit
+- 2026-03-17: completed the Stage 210 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Home and focused Study matched Stage 209 exactly, verified that the Study rerender did not introduce material visual drift, and kept Graph as the leading mismatch because the selector strip still reads like a standing utility column while the default detail peek still brackets the canvas
