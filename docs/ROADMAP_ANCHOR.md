@@ -12,31 +12,34 @@ Persistent continuity anchor for future chats and handoffs.
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `codex/stage8-closeout-doc-sync`
 - Latest pushed clean checkpoint: branch tip on `origin/codex/stage8-closeout-doc-sync`
-- Local/remote status at anchor closeout: this Stage 211 handoff is the intended clean branch checkpoint for `origin/codex/stage8-closeout-doc-sync` after the closeout push
-- Last completed product slice: Stage 209 `Recall Graph Selector Strip Narrowing And Detail Peek Footprint Reduction`
-- Last completed audit: Stage 210 `Post-Stage-209 Benchmark Audit`
-- Active next slice: Stage 211 `Recall Graph Selector Strip Utility Collapse And Detail Peek Softening`
-- Pre-staged next audit plan: Stage 212 `Post-Stage-211 Benchmark Audit`
+- Local/remote status at anchor closeout: this Stage 368 docs-sync closeout is the intended clean branch checkpoint for `origin/codex/stage8-closeout-doc-sync` after the completed desktop-first surface redesign track and assistant-doc sync
+- Last completed product slice: Stage 366 `Desktop-First Study Redesign Milestone After Stage 365`
+- Last completed audit: Stage 367 `Post-Stage-366 Study Milestone Audit`
+- Active next slice: Stage 368 `All-Surface Baseline Freeze After Stage 367`
+- Pre-staged next audit plan: none; the repo is intentionally in a hold state until the user explicitly unlocks the next phase
 - Last green checks:
-  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npx vitest run src/components/RecallWorkspace.stage37.test.tsx src/App.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose"`
+  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npx vitest run src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx src/App.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose"`
   - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npm run lint"`
   - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npm run build"`
-  - `node --check scripts/playwright/stage209_graph_selector_strip_narrowing_edge.mjs`
-  - `node --check scripts/playwright/stage210_post_stage209_benchmark_audit_edge.mjs`
-  - `node scripts/playwright/stage209_graph_selector_strip_narrowing_edge.mjs`
-  - `node scripts/playwright/stage210_post_stage209_benchmark_audit_edge.mjs`
+  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader && git diff --check"`
+  - `wsl.exe bash -lc "node --check /home/fa507/dev/accessible_reader/scripts/playwright/stage366_desktop_first_study_redesign_milestone_after_stage365.mjs && node --check /home/fa507/dev/accessible_reader/scripts/playwright/stage367_post_stage366_study_milestone_audit_edge.mjs"`
+  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader && node scripts/playwright/stage366_desktop_first_study_redesign_milestone_after_stage365.mjs"` against `http://127.0.0.1:8000`
+  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader && node scripts/playwright/stage367_post_stage366_study_milestone_audit_edge.mjs"` against `http://127.0.0.1:8000`
 - Validation note:
-  - Stage 210 is an audit pass: the repo-owned Edge benchmark harness reran cleanly, Home and focused Study matched Stage 209 exactly, Study rerendered without material visual drift, `npx` is available, and the assistant manifest parses
+  - Stage 366 and Stage 367 both validated on March 19, 2026 with `RecallWorkspace.stage34.test.tsx`, `RecallWorkspace.stage37.test.tsx`, `App.test.tsx`, lint/build, `git diff --check`, script syntax checks, live localhost checks, and fresh Windows Edge screenshot harness runs against the live app at `http://127.0.0.1:8000`
 - Audit note:
-  - Stage 210 confirmed that Graph still leads after the Stage 209 pass because the selector strip still reads like a standing utility column and the default detail peek still brackets the canvas
-  - Stage 211 now targets the remaining selector-strip utility stack and default detail-peek framing before the pre-staged Stage 212 audit reruns the benchmark
+  - Stage 367 confirmed that Stage 366 succeeded overall: wide desktop `Study` now uses one active review workspace with a dominant review lane, docked queue/evidence support, and a calmer desktop-first hierarchy instead of the older boxed review dashboard
+  - the full top-level redesign track is now complete, so `Graph`, `Home`, `Reader`, `Notes`, and `Study` stay locked as the current desktop regression baselines
+  - there is no automatic next redesign target until the user explicitly unlocks the next phase
 - Execution mode note:
-  - the roadmap is now in bundled dominant-surface `Graph` convergence mode
-  - keep early cross-surface audits when the lead blocker is still moving, but once one surface remains dominant across repeated audits, batch 2-3 related fixes before the next full audit
-  - Stage 211 is now the active Graph implementation slice, and Stage 212 stays pre-staged as the next audit plan inside `docs/exec_plans/active/`
+  - the roadmap remains in desktop-first mode, but the full top-level redesign track is now complete
+  - the active state is Stage 368 baseline freeze: do not start another redesign slice automatically
+  - keep `Graph`, `Home`, `Reader`, `Notes`, and `Study` regression-only until the user explicitly unlocks the next phase
 - Known caveat:
+  - stale temp files, superseded screenshot harness files, dead CSS hooks, and other non-essential generated scaffolding may be deleted when they stop helping; do not let preserving obsolete files slow roadmap work down
   - run git, npm, and browser-validation commands through `wsl.exe bash -lc ...` or inside WSL directly; UNC-native Windows `npm`/`node` invocations remain less reliable than the WSL wrapper path
   - the repo-owned Windows Edge screenshot harnesses should run through Windows `node`; WSL `node` will try to launch Linux `msedge`, which is not installed on this machine
+  - if Windows cannot reach WSL loopback at `127.0.0.1`, restart the Windows-side localhost bridge in `output/playwright/start_windows_localhost_http_bridge.cmd`; if that path is unavailable, bind the temporary backend to `0.0.0.0` and use the current WSL `eth0` IP for `RECALL_STAGE*_BASE_URL`
 - First files to read in a new chat:
   - `AGENTS.md`
   - `agent.md`
@@ -44,21 +47,26 @@ Persistent continuity anchor for future chats and handoffs.
   - `docs/ROADMAP.md`
   - `docs/ROADMAP_ANCHOR.md`
   - `docs/ux/recall_benchmark_matrix.md`
-  - `docs/exec_plans/active/2026-03-17_stage211_recall_graph_selector_strip_utility_collapse_and_detail_peek_softening.md`
+  - `docs/exec_plans/active/2026-03-19_stage368_all_surface_baseline_freeze_after_stage367.md`
 
 ## New Chat Resume Shortcut
 
-- Say `resume from Stage 211` to continue from the next recommended step.
+- Say `resume from Stage 368` to continue from the current hold-state checkpoint.
 - The intended next action is:
-  - collapse the remaining Graph selector-strip utility stack and soften the default selected-node peek in one bounded pass
-  - keep Home, Study, and focused Study stable before the pre-staged Stage 212 audit reruns the benchmark
-- Do not reopen Home landing work before Stage 212 unless a direct regression is discovered.
+  - keep the Stage 367 baseline set locked for `Home`, `Graph`, `Reader`, `Notes`, and `Study`
+  - wait for explicit user reprioritization before opening another redesign slice
+  - if the user simply says to continue, explain that the top-level redesign track is complete and ask what should be unlocked next
+- Do not widen into backend changes or automatically start Reader generated-content work during Stage 368.
 
 ## Current State
 
-As of 2026-03-17, this workspace includes:
+As of 2026-03-19, this workspace includes:
 
 - the existing accessible-reader frontend and backend
+- completed desktop-first `Graph`, `Home`, `Reader`, and `Notes` milestones that now act as the wide-desktop regression baselines
+- a completed desktop-first redesign track across `Home`, `Graph`, `Reader`, `Notes`, and `Study`, with a Stage 368 hold-state checkpoint as the current active plan
+- a `Notes` workspace that now uses a clearer browse/detail stage, denser note browsing, and quieter context support on wide desktop while focused/narrow `Notes` inherit the same hierarchy
+- a Reader workspace that now uses a stronger text-first reading deck, calmer transport/header rhythm, and a docked source/notes support flow on both wide desktop and focused/narrow layouts
 - local import and parsing for TXT, Markdown, HTML, DOCX, and text-based PDF
 - public article-style webpage import that fetches once, stores a local HTML snapshot, and reopens from that snapshot
 - deterministic `Original` and `Reflowed` views
@@ -66,13 +74,63 @@ As of 2026-03-17, this workspace includes:
 - opt-in OpenAI `Simplify` and `Summary`
 - local library/search, reopen support, and persisted reader settings/progress
 - a calmer shared Recall shell with a slimmer left workspace rail, slimmer top bar, and lighter browse chrome
-- a browse-first Home landing with a compact inline utility/search header and a denser merged continuation flow that now carries materially farther through the tail before a later reveal footer row, plus search and add-source access
+- the March 17, 2026 Stage 213 pass completed the approved cross-surface UX correction across shell/Home/Graph/Study/Notes/Reader without changing current product behavior
+- the March 17, 2026 Stage 214 Windows Edge audit refreshed Home, Graph browse, Study browse, Notes browse/detail, Reader, and focused split-view captures and moved the next benchmark blocker to focused split-view balance rather than broad top-level coherence
+- the March 17, 2026 Stage 215 pass then compacted the focused source strip and rebalanced focused `Graph`, `Notes`, and `Study` support panes so the Reader stays more obviously primary in focused work
+- the March 17, 2026 Stage 216 Windows Edge audit then confirmed that the Stage 215 split-view rebalancing succeeded overall without disturbing the Stage 213 shell/Home/Reader gains, and narrowed the remaining mismatch to focused `Study` support-column weight
+- the March 17, 2026 Stage 217 pass then deflated focused `Study` by replacing the dashboard-like support stack with a calmer metadata glance, a tighter rating lane, and one selected evidence panel
+- the March 17, 2026 Stage 218 Windows Edge audit then confirmed that the focused `Study` correction succeeded overall without disturbing the Stage 215 reader-led split gains, and moved the next benchmark blocker back to `Home` collection selectivity and reopen hierarchy
+- the March 17, 2026 Stage 219 pass then made the default `Home` landing more selective by promoting one clearer primary reopen path, shortening the nearby continuation list, and keeping resume-focused reentry separate from the grouped reopen rows
+- the March 17, 2026 Stage 220 Windows Edge audit then confirmed that the default `Home` correction succeeded overall without disturbing the focused-source or Reader-led gains, while the paired Stage 219 expanded-Home capture narrowed the remaining mismatch to the expanded `Earlier` reveal state
+- the March 17, 2026 Stage 221 pass then rebalanced the expanded `Earlier` state by stacking the lead reopen card above the full revealed tail instead of stretching it beside a narrow archive ledger
+- the March 17, 2026 Stage 222 Windows Edge audit then confirmed that `Home` now stays calm in both collapsed and expanded states without disturbing the focused-source or Reader-led gains, and moved the next priority to the known narrower-width shell reflow regression
+- the March 17, 2026 Stage 223 pass then corrected the narrower-width Recall shell reflow by keeping the rail/topbar compact instead of letting them expand into a bulky wrapped top-grid panel below full desktop width
+- the March 17, 2026 Stage 224 Windows Edge audit then confirmed that the narrower-width shell correction succeeded overall without disturbing focused-source or Reader continuity, and moved the next priority to the Reader header/control stack at that same breakpoint
+- the March 17, 2026 Stage 225 pass then compressed the narrower-width Reader chrome stack by tightening the source-focused Reader cards, flattening the transport row, and reducing reading-header density without changing Reader behavior
+- the March 17, 2026 Stage 226 Windows Edge audit then confirmed that the narrower-width Reader chrome correction succeeded overall, and moved the next priority to the shared focused-source strip at that same breakpoint
+- the March 17, 2026 Stage 227 pass then compressed the shared narrower-width focused-source strip by restoring a tighter two-column strip grouping, reducing meta/tab density, and preserving sub-680 fallback behavior without changing source handoffs
+- the March 17, 2026 Stage 228 Windows Edge audit then confirmed that the shared strip correction succeeded overall, and moved the next priority to the narrower-width focused split beneath it, where `Notes`, `Graph`, and `Study` still feel too evenly three-column beside live reading
+- the March 17, 2026 Stage 229 pass then rebalanced that narrower-width focused split with a slimmer focused rail, a wider Reader column, and a tighter secondary panel so live reading stays more obviously primary at `820x980`
+- the March 17, 2026 Stage 230 Windows Edge audit then confirmed that the broader focused split correction succeeded overall, and moved the next priority to the remaining focused `Study` queue rail at that same breakpoint
+- the March 17, 2026 Stage 231 pass then deflated that narrower-width focused `Study` queue rail with a calmer closed rail, shorter utility labels, and tighter summary chrome while preserving current study behavior
+- the March 17, 2026 Stage 232 Windows Edge audit then confirmed that the focused `Study` rail correction succeeded overall, and moved the next priority to the remaining focused `Graph` detail panel at that same breakpoint
+- the March 17, 2026 Stage 233 pass then deflated that narrower-width focused `Graph` detail panel with shorter node actions, tighter stage spacing, and calmer selected-node summary chrome while preserving current graph behavior
+- the March 17, 2026 Stage 234 Windows Edge audit then confirmed that the focused `Graph` detail correction succeeded overall, and moved the next priority to the remaining focused `Study` active-card column at that same breakpoint
+- the March 17, 2026 Stage 235 pass then deflated that narrower-width focused `Study` active-card column with tighter active-card spacing, calmer metadata glance chrome, smaller reveal/rating controls, and earlier supporting-evidence entry while preserving current study behavior
+- the March 17, 2026 Stage 236 Windows Edge audit then confirmed that the focused `Study` active-card correction succeeded overall, and moved the next priority to the focused `Notes` empty-detail panel at that same breakpoint
+- the March 17, 2026 Stage 237 pass then deflated that narrower-width focused `Notes` empty-detail panel with a lighter empty-state shell, a tighter blank-state message, and reduced duplicate helper framing while preserving current notes behavior
+- the March 17, 2026 Stage 238 Windows Edge audit then confirmed that the focused `Notes` correction succeeded overall, and moved the next priority back to the focused `Graph` pre-mentions detail stack at that same breakpoint
+- the March 17, 2026 Stage 239 pass then flattened that narrower-width focused `Graph` detail stack by tightening selected-node summary chrome, removing empty stage panels, and letting mentions begin sooner while preserving current graph behavior
+- the March 17, 2026 Stage 240 Windows Edge audit then confirmed that the focused `Graph` detail-stack correction succeeded overall, and moved the next priority to the remaining focused `Study` active-card stack at that same breakpoint
+- the March 17, 2026 Stage 241 pass then flattened that narrower-width focused `Study` active-card stack by tightening the reveal card, delaying the rating row until reveal, and shortening the focused Reader handoff labels while preserving current study behavior
+- the March 17, 2026 Stage 242 Windows Edge audit then confirmed that the focused `Study` active-card-stack correction succeeded overall, and moved the next priority back to the focused `Graph` left rail at that same breakpoint
+- the March 17, 2026 Stage 243 pass then deflated that narrower-width focused `Graph` left rail by hiding the extra intro copy, tightening the Browse utility row, and shortening the selected-node summary card while preserving current graph behavior
+- the March 17, 2026 Stage 244 Windows Edge audit then confirmed that the focused `Graph` left-rail correction succeeded overall, and kept the next priority on the remaining focused `Graph` node-detail header stack at that same breakpoint
+- the March 17, 2026 Stage 245 pass then deflated that narrower-width focused `Graph` node-detail header by moving node type into compact meta chips, hiding redundant helper copy, and removing empty supplementary framing so `Mentions` starts sooner without changing graph behavior
+- the March 17, 2026 Stage 246 Windows Edge audit then confirmed that the focused `Graph` node-detail-header correction succeeded overall, and moved the next priority back to the focused `Study` right lane in bundled dominant-surface mode because prompt, reveal, and supporting-evidence chrome still stack too heavily beside Reader at `820x980`
+- the March 17, 2026 Stage 247 pass then bundled the focused `Study` right-lane corrections by grouping prompt and reveal into one review panel, grouping supporting evidence and grounding into one support panel, and flattening the active-card glance without changing study behavior
+- the March 17, 2026 Stage 248 Windows Edge audit then confirmed that the bundled focused `Study` correction succeeded overall, and moved the next priority to focused `Notes` because the empty `Note detail` state still reserves a mostly blank right column beside Reader at `820x980`
+- the March 17, 2026 Stage 249 pass then collapsed the focused `Notes` empty-detail lane by shifting the no-note guidance into the left rail and using a narrow-only focused-empty layout hook so Reader no longer shares space with a blank right column
+- the March 17, 2026 Stage 250 Windows Edge audit then confirmed that the focused `Notes` empty-detail correction succeeded overall, and moved the next priority to focused source overview because the left `Home` rail still feels slightly too wide and separate beside the summary canvas at `820x980`
+- the March 17, 2026 Stage 251 pass then deflated that focused overview rail with a narrower condensed layout hook, calmer summary-card chrome, and tighter narrow-only utility density so the summary canvas reads more clearly primary at `820x980`
+- the March 17, 2026 Stage 252 Windows Edge audit then confirmed that the focused overview correction succeeded overall, and moved the next priority back to focused `Study`, where the left queue utility row and highlighted refresh action still read louder than the neighboring focused rails beside Reader
+- the March 17, 2026 Stage 253 pass then flattened that focused `Study` left queue utility row with a calmer action treatment, smaller heading scale, and lighter summary chrome so the rail reads closer to the neighboring focused surfaces at `820x980`
+- the March 17, 2026 Stage 254 Windows Edge audit then confirmed that the focused `Study` left-rail correction succeeded overall, and moved the next priority back to focused `Graph`, where the `Node detail` decision row and selected-node header still read louder than the neighboring focused panels beside Reader
+- the March 17, 2026 Stage 255 pass then deflated that focused `Graph` `Node detail` decision row with calmer action-group chrome, softer confirm/reject emphasis, and lighter selected-node meta chips so the right lane settles sooner beside Reader
+- the March 17, 2026 Stage 256 Windows Edge audit then confirmed that the focused `Graph` decision-row correction succeeded overall, and moved the next priority back to focused `Study`, where the `Active card` header and prompt shell still read louder than the neighboring focused panels beside Reader
+- the March 17, 2026 Stage 257 pass then deflated that focused `Study` `Active card` header and prompt shell with calmer top-shell chrome, softer metadata chips, a lighter prompt card, and a tighter reveal row so the right lane settles sooner beside Reader
+- the March 17, 2026 Stage 258 Windows Edge audit then confirmed that the focused `Study` active-card-header correction succeeded overall, and moved the next priority to focused `Notes`, where the empty-state rail still spends too much height on helper copy and a full-size action stack beside Reader
+- the March 17, 2026 Stage 259 pass then deflated that focused `Notes` empty rail with a dedicated empty-rail hook, shorter helper copy, one browse affordance instead of a duplicated action stack, and calmer summary-card chrome so the left rail settles sooner beside Reader
+- the March 17, 2026 Stage 260 Windows Edge audit then confirmed that the focused `Notes` empty-rail correction succeeded overall, and kept the next priority on focused `Notes`, where the drawer-open empty browse state still spends too much height on helper copy, filters, and a blank-state card while `Note detail` remains mostly empty
+- the March 17, 2026 Stage 261 pass then deflated that focused `Notes` drawer-open empty browse state with a compact drawer-empty rail hook, tighter source/search controls, and a smaller no-notes card so the open browse state reads more transitional beside the empty detail panel
+- the March 17, 2026 Stage 262 Windows Edge audit then confirmed that the drawer-open focused `Notes` browse-state correction succeeded overall, and kept the next priority on focused `Notes`, where the still-mostly-empty drawer-open `Note detail` panel now stands out as the remaining narrow mismatch in that flow
+- a browse-first Home landing with a compact inline utility/search header, one clearer primary reopen path, and a calmer nearby continuation list before the optional expanded tail, plus search and add-source access
 - the fresh Stage 206 audit confirmed that Graph still led after the Stage 205 pass, while Home, Study, and focused Study matched Stage 205 exactly and the Graph rerender showed no material visual drift on review
 - the Stage 207 pass then collapsed the open selector strip header and demoted default node-peek header/meta framing so the Graph canvas stays less bracketed in browse mode
 - the Stage 208 audit then matched the full Stage 207 capture set without drift and confirmed that Graph still leads because the browse canvas remains bracketed by a standing left selector strip and a persistent right detail peek
 - the Stage 209 pass then narrowed the selector strip and reduced the default node-peek footprint so the Graph canvas keeps more of the page in browse mode
 - the Stage 210 audit then confirmed that Graph still leads because the selector strip still reads like a standing utility column and the default detail peek still brackets the canvas, while Home and focused Study matched Stage 209 exactly and Study rerendered without material visual drift
-- the roadmap is intentionally using bundled dominant-surface `Graph` convergence mode now, and the current next step is the bounded Stage 211 Graph browse-mode correction before the pre-staged Stage 212 audit
+- the roadmap now stays in a narrower benchmark-driven follow-up after the successful Stage 249 focused `Notes` empty-detail-lane collapse, and the current next step is the bounded Stage 251 narrower-width focused source-overview `Home`-rail deflation before the pre-staged Stage 252 audit
 - an add-source flow that now uses one clear `Add content` heading plus grouped `Paste text`, `Web page`, and `Choose file` modes inside the global dialog
 - a browse-mode `Graph` surface that now leads with a graph-first canvas, a lighter support rail, and a floating node-detail overlay with explicit `Focus source` and Reader handoffs
 - the browse-mode `Graph` surface now also uses a lighter inline intro note and a more compact selected-node evidence overlay so the canvas starts sooner and stays more dominant
@@ -658,14 +716,42 @@ As of 2026-03-17, this workspace includes:
 - 2026-03-17: completed the Stage 208 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that the full capture set matched Stage 207 without drift, verified that Graph still leads because the browse canvas remains bracketed by a standing selector strip and a persistent right detail peek, and opened Stage 209 with a pre-staged Stage 210 audit for the next bounded Graph browse-mode correction
 - 2026-03-17: completed Stage 209 by narrowing the open Graph selector strip and reducing the default selected-node peek footprint, validating with focused plus broad frontend coverage, lint/build, Stage 209/210 harness checks, and a fresh real Edge capture where Home, Study, and focused Study stayed byte-stable, and then promoted Stage 210 as the current benchmark audit
 - 2026-03-17: completed the Stage 210 benchmark audit against fresh Home, Graph, Study, and focused-Study captures, confirmed that Home and focused Study matched Stage 209 exactly, verified that the Study rerender did not introduce material visual drift, and kept Graph as the leading mismatch because the selector strip still reads like a standing utility column while the default detail peek still brackets the canvas
+- 2026-03-17: completed Stage 213 by delivering the approved cross-surface UX correction across shell/Home/Graph/Study/Notes/Reader, validating with targeted frontend coverage, lint/build, Stage 213/214 harness checks, and a fresh Windows Edge capture set, and then promoted Stage 214 as the current benchmark audit
+- 2026-03-17: completed the Stage 214 benchmark audit against fresh Home, Graph browse, Study browse, Notes browse/detail, Reader, and focused split-view captures, confirmed that the top-level shell/Home/Graph/Study/Notes/Reader hierarchy materially improved, and opened Stage 215 with a pre-staged Stage 216 audit because focused split-view balance now led the remaining mismatch list
+- 2026-03-17: completed Stage 215 by compacting the focused source strip, tightening the focused Reader chrome, and rebalancing focused `Graph`, `Notes`, and `Study` support panes, validating with focused frontend coverage, lint/build, Stage 215/216 harness syntax checks, and fresh Windows Edge captures, and then promoted Stage 216 as the current benchmark audit
+- 2026-03-17: completed the Stage 216 benchmark audit against fresh Home, focused source overview, focused `Graph`, focused `Study`, focused `Notes`, and Reader captures, confirmed that Stage 215 succeeded overall without destabilizing the Stage 213 shell/Home/Reader gains, and opened Stage 217 with a pre-staged Stage 218 audit because focused `Study` still reads too much like a co-equal dashboard beside the Reader
+- 2026-03-17: completed Stage 217 by deflating the focused `Study` support column into a calmer metadata-and-evidence rail, validating with focused frontend coverage, lint/build, Stage 217/218 harness syntax checks, and fresh Windows Edge captures, and then promoted Stage 218 as the current benchmark audit
+- 2026-03-17: completed the Stage 218 benchmark audit against fresh Home, focused source overview, focused `Graph`, focused `Study`, focused `Notes`, and Reader captures, confirmed that Stage 217 succeeded overall without destabilizing the Stage 215 reader-led split gains, and opened Stage 219 with a pre-staged Stage 220 audit because `Home` again reads too much like a flat archive wall
+- 2026-03-17: completed Stage 219 by making the default `Home` landing more selective with one clearer primary reopen path, a shorter nearby continuation list, and cleaner resume separation, validating with targeted frontend coverage, lint/build, Stage 219/220 harness checks, and fresh Windows Edge captures, and then promoted Stage 220 as the current benchmark audit
+- 2026-03-17: completed the Stage 220 benchmark audit against fresh Home, focused source overview, focused `Graph`, focused `Study`, focused `Notes`, and Reader captures, confirmed that Stage 219 succeeded overall without destabilizing the focused-source or Reader-led gains, and opened Stage 221 with a pre-staged Stage 222 audit because the paired Stage 219 expanded-Home capture still shows the `Earlier` reveal state as one tall lead card beside a narrow archive wall
+- 2026-03-17: completed Stage 221 by rebalancing the expanded `Earlier` Home state into a stacked lead-card-plus-tail flow, validating with targeted frontend coverage, lint/build, Stage 221/222 harness checks, and fresh Windows Edge captures, and then promoted Stage 222 as the current benchmark audit
+- 2026-03-17: completed the Stage 222 benchmark audit against fresh Home, expanded Home, focused source overview, focused `Graph`, focused `Study`, focused `Notes`, and Reader captures, confirmed that Stage 221 succeeded overall without destabilizing the focused-source or Reader-led gains, and opened Stage 223 with a pre-staged Stage 224 audit because the known narrower-width shell reflow regression now stands out as the next highest-leverage issue
+- 2026-03-17: completed Stage 223 by correcting the narrower-width Recall shell reflow through breakpoint-only shell/rail/topbar adjustments, validating with `App.test.tsx`, lint/build, Stage 223/224 harness checks, and fresh real Edge captures at `820x980`, and then promoted Stage 224 as the current benchmark audit
+- 2026-03-17: completed the Stage 224 narrower-width audit against refreshed Home, Graph, focused source-overview, and Reader captures, confirmed that the shell reflow correction succeeded overall, and opened Stage 225 plus pre-staged Stage 226 for a narrower-width Reader chrome compression follow-up
+- 2026-03-17: completed Stage 225 by compressing the narrower-width Reader chrome stack with tighter Reader-only source-strip density, a flatter transport row, and a slimmer reading header, validating with `ReaderSurface.test.tsx` plus `App.test.tsx`, lint/build, Stage 225/226 harness checks, and fresh real Edge captures at `820x980`, and then promoted Stage 226 as the current benchmark audit
+- 2026-03-17: completed the Stage 226 narrower-width Reader audit against refreshed top-state, overflow-open, and full-page Reader captures, confirmed that the Reader chrome compression succeeded overall, and opened Stage 227 plus pre-staged Stage 228 for the shared focused-source strip follow-up
+- 2026-03-17: completed Stage 227 by compressing the shared narrower-width focused-source strip with tighter spacing, denser meta/tab treatment, a restored two-column narrow grouping, and a sub-680 fallback, validating with `RecallShellFrame.test.tsx` plus `App.test.tsx`, lint/build, Stage 227/228 harness checks, an extra sub-680 screenshot sanity pass, and fresh real Edge captures at `820x980`, and then promoted Stage 228 as the current benchmark audit
+- 2026-03-17: completed the Stage 228 narrower-width focused-source audit against refreshed focused overview, Notes, Graph, Study, and Reader top-state captures, confirmed that the strip compression succeeded overall, and opened Stage 229 plus pre-staged Stage 230 for the narrower-width focused split rebalancing follow-up
+- 2026-03-17: completed Stage 229 by rebalancing the narrower-width focused split with a slimmer focused rail, a wider Reader column, and a tighter secondary panel at `820x980`, validating with `RecallWorkspace.stage34.test.tsx` plus `App.test.tsx`, lint/build, Stage 229/230 harness checks, and fresh real Edge captures, and then promoted Stage 230 as the current benchmark audit
+- 2026-03-17: completed the Stage 230 narrower-width focused split audit against refreshed focused overview, Notes, Graph, Study, and Reader top-state captures, confirmed that the broader focused split correction succeeded overall, and opened Stage 231 plus pre-staged Stage 232 for the remaining focused `Study` queue-rail deflation follow-up
+- 2026-03-17: completed Stage 231 by deflating the narrower-width focused `Study` queue rail with tighter closed-rail spacing, shorter utility labels, and calmer summary chrome, validating with `RecallWorkspace.stage34.test.tsx` plus `App.test.tsx`, lint/build, Stage 231/232 harness checks, and fresh real Edge captures, and then promoted Stage 232 as the current benchmark audit
+- 2026-03-17: completed the Stage 232 narrower-width focused `Study` audit against refreshed focused overview, Notes, Graph, Study, queue-open Study, and Reader top-state captures, confirmed that the focused `Study` rail correction succeeded overall, and opened Stage 233 plus pre-staged Stage 234 for the remaining focused `Graph` detail-panel deflation follow-up
+- 2026-03-17: completed Stage 233 by deflating the narrower-width focused `Graph` detail panel with tighter toolbar spacing, shorter node-action labels, and calmer selected-node summary chrome, validating with `RecallWorkspace.stage34.test.tsx` plus `App.test.tsx`, lint/build, Stage 233/234 harness checks, and fresh real Edge captures, and then promoted Stage 234 as the current benchmark audit
+- 2026-03-17: completed the Stage 234 narrower-width focused `Graph` audit against refreshed focused overview, Notes, Graph, Study, and Reader top-state captures, confirmed that the focused `Graph` detail correction succeeded overall, and opened Stage 235 plus pre-staged Stage 236 for the remaining focused `Study` active-card-column deflation follow-up
+- 2026-03-17: completed Stage 245 by deflating the narrower-width focused `Graph` node-detail header with a tighter header stack, compact meta treatment, and earlier `Mentions` entry, validating with `RecallWorkspace.stage34.test.tsx` plus `App.test.tsx`, lint/build, Stage 245/246 harness checks, and fresh real Edge captures, and then promoted Stage 246 as the current benchmark audit
+- 2026-03-17: completed the Stage 246 narrower-width focused audit against refreshed focused overview, Notes, Graph, Study, and Reader captures, confirmed that the focused `Graph` node-detail-header correction succeeded overall, and reopened bundled dominant-surface mode by opening Stage 247 plus pre-staged Stage 248 for the recurring focused `Study` right-lane follow-up
+- 2026-03-17: completed Stage 247 by bundling the narrower-width focused `Study` right-lane reductions with a grouped review panel, a grouped supporting-evidence panel, and flatter active-card glance framing, validating with `RecallWorkspace.stage34.test.tsx` plus `App.test.tsx`, lint/build, Stage 247/248 harness checks, and fresh real Edge captures, and then promoted Stage 248 as the current benchmark audit
+- 2026-03-17: completed the Stage 248 narrower-width focused audit against refreshed focused overview, Notes, Graph, Study, revealed Study, queue-open Study, and Reader captures, confirmed that the bundled focused `Study` correction succeeded overall, and opened Stage 249 plus pre-staged Stage 250 for the remaining focused `Notes` empty-detail-lane follow-up
+- 2026-03-17: completed Stage 249 by collapsing the narrower-width focused `Notes` empty-detail lane with a focused-empty layout hook and left-rail guidance, validating with `RecallWorkspace.stage34.test.tsx` plus `App.test.tsx`, lint/build, Stage 249/250 harness checks, and fresh real Edge captures, and then promoted Stage 250 as the current benchmark audit
+- 2026-03-17: completed the Stage 250 narrower-width focused audit against refreshed focused overview, Notes empty, Notes drawer-open, Graph, Study, and Reader captures, confirmed that the focused `Notes` empty-detail correction succeeded overall, and opened Stage 251 plus pre-staged Stage 252 for the remaining focused overview `Home`-rail follow-up
 
 ## Resume Checklist
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Read `docs/ux/recall_benchmark_matrix.md`, then open the current active Stage 211 ExecPlan named in this anchor: `docs/exec_plans/active/2026-03-17_stage211_recall_graph_selector_strip_utility_collapse_and_detail_peek_softening.md`.
+3. Read `docs/ux/recall_benchmark_matrix.md`, then open the current active Stage 368 ExecPlan named in this anchor: `docs/exec_plans/active/2026-03-19_stage368_all_surface_baseline_freeze_after_stage367.md`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
-6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while implementing the bounded Stage 211 Graph browse-mode follow-up.
-7. Use Stage 211 to collapse the remaining Graph selector-strip utility stack and soften the default detail peek while keeping Home, Study, and focused Study stable before the pre-staged Stage 212 audit.
+6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while holding the Stage 364 baseline set for `Home`, `Graph`, `Reader`, and `Notes`.
+7. Use Stage 368 as a hold-state checkpoint only: keep `Graph`, `Home`, `Reader`, `Notes`, and `Study` regression-only, do not restart the old micro-stage loop, and do not begin another redesign slice until the user explicitly chooses what to unlock next.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

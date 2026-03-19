@@ -3,10 +3,11 @@
 Use this folder as a lightweight routing layer. Do not treat it as the canonical source of product truth.
 
 ## Current Checkpoint
-- Active plan: `docs/exec_plans/active/2026-03-17_stage211_recall_graph_selector_strip_utility_collapse_and_detail_peek_softening.md`
-- Resume shortcut: `resume from Stage 211`
-- Current benchmark note: Stage 210 is complete; Graph still leads because the selector strip still reads like a standing utility column and the default detail peek still brackets the canvas, so Stage 211 now collapses the remaining utility stack and softens the default peek.
-- Deferred issue to revisit only when it becomes the highest-leverage blocker: the narrower-width Recall rail/top-grid reflow regression.
+- Active plan: `docs/exec_plans/active/2026-03-19_stage368_all_surface_baseline_freeze_after_stage367.md`
+- Resume shortcut: `resume from Stage 368`
+- Current benchmark note: the March 19, 2026 Stage 366/367 Study milestone succeeded overall, so `Graph`, `Home`, `Reader`, `Notes`, and `Study` are now the locked desktop regression baselines.
+- Workflow reset: keep the work desktop-first and broad, but do not open another redesign slice automatically now that the top-level surface track is complete.
+- Parked issue rule: all five top-level Recall surfaces stay regression-only until the user explicitly unlocks the next phase.
 
 ## Start Here
 1. `BUILD_BRIEF.md`
@@ -25,7 +26,9 @@ Use this folder as a lightweight routing layer. Do not treat it as the canonical
 - Keep AI opt-in and limited to `Simplify` and `Summary`.
 - Use targeted validation before broad sweeps.
 - Treat the benchmark matrix plus fresh screenshots as required when changing Recall shell or top-level surface UI.
-- In bundled dominant-surface mode, stay on the same leading surface through a small bundle before the next full benchmark audit; only switch surfaces sooner if a direct regression or fresh audit justifies it.
+- Treat wide-desktop before/after captures for the active section as required milestone artifacts, not optional polish.
+- Audits verify regressions; they do not reopen the old queue or silently start another redesign slice unless the user explicitly changes priorities or a catastrophic regression forces a detour.
+- Stale temp files, superseded screenshot harness files, dead CSS hooks, and other non-essential generated scaffolding may be deleted when they stop helping; do not let preserving obsolete files slow roadmap work down.
 - Prefer targeted component tests first, then use the broad `frontend/src/App.test.tsx` pass when shell or route continuity changes, and keep the repo-owned Edge screenshot harness as the visual truth source for Recall surface work.
 - If the broad `App.test.tsx` file ever appears to stall again, check for App-level callback identity churn and `ReaderWorkspace` effect loops before downgrading the whole-file suite; that was the root cause of the last real stall.
 - Keep push explicit.

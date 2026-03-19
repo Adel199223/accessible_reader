@@ -23,10 +23,11 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Reopens the last document and reading mode from browser-local storage, with backend last-session fallback when local state is missing.
 - Supports `Original`, `Reflowed`, `Simplified`, and `Summary` document modes.
 - Keeps `Original` and `Reflowed` local and deterministic.
+- Wide desktop `Reader` now uses a text-first reading deck with one calmer control ribbon and a docked source/notes support flow, and focused/narrow Reader inherits that same hierarchy.
 - Uses browser-native speech with sentence highlighting as the shipped read-aloud path.
 - Uses the shared `workspace.db` backend storage with reader-compatible routes kept stable.
 - Includes Recall keyword search, hybrid retrieval, graph review, study cards, Markdown export, source-linked notes, MV3 browser-context resurfacing, browser note capture, portability/export groundwork, and integrity/benchmark tooling.
-- Current UI execution mode is now bundled dominant-surface `Graph` convergence: keep early cross-surface audits while the lead blocker is still moving, but once one surface remains dominant across repeated audits and the defect is localized, batch 2-3 related fixes before the next full benchmark audit.
+- Current UI execution mode is now a post-milestone hold state: `Graph`, `Home`, `Reader`, `Notes`, and `Study` are all locked regression baselines after the Stage 366/367 audit, and there is no automatic next redesign target until the user explicitly unlocks one.
 
 ## Active Constraints
 - Windows Edge is the primary browser validation target.
