@@ -911,7 +911,7 @@ test('Recall retry recovers after a transient initial load failure', async () =>
         Boolean(
           element instanceof HTMLElement &&
             element.classList.contains('recall-home-toolbar-note') &&
-            element.textContent?.includes('Use New for imports and shell Search'),
+            element.textContent?.includes('Keep New and shell Search primary'),
         ),
     ),
   ).toBeInTheDocument()
@@ -973,7 +973,8 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   expect(screen.getByRole('list', { name: 'Graph metrics' })).toBeInTheDocument()
   expect(screen.queryByText('Last focused source')).not.toBeInTheDocument()
   expect(screen.queryByText('See the graph before you validate it.')).not.toBeInTheDocument()
-  expect(within(graphSurfaceIntro).getByText(/open one dock to inspect grounded evidence/i)).toBeInTheDocument()
+  expect(graphSurfaceIntro).toHaveTextContent(/attached/i)
+  expect(graphSurfaceIntro).toHaveTextContent(/tray/i)
   expect(screen.queryByRole('heading', { name: 'Quick picks', level: 3 })).not.toBeInTheDocument()
   expect(graphRail).toContainElement(graphGlance)
   expect(graphRail).toContainElement(quickPickList)
@@ -983,19 +984,21 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   expect(within(graphRail).getByText('Quick picks')).toBeInTheDocument()
   expect(within(graphRail).queryByText(/start from/i)).toBeNull()
   expect(within(graphRail).getByText(/2 mentions/i)).toBeInTheDocument()
-  expect(within(graphRail).getByText('Knowledge Graphs support Study Cards.')).toBeInTheDocument()
+  expect(graphRail.querySelector('.recall-graph-quick-pick-active')).toHaveAttribute(
+    'title',
+    'Knowledge Graphs support Study Cards.',
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Select node Knowledge Graphs' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand tray' })).toBeInTheDocument()
   })
 
   const nodeDetailSection = screen.getByLabelText('Node detail dock')
   expect(nodeDetailSection).not.toBeNull()
   expect(nodeDetailSection).toHaveClass('recall-graph-detail-dock')
   expect(nodeDetailSection).toHaveClass('recall-graph-detail-dock-peek')
-  expect(within(nodeDetailSection as HTMLElement).getByRole('list', { name: 'Selected node summary' })).toBeInTheDocument()
-  expect((nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-dock-glance')).not.toBeNull()
+  expect((nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-dock-meta-row')).not.toBeNull()
   expect((nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-card')).not.toBeNull()
   expect(within(nodeDetailSection as HTMLElement).queryByRole('list', { name: 'Selected node mentions' })).toBeNull()
   expect(within(nodeDetailSection as HTMLElement).queryByRole('list', { name: 'Selected node relations' })).toBeNull()
@@ -1006,14 +1009,14 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   expect(within(nodeDetailSection as HTMLElement).getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
   expect(within(nodeDetailSection as HTMLElement).getByText('Open source')).toBeInTheDocument()
 
-  fireEvent.click(within(nodeDetailSection as HTMLElement).getByRole('button', { name: 'Show detail' }))
+  fireEvent.click(within(nodeDetailSection as HTMLElement).getByRole('button', { name: 'Expand tray' }))
 
   await waitFor(() => {
-    expect(within(nodeDetailSection as HTMLElement).getByRole('button', { name: 'Peek only' })).toBeInTheDocument()
+    expect(within(nodeDetailSection as HTMLElement).getByRole('button', { name: 'Collapse tray' })).toBeInTheDocument()
   })
 
   expect(nodeDetailSection).toHaveClass('recall-graph-detail-dock-expanded')
-  expect(within(nodeDetailSection as HTMLElement).getByRole('list', { name: 'Selected node summary' })).toBeInTheDocument()
+  expect((nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-dock-meta-row')).not.toBeNull()
   const nodeToolbarActions = (nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-dock-actions')
   expect(nodeToolbarActions).not.toBeNull()
   expect(within(nodeToolbarActions as HTMLElement).getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
@@ -1026,7 +1029,7 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
     within(nodeDetailSection as HTMLElement).getAllByRole('button', { name: 'Open Search target only in Reader' }).length,
   ).toBeGreaterThan(0)
 
-  const relationsSectionLabel = within(nodeDetailSection as HTMLElement).getByText('Relations')
+  const relationsSectionLabel = within(nodeDetailSection as HTMLElement).getByText('Nearby relations')
   const relationsSection = relationsSectionLabel.closest('.recall-graph-detail-relations') as HTMLElement | null
   expect(relationsSection).not.toBeNull()
   expect(relationsList).toContainElement(relationsSection?.querySelector('.recall-graph-detail-relation-card') as HTMLElement | null)
@@ -1189,10 +1192,10 @@ test('returning from Reader restores the prior Recall section and selected graph
 
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Select node Study Cards' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand tray' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show detail' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Expand tray' }))
 
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
@@ -1217,7 +1220,7 @@ test('returning from Reader restores the prior Recall section and selected graph
     expect(window.location.pathname).toBe('/recall')
     expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Select node Study Cards' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand tray' })).toBeInTheDocument()
   })
 })
 
@@ -2287,10 +2290,10 @@ test('source-focused graph evidence retargets the embedded Reader without leavin
   fireEvent.click(screen.getByRole('button', { name: 'Select node Knowledge Graphs' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand tray' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show detail' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Expand tray' }))
 
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Focus source' })).toBeInTheDocument()

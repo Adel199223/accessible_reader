@@ -1039,6 +1039,11 @@ export function ReaderWorkspace({
       ? 'Keep note work, nearby sources, and Reader handoffs close without taking over the reading lane.'
       : 'This mode stays focused on reading; switch to Reflowed whenever you want to capture or reopen anchored notes in place.'
     : 'Saved sources and note work stay nearby here while the reading lane stays ready for the next document.'
+  const readerStageGlanceNote = noteCaptureActive
+    ? 'Capture stays in the dock so the text column does not split into separate work cards.'
+    : routeAnchorRange
+      ? 'Anchored evidence stays in view while the dock keeps source and notes close without becoming a second page.'
+      : 'Use shell Search or New to change sources; keep notes and library work tucked into the dock.'
   const showReaderGenerationAction = (activeMode === 'simplified' || activeMode === 'summary') && !view
   const libraryMetricLabel = documentsLoading
     ? 'Loading Home…'
@@ -1486,193 +1491,138 @@ export function ReaderWorkspace({
                 </div>
               </div>
 
-              <div className="reader-document-shell">
-                <div className="reader-toolbar reader-toolbar-stage">
-                  <div className="reader-toolbar-main">
-                    <div className="reader-meta-row" role="list" aria-label="Reader metadata">
-                      {readerStageMetadata.map((item) => (
-                        <span key={item} className="status-chip reader-meta-chip" role="listitem">
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {viewLoading ? <p className="placeholder">Loading view…</p> : null}
-                {selectedDocument && !view && !viewLoading && showReaderGenerationAction ? (
-                  <p className="placeholder placeholder-inline">
-                    {activeMode === 'simplified'
-                      ? 'No simplified view yet. Create simplified when you want it.'
-                      : 'No summary yet. Create summary when you want it.'}
-                  </p>
-                ) : null}
-                {view ? (
-                  <div className="reader-article-shell">
-                    <ReaderSurface
-                      labelledBy={readerTitleId}
-                      blocks={renderBlocks}
-                      activeSentenceIndex={speech.currentSentenceIndex}
-                      anchoredSentenceIndexes={anchoredSentenceIndexes}
-                      notedSentenceIndexes={noteHighlightIndexes}
-                      selectedSentenceIndexes={selectedSentenceIndexes}
-                      settings={settings}
-                      onSelectSentence={handleSelectSentence}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </section>
-          ) : (
-            <section className="card empty-state-card reader-empty-stage stack-gap">
-              <div className="toolbar">
-                <div className="section-header">
-                  <p className="eyebrow">{showUnavailableEmptyState ? 'Local service unavailable' : 'Ready when you are'}</p>
-                  <h2>{emptyStateTitle}</h2>
-                  <p>{emptyStateDescription}</p>
-                </div>
-                <button
-                  aria-controls="settings-drawer"
-                  aria-expanded={settingsOpen}
-                  className="ghost-button app-toolbar-button"
-                  type="button"
-                  onClick={() => setSettingsOpen((current) => !current)}
-                >
-                  <SettingsIcon />
-                  <span>Settings</span>
-                </button>
-              </div>
-              {showUnavailableEmptyState ? (
-                <>
-                  <div className="inline-actions">
-                    <button className="ghost-button" type="button" onClick={handleRetryReaderLoading}>
-                      Retry loading
-                    </button>
-                    <button type="button" onClick={onRequestNewSource}>
-                      New source
-                    </button>
-                  </div>
-                  <p className="small-note">
-                    The New action in the shell still works for local text, files, and public article links while Reader reconnects.
-                  </p>
-                </>
-              ) : (
-                <div className="empty-state-steps" role="list" aria-label="How to begin">
-                  <div className="empty-state-step" role="listitem">
-                    <strong>1. Add or reopen something</strong>
-                    <span>Use New for fresh sources, or reopen something from Home.</span>
-                  </div>
-                  <div className="empty-state-step" role="listitem">
-                    <strong>2. Read in calmer view</strong>
-                    <span>Reflowed opens first so spacing and line breaks stay easier to scan.</span>
-                  </div>
-                  <div className="empty-state-step" role="listitem">
-                    <strong>3. Keep context docked nearby</strong>
-                    <span>Use Search, Notes, and Source context without leaving the reading lane.</span>
-                  </div>
-                </div>
-              )}
-            </section>
-          )}
-        </main>
-
-        <aside className="reader-context-panel">
-          <section className="card reader-support-dock stack-gap priority-surface-support-rail priority-surface-support-rail-quiet">
-            <div className="reader-support-dock-header">
-              <div className="section-header section-header-compact reader-support-dock-copy">
-                <h2>Reader dock</h2>
-                <p>{readerDockSummary}</p>
-              </div>
-              {readerDockMetadata.length ? (
-                <div className="reader-meta-row reader-support-dock-meta" role="list" aria-label="Reader dock summary">
-                  {readerDockMetadata.map((item) => (
+              <div className="reader-stage-glance-bar">
+                <div className="reader-meta-row reader-stage-glance-meta" role="list" aria-label="Reader metadata">
+                  {readerStageMetadata.map((item) => (
                     <span key={item} className="status-chip reader-meta-chip" role="listitem">
                       {item}
                     </span>
                   ))}
                 </div>
-              ) : null}
-            </div>
-
-            <div className="recall-stage-tabs reader-support-tabs" aria-label="Reader context" role="tablist">
-              <button
-                aria-selected={readerContextTab === 'source'}
-                className={readerContextTab === 'source' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-                role="tab"
-                type="button"
-                onClick={() => setReaderContextTab('source')}
-              >
-                Source
-              </button>
-              <button
-                aria-selected={readerContextTab === 'notes'}
-                className={readerContextTab === 'notes' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-                role="tab"
-                type="button"
-                onClick={() => setReaderContextTab('notes')}
-              >
-                Notes
-              </button>
-            </div>
-
-            {readerContextTab === 'source' ? (
-              <div className="reader-support-pane reader-support-pane-source stack-gap">
-                <div className="reader-support-glance">
-                  {selectedDocument ? (
-                    <>
-                      <div className="reader-support-glance-copy">
-                        <strong>Active source</strong>
-                        <p className="reader-support-glance-title">{selectedDocument.title}</p>
-                        <p>{selectedDocument.file_name ?? 'Saved locally in Recall.'}</p>
-                      </div>
-                      <p className="small-note reader-support-glance-note">
-                        Use shell Search or New when you want another source; the dock keeps nearby reopen options visible here.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="reader-support-glance-copy">
-                        <strong>Ready for the next source</strong>
-                        <p className="reader-support-glance-title">Bring one source into focus</p>
-                        <p>Use the shell Search or New actions to open another document without leaving Recall.</p>
-                      </div>
-                    </>
-                  )}
-                </div>
-              <LibraryPane
-                activeDocumentId={activeDocumentId}
-                deletingDocumentId={deletingDocumentId}
-                documents={documents}
-                embedded
-                errorMessage={libraryErrorMessage}
-                hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
-                open={libraryOpen}
-                loading={documentsLoading}
-                searchPlaceholder="Search saved sources"
-                searchValue={search}
-                title="Source library"
-                onDelete={handleDeleteDocument}
-                onSearchChange={setSearch}
-                onSelect={(document) => {
-                  speech.stop()
-                  setRouteAnchorRange(null)
-                  resetNoteComposer()
-                  startTransition(() => {
-                    setActiveDocument(document)
-                    setActiveDocumentId(document.id)
-                    setActiveMode('reflowed')
-                  })
-                }}
-                onToggleOpen={() => setLibraryOpen((current) => !current)}
-              />
-              <p className="sidebar-footnote">
-                {health?.openai_configured
-                  ? 'Simplify and Summary stay available as optional Recall transforms.'
-                  : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
-              </p>
+                <p className="reader-stage-glance-note">{readerStageGlanceNote}</p>
               </div>
-            ) : (
-              <section className="reader-support-pane reader-support-pane-notes stack-gap reader-notes-panel">
+              <div className="reader-reading-deck-layout">
+                <div className="reader-document-shell reader-reading-lane">
+                  {viewLoading ? <p className="placeholder">Loading view…</p> : null}
+                  {selectedDocument && !view && !viewLoading && showReaderGenerationAction ? (
+                    <p className="placeholder placeholder-inline">
+                      {activeMode === 'simplified'
+                        ? 'No simplified view yet. Create simplified when you want it.'
+                        : 'No summary yet. Create summary when you want it.'}
+                    </p>
+                  ) : null}
+                  {view ? (
+                    <div className="reader-article-shell">
+                      <ReaderSurface
+                        labelledBy={readerTitleId}
+                        blocks={renderBlocks}
+                        activeSentenceIndex={speech.currentSentenceIndex}
+                        anchoredSentenceIndexes={anchoredSentenceIndexes}
+                        notedSentenceIndexes={noteHighlightIndexes}
+                        selectedSentenceIndexes={selectedSentenceIndexes}
+                        settings={settings}
+                        onSelectSentence={handleSelectSentence}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+
+                <section className="card reader-support-dock stack-gap priority-surface-support-rail priority-surface-support-rail-quiet">
+                  <div className="reader-support-dock-header">
+                    <div className="section-header section-header-compact reader-support-dock-copy">
+                      <h2>Reader dock</h2>
+                      <p>{readerDockSummary}</p>
+                    </div>
+                    {readerDockMetadata.length ? (
+                      <div className="reader-meta-row reader-support-dock-meta" role="list" aria-label="Reader dock summary">
+                        {readerDockMetadata.map((item) => (
+                          <span key={item} className="status-chip reader-meta-chip" role="listitem">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="recall-stage-tabs reader-support-tabs" aria-label="Reader context" role="tablist">
+                    <button
+                      aria-selected={readerContextTab === 'source'}
+                      className={readerContextTab === 'source' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                      role="tab"
+                      type="button"
+                      onClick={() => setReaderContextTab('source')}
+                    >
+                      Source
+                    </button>
+                    <button
+                      aria-selected={readerContextTab === 'notes'}
+                      className={readerContextTab === 'notes' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                      role="tab"
+                      type="button"
+                      onClick={() => setReaderContextTab('notes')}
+                    >
+                      Notes
+                    </button>
+                  </div>
+
+                  {readerContextTab === 'source' ? (
+                    <div className="reader-support-pane reader-support-pane-source stack-gap">
+                      <div className="reader-support-glance">
+                        {selectedDocument ? (
+                          <>
+                            <div className="reader-support-glance-copy">
+                              <strong>Active source</strong>
+                              <p className="reader-support-glance-title">{selectedDocument.title}</p>
+                              <p>{selectedDocument.file_name ?? 'Saved locally in Recall.'}</p>
+                            </div>
+                            <p className="small-note reader-support-glance-note">
+                              Use shell Search or New when you want another source; the dock keeps nearby reopen options visible here.
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <div className="reader-support-glance-copy">
+                              <strong>Ready for the next source</strong>
+                              <p className="reader-support-glance-title">Bring one source into focus</p>
+                              <p>Use the shell Search or New actions to open another document without leaving Recall.</p>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <LibraryPane
+                        activeDocumentId={activeDocumentId}
+                        deletingDocumentId={deletingDocumentId}
+                        documents={documents}
+                        embedded
+                        errorMessage={libraryErrorMessage}
+                        hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
+                        open={libraryOpen}
+                        loading={documentsLoading}
+                        searchPlaceholder="Search saved sources"
+                        searchValue={search}
+                        title="Source library"
+                        onDelete={handleDeleteDocument}
+                        onSearchChange={setSearch}
+                        onSelect={(document) => {
+                          speech.stop()
+                          setRouteAnchorRange(null)
+                          resetNoteComposer()
+                          startTransition(() => {
+                            setActiveDocument(document)
+                            setActiveDocumentId(document.id)
+                            setActiveMode('reflowed')
+                          })
+                        }}
+                        onToggleOpen={() => setLibraryOpen((current) => !current)}
+                      />
+                      <p className="sidebar-footnote">
+                        {health?.openai_configured
+                          ? 'Simplify and Summary stay available as optional Recall transforms.'
+                          : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <section className="reader-support-pane reader-support-pane-notes stack-gap reader-notes-panel">
               <div className="toolbar">
                 <div className="section-header section-header-compact">
                   <h3>Notes</h3>
@@ -1766,11 +1716,11 @@ export function ReaderWorkspace({
                       <small>{note.anchor.excerpt_text}</small>
                     </button>
                   ))}
-                </div>
-              ) : null}
+                  </div>
+                ) : null}
 
-              {!noteCaptureActive && activeReaderNote ? (
-                <section className="reader-note-workbench stack-gap" aria-label="Selected note">
+                    {!noteCaptureActive && activeReaderNote ? (
+                      <section className="reader-note-workbench stack-gap" aria-label="Selected note">
                   <div className="toolbar">
                     <div className="section-header section-header-compact">
                       <h3>Selected note</h3>
@@ -1926,12 +1876,65 @@ export function ReaderWorkspace({
                       </div>
                     </div>
                   ) : null}
+                      </section>
+                    ) : null}
+                    </section>
+                  )}
                 </section>
-              ) : null}
-              </section>
-            )}
-          </section>
-        </aside>
+              </div>
+            </section>
+          ) : (
+            <section className="card empty-state-card reader-empty-stage stack-gap">
+              <div className="toolbar">
+                <div className="section-header">
+                  <p className="eyebrow">{showUnavailableEmptyState ? 'Local service unavailable' : 'Ready when you are'}</p>
+                  <h2>{emptyStateTitle}</h2>
+                  <p>{emptyStateDescription}</p>
+                </div>
+                <button
+                  aria-controls="settings-drawer"
+                  aria-expanded={settingsOpen}
+                  className="ghost-button app-toolbar-button"
+                  type="button"
+                  onClick={() => setSettingsOpen((current) => !current)}
+                >
+                  <SettingsIcon />
+                  <span>Settings</span>
+                </button>
+              </div>
+              {showUnavailableEmptyState ? (
+                <>
+                  <div className="inline-actions">
+                    <button className="ghost-button" type="button" onClick={handleRetryReaderLoading}>
+                      Retry loading
+                    </button>
+                    <button type="button" onClick={onRequestNewSource}>
+                      New source
+                    </button>
+                  </div>
+                  <p className="small-note">
+                    The New action in the shell still works for local text, files, and public article links while Reader reconnects.
+                  </p>
+                </>
+              ) : (
+                <div className="empty-state-steps" role="list" aria-label="How to begin">
+                  <div className="empty-state-step" role="listitem">
+                    <strong>1. Add or reopen something</strong>
+                    <span>Use New for fresh sources, or reopen something from Home.</span>
+                  </div>
+                  <div className="empty-state-step" role="listitem">
+                    <strong>2. Read in calmer view</strong>
+                    <span>Reflowed opens first so spacing and line breaks stay easier to scan.</span>
+                  </div>
+                  <div className="empty-state-step" role="listitem">
+                    <strong>3. Keep context docked nearby</strong>
+                    <span>Use Search, Notes, and Source context without leaving the reading lane.</span>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+        </main>
       </div>
       <SettingsPanel
         key={`settings-${settingsOpen ? 'open' : 'closed'}-${activeDocumentId ?? 'empty'}`}

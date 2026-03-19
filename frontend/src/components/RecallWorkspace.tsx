@@ -1221,7 +1221,6 @@ export function RecallWorkspace({
         .filter((section) => section.count > 0),
     [homeExcludedDocumentId, libraryBrowseSections],
   )
-  const homeWorkspaceSectionLeadCount = homeWorkspaceSectionCounts[0]?.count ?? 0
   const homeWorkspaceLibrarySections = useMemo(() => {
     if (libraryFilterActive) {
       return []
@@ -1253,6 +1252,34 @@ export function RecallWorkspace({
     homeSecondaryLibrarySections,
     libraryFilterActive,
   ])
+  const homeStageLibrarySection = homeWorkspaceLibrarySections[0] ?? null
+  const homeStageLibraryDocuments = useMemo(() => {
+    if (!homeStageLibrarySection) {
+      return []
+    }
+    return homeStageLibrarySection.documents.slice(0, 4)
+  }, [homeStageLibrarySection])
+  const homeRemainingLibrarySections = useMemo(() => {
+    if (libraryFilterActive || homeWorkspaceLibrarySections.length === 0) {
+      return []
+    }
+    if (!homeStageLibrarySection || homeStageLibraryDocuments.length === 0) {
+      return homeWorkspaceLibrarySections
+    }
+
+    const stagedDocumentIds = new Set(homeStageLibraryDocuments.map((document) => document.id))
+
+    return homeWorkspaceLibrarySections
+      .map((section) =>
+        section.key === homeStageLibrarySection.key
+          ? {
+              ...section,
+              documents: section.documents.filter((document) => !stagedDocumentIds.has(document.id)),
+            }
+          : section,
+      )
+      .filter((section) => section.documents.length > 0)
+  }, [homeStageLibraryDocuments, homeStageLibrarySection, homeWorkspaceLibrarySections, libraryFilterActive])
   const homeWorkspaceLeadLabel = resumeSourceDocument ? 'Continue where you left off' : 'Open next'
   const homeWorkspaceLeadSummary =
     documentsStatus === 'error'
@@ -2866,12 +2893,38 @@ export function RecallWorkspace({
     )
   }
 
-  function renderHomeLibrarySection(section: LibraryBrowseSection) {
+  function renderHomeLibraryStageRow(document: RecallDocumentRecord) {
+    const updatedLabel = homeDateFormatter.format(new Date(document.updated_at))
+    const availableViewLabel = `${document.available_modes.length} ${document.available_modes.length === 1 ? 'view' : 'views'} ready`
+
+    return (
+      <button
+        aria-label={`Open ${document.title}`}
+        className="recall-home-library-stage-row"
+        key={`stage:${document.id}`}
+        type="button"
+        onClick={() => focusSourceLibrary(document.id)}
+      >
+        <span className="recall-home-library-stage-row-copy">
+          <span className="recall-library-row-overline">{document.source_type.toUpperCase()}</span>
+          <strong>{document.title}</strong>
+          <span>{getDocumentSourcePreview(document)}</span>
+        </span>
+        <span className="recall-home-library-stage-row-meta">
+          <span>{updatedLabel}</span>
+          <span>{availableViewLabel}</span>
+        </span>
+      </button>
+    )
+  }
+
+  function renderHomeLibrarySection(section: LibraryBrowseSection, options?: { stream?: boolean }) {
     const displayLimit = getHomeWorkspaceSectionDisplayLimit(section.key)
     const visibleSectionDocuments = expandedLibrarySectionKeys[section.key]
       ? section.documents
       : section.documents.slice(0, displayLimit)
     const isWideSection = section.key === 'earlier'
+    const isStreamSection = options?.stream ?? false
 
     return (
       <section
@@ -2879,6 +2932,7 @@ export function RecallWorkspace({
         className={[
           'recall-home-library-card',
           isWideSection ? 'recall-home-library-card-wide' : '',
+          isStreamSection ? 'recall-home-library-card-stream' : '',
         ]
           .filter(Boolean)
           .join(' ')}
@@ -3098,22 +3152,28 @@ export function RecallWorkspace({
     ]
       .filter(Boolean)
       .join(' · ')
+    const graphDetailCountSummary = selectedNodeDetail
+      ? [
+          formatCountLabel(selectedNodeSourceDocumentCount, 'source doc', 'source docs'),
+          formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions'),
+          formatCountLabel(selectedNodeEdges.length, 'relation', 'relations'),
+        ].join(' · ')
+      : null
     const graphDetailSelectedNodeCopy = selectedNodeDetail
-      ? selectedNodeDetail.node.description ??
-        'Start with one grounded clue, then continue through grouped evidence and nearby relations only when you need more context.'
+      ? `${graphDetailCountSummary}. Start with one grounded clue, then expand the tray only when you need grouped continuation and nearby relations.`
       : 'Loading grounded evidence.'
 
     if (!selectedNodeDetail && !nodeDetailLoading) {
       return (
         <section
           aria-label="Node detail dock"
-          className="recall-graph-detail-dock recall-graph-detail-dock-empty priority-surface-support-rail priority-surface-support-rail-strong"
+          className="recall-graph-detail-dock recall-graph-detail-dock-tray recall-graph-detail-dock-empty priority-surface-support-rail priority-surface-support-rail-strong"
         >
           <div className="recall-graph-detail-dock-header">
             <div className="recall-graph-detail-dock-heading">
-              <span className="recall-graph-detail-dock-kicker">Node detail</span>
-              <h3>Choose a node</h3>
-              <p>Select one node from the canvas or the utility strip to inspect a grounded clue, grouped evidence, and nearby relations.</p>
+              <span className="recall-graph-detail-dock-kicker">Inspect</span>
+              <h3>Choose one node</h3>
+              <p>Pick from the canvas or the filter strip to open one attached clue tray instead of a separate detail page.</p>
             </div>
           </div>
         </section>
@@ -3126,44 +3186,39 @@ export function RecallWorkspace({
         className={
           selectedNodeDetail
             ? graphDetailExpanded
-              ? 'recall-graph-detail-dock recall-graph-detail-dock-expanded priority-surface-support-rail priority-surface-support-rail-strong'
-              : 'recall-graph-detail-dock recall-graph-detail-dock-peek priority-surface-support-rail priority-surface-support-rail-strong'
-            : 'recall-graph-detail-dock recall-graph-detail-dock-empty priority-surface-support-rail priority-surface-support-rail-strong'
+              ? 'recall-graph-detail-dock recall-graph-detail-dock-tray recall-graph-detail-dock-expanded priority-surface-support-rail priority-surface-support-rail-strong'
+              : 'recall-graph-detail-dock recall-graph-detail-dock-tray recall-graph-detail-dock-peek priority-surface-support-rail priority-surface-support-rail-strong'
+            : 'recall-graph-detail-dock recall-graph-detail-dock-tray recall-graph-detail-dock-empty priority-surface-support-rail priority-surface-support-rail-strong'
         }
       >
         <div className="recall-graph-detail-dock-header">
           <div className="recall-graph-detail-dock-heading">
-            <span className="recall-graph-detail-dock-kicker">Node detail</span>
-            <h3>{selectedNodeDetail ? selectedNodeDetail.node.label : 'Loading node detail'}</h3>
+            <div className="recall-graph-detail-dock-topline">
+              <div className="recall-graph-detail-dock-title-group">
+                <span className="recall-graph-detail-dock-kicker">Inspect</span>
+                <h3>{selectedNodeDetail ? selectedNodeDetail.node.label : 'Loading node detail'}</h3>
+              </div>
+              {selectedNodeDetail ? (
+                <span className="recall-graph-detail-dock-meta-inline">
+                  {selectedNodeDetail.node.node_type} · {Math.round(selectedNodeDetail.node.confidence * 100)}% confidence
+                </span>
+              ) : null}
+            </div>
+            {selectedNodeDetail ? (
+              <div className="recall-graph-detail-dock-meta-row">
+                <span className="status-chip recall-graph-detail-dock-chip-status">{selectedNodeDetail.node.status}</span>
+                {graphDetailCountSummary ? (
+                  <span className="recall-graph-detail-dock-meta-inline">{graphDetailCountSummary}</span>
+                ) : null}
+              </div>
+            ) : null}
             <p>{selectedNodeDetail ? graphDetailSelectedNodeCopy : 'Loading source-grounded graph evidence.'}</p>
           </div>
-          {selectedNodeDetail ? (
-            <div className="recall-hero-metrics recall-graph-detail-dock-glance" role="list" aria-label="Selected node summary">
-              <span className="status-chip recall-graph-detail-dock-chip-status" role="listitem">
-                {selectedNodeDetail.node.status}
-              </span>
-              <span className="status-chip status-muted" role="listitem">
-                {selectedNodeDetail.node.node_type}
-              </span>
-              <span className="status-chip status-muted" role="listitem">
-                {Math.round(selectedNodeDetail.node.confidence * 100)}% confidence
-              </span>
-              <span className="status-chip status-muted" role="listitem">
-                {formatCountLabel(selectedNodeSourceDocumentCount, 'source doc', 'source docs')}
-              </span>
-              <span className="status-chip status-muted" role="listitem">
-                {formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions')}
-              </span>
-              <span className="status-chip status-muted" role="listitem">
-                {formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')}
-              </span>
-            </div>
-          ) : null}
           {selectedNodeDetail ? (
             <div className="recall-actions recall-actions-inline recall-graph-detail-dock-actions">
               {!graphDetailExpanded ? (
                 <button type="button" onClick={() => setGraphDetailPeekOpen(true)}>
-                  Show detail
+                  Expand tray
                 </button>
               ) : (
                 <>
@@ -3209,7 +3264,7 @@ export function RecallWorkspace({
                   type="button"
                   onClick={() => setGraphDetailPeekOpen(false)}
                 >
-                  Peek only
+                  Collapse tray
                 </button>
               ) : null}
             </div>
@@ -3254,151 +3309,155 @@ export function RecallWorkspace({
                 ) : null}
               </article>
 
-              {graphDetailExpanded && continuationSourceRuns.length ? (
-                <section className="recall-graph-detail-follow-on">
-                  <div className="recall-graph-detail-follow-on-header">
-                    <div className="section-header section-header-compact">
-                      <h3>More evidence</h3>
-                      <p>Grouped continuation keeps same-source evidence nearby without turning the dock into a ledger.</p>
-                    </div>
-                    <div className="recall-graph-detail-follow-on-header-actions">
-                      {graphDetailFollowOnSummary ? (
-                        <span className="recall-graph-detail-follow-on-summary">{graphDetailFollowOnSummary}</span>
-                      ) : null}
-                      {continuationSourceRuns.length > 2 ? (
-                        <button
-                          className="ghost-button"
-                          type="button"
-                          onClick={() => setGraphDetailMentionsExpanded((current) => !current)}
-                        >
-                          {graphDetailMentionsExpanded ? 'Show less' : `Show all ${continuationSourceRuns.length}`}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="recall-graph-detail-follow-on-groups" role="list" aria-label="Selected node mentions">
-                    {visibleContinuationSourceRuns.map((sourceRun) => {
-                      const leadExcerpt = sourceRun.mentions[0]?.excerpt ?? 'Grounded evidence available.'
-                      return (
-                        <article
-                          key={`graph-follow-on:${sourceRun.startIndex}:${sourceRun.documentTitle}`}
-                          className={
-                            sourceRun.continuesPrimarySource
-                              ? 'recall-graph-detail-follow-on-group recall-graph-detail-follow-on-group-same-source'
-                              : 'recall-graph-detail-follow-on-group'
-                          }
-                          role="listitem"
-                        >
-                          <div className="recall-graph-detail-follow-on-group-header">
-                            <strong>{sourceRun.continuesPrimarySource ? 'Same source' : sourceRun.documentTitle}</strong>
-                            <span>{formatCountLabel(sourceRun.mentions.length, 'mention', 'mentions')}</span>
-                          </div>
-                          <p className="recall-graph-detail-follow-on-group-copy">{leadExcerpt}</p>
-                          {graphDetailMentionsExpanded && sourceRun.mentions.length > 1 ? (
-                            <div className="recall-graph-detail-follow-on-group-list">
-                              {sourceRun.mentions.slice(1).map((mention) => (
-                                <span key={mention.id} className="recall-graph-detail-follow-on-group-list-item">
-                                  {mention.excerpt}
-                                </span>
-                              ))}
-                            </div>
-                          ) : sourceRun.mentions.length > 1 ? (
-                            <span className="recall-graph-detail-follow-on-group-note">
-                              +{sourceRun.mentions.length - 1} more from this source
-                            </span>
+              {graphDetailExpanded && (continuationSourceRuns.length || selectedNodeEdges.length) ? (
+                <div className="recall-graph-detail-secondary-stack">
+                  {continuationSourceRuns.length ? (
+                    <section className="recall-graph-detail-follow-on">
+                      <div className="recall-graph-detail-follow-on-header">
+                        <div className="section-header section-header-compact">
+                          <h3>Continuation</h3>
+                          <p>Grouped by source so the tray stays readable.</p>
+                        </div>
+                        <div className="recall-graph-detail-follow-on-header-actions">
+                          {graphDetailFollowOnSummary ? (
+                            <span className="recall-graph-detail-follow-on-summary">{graphDetailFollowOnSummary}</span>
                           ) : null}
-                          {sourceRun.sourceDocumentId ? (
-                            <div className="recall-actions recall-actions-inline recall-graph-detail-follow-on-group-actions">
-                              <button
-                                className="ghost-button"
-                                type="button"
-                                onClick={() => handleOpenDocumentInReader(sourceRun.sourceDocumentId as string)}
-                              >
-                                Open source
-                              </button>
-                            </div>
-                          ) : null}
-                        </article>
-                      )
-                    })}
-                    {hiddenContinuationSourceRunCount > 0 ? (
-                      <div className="recall-graph-detail-follow-on-remainder" role="listitem">
-                        {formatCountLabel(hiddenContinuationSourceRunCount, 'more grouped source run', 'more grouped source runs')} hidden until you expand them.
-                      </div>
-                    ) : null}
-                  </div>
-                </section>
-              ) : null}
-
-              {graphDetailExpanded && selectedNodeEdges.length ? (
-                <section className="recall-graph-detail-relations">
-                  <div className="recall-graph-detail-follow-on-header">
-                    <div className="section-header section-header-compact">
-                      <h3>Relations</h3>
-                      <p>Nearby inferred links stay attached as one quieter continuation area beneath the grounded evidence flow.</p>
-                    </div>
-                    <div className="recall-graph-detail-follow-on-header-actions">
-                      <span className="recall-graph-detail-follow-on-summary">
-                        {formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')}
-                      </span>
-                      {selectedNodeEdges.length > 2 ? (
-                        <button
-                          className="ghost-button"
-                          type="button"
-                          onClick={() => setGraphDetailRelationsExpanded((current) => !current)}
-                        >
-                          {graphDetailRelationsExpanded ? 'Show less' : `Show all ${selectedNodeEdges.length}`}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="recall-search-results recall-graph-detail-relation-list" role="list" aria-label="Selected node relations">
-                    {visibleRelations.map((edge) => (
-                      <div
-                        key={`${selectedNodeDetail.node.id}:${edge.id}`}
-                        className="recall-search-hit recall-edge-card recall-evidence-card recall-graph-detail-relation-card"
-                        role="listitem"
-                      >
-                        <span className="recall-collection-row-head">
-                          <strong>{edge.source_label} {formatRelationLabel(edge.relation_type)} {edge.target_label}</strong>
-                          <span>{Math.round(edge.confidence * 100)}%</span>
-                        </span>
-                        {edge.excerpt ? <span className="recall-collection-row-preview">{edge.excerpt}</span> : null}
-                        <span className="recall-collection-row-meta">
-                          <span className="status-chip">{edge.status}</span>
-                          <span className="status-chip">{edge.provenance}</span>
-                          <span className="status-chip">{formatCountLabel(edge.evidence_count, 'evidence span', 'evidence spans')}</span>
-                        </span>
-                        <div className="recall-actions recall-actions-inline">
-                          <button
-                            disabled={graphBusyKey === `edge:${edge.id}:confirmed`}
-                            type="button"
-                            onClick={() => handleDecideEdge(edge, 'confirmed')}
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            className="ghost-button"
-                            disabled={graphBusyKey === `edge:${edge.id}:rejected`}
-                            type="button"
-                            onClick={() => handleDecideEdge(edge, 'rejected')}
-                          >
-                            Reject
-                          </button>
-                          {edge.source_document_ids[0] ? (
+                          {continuationSourceRuns.length > 2 ? (
                             <button
                               className="ghost-button"
                               type="button"
-                              onClick={() => handleOpenEdgeInReader(edge)}
+                              onClick={() => setGraphDetailMentionsExpanded((current) => !current)}
                             >
-                              {buildOpenReaderLabel(documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source')}
+                              {graphDetailMentionsExpanded ? 'Show less' : `Show all ${continuationSourceRuns.length}`}
                             </button>
                           ) : null}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </section>
+                      <div className="recall-graph-detail-follow-on-groups" role="list" aria-label="Selected node mentions">
+                        {visibleContinuationSourceRuns.map((sourceRun) => {
+                          const leadExcerpt = sourceRun.mentions[0]?.excerpt ?? 'Grounded evidence available.'
+                          return (
+                            <article
+                              key={`graph-follow-on:${sourceRun.startIndex}:${sourceRun.documentTitle}`}
+                              className={
+                                sourceRun.continuesPrimarySource
+                                  ? 'recall-graph-detail-follow-on-group recall-graph-detail-follow-on-group-same-source'
+                                  : 'recall-graph-detail-follow-on-group'
+                              }
+                              role="listitem"
+                            >
+                              <div className="recall-graph-detail-follow-on-group-header">
+                                <strong>{sourceRun.continuesPrimarySource ? 'Same source' : sourceRun.documentTitle}</strong>
+                                <span>{formatCountLabel(sourceRun.mentions.length, 'mention', 'mentions')}</span>
+                              </div>
+                              <p className="recall-graph-detail-follow-on-group-copy">{leadExcerpt}</p>
+                              {graphDetailMentionsExpanded && sourceRun.mentions.length > 1 ? (
+                                <div className="recall-graph-detail-follow-on-group-list">
+                                  {sourceRun.mentions.slice(1).map((mention) => (
+                                    <span key={mention.id} className="recall-graph-detail-follow-on-group-list-item">
+                                      {mention.excerpt}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : sourceRun.mentions.length > 1 ? (
+                                <span className="recall-graph-detail-follow-on-group-note">
+                                  +{sourceRun.mentions.length - 1} more from this source
+                                </span>
+                              ) : null}
+                              {sourceRun.sourceDocumentId ? (
+                                <div className="recall-actions recall-actions-inline recall-graph-detail-follow-on-group-actions">
+                                  <button
+                                    className="ghost-button"
+                                    type="button"
+                                    onClick={() => handleOpenDocumentInReader(sourceRun.sourceDocumentId as string)}
+                                  >
+                                    Open source
+                                  </button>
+                                </div>
+                              ) : null}
+                            </article>
+                          )
+                        })}
+                        {hiddenContinuationSourceRunCount > 0 ? (
+                          <div className="recall-graph-detail-follow-on-remainder" role="listitem">
+                            {formatCountLabel(hiddenContinuationSourceRunCount, 'more grouped source run', 'more grouped source runs')} hidden until you expand them.
+                          </div>
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {selectedNodeEdges.length ? (
+                    <section className="recall-graph-detail-relations">
+                      <div className="recall-graph-detail-follow-on-header">
+                        <div className="section-header section-header-compact">
+                          <h3>Nearby relations</h3>
+                          <p>Links stay attached beneath the main clue instead of becoming a separate stage.</p>
+                        </div>
+                        <div className="recall-graph-detail-follow-on-header-actions">
+                          <span className="recall-graph-detail-follow-on-summary">
+                            {formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')}
+                          </span>
+                          {selectedNodeEdges.length > 2 ? (
+                            <button
+                              className="ghost-button"
+                              type="button"
+                              onClick={() => setGraphDetailRelationsExpanded((current) => !current)}
+                            >
+                              {graphDetailRelationsExpanded ? 'Show less' : `Show all ${selectedNodeEdges.length}`}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="recall-search-results recall-graph-detail-relation-list" role="list" aria-label="Selected node relations">
+                        {visibleRelations.map((edge) => (
+                          <div
+                            key={`${selectedNodeDetail.node.id}:${edge.id}`}
+                            className="recall-search-hit recall-edge-card recall-evidence-card recall-graph-detail-relation-card"
+                            role="listitem"
+                          >
+                            <span className="recall-collection-row-head">
+                              <strong>{edge.source_label} {formatRelationLabel(edge.relation_type)} {edge.target_label}</strong>
+                              <span>{Math.round(edge.confidence * 100)}%</span>
+                            </span>
+                            {edge.excerpt ? <span className="recall-collection-row-preview">{edge.excerpt}</span> : null}
+                            <span className="recall-collection-row-meta">
+                              <span className="status-chip">{edge.status}</span>
+                              <span className="status-chip">{edge.provenance}</span>
+                              <span className="status-chip">{formatCountLabel(edge.evidence_count, 'evidence span', 'evidence spans')}</span>
+                            </span>
+                            <div className="recall-actions recall-actions-inline">
+                              <button
+                                disabled={graphBusyKey === `edge:${edge.id}:confirmed`}
+                                type="button"
+                                onClick={() => handleDecideEdge(edge, 'confirmed')}
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                className="ghost-button"
+                                disabled={graphBusyKey === `edge:${edge.id}:rejected`}
+                                type="button"
+                                onClick={() => handleDecideEdge(edge, 'rejected')}
+                              >
+                                Reject
+                              </button>
+                              {edge.source_document_ids[0] ? (
+                                <button
+                                  className="ghost-button"
+                                  type="button"
+                                  onClick={() => handleOpenEdgeInReader(edge)}
+                                >
+                                  {buildOpenReaderLabel(documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source')}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </div>
@@ -4035,34 +4094,45 @@ export function RecallWorkspace({
 
   function renderGraphBrowseSection() {
     const graphSelectedNodeSummary = selectedNodeDetail
-      ? selectedNodeDetail.node.description ?? formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')
+      ? [
+          formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions'),
+          formatCountLabel(selectedNodeEdges.length, 'relation', 'relations'),
+        ].join(' · ')
       : `${graphSnapshot?.nodes.length ?? 0} nodes ready for review.`
     const graphSelectedNodeSourceLabel =
       selectedNodeDetail?.mentions[0]?.document_title ??
       (selectedNodeDetail?.node.source_document_ids[0]
         ? documentTitleById.get(selectedNodeDetail.node.source_document_ids[0]) ?? 'Saved source'
         : null)
+    const graphHeaderGuide = selectedNodeDetail
+      ? 'Canvas leads, while one attached inspect tray keeps the grounded clue and grouped follow-on evidence nearby.'
+      : 'Browse the map first, then open one attached tray only when you want grounded evidence and nearby relations.'
 
     return (
       <div className="recall-graph-browser-layout recall-graph-browser-layout-milestone-reset">
-        <div className="recall-graph-browser-header priority-surface-stage-shell">
+        <div className="recall-graph-browser-header recall-graph-browser-header-finish priority-surface-stage-shell">
           <div
             className="recall-graph-browser-surface-intro recall-graph-browser-surface-intro-milestone"
             aria-label="Graph surface intro"
           >
-            <span className="eyebrow">Knowledge map</span>
-            <strong>{selectedNodeDetail ? 'Canvas-first graph review' : 'Graph canvas ready'}</strong>
-            <span>
-              {selectedNodeDetail
-                ? 'Start with the canvas, then open one dock to inspect grounded evidence and nearby relations only when you need them.'
-                : 'Scan the canvas first, then inspect one node at a time through the grounded evidence dock.'}
-            </span>
+            <span className="eyebrow">Graph workspace</span>
+            <strong>{selectedNodeDetail ? 'Canvas leads. Inspect in one tray.' : 'Graph canvas first.'}</strong>
+            <span>{graphHeaderGuide}</span>
           </div>
-          <div className="recall-graph-browser-header-meta" role="list" aria-label="Graph metrics">
-            <span className="status-chip" role="listitem">{graphSidebarGlanceLabel}</span>
-            <span className="status-chip status-muted" role="listitem">{graphSidebarGlanceMeta}</span>
+          <div className="recall-graph-browser-header-utility">
+            <div className="recall-graph-browser-header-meta" role="list" aria-label="Graph metrics">
+              <span className="status-chip" role="listitem">{graphSidebarGlanceLabel}</span>
+              <span className="status-chip status-muted" role="listitem">{graphSidebarGlanceMeta}</span>
+            </div>
             {selectedNodeDetail ? (
-              <span className="status-chip status-muted" role="listitem">{selectedNodeDetail.node.label}</span>
+              <div className="recall-graph-browser-header-selected" aria-label="Selected node overview">
+                <span className="recall-graph-browser-node-peek-kicker">Inspecting</span>
+                <strong>{selectedNodeDetail.node.label}</strong>
+                <span>{graphSelectedNodeSummary}</span>
+                {graphSelectedNodeSourceLabel ? (
+                  <span className="recall-graph-browser-node-peek-source">{graphSelectedNodeSourceLabel}</span>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
@@ -4076,11 +4146,21 @@ export function RecallWorkspace({
         >
           {graphBrowseDrawerOpen ? (
             <aside aria-label="Graph selector strip" className="recall-graph-browser-utility-strip">
-              <div className="recall-graph-browser-utility-shell priority-surface-support-rail">
-                <div className="recall-graph-browser-utility-header" aria-label="Graph glance">
-                  <span className="recall-graph-browser-node-peek-kicker">Browse nodes</span>
-                  <strong>{graphSidebarGlanceLabel}</strong>
-                  <span>{graphSidebarGlanceMeta}</span>
+              <div className="recall-graph-browser-utility-shell recall-graph-browser-utility-shell-finish priority-surface-support-rail">
+                <div className="recall-graph-browser-utility-shell-topline">
+                  <div className="recall-graph-browser-utility-header" aria-label="Graph glance">
+                    <span className="recall-graph-browser-node-peek-kicker">Browse</span>
+                    <strong>{graphSidebarGlanceLabel}</strong>
+                    <span>{graphSidebarGlanceMeta}</span>
+                  </div>
+                  <button
+                    aria-label="Hide graph selector strip"
+                    className="ghost-button recall-graph-sidebar-toggle"
+                    type="button"
+                    onClick={() => setBrowseDrawerOpen('graph', false)}
+                  >
+                    Hide
+                  </button>
                 </div>
                 <div className="recall-graph-browser-utility-controls">
                   <label className="field recall-inline-field recall-graph-sidebar-search">
@@ -4093,19 +4173,11 @@ export function RecallWorkspace({
                       onChange={(event) => setGraphFilterQuery(event.target.value)}
                     />
                   </label>
-                  <button
-                    aria-label="Hide graph selector strip"
-                    className="ghost-button recall-graph-sidebar-toggle"
-                    type="button"
-                    onClick={() => setBrowseDrawerOpen('graph', false)}
-                  >
-                    Hide
-                  </button>
                 </div>
-                <div className="recall-graph-browser-node-peek">
-                  <span className="recall-graph-browser-node-peek-kicker">Selected</span>
-                  <strong>{selectedNodeDetail?.node.label ?? 'Graph canvas ready'}</strong>
-                  <span>{graphSelectedNodeSummary}</span>
+                <div className="recall-graph-browser-node-peek recall-graph-browser-node-peek-selected-strip">
+                  <span className="recall-graph-browser-node-peek-kicker">Current node</span>
+                  <strong>{selectedNodeDetail?.node.label ?? 'No node pinned yet'}</strong>
+                  <span>{selectedNodeDetail ? graphSelectedNodeSummary : 'Pick from the map or the list to inspect one clue.'}</span>
                   {graphSelectedNodeSourceLabel ? (
                     <span className="recall-graph-browser-node-peek-source">{graphSelectedNodeSourceLabel}</span>
                   ) : null}
@@ -4175,7 +4247,7 @@ export function RecallWorkspace({
 
           {!graphLoading && graphStatus !== 'error' && graphCanvasNodes.length > 0 ? (
             <div className="recall-graph-browser-stage recall-graph-browser-stage-milestone-reset">
-              <div className="recall-graph-canvas-shell">
+              <div className="recall-graph-canvas-shell recall-graph-canvas-shell-finish">
                 <div className="recall-graph-canvas" aria-label="Knowledge graph canvas" role="region">
                   <div className="recall-graph-canvas-grid" aria-hidden="true" />
                   <svg
@@ -4236,13 +4308,14 @@ export function RecallWorkspace({
                     })}
                   </div>
                 </div>
-              </div>
-              {renderBrowseGraphDetailDock()}
-
-              <div className="recall-graph-browser-legend" role="list" aria-label="Graph legend">
-                <span className="status-chip" role="listitem">Center node: active focus</span>
-                <span className="status-chip status-muted" role="listitem">Inner orbit: directly linked</span>
-                <span className="status-chip status-muted" role="listitem">Outer orbit: nearby concepts</span>
+                <div className="recall-graph-canvas-shell-footer">
+                  <div className="recall-graph-browser-legend" role="list" aria-label="Graph legend">
+                    <span className="status-chip" role="listitem">Center node: active focus</span>
+                    <span className="status-chip status-muted" role="listitem">Inner orbit: directly linked</span>
+                    <span className="status-chip status-muted" role="listitem">Outer orbit: nearby concepts</span>
+                  </div>
+                </div>
+                {renderBrowseGraphDetailDock()}
               </div>
             </div>
           ) : null}
@@ -5508,6 +5581,9 @@ export function RecallWorkspace({
                           </p>
                         </div>
                       </div>
+                    </div>
+
+                    <div className="recall-home-toolbar-utility">
                       {!libraryFilterActive && homeWorkspaceSectionCounts.length > 0 ? (
                         <div className="recall-home-toolbar-metrics" role="list" aria-label="Home snapshot">
                           <span className="status-chip reader-meta-chip" role="listitem">
@@ -5521,26 +5597,9 @@ export function RecallWorkspace({
                           </span>
                         </div>
                       ) : null}
-                    </div>
-
-                    <div className="recall-home-toolbar-utility">
-                      {showInlineHomeSearch ? (
-                        <label className="field recall-inline-field recall-home-toolbar-search">
-                          <span className="visually-hidden">Search saved sources</span>
-                          <input
-                            aria-label="Search saved sources"
-                            type="search"
-                            placeholder="Search saved sources"
-                            value={libraryFilterQuery}
-                            onChange={(event) =>
-                              updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
-                            }
-                          />
-                        </label>
-                      ) : null}
                       {!libraryFilterActive && documentsStatus !== 'error' ? (
                         <p className="recall-home-toolbar-note">
-                          Use <strong>New</strong> for imports and shell <strong>Search</strong> for cross-workspace lookup.
+                          Keep <strong>New</strong> and shell <strong>Search</strong> primary, then use the library lane below when you want a source-only pass.
                         </p>
                       ) : null}
                     </div>
@@ -5573,7 +5632,7 @@ export function RecallWorkspace({
                     libraryFilterActive ? (
                       <section className="recall-home-library-card recall-home-library-card-wide stack-gap" aria-label="Matching saved sources">
                         <div className="section-header section-header-compact recall-home-library-card-header">
-                          <div>
+                          <div className="recall-home-library-stage-heading">
                             <div className="recall-library-section-heading-row">
                               <h3>Matching sources</h3>
                               <span className="recall-library-section-count">
@@ -5582,6 +5641,20 @@ export function RecallWorkspace({
                             </div>
                             <p>Open the source you want, then clear the filter when you want the grouped library flow back.</p>
                           </div>
+                          {showInlineHomeSearch ? (
+                            <label className="field recall-inline-field recall-home-library-stage-search">
+                              <span className="visually-hidden">Search saved sources</span>
+                              <input
+                                aria-label="Search saved sources"
+                                type="search"
+                                placeholder="Search saved sources"
+                                value={libraryFilterQuery}
+                                onChange={(event) =>
+                                  updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                                }
+                              />
+                            </label>
+                          ) : null}
                         </div>
                         <div className="recall-library-list recall-home-library-list" role="list">
                           {visibleDocuments.map((document) => renderLibrarySourceRow(document))}
@@ -5589,53 +5662,111 @@ export function RecallWorkspace({
                       </section>
                     ) : (
                       <>
-                        {homeLeadDocument ? (
-                          <div className="recall-home-dashboard">
-                            <section className="recall-home-continue-panel stack-gap" aria-label={homeWorkspaceContinueHeading}>
-                              <div className="section-header section-header-compact recall-home-panel-header">
-                                <div>
-                                  <h3>{homeWorkspaceContinueHeading}</h3>
-                                  <p>{homeWorkspaceContinueSummary}</p>
+                        {homeLeadDocument || homeStageLibrarySection ? (
+                          <div className="recall-home-stage-shell priority-surface-stage-shell">
+                            {homeLeadDocument ? (
+                              <section className="recall-home-continue-panel recall-home-continue-stage stack-gap" aria-label={homeWorkspaceContinueHeading}>
+                                <div className="section-header section-header-compact recall-home-panel-header">
+                                  <div>
+                                    <h3>{homeWorkspaceContinueHeading}</h3>
+                                    <p>{homeWorkspaceContinueSummary}</p>
+                                  </div>
                                 </div>
-                              </div>
-                              {renderHomeContinueCard(homeLeadDocument)}
-                              {homeContinueDocuments.length > 0 ? (
-                                <div className="recall-home-continue-list" role="list" aria-label="Nearby sources">
-                                  {homeContinueDocuments.map((document) => renderHomeContinueRow(document))}
-                                </div>
-                              ) : null}
-                            </section>
+                                {renderHomeContinueCard(homeLeadDocument)}
+                                {homeContinueDocuments.length > 0 ? (
+                                  <div className="recall-home-continue-list" role="list" aria-label="Nearby sources">
+                                    {homeContinueDocuments.map((document) => renderHomeContinueRow(document))}
+                                  </div>
+                                ) : null}
+                              </section>
+                            ) : null}
 
                             <aside
-                              className="recall-home-glance-card stack-gap priority-surface-support-rail priority-surface-support-rail-quiet"
-                              aria-label="Collection snapshot"
+                              className="recall-home-library-stage stack-gap priority-surface-support-rail priority-surface-support-rail-quiet"
+                              aria-label="Saved library"
                             >
-                              <div className="recall-home-glance-copy">
-                                <strong>Collection snapshot</strong>
-                                <p>
-                                  {homeWorkspaceSectionLeadCount > 0 && homeWorkspaceSectionCounts[0]
-                                    ? `${homeWorkspaceSectionLeadCount} ${homeWorkspaceSectionCounts[0].label.toLowerCase()} sources stay closest at hand before the denser saved library below.`
-                                    : 'Browse by recency below and keep shell Search or New as the primary utilities.'}
+                              <div className="section-header section-header-compact recall-home-library-stage-header">
+                                <div className="recall-home-library-stage-heading">
+                                  <div className="recall-library-section-heading-row">
+                                    <h3>Saved library</h3>
+                                    {homeStageLibrarySection ? (
+                                      <span className="recall-library-section-count">
+                                        {formatCountLabel(homeStageLibrarySection.documents.length, 'source', 'sources')}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p>
+                                    {homeStageLibrarySection
+                                      ? `${homeStageLibrarySection.label} now starts inside the main workspace so you can keep browsing without dropping into a detached archive tail.`
+                                      : 'Keep the wider saved-source library nearby while one source stays primary.'}
+                                  </p>
+                                </div>
+                                {showInlineHomeSearch ? (
+                                  <label className="field recall-inline-field recall-home-library-stage-search">
+                                    <span className="visually-hidden">Search saved sources</span>
+                                    <input
+                                      aria-label="Search saved sources"
+                                      type="search"
+                                      placeholder="Search saved sources"
+                                      value={libraryFilterQuery}
+                                      onChange={(event) =>
+                                        updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                                      }
+                                    />
+                                  </label>
+                                ) : null}
+                              </div>
+                              {!libraryFilterActive && homeWorkspaceSectionCounts.length > 0 ? (
+                                <div className="recall-home-library-stage-metrics" role="list" aria-label="Home snapshot">
+                                  {homeWorkspaceSectionCounts.map((section) => (
+                                    <span className="status-chip reader-meta-chip" key={section.key} role="listitem">
+                                      {section.label} · {section.count}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                              {homeStageLibrarySection ? (
+                                <div className="recall-home-library-stage-source">
+                                  <strong>{homeStageLibrarySection.label}</strong>
+                                  <span>Keep moving through the denser saved-source flow while the lead source stays closer at hand.</span>
+                                </div>
+                              ) : null}
+                              {homeStageLibraryDocuments.length > 0 ? (
+                                <div className="recall-home-library-stage-list" role="list">
+                                  {homeStageLibraryDocuments.map((document) => renderHomeLibraryStageRow(document))}
+                                </div>
+                              ) : null}
+                              {homeRemainingLibrarySections.length > 0 ? (
+                                <p className="recall-home-library-stage-note">
+                                  Then continue through the fuller saved-source lanes below when you want a broader pass across the workspace.
                                 </p>
-                              </div>
-                              <div className="recall-home-glance-metrics" role="list" aria-label="Source section counts">
-                                {homeWorkspaceSectionCounts.map((section) => (
-                                  <span className="status-chip reader-meta-chip" key={section.key} role="listitem">
-                                    {section.label} · {section.count}
-                                  </span>
-                                ))}
-                              </div>
-                              <p className="recall-home-glance-note">
-                                Reopen one source above, then use the section cards below when you need a broader pass across the library.
-                              </p>
+                              ) : null}
                             </aside>
                           </div>
                         ) : null}
 
-                        {homeWorkspaceLibrarySections.length > 0 ? (
-                          <div className="recall-home-library-grid">
-                            {homeWorkspaceLibrarySections.map((section) => renderHomeLibrarySection(section))}
-                          </div>
+                        {homeRemainingLibrarySections.length > 0 ? (
+                          <section className="recall-home-library-stream stack-gap priority-surface-stage-shell" aria-label="Saved library lanes">
+                            <div className="section-header section-header-compact recall-home-library-stream-header">
+                              <div>
+                                <h3>Continue through the library</h3>
+                                <p>
+                                  The lower library is now a continuation of the active workspace, not a separate archive wall.
+                                </p>
+                              </div>
+                              <div className="recall-home-library-stream-meta" role="list" aria-label="Library flow status">
+                                <span className="status-chip reader-meta-chip" role="listitem">
+                                  {homeSavedSourceLabel}
+                                </span>
+                                <span className="status-chip reader-meta-chip" role="listitem">
+                                  Shell Search stays global
+                                </span>
+                              </div>
+                            </div>
+                            <div className="recall-home-library-stream-grid">
+                              {homeRemainingLibrarySections.map((section) => renderHomeLibrarySection(section, { stream: true }))}
+                            </div>
+                          </section>
                         ) : null}
                       </>
                     )
