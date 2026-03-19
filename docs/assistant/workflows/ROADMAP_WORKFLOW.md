@@ -29,11 +29,14 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 - the current active ExecPlan named in `docs/ROADMAP_ANCHOR.md`
 
 ## Current Queue
-- The user-priority desktop-first sequence `Graph -> Home -> Reader -> Notes` is complete.
-- `Graph`, `Home`, `Reader`, and `Notes` are the locked regression baselines after Stages 355/356, 357/358, 359/360, and 361/362.
-- The Stage 363/364 baseline consolidation is complete.
-- The Stage 366/367 desktop-first `Study` milestone is complete, so `Study` now joins the same locked regression baseline set.
-- Stage 368 is the active hold-state plan. There is no automatic next redesign target until the user explicitly unlocks one.
+- The original desktop-first milestone set for `Graph`, `Home`, `Reader`, and `Notes` is complete, and Stage 366/367 also redesigned `Study`.
+- Stage 369 then reopened the priority queue because the user does not consider the priority surfaces finished enough yet.
+- Stage 370/371 finished the current broad Graph correction and moved `Graph` back into the regression-baseline set.
+- Stage 372/373 then finished the current broad Home correction and moved `Home` back into the regression-baseline set.
+- Stage 374/375 then finished the current broad Reader correction and moved `Reader` back into the regression-baseline set.
+- `Notes` is now the active finish target.
+- `Study` is parked again and should not be reopened unless the user explicitly reprioritizes it or a direct regression forces a detour.
+- Stage 376 is the active Notes finish milestone, with Stage 377 pre-staged as its audit.
 
 ## Minimal Commands
 - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git status --short --branch'`

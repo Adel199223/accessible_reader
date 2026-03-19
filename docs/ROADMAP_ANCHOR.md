@@ -12,29 +12,33 @@ Persistent continuity anchor for future chats and handoffs.
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `codex/stage8-closeout-doc-sync`
 - Latest pushed clean checkpoint: branch tip on `origin/codex/stage8-closeout-doc-sync`
-- Local/remote status at anchor closeout: this Stage 368 docs-sync closeout is the intended clean branch checkpoint for `origin/codex/stage8-closeout-doc-sync` after the completed desktop-first surface redesign track and assistant-doc sync
-- Last completed product slice: Stage 366 `Desktop-First Study Redesign Milestone After Stage 365`
-- Last completed audit: Stage 367 `Post-Stage-366 Study Milestone Audit`
-- Active next slice: Stage 368 `All-Surface Baseline Freeze After Stage 367`
-- Pre-staged next audit plan: none; the repo is intentionally in a hold state until the user explicitly unlocks the next phase
+- Local/remote status at current checkpoint: the last pushed clean checkpoint is the Stage 368 docs-sync closeout on `origin/codex/stage8-closeout-doc-sync`; the local working tree now carries the unpushed Stage 369 reopen audit, the Stage 370/371 Graph finish work, the Stage 372/373 Home finish work, and the Stage 374/375 Reader finish work
+- Last completed product slice: Stage 374 `Desktop-First Reader Finish Milestone After Stage 373`
+- Last completed audit: Stage 375 `Post-Stage-374 Reader Priority Audit`
+- Active next slice: Stage 376 `Desktop-First Notes Finish Milestone After Stage 375`
+- Pre-staged next audit plan: Stage 377 `Post-Stage-376 Notes Priority Audit`
 - Last green checks:
   - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npx vitest run src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx src/App.test.tsx --maxWorkers=1 --pool=threads --reporter=verbose"`
   - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npm run lint"`
   - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader/frontend && npm run build"`
   - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader && git diff --check"`
-  - `wsl.exe bash -lc "node --check /home/fa507/dev/accessible_reader/scripts/playwright/stage366_desktop_first_study_redesign_milestone_after_stage365.mjs && node --check /home/fa507/dev/accessible_reader/scripts/playwright/stage367_post_stage366_study_milestone_audit_edge.mjs"`
-  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader && node scripts/playwright/stage366_desktop_first_study_redesign_milestone_after_stage365.mjs"` against `http://127.0.0.1:8000`
-  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader && node scripts/playwright/stage367_post_stage366_study_milestone_audit_edge.mjs"` against `http://127.0.0.1:8000`
+  - `wsl.exe bash -lc "node --check /home/fa507/dev/accessible_reader/scripts/playwright/stage374_desktop_first_reader_finish_milestone_after_stage373.mjs && node --check /home/fa507/dev/accessible_reader/scripts/playwright/stage375_post_stage374_reader_priority_audit.mjs"`
+  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader && node scripts/playwright/stage374_desktop_first_reader_finish_milestone_after_stage373.mjs"` against `http://127.0.0.1:8000`
+  - `wsl.exe bash -lc "cd /home/fa507/dev/accessible_reader && node scripts/playwright/stage375_post_stage374_reader_priority_audit.mjs"` against `http://127.0.0.1:8000`
+  - live `200` checks for `http://127.0.0.1:8000/recall?section=home`, `?section=graph`, `?section=reader`, and `?section=notes`
 - Validation note:
-  - Stage 366 and Stage 367 both validated on March 19, 2026 with `RecallWorkspace.stage34.test.tsx`, `RecallWorkspace.stage37.test.tsx`, `App.test.tsx`, lint/build, `git diff --check`, script syntax checks, live localhost checks, and fresh Windows Edge screenshot harness runs against the live app at `http://127.0.0.1:8000`
+  - Stage 374 and Stage 375 are the last green product redesign validations
+  - Stage 369 reopened the queue on March 19, 2026, and the Stage 370/371 Graph finish, Stage 372/373 Home finish, and Stage 374/375 Reader finish passes all validated with fresh script checks, targeted Vitest plus `App.test.tsx`, lint/build, `git diff --check`, live localhost `200` checks, and fresh Windows Edge wide-desktop and focused captures against `http://127.0.0.1:8000`
 - Audit note:
-  - Stage 367 confirmed that Stage 366 succeeded overall: wide desktop `Study` now uses one active review workspace with a dominant review lane, docked queue/evidence support, and a calmer desktop-first hierarchy instead of the older boxed review dashboard
-  - the full top-level redesign track is now complete, so `Graph`, `Home`, `Reader`, `Notes`, and `Study` stay locked as the current desktop regression baselines
-  - there is no automatic next redesign target until the user explicitly unlocks the next phase
+  - Stage 369 confirmed that `Study` should be parked again rather than kept in the active queue
+  - Stage 371 then confirmed that `Graph` is materially calmer on wide desktop
+  - Stage 373 then confirmed that `Home` is materially calmer on wide desktop
+  - Stage 375 then confirmed that `Reader` is materially calmer on wide desktop
+  - `Notes` is now the next unfinished surface
 - Execution mode note:
-  - the roadmap remains in desktop-first mode, but the full top-level redesign track is now complete
-  - the active state is Stage 368 baseline freeze: do not start another redesign slice automatically
-  - keep `Graph`, `Home`, `Reader`, `Notes`, and `Study` regression-only until the user explicitly unlocks the next phase
+  - the roadmap remains in desktop-first mode and the queue is reopened from fresh evidence
+  - the active state is Stage 376: finish `Notes` first, with `Graph`, `Home`, and `Reader` held as refreshed regression baselines
+  - keep `Study` parked unless the user explicitly reprioritizes it or a direct regression forces a detour
 - Known caveat:
   - stale temp files, superseded screenshot harness files, dead CSS hooks, and other non-essential generated scaffolding may be deleted when they stop helping; do not let preserving obsolete files slow roadmap work down
   - run git, npm, and browser-validation commands through `wsl.exe bash -lc ...` or inside WSL directly; UNC-native Windows `npm`/`node` invocations remain less reliable than the WSL wrapper path
@@ -47,16 +51,16 @@ Persistent continuity anchor for future chats and handoffs.
   - `docs/ROADMAP.md`
   - `docs/ROADMAP_ANCHOR.md`
   - `docs/ux/recall_benchmark_matrix.md`
-  - `docs/exec_plans/active/2026-03-19_stage368_all_surface_baseline_freeze_after_stage367.md`
+  - `docs/exec_plans/active/2026-03-19_stage376_desktop_first_notes_finish_milestone_after_stage375.md`
 
 ## New Chat Resume Shortcut
 
-- Say `resume from Stage 368` to continue from the current hold-state checkpoint.
+- Say `resume from Stage 376` to continue from the current Notes-priority checkpoint.
 - The intended next action is:
-  - keep the Stage 367 baseline set locked for `Home`, `Graph`, `Reader`, `Notes`, and `Study`
-  - wait for explicit user reprioritization before opening another redesign slice
-  - if the user simply says to continue, explain that the top-level redesign track is complete and ask what should be unlocked next
-- Do not widen into backend changes or automatically start Reader generated-content work during Stage 368.
+  - implement the Stage 376 wide-desktop `Notes` finish milestone first
+  - keep `Graph`, `Home`, and `Reader` regression-only behind that queue
+  - keep `Study` parked again until the user explicitly reprioritizes it
+- Do not widen into backend changes, `Study`, or Reader generated-content work during Stage 376.
 
 ## Current State
 
@@ -64,7 +68,7 @@ As of 2026-03-19, this workspace includes:
 
 - the existing accessible-reader frontend and backend
 - completed desktop-first `Graph`, `Home`, `Reader`, and `Notes` milestones that now act as the wide-desktop regression baselines
-- a completed desktop-first redesign track across `Home`, `Graph`, `Reader`, `Notes`, and `Study`, with a Stage 368 hold-state checkpoint as the current active plan
+- a completed desktop-first milestone set across `Home`, `Graph`, `Reader`, `Notes`, and `Study`, plus a fresh Graph finish pass on March 19 that moved `Graph` back into the regression-baseline set and parked `Study` again
 - a `Notes` workspace that now uses a clearer browse/detail stage, denser note browsing, and quieter context support on wide desktop while focused/narrow `Notes` inherit the same hierarchy
 - a Reader workspace that now uses a stronger text-first reading deck, calmer transport/header rhythm, and a docked source/notes support flow on both wide desktop and focused/narrow layouts
 - local import and parsing for TXT, Markdown, HTML, DOCX, and text-based PDF
@@ -749,9 +753,9 @@ As of 2026-03-19, this workspace includes:
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Read `docs/ux/recall_benchmark_matrix.md`, then open the current active Stage 368 ExecPlan named in this anchor: `docs/exec_plans/active/2026-03-19_stage368_all_surface_baseline_freeze_after_stage367.md`.
+3. Read `docs/ux/recall_benchmark_matrix.md`, then open the current active Stage 376 ExecPlan named in this anchor: `docs/exec_plans/active/2026-03-19_stage376_desktop_first_notes_finish_milestone_after_stage375.md`.
 4. Start from branch `codex/stage8-closeout-doc-sync`.
 5. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
 6. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while holding the Stage 364 baseline set for `Home`, `Graph`, `Reader`, and `Notes`.
-7. Use Stage 368 as a hold-state checkpoint only: keep `Graph`, `Home`, `Reader`, `Notes`, and `Study` regression-only, do not restart the old micro-stage loop, and do not begin another redesign slice until the user explicitly chooses what to unlock next.
+7. Use Stage 376 as the active Notes finish checkpoint: keep `Graph`, `Home`, and `Reader` as regression baselines, keep `Study` parked, do not restart the old micro-stage loop, and do not widen into Reader generated-content work unless the user explicitly chooses it.
 8. Use `docs/assistant/INDEX.md` only if assistant routing help is needed.

@@ -19,11 +19,11 @@ Keep this repository as one local-first workspace.
   - focused/narrow adaptation for the same section
   - one full benchmark audit with wide desktop surfaces first and focused regressions second
 - Audits are regression gates and evidence snapshots, not automatic permission to reprioritize to a different section after every pass.
-- The user-priority desktop-first sequence `Graph -> Home -> Reader -> Notes` is complete.
-- `Graph`, `Home`, `Reader`, and `Notes` are now the locked regression baselines unless later work directly breaks them.
-- The March 19, 2026 Stage 366/367 desktop-first `Study` milestone is complete.
-- `Graph`, `Home`, `Reader`, `Notes`, and `Study` are now the locked regression baselines after the completed top-level redesign track.
-- Current mode: Stage 368 hold state. Do not start another redesign slice automatically until the user explicitly unlocks the next phase.
+- The original desktop-first milestone set for `Graph`, `Home`, `Reader`, and `Notes` is complete, and Stage 366/367 also redesigned `Study`.
+- The March 19, 2026 Stage 369 reopen audit then confirmed that the user-priority surfaces should not be treated as finished yet.
+- Current active queue: `Notes` first, with `Graph`, `Home`, and `Reader` held as refreshed regression baselines.
+- `Study` is parked again unless the user explicitly reprioritizes it or a direct regression forces a detour.
+- Current mode: Stage 376 Notes finish milestone. Do not reopen cross-surface queue hopping.
 
 ## Status As Of 2026-03-19
 
@@ -45,9 +45,26 @@ Keep this repository as one local-first workspace.
 - The March 19, 2026 Stage 366/367 milestone is complete:
   - wide desktop `Study` now uses one active review workspace with a dominant review lane, docked queue/evidence support, and a clearer desktop-first hierarchy instead of the older boxed review dashboard
   - focused and narrower `Study` now inherit that same calmer hierarchy instead of preserving the older detached review/support split
-- The user-priority reset remains in force for the finished surfaces:
-  - the user-priority desktop-first sequence `Graph -> Home -> Reader -> Notes` is complete
-  - `Graph`, `Home`, `Reader`, `Notes`, and `Study` now remain regression baselines rather than active redesign targets
+- The March 19, 2026 Stage 369 reopen audit is complete:
+  - wide-desktop `Home`, `Graph`, `Reader`, and `Notes` were refreshed against the current benchmark set while `Study` was explicitly removed from the active queue again
+  - `Graph` now leads the unfinished priority set because the top banner, boxed browse rail, and standing node-detail dock still compete too much with the canvas
+  - `Home` remains the next unfinished surface, while `Reader` and `Notes` are materially calmer and lower priority for now
+- The March 19, 2026 Stage 370/371 Graph finish milestone is complete:
+  - wide desktop `Graph` now uses a lighter title-and-utility seam, a slimmer browse strip, and one attached inspect tray with grouped continuation instead of the older standing detail panel language
+  - focused/narrow `Graph` keeps the same hierarchy, so the desktop-first shift does not drift back into a separate micro-language
+  - the Stage 371 audit confirmed that `Graph` is materially calmer at first glance and no longer leads the unfinished queue
+- The March 19, 2026 Stage 372/373 Home finish milestone is complete:
+  - wide desktop `Home` now uses one stronger collection workspace that keeps the primary reopen path, nearby resumptions, and saved library above the fold instead of handing off into a detached archive tail
+  - focused overview and narrower `Home` keep that same hierarchy instead of drifting back toward the old landing-card language
+  - the Stage 373 audit confirmed that `Home` is materially calmer and no longer leads the unfinished queue
+- The March 19, 2026 Stage 374/375 Reader finish milestone is complete:
+  - wide desktop `Reader` now further compresses the chrome around reading and keeps the support dock calmer relative to the document lane
+  - focused and narrower `Reader` remain aligned with the same calmer hierarchy
+  - the Stage 375 audit confirmed that `Reader` is materially calmer and no longer leads the unfinished queue
+- The reopened user-priority queue now advances to `Notes`:
+  - `Notes` is the active finish target
+  - `Graph`, `Home`, and `Reader` remain as refreshed regression baselines behind that queue
+  - `Study` stays parked until further notice
 - Wide desktop, not narrow-only focused mode, is now the primary visual truth for the remaining milestones.
 
 - The accessible-reader app already provides local import for TXT, Markdown, HTML, DOCX, and text-based PDF, deterministic `Original` and `Reflowed` views, opt-in AI `Simplify` and `Summary`, local library/search, saved progress/settings, and Edge-first browser speech.

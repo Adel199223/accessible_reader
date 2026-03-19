@@ -23,7 +23,7 @@ Harness quick links:
 - major or multi-file work must start by creating or updating an ExecPlan in `docs/exec_plans/active/`
 - once a desktop-first section milestone is active, finish that section end-to-end before switching surfaces; use audits as regression gates and evidence snapshots, not as permission to hop to a new section after every pass
 - inside the active section milestone, batch related fixes into a few internal checkpoints instead of reopening one-delta-per-stage micro work
-- the user-priority desktop-first sequence `Graph -> Home -> Reader -> Notes` is complete, and Stage 366/367 gave `Study` the same desktop-first milestone treatment; keep `Graph`, `Home`, `Reader`, `Notes`, and `Study` locked as regression baselines in the Stage 368 hold state, and use direct-regression or explicitly unlocked follow-up work instead of reopening cross-surface micro-stages
+- the March 19 Stage 375 audit superseded the earlier Home-first checkpoint: `Graph`, `Home`, and `Reader` are now refreshed regression baselines, `Notes` is the active finish target, and `Study` is parked again until the user explicitly reprioritizes it
 - later `Reader` generated-content work is a separate locked phase; do not start it automatically unless the user explicitly reprioritizes it
 - keep parsing, storage, search, settings, progress, and deterministic reflow local-first
 - browser-native speech is the shipped read-aloud path for v1

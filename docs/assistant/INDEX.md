@@ -3,11 +3,11 @@
 Use this folder as a lightweight routing layer. Do not treat it as the canonical source of product truth.
 
 ## Current Checkpoint
-- Active plan: `docs/exec_plans/active/2026-03-19_stage368_all_surface_baseline_freeze_after_stage367.md`
-- Resume shortcut: `resume from Stage 368`
-- Current benchmark note: the March 19, 2026 Stage 366/367 Study milestone succeeded overall, so `Graph`, `Home`, `Reader`, `Notes`, and `Study` are now the locked desktop regression baselines.
-- Workflow reset: keep the work desktop-first and broad, but do not open another redesign slice automatically now that the top-level surface track is complete.
-- Parked issue rule: all five top-level Recall surfaces stay regression-only until the user explicitly unlocks the next phase.
+- Active plan: `docs/exec_plans/active/2026-03-19_stage376_desktop_first_notes_finish_milestone_after_stage375.md`
+- Resume shortcut: `resume from Stage 376`
+- Current benchmark note: the March 19, 2026 Stage 375 Reader audit confirmed that `Reader` is materially calmer on wide desktop and no longer leads the unfinished queue. `Notes` is now the highest unfinished priority surface.
+- Workflow reset: keep the work desktop-first and broad, but reopen exactly one priority surface at a time instead of reviving cross-surface queue hopping.
+- Parked issue rule: `Graph`, `Home`, and `Reader` stay regression-only behind active `Notes`, and `Study` stays parked until the user explicitly unlocks it again.
 
 ## Start Here
 1. `BUILD_BRIEF.md`

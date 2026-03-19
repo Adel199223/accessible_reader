@@ -18,7 +18,7 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Keeps global workspace navigation centered on `Home`, `Graph`, `Study`, `Notes`, and `Reader`.
 - Uses a compact focused-source strip during active source work, and focused `Notes`, `Graph`, and `Study` now keep embedded Reader content as the steady primary pane.
 - Uses one clear `Add content` dialog with grouped `Paste text`, `Web page`, and `Choose file` modes.
-- Uses a graph-first browse-mode `Graph` surface with a dominant canvas, lighter support rail, and a floating detail overlay, and a browse-mode `Study` surface with a centered review/start frame, toolbar-level queue utility, a quieter pre-answer review-session summary ahead of the prompt, and source-evidence-first Reader reopen.
+- Uses a graph-first browse-mode `Graph` surface with a dominant canvas, a lighter browse strip, and one attached inspect tray for grounded evidence and grouped continuation, and a browse-mode `Study` surface with a centered review/start frame, toolbar-level queue utility, a quieter pre-answer review-session summary ahead of the prompt, and source-evidence-first Reader reopen.
 - Uses one shared workspace-search session across the shell `Search` dialog and the Home search panel.
 - Reopens the last document and reading mode from browser-local storage, with backend last-session fallback when local state is missing.
 - Supports `Original`, `Reflowed`, `Simplified`, and `Summary` document modes.
@@ -27,7 +27,7 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 - Uses browser-native speech with sentence highlighting as the shipped read-aloud path.
 - Uses the shared `workspace.db` backend storage with reader-compatible routes kept stable.
 - Includes Recall keyword search, hybrid retrieval, graph review, study cards, Markdown export, source-linked notes, MV3 browser-context resurfacing, browser note capture, portability/export groundwork, and integrity/benchmark tooling.
-- Current UI execution mode is now a post-milestone hold state: `Graph`, `Home`, `Reader`, `Notes`, and `Study` are all locked regression baselines after the Stage 366/367 audit, and there is no automatic next redesign target until the user explicitly unlocks one.
+- Current UI execution mode is now a reopened priority queue: the March 19, 2026 Stage 375 audit moved `Reader` out of the active slot after the Reader finish pass, put `Notes` into the active slot, kept `Graph` and `Home` as refreshed regression baselines beside Reader, and kept `Study` parked again until the user explicitly reprioritizes it.
 
 ## Active Constraints
 - Windows Edge is the primary browser validation target.
