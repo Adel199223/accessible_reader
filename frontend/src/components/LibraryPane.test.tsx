@@ -140,6 +140,29 @@ test('LibraryPane hides search and rows when collapsed but keeps the disclosure 
   expect(screen.queryByTitle('Alpha document')).not.toBeInTheDocument()
 })
 
+test('LibraryPane can render as embedded dock content without card chrome', () => {
+  const { container } = render(
+    <LibraryPane
+      activeDocumentId="doc-1"
+      deletingDocumentId={null}
+      documents={documents}
+      embedded
+      hasAnyDocuments
+      loading={false}
+      open
+      searchValue=""
+      onDelete={async () => undefined}
+      onSearchChange={() => undefined}
+      onSelect={() => undefined}
+      onToggleOpen={() => undefined}
+    />,
+  )
+
+  const root = container.querySelector('.library-pane')
+  expect(root).toHaveClass('library-pane-embedded')
+  expect(root).not.toHaveClass('card')
+})
+
 test('LibraryPane exposes delete through the row actions instead of a visible trash button', async () => {
   const onDelete = vi.fn(async () => undefined)
 

@@ -1029,12 +1029,17 @@ export function ReaderWorkspace({
             title: 'Start read aloud',
           }
   const readerViewLabel = currentModeOption?.label ?? activeMode
-  const readerMetadata = [
-    readerViewLabel,
-    canAnnotateCurrentView ? `${notes.length} ${notes.length === 1 ? 'note' : 'notes'}` : null,
-    view?.generated_by === 'openai' ? 'AI generated' : null,
-    view?.cached ? 'Cached' : null,
-  ].filter(Boolean)
+  const readerStageSummary = noteCaptureActive
+    ? 'Pick one sentence in the text to start a saved highlight, then extend it inside the same block if needed.'
+    : routeAnchorRange
+      ? `Anchored evidence stays visible in ${readerViewLabel} while the dock keeps nearby notes and sources close.`
+      : 'Document text stays primary while view controls, notes, and source switching settle into a calmer dock.'
+  const readerDockSummary = selectedDocument
+    ? canAnnotateCurrentView
+      ? 'Keep note work, nearby sources, and Reader handoffs close without taking over the reading lane.'
+      : 'This mode stays focused on reading; switch to Reflowed whenever you want to capture or reopen anchored notes in place.'
+    : 'Saved sources and note work stay nearby here while the reading lane stays ready for the next document.'
+  const showReaderGenerationAction = (activeMode === 'simplified' || activeMode === 'summary') && !view
   const libraryMetricLabel = documentsLoading
     ? 'Loading Home…'
     : documentsError
@@ -1072,6 +1077,33 @@ export function ReaderWorkspace({
         : 'Capture ready'
       : 'Switch to Reflowed for capture'
     : 'Ready when a source opens'
+  const readerStageMetadata = [
+    `${readerViewLabel} view`,
+    view?.generated_by === 'openai' ? 'AI generated' : null,
+    view?.cached ? 'Cached' : null,
+  ].filter(Boolean)
+  const readerStageKickerLabel = noteCaptureActive
+    ? 'Note capture'
+    : routeAnchorRange
+      ? 'Anchored reading'
+      : speech.isSpeaking || speech.isPaused
+        ? 'Read aloud'
+        : 'Reading deck'
+  const readerStageKickerNote = routeAnchorRange
+    ? formatSentenceSpanLabel(routeAnchorRange.start, routeAnchorRange.end)
+    : noteCaptureActive
+      ? 'Select a sentence to begin.'
+      : notesMetricLabel
+  const readerDockSourceLabel = selectedDocument
+    ? `${selectedDocument.source_type.charAt(0).toUpperCase()}${selectedDocument.source_type.slice(1)}`
+    : null
+  const readerDockMetadata = selectedDocument
+    ? [
+        readerDockSourceLabel,
+        currentContextNoteLabel,
+        currentContextReadinessLabel,
+      ]
+    : []
   const notesPanelSummary = selectedDocument
     ? notesLoading
       ? 'Loading saved notes for the active source.'
@@ -1249,7 +1281,7 @@ export function ReaderWorkspace({
     onShellSourceWorkspaceChange({
       activeTab: 'reader',
       counts: sourceWorkspaceCounts,
-      description: 'Keep one source in focus while moving between overview, reading, notes, graph context, and study.',
+      description: 'Keep one source primary while notes, graph, and study stay docked nearby.',
       document: {
         availableModes: selectedDocument.available_modes,
         fileName: selectedDocument.file_name ?? null,
@@ -1303,16 +1335,22 @@ export function ReaderWorkspace({
         </div>
       ) : null}
 
-      <div className="reader-shell-grid">
-        <main className="main-panel">
+      <div className="reader-shell-grid reader-shell-grid-reader-milestone">
+        <main className="main-panel reader-reading-column">
           {selectedDocument ? (
-            <>
-              <section className="card reader-mode-card stack-gap" aria-label="Reader views">
-                <div className="toolbar">
-                  <div className="section-header section-header-compact">
-                    <h2>Reading views</h2>
-                    <p>Stay in Recall while switching between source, reflowed, and optional AI-assisted views.</p>
+            <section className="card reader-card reader-reading-stage priority-surface-stage-shell">
+              <div className="reader-stage-shell">
+                <div className="reader-stage-context">
+                  <div className="reader-stage-kicker-row">
+                    <span className="status-chip reader-stage-kicker">{readerStageKickerLabel}</span>
+                    <span className="reader-stage-kicker-note">{readerStageKickerNote}</span>
                   </div>
+                  <div className="reader-stage-heading">
+                    <h2 id={readerTitleId}>{selectedDocument.title}</h2>
+                    <p className="reader-stage-summary">{readerStageSummary}</p>
+                  </div>
+                </div>
+                <div className="reader-stage-utility">
                   <button
                     aria-controls="settings-drawer"
                     aria-expanded={settingsOpen}
@@ -1323,140 +1361,146 @@ export function ReaderWorkspace({
                     <SettingsIcon />
                     <span>Settings</span>
                   </button>
-                </div>
-                <div className="recall-stage-tabs" aria-label="Reader views" role="tablist">
-                  {viewModeOptions.map((option) => (
-                    <button
-                      key={option.mode}
-                      aria-selected={activeMode === option.mode}
-                      className={activeMode === option.mode ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-                      role="tab"
-                      type="button"
-                      onClick={() => handleSetActiveMode(option.mode)}
-                    >
-                      {option.label}
+                  {canAnnotateCurrentView ? (
+                    noteCaptureActive ? (
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() => {
+                          setReaderContextTab('notes')
+                          handleCancelNoteCapture()
+                        }}
+                      >
+                        Cancel note
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReaderContextTab('notes')
+                          handleStartNoteCapture()
+                        }}
+                      >
+                        Add note
+                      </button>
+                    )
+                  ) : null}
+                  {showReaderGenerationAction ? (
+                    <button disabled={transformBusy} type="button" onClick={() => handleGenerate(activeMode)}>
+                      {transformBusy ? 'Working…' : `Create ${activeMode}`}
                     </button>
-                  ))}
+                  ) : null}
                 </div>
-              </section>
+              </div>
 
-              <section className="sticky-transport-shell" aria-label="Read aloud controls">
-                <div className="card sticky-transport-bar">
-                  <span className="sticky-transport-label">Read aloud</span>
-                  <div className="transport-bar" aria-label="Read aloud transport" role="toolbar">
-                    <button
-                      aria-label="Previous sentence"
-                      className="transport-button"
-                      disabled={!canUseSpeechTransport}
-                      title="Previous sentence"
-                      type="button"
-                      onClick={handleTransportPrevious}
-                    >
-                      <PreviousIcon />
-                    </button>
-                    <button
-                      aria-label={transportAction.ariaLabel}
-                      className={`transport-button transport-button-primary ${
-                        transportAction.active ? 'transport-button-active' : ''
-                      }`}
-                      disabled={!canUseSpeechTransport}
-                      title={transportAction.title}
-                      type="button"
-                      onClick={transportAction.onClick}
-                    >
-                      {transportAction.icon}
-                    </button>
-                    <button
-                      aria-label="Next sentence"
-                      className="transport-button"
-                      disabled={!canUseSpeechTransport}
-                      title="Next sentence"
-                      type="button"
-                      onClick={handleTransportNext}
-                    >
-                      <NextIcon />
-                    </button>
-                    <button
-                      aria-label="Stop read aloud"
-                      className="transport-button transport-button-quiet"
-                      disabled={!canUseSpeechTransport || (!speech.isSpeaking && !speech.isPaused)}
-                      title="Stop read aloud"
-                      type="button"
-                      onClick={handleTransportStop}
-                    >
-                      <StopIcon />
-                    </button>
-                  </div>
-                  <div className="sticky-transport-actions">
-                    <ControlsOverflow
-                      currentSentenceLabel={currentSentenceLabel}
-                      preferredVoice={settings.preferred_voice}
-                      speechRate={settings.speech_rate}
-                      voiceChoices={speech.voiceChoices}
-                      onPreferredVoiceChange={(nextVoice) =>
-                        onSettingsChange((currentSettings) => ({
-                          ...currentSettings,
-                          preferred_voice: nextVoice,
-                        }))
-                      }
-                      onSpeechRateChange={(nextRate) =>
-                        onSettingsChange((currentSettings) => ({
-                          ...currentSettings,
-                          speech_rate: nextRate,
-                        }))
-                      }
-                    />
+              <div className="reader-stage-control-ribbon">
+                <div className="reader-stage-mode-strip">
+                  <span className="reader-stage-strip-label">View</span>
+                  <div className="recall-stage-tabs recall-stage-tabs-compact" aria-label="Reader views" role="tablist">
+                    {viewModeOptions.map((option) => (
+                      <button
+                        key={option.mode}
+                        aria-selected={activeMode === option.mode}
+                        className={activeMode === option.mode ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                        role="tab"
+                        type="button"
+                        onClick={() => handleSetActiveMode(option.mode)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              </section>
 
-              <section className="card reader-card">
-                <div className="reader-toolbar">
+                <div className="reader-stage-transport-strip">
+                  <div className="reader-stage-transport-head">
+                    <span className="reader-stage-strip-label">Read aloud</span>
+                    <span className="reader-stage-strip-note">{currentSentenceLabel}</span>
+                  </div>
+                  <div className="reader-stage-transport-tools">
+                    <div className="transport-bar" aria-label="Read aloud transport" role="toolbar">
+                      <button
+                        aria-label="Previous sentence"
+                        className="transport-button"
+                        disabled={!canUseSpeechTransport}
+                        title="Previous sentence"
+                        type="button"
+                        onClick={handleTransportPrevious}
+                      >
+                        <PreviousIcon />
+                      </button>
+                      <button
+                        aria-label={transportAction.ariaLabel}
+                        className={`transport-button transport-button-primary ${
+                          transportAction.active ? 'transport-button-active' : ''
+                        }`}
+                        disabled={!canUseSpeechTransport}
+                        title={transportAction.title}
+                        type="button"
+                        onClick={transportAction.onClick}
+                      >
+                        {transportAction.icon}
+                      </button>
+                      <button
+                        aria-label="Next sentence"
+                        className="transport-button"
+                        disabled={!canUseSpeechTransport}
+                        title="Next sentence"
+                        type="button"
+                        onClick={handleTransportNext}
+                      >
+                        <NextIcon />
+                      </button>
+                      <button
+                        aria-label="Stop read aloud"
+                        className="transport-button transport-button-quiet"
+                        disabled={!canUseSpeechTransport || (!speech.isSpeaking && !speech.isPaused)}
+                        title="Stop read aloud"
+                        type="button"
+                        onClick={handleTransportStop}
+                      >
+                        <StopIcon />
+                      </button>
+                    </div>
+                    <div className="reader-stage-overflow">
+                      <ControlsOverflow
+                        currentSentenceLabel={currentSentenceLabel}
+                        preferredVoice={settings.preferred_voice}
+                        speechRate={settings.speech_rate}
+                        voiceChoices={speech.voiceChoices}
+                        onPreferredVoiceChange={(nextVoice) =>
+                          onSettingsChange((currentSettings) => ({
+                            ...currentSettings,
+                            preferred_voice: nextVoice,
+                          }))
+                        }
+                        onSpeechRateChange={(nextRate) =>
+                          onSettingsChange((currentSettings) => ({
+                            ...currentSettings,
+                            speech_rate: nextRate,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="reader-document-shell">
+                <div className="reader-toolbar reader-toolbar-stage">
                   <div className="reader-toolbar-main">
-                    <h2 id={readerTitleId}>{selectedDocument.title}</h2>
                     <div className="reader-meta-row" role="list" aria-label="Reader metadata">
-                      {readerMetadata.map((item) => (
+                      {readerStageMetadata.map((item) => (
                         <span key={item} className="status-chip reader-meta-chip" role="listitem">
                           {item}
                         </span>
                       ))}
                     </div>
                   </div>
-                  <div className="reader-toolbar-actions">
-                    {canAnnotateCurrentView ? (
-                      noteCaptureActive ? (
-                        <button
-                          className="ghost-button"
-                          type="button"
-                          onClick={() => {
-                            setReaderContextTab('notes')
-                            handleCancelNoteCapture()
-                          }}
-                        >
-                          Cancel note
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReaderContextTab('notes')
-                            handleStartNoteCapture()
-                          }}
-                        >
-                          Add note
-                        </button>
-                      )
-                    ) : null}
-                    {(activeMode === 'simplified' || activeMode === 'summary') && !view ? (
-                      <button disabled={transformBusy} type="button" onClick={() => handleGenerate(activeMode)}>
-                        {transformBusy ? 'Working…' : `Create ${activeMode}`}
-                      </button>
-                    ) : null}
-                  </div>
                 </div>
 
                 {viewLoading ? <p className="placeholder">Loading view…</p> : null}
-                {selectedDocument && !view && !viewLoading && (activeMode === 'simplified' || activeMode === 'summary') ? (
+                {selectedDocument && !view && !viewLoading && showReaderGenerationAction ? (
                   <p className="placeholder placeholder-inline">
                     {activeMode === 'simplified'
                       ? 'No simplified view yet. Create simplified when you want it.'
@@ -1464,23 +1508,25 @@ export function ReaderWorkspace({
                   </p>
                 ) : null}
                 {view ? (
-                  <ReaderSurface
-                    labelledBy={readerTitleId}
-                    blocks={renderBlocks}
-                    activeSentenceIndex={speech.currentSentenceIndex}
-                    anchoredSentenceIndexes={anchoredSentenceIndexes}
-                    notedSentenceIndexes={noteHighlightIndexes}
-                    selectedSentenceIndexes={selectedSentenceIndexes}
-                    settings={settings}
-                    onSelectSentence={handleSelectSentence}
-                  />
+                  <div className="reader-article-shell">
+                    <ReaderSurface
+                      labelledBy={readerTitleId}
+                      blocks={renderBlocks}
+                      activeSentenceIndex={speech.currentSentenceIndex}
+                      anchoredSentenceIndexes={anchoredSentenceIndexes}
+                      notedSentenceIndexes={noteHighlightIndexes}
+                      selectedSentenceIndexes={selectedSentenceIndexes}
+                      settings={settings}
+                      onSelectSentence={handleSelectSentence}
+                    />
+                  </div>
                 ) : null}
-              </section>
-            </>
-              ) : (
-                <section className="card empty-state-card stack-gap">
-                  <div className="toolbar">
-                    <div className="section-header">
+              </div>
+            </section>
+          ) : (
+            <section className="card empty-state-card reader-empty-stage stack-gap">
+              <div className="toolbar">
+                <div className="section-header">
                   <p className="eyebrow">{showUnavailableEmptyState ? 'Local service unavailable' : 'Ready when you are'}</p>
                   <h2>{emptyStateTitle}</h2>
                   <p>{emptyStateDescription}</p>
@@ -1521,8 +1567,8 @@ export function ReaderWorkspace({
                     <span>Reflowed opens first so spacing and line breaks stay easier to scan.</span>
                   </div>
                   <div className="empty-state-step" role="listitem">
-                    <strong>3. Keep context nearby</strong>
-                    <span>Use Search, Notes, and Source context without losing your place in Reader.</span>
+                    <strong>3. Keep context docked nearby</strong>
+                    <span>Use Search, Notes, and Source context without leaving the reading lane.</span>
                   </div>
                 </div>
               )}
@@ -1530,48 +1576,25 @@ export function ReaderWorkspace({
           )}
         </main>
 
-        <aside className="reader-context-panel stack-gap">
-          <section className="card card-compact stack-gap reader-context-switcher">
-            <div className="toolbar">
-              <div className="section-header section-header-compact">
-                <h2>Reading context</h2>
-                <p>Keep nearby source and note work close while the shell carries the broader context.</p>
+        <aside className="reader-context-panel">
+          <section className="card reader-support-dock stack-gap priority-surface-support-rail priority-surface-support-rail-quiet">
+            <div className="reader-support-dock-header">
+              <div className="section-header section-header-compact reader-support-dock-copy">
+                <h2>Reader dock</h2>
+                <p>{readerDockSummary}</p>
               </div>
-              <button type="button" onClick={onRequestNewSource}>
-                New source
-              </button>
-            </div>
-            {selectedDocument ? (
-              <>
-                <p className="small-note reader-context-helper">
-                  The shell keeps the active source visible, so this sidecar can stay focused on nearby source and note work.
-                </p>
-                <div className="inline-actions reader-context-inline-actions">
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() => {
-                      setReaderContextTab('source')
-                      setLibraryOpen((current) => !(readerContextTab === 'source' && current))
-                    }}
-                  >
-                    {readerContextTab === 'source' && libraryOpen ? 'Hide sources' : 'Browse sources'}
-                  </button>
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() => setReaderContextTab('notes')}
-                  >
-                    {noteCaptureActive ? 'Capture note' : 'View notes'}
-                  </button>
+              {readerDockMetadata.length ? (
+                <div className="reader-meta-row reader-support-dock-meta" role="list" aria-label="Reader dock summary">
+                  {readerDockMetadata.map((item) => (
+                    <span key={item} className="status-chip reader-meta-chip" role="listitem">
+                      {item}
+                    </span>
+                  ))}
                 </div>
-              </>
-            ) : (
-              <p className="small-note">
-                Use Search or New to bring a source into Reader. Current source details and saved notes will stay nearby here.
-              </p>
-            )}
-            <div className="recall-stage-tabs" aria-label="Reader context" role="tablist">
+              ) : null}
+            </div>
+
+            <div className="recall-stage-tabs reader-support-tabs" aria-label="Reader context" role="tablist">
               <button
                 aria-selected={readerContextTab === 'source'}
                 className={readerContextTab === 'source' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
@@ -1591,21 +1614,43 @@ export function ReaderWorkspace({
                 Notes
               </button>
             </div>
-          </section>
 
-          {readerContextTab === 'source' ? (
-            <>
+            {readerContextTab === 'source' ? (
+              <div className="reader-support-pane reader-support-pane-source stack-gap">
+                <div className="reader-support-glance">
+                  {selectedDocument ? (
+                    <>
+                      <div className="reader-support-glance-copy">
+                        <strong>Active source</strong>
+                        <p className="reader-support-glance-title">{selectedDocument.title}</p>
+                        <p>{selectedDocument.file_name ?? 'Saved locally in Recall.'}</p>
+                      </div>
+                      <p className="small-note reader-support-glance-note">
+                        Use shell Search or New when you want another source; the dock keeps nearby reopen options visible here.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="reader-support-glance-copy">
+                        <strong>Ready for the next source</strong>
+                        <p className="reader-support-glance-title">Bring one source into focus</p>
+                        <p>Use the shell Search or New actions to open another document without leaving Recall.</p>
+                      </div>
+                    </>
+                  )}
+                </div>
               <LibraryPane
                 activeDocumentId={activeDocumentId}
                 deletingDocumentId={deletingDocumentId}
                 documents={documents}
+                embedded
                 errorMessage={libraryErrorMessage}
                 hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
                 open={libraryOpen}
                 loading={documentsLoading}
                 searchPlaceholder="Search saved sources"
                 searchValue={search}
-                title="Home"
+                title="Source library"
                 onDelete={handleDeleteDocument}
                 onSearchChange={setSearch}
                 onSelect={(document) => {
@@ -1625,12 +1670,12 @@ export function ReaderWorkspace({
                   ? 'Simplify and Summary stay available as optional Recall transforms.'
                   : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
               </p>
-            </>
-          ) : (
-            <section className="card card-compact stack-gap reader-notes-panel">
+              </div>
+            ) : (
+              <section className="reader-support-pane reader-support-pane-notes stack-gap reader-notes-panel">
               <div className="toolbar">
                 <div className="section-header section-header-compact">
-                  <h2>Notes</h2>
+                  <h3>Notes</h3>
                   <p>{notesPanelSummary}</p>
                 </div>
                 {selectedDocument ? (
@@ -1675,7 +1720,7 @@ export function ReaderWorkspace({
                   {noteSelection ? (
                     <>
                       <div className="reader-note-preview">
-                        <strong>Highlighted text</strong>
+                        <strong>Highlighted passage</strong>
                         <p>{noteSelection.anchorText}</p>
                         <span>{noteSelection.excerptText}</span>
                       </div>
@@ -1763,7 +1808,7 @@ export function ReaderWorkspace({
                   </div>
 
                   <div className="recall-note-preview">
-                    <strong>Highlighted text</strong>
+                    <strong>Highlighted passage</strong>
                     <p>{activeReaderNote.anchor.anchor_text}</p>
                     <span>{activeReaderNote.anchor.excerpt_text}</span>
                   </div>
@@ -1883,8 +1928,9 @@ export function ReaderWorkspace({
                   ) : null}
                 </section>
               ) : null}
-            </section>
-          )}
+              </section>
+            )}
+          </section>
         </aside>
       </div>
       <SettingsPanel

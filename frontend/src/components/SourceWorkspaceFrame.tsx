@@ -59,27 +59,35 @@ export function SourceWorkspaceFrame({
   document,
   onSelectTab,
 }: SourceWorkspaceFrameProps) {
+  const sourcePreview = buildSourcePreview(document)
+  const frameClassName =
+    activeTab === 'reader' ? 'source-workspace-frame source-workspace-frame-reader-active' : 'source-workspace-frame'
+
   return (
-    <section className="source-workspace-frame" aria-label={`${document.title} workspace`}>
+    <section className={frameClassName} aria-label={`${document.title} workspace`}>
       <div className="source-workspace-strip-main">
-        <div className="source-workspace-strip-heading">
-          <span className="status-chip source-workspace-strip-badge">Focused source</span>
-          <strong className="source-workspace-title">{document.title}</strong>
+        <div className="source-workspace-strip-overview">
+          <div className="source-workspace-strip-heading">
+            <span className="status-chip source-workspace-strip-badge">Focused source</span>
+            <strong className="source-workspace-title">{document.title}</strong>
+          </div>
+          <p className="source-workspace-source">{sourcePreview}</p>
         </div>
-        <p className="source-workspace-source">{buildSourcePreview(document)}</p>
-        <p className="source-workspace-description">{description}</p>
-        <div className="source-workspace-meta" role="list" aria-label="Active source summary">
-          <span className="status-chip" role="listitem">{document.sourceType.toUpperCase()}</span>
-          <span className="status-chip reader-meta-chip" role="listitem">{buildCountLabel(document)}</span>
-          {counts.map((item) => (
-            <span
-              key={item.label}
-              className={item.tone === 'muted' ? 'status-chip status-muted' : 'status-chip reader-meta-chip'}
-              role="listitem"
-            >
-              {item.label}
-            </span>
-          ))}
+        <div className="source-workspace-strip-context">
+          <p className="source-workspace-description">{description}</p>
+          <div className="source-workspace-meta" role="list" aria-label="Active source summary">
+            <span className="status-chip" role="listitem">{document.sourceType.toUpperCase()}</span>
+            <span className="status-chip reader-meta-chip" role="listitem">{buildCountLabel(document)}</span>
+            {counts.map((item) => (
+              <span
+                key={item.label}
+                className={item.tone === 'muted' ? 'status-chip status-muted' : 'status-chip reader-meta-chip'}
+                role="listitem"
+              >
+                {item.label}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 

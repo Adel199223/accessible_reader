@@ -39,7 +39,7 @@ export function WorkspaceContextDock({
         .join(' ')}
     >
       {showOnboardingCard ? (
-        <div className="workspace-context-panel workspace-context-panel-onboarding">
+        <div className="workspace-context-panel workspace-context-panel-onboarding priority-surface-support-rail priority-surface-support-rail-quiet">
           <div className="section-header section-header-compact">
             <h2>Start here</h2>
             <p>Add a source, then use search, notes, graph, and study without losing your place.</p>
@@ -47,7 +47,7 @@ export function WorkspaceContextDock({
         </div>
       ) : null}
 
-      <div className="workspace-context-panel workspace-context-panel-condensed">
+      <div className="workspace-context-panel workspace-context-panel-condensed priority-surface-support-rail priority-surface-support-rail-quiet">
         <div className="section-header section-header-compact">
           <h2>Current context</h2>
           {!denseSection || !currentContext ? <p>Keep the next useful jump nearby without crowding the main canvas.</p> : null}
@@ -81,7 +81,7 @@ export function WorkspaceContextDock({
         )}
       </div>
 
-      <div className="workspace-context-panel workspace-context-panel-condensed">
+      <div className="workspace-context-panel workspace-context-panel-condensed priority-surface-support-rail priority-surface-support-rail-quiet">
         <div className="section-header section-header-compact">
           <h2>Recent work</h2>
           {!denseSection || visibleRecentItems.length === 0 ? (

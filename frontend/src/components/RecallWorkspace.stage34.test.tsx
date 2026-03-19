@@ -326,11 +326,13 @@ function makeContinuityState(section: RecallSection): RecallWorkspaceContinuityS
   }
 }
 
-function renderHarness(initialSection: RecallSection) {
+function renderHarness(initialSection: RecallSection, initialContinuityState?: RecallWorkspaceContinuityState) {
   const onOpenReader = vi.fn()
 
   function Harness(): ReactElement {
-    const [continuityState, setContinuityState] = useState<RecallWorkspaceContinuityState>(makeContinuityState(initialSection))
+    const [continuityState, setContinuityState] = useState<RecallWorkspaceContinuityState>(
+      initialContinuityState ?? makeContinuityState(initialSection),
+    )
     const [section, setSection] = useState<RecallSection>(initialSection)
 
     return (
@@ -363,7 +365,79 @@ test('focused Notes keeps Reader as the primary pane and anchors the selected no
     expect(screen.getByRole('button', { name: 'Search sentence two.' })).toHaveClass('reader-sentence-anchored')
   })
 
+  const notesSection = screen.getByRole('heading', { name: 'Notes', level: 2 }).closest('section')
+  const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
+
+  expect(notesSection).not.toBeNull()
+  expect(noteDetailSection).not.toBeNull()
+  expect(notesSection).toHaveClass('recall-source-side-rail')
+  expect(noteDetailSection).toHaveClass('recall-source-secondary-panel')
   expect(screen.queryByRole('heading', { name: 'Source overview', level: 2 })).not.toBeInTheDocument()
+})
+
+test('focused Home overview marks the condensed rail hook when the drawer is closed', async () => {
+  renderHarness('library')
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+  })
+
+  const homeSection = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('section')
+  expect(homeSection).not.toBeNull()
+  expect(homeSection).toHaveClass('recall-overview-focus-rail')
+  expect(homeSection?.parentElement).toHaveClass('recall-overview-focus-layout')
+  expect(homeSection?.parentElement).toHaveClass('recall-overview-focus-layout-condensed')
+  expect(homeSection?.querySelector('.recall-overview-focus-summary-card')).not.toBeNull()
+  expect(homeSection?.querySelector('.recall-overview-focus-summary-meta')).not.toBeNull()
+})
+
+test('focused Notes without an active note mark the empty-detail collapse hook and keep guidance in the rail', async () => {
+  fetchRecallNotesMock.mockImplementation(async () => [])
+  const continuityState = makeContinuityState('notes')
+  continuityState.notes.selectedNoteId = null
+
+  renderHarness('notes', continuityState)
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Reader', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByText('Save a note from Reader to open detail here.')).toBeInTheDocument()
+  })
+
+  const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
+  const notesSection = screen.getByRole('heading', { name: 'Notes', level: 2 }).closest('section')
+  expect(noteDetailSection).not.toBeNull()
+  expect(notesSection).not.toBeNull()
+  expect(notesSection).toHaveClass('recall-notes-focus-rail-empty')
+  expect(noteDetailSection).toHaveClass('recall-note-detail-panel-empty')
+  expect(noteDetailSection?.parentElement).toHaveClass('recall-source-split-layout-notes-empty')
+  expect(screen.queryByRole('button', { name: 'Browse notes' })).not.toBeInTheDocument()
+})
+
+test('focused Notes drawer-open empty state marks the compact browse-empty hook and keeps filters visible', async () => {
+  fetchRecallNotesMock.mockImplementation(async () => [])
+  const continuityState = makeContinuityState('notes')
+  continuityState.notes.selectedNoteId = null
+  continuityState.browseDrawers.notes = true
+
+  renderHarness('notes', continuityState)
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Notes', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search notes' })).toBeInTheDocument()
+    expect(screen.getByText('No saved notes yet. Add one from Reader to keep it here.')).toBeInTheDocument()
+  })
+
+  const notesSection = screen.getByRole('heading', { name: 'Notes', level: 2 }).closest('section')
+  const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
+  expect(notesSection).not.toBeNull()
+  expect(noteDetailSection).not.toBeNull()
+  expect(notesSection).toHaveClass('recall-notes-focus-rail-drawer-empty')
+  expect(noteDetailSection).toHaveClass('recall-note-detail-panel-drawer-empty')
+  expect(notesSection?.querySelector('.recall-notes-browse-empty-filters')).not.toBeNull()
+  expect(notesSection?.querySelector('.recall-notes-browse-empty-state')).not.toBeNull()
 })
 
 test('focused Graph can retarget the embedded Reader without opening the full Reader route', async () => {
@@ -375,7 +449,76 @@ test('focused Graph can retarget the embedded Reader without opening the full Re
   })
 
   const nodeDetailSection = screen.getByRole('heading', { name: 'Node detail', level: 2 }).closest('section')
+  const graphSection = screen.getByRole('heading', { name: 'Graph', level: 2 }).closest('section')
+  const graphSplitLayout = nodeDetailSection?.closest('.recall-source-split-layout')
+  const graphFocusedGrid = graphSection?.closest('.recall-focused-split-grid')
+
   expect(nodeDetailSection).not.toBeNull()
+  expect(graphSection).not.toBeNull()
+  expect(graphSection).toHaveClass('recall-source-side-rail')
+  expect(graphFocusedGrid).not.toBeNull()
+  expect(graphFocusedGrid).toHaveClass('recall-focused-split-grid-graph-readable')
+  expect(graphFocusedGrid).toHaveClass('recall-focused-split-grid-graph-milestone-reset')
+  expect(graphSplitLayout).not.toBeNull()
+  expect(graphSplitLayout).toHaveClass('recall-source-split-layout-graph-focused-rail-readable')
+  expect(graphSplitLayout).toHaveClass('recall-source-split-layout-graph-focused-text-wall-reset')
+  expect(graphSplitLayout).toHaveClass('recall-source-split-layout-graph-focused-milestone-reset')
+  expect(nodeDetailSection).toHaveClass('recall-source-secondary-panel')
+  expect(nodeDetailSection).toHaveClass('recall-graph-focused-detail-bundled')
+  expect(nodeDetailSection).toHaveClass('recall-graph-focused-detail-hierarchy-reset')
+  expect(nodeDetailSection).toHaveClass('recall-graph-focused-detail-density-reset')
+  expect(nodeDetailSection).toHaveClass('recall-graph-focused-detail-rail-readable')
+  expect(nodeDetailSection).toHaveClass('recall-graph-focused-detail-milestone-reset')
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-toolbar')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-toolbar-rail-readable')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-mentions-entry')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-button-confirm')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focus-stage-glance')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focus-stage-glance-rail')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-stack-hierarchy-reset')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focus-stage-primary')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-evidence-flow-bundle')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-evidence-flow-readable')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-section-leading-clue')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-section-leading-density-reset')).not.toBeNull()
+  expect(within(nodeDetailSection as HTMLElement).getByRole('heading', { name: 'Grounded clue', level: 3 })).toBeInTheDocument()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-mention-card-leading')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-section-follow-on')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-section-follow-on-bundle')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-section-follow-on-milestone')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-section-follow-on-text-wall-reset')).not.toBeNull()
+  const mentionCards = nodeDetailSection?.querySelectorAll('.recall-graph-focused-mention-card') ?? []
+  if (mentionCards.length > 1) {
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-follow-on-body-readable')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-follow-on-body')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-follow-on-run-card-text-wall-reset')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-follow-on-run-body-text-wall-reset')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-follow-on-run-card')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-follow-on-run-header')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-follow-on-run-body')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-mention-card-follow-on-lead')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-mention-card-trailing')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-mention-confidence-trailing')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-evidence-actions-trailing')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-mention-source-run')).not.toBeNull()
+  }
+  if (mentionCards.length > 2) {
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-follow-on-trail')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-mention-card-repeat-source-continuation')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-evidence-actions-repeat-source')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-mention-confidence-inline')).not.toBeNull()
+  }
+  if (mentionCards.length > 1 && nodeDetailSection?.querySelector('.recall-graph-focused-mention-card-leading-source-clustered')) {
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-mention-source-run-leading-cluster')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-mention-card-leading-source-continuation')).not.toBeNull()
+  }
+  if (nodeDetailSection?.querySelector('.recall-graph-focused-relation-list')) {
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-section-relations-readable')).not.toBeNull()
+    expect(nodeDetailSection?.querySelector('.recall-graph-focused-detail-section-relations-text-wall-reset')).not.toBeNull()
+  }
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-evidence-actions')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-evidence-button-show')).not.toBeNull()
+  expect(nodeDetailSection?.querySelector('.recall-graph-focused-evidence-button-open')).not.toBeNull()
 
   fireEvent.click(
     within(nodeDetailSection as HTMLElement).getAllByRole('button', { name: 'Show Search target only in Reader' })[0],
@@ -398,7 +541,25 @@ test('focused Study keeps Reader primary and still exposes the full Reader escap
   })
 
   const activeCardSection = screen.getByRole('heading', { name: 'Active card', level: 2 }).closest('section')
+  const studyQueueSection = screen.getByRole('heading', { name: 'Study queue', level: 2 }).closest('section')
+
   expect(activeCardSection).not.toBeNull()
+  expect(studyQueueSection).not.toBeNull()
+  expect(studyQueueSection).toHaveClass('recall-source-side-rail')
+  expect(activeCardSection).toHaveClass('recall-source-secondary-panel')
+  expect(activeCardSection).toHaveClass('recall-study-focused-panel-bundled')
+  expect(activeCardSection).toHaveClass('recall-study-focused-panel-hierarchy-reset')
+  expect(activeCardSection).toHaveClass('recall-study-focused-panel-flow-reset')
+  expect(activeCardSection).toHaveClass('recall-study-focused-panel-body-fused')
+  expect(studyQueueSection?.querySelector('.recall-study-focus-rail-actions')).not.toBeNull()
+  expect(studyQueueSection?.querySelector('.recall-study-focus-rail-button-refresh')).not.toBeNull()
+  expect(activeCardSection?.querySelector('.recall-study-focused-panel-toolbar')).not.toBeNull()
+  expect(activeCardSection?.querySelector('.recall-study-focused-body-flow')).not.toBeNull()
+  expect(activeCardSection?.querySelector('.recall-study-focused-body-flow-reset')).not.toBeNull()
+  expect(activeCardSection?.querySelector('.recall-study-focused-body-flow-fused')).not.toBeNull()
+  expect(activeCardSection?.querySelector('.recall-study-focused-evidence-fused')).not.toBeNull()
+  expect(activeCardSection?.querySelector('.recall-study-focused-review-panel-compact')).not.toBeNull()
+  expect(activeCardSection?.closest('.recall-source-split-layout-study-focused-flow-reset')).not.toBeNull()
 
   fireEvent.click(
     within(activeCardSection as HTMLElement).getAllByRole('button', { name: 'Open Search target only in Reader' })[0],
@@ -408,4 +569,30 @@ test('focused Study keeps Reader primary and still exposes the full Reader escap
     sentenceEnd: 2,
     sentenceStart: 2,
   })
+})
+
+test('focused Study answer-shown state keeps the compact fused right-lane hook', async () => {
+  renderHarness('study')
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Active card', level: 2 })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Reveal answer' }))
+
+  const activeCardSection = screen.getByRole('heading', { name: 'Active card', level: 2 }).closest('section')
+  const answerShownBody = activeCardSection?.querySelector('.recall-study-focused-answer-shown')
+
+  expect(answerShownBody).not.toBeNull()
+  expect(answerShownBody).toHaveClass('recall-study-focused-body-flow-reset')
+  expect(answerShownBody).toHaveClass('recall-study-focused-body-flow-fused')
+  expect(answerShownBody?.querySelector('.recall-study-focused-rating')).not.toBeNull()
+  expect(answerShownBody?.querySelector('.recall-study-focused-evidence-fused')).not.toBeNull()
+  expect(answerShownBody?.querySelector('.recall-study-focused-glance-answer-shown')).not.toBeNull()
+  expect(answerShownBody?.querySelector('.recall-study-focused-review-panel-answer-shown')).not.toBeNull()
+  expect(answerShownBody?.querySelector('.recall-study-focused-rating-answer-shown')).not.toBeNull()
+  expect(answerShownBody?.querySelector('.recall-study-focused-evidence-answer-shown')).not.toBeNull()
+  expect(answerShownBody?.querySelector('.recall-study-focused-evidence-header-answer-shown')).not.toBeNull()
+  expect(answerShownBody?.querySelector('.recall-study-focused-evidence-actions-answer-shown')).not.toBeNull()
+  expect(answerShownBody?.querySelector('.recall-study-focused-support-stack-answer-shown')).not.toBeNull()
 })

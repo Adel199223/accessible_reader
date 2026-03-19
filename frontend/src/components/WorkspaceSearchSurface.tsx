@@ -291,8 +291,8 @@ export function WorkspaceSearchSurface({
           {selectedResult ? (
             <aside className="workspace-search-focus stack-gap" aria-label="Focused search result">
               <div className="section-header section-header-compact">
-                <h3>Focused result</h3>
-                <p>Keep one result in view while you decide where to open it.</p>
+                <h3>Selected result</h3>
+                <p>Keep one result nearby while you choose the right handoff.</p>
               </div>
               <div className="workspace-search-focus-body stack-gap">
                 <div className="workspace-search-focus-heading">
@@ -353,7 +353,7 @@ export function WorkspaceSearchSurface({
           {selectedResult ? (
             <aside className="workspace-search-focus stack-gap" aria-label="Focused search result">
               <div className="section-header section-header-compact">
-                <h3>Focused result</h3>
+                <h3>Selected result</h3>
                 <p>Compare this match and choose the right handoff without losing the query.</p>
               </div>
               <div className="workspace-search-focus-body stack-gap">
@@ -386,7 +386,7 @@ export function WorkspaceSearchSurface({
           ) : (
             <aside className="workspace-search-focus stack-gap" aria-label="Focused search result">
               <div className="section-header section-header-compact">
-                <h3>Focused result</h3>
+                <h3>Selected result</h3>
                 <p>Pick a result to compare its detail before opening it.</p>
               </div>
             </aside>

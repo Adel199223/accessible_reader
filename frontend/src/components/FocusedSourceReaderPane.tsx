@@ -241,14 +241,30 @@ export function FocusedSourceReaderPane({
 
   return (
     <section className="reader-card recall-focused-reader-card stack-gap">
-      <div className="reader-toolbar">
-        <div className="reader-toolbar-main">
-          <h2>Reader</h2>
-          <p className="small-note">
-            Keep the live source open while notes, graph evidence, and study details stay beside it.
-          </p>
+      <div className="recall-focused-reader-shell">
+        <div className="reader-toolbar recall-focused-reader-toolbar">
+          <div className="reader-toolbar-main recall-focused-reader-toolbar-main">
+            <h2>Reader</h2>
+            <p className="small-note">
+              Keep the live source visible while surrounding note, graph, and study work stay secondary.
+            </p>
+          </div>
           {document ? (
-            <div className="reader-meta-row" role="list" aria-label="Focused Reader metadata">
+            <div className="reader-toolbar-actions">
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => onOpenInReader(document.id, resolvedAnchorRange ?? undefined)}
+              >
+                Open in Reader
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        {document ? (
+          <div className="recall-focused-reader-toolbar-row">
+            <div className="reader-meta-row recall-focused-reader-meta" role="list" aria-label="Focused Reader metadata">
               <span className="status-chip reader-meta-chip" role="listitem">
                 {document.source_type.toUpperCase()}
               </span>
@@ -261,37 +277,26 @@ export function FocusedSourceReaderPane({
                 </span>
               ) : null}
             </div>
-          ) : null}
-        </div>
-        {document ? (
-          <div className="reader-toolbar-actions">
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => onOpenInReader(document.id, resolvedAnchorRange ?? undefined)}
-            >
-              Open in Reader
-            </button>
+
+            {availableModes.length > 1 ? (
+              <div className="recall-stage-tabs recall-focused-reader-modes" aria-label="Focused Reader modes" role="tablist">
+                {availableModes.map((mode) => (
+                  <button
+                    key={mode}
+                    aria-selected={activeMode === mode}
+                    className={activeMode === mode ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                    role="tab"
+                    type="button"
+                    onClick={() => onModeChange(mode)}
+                  >
+                    {formatModeLabel(mode)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
-
-      {availableModes.length > 1 ? (
-        <div className="recall-stage-tabs recall-focused-reader-modes" aria-label="Focused Reader modes" role="tablist">
-          {availableModes.map((mode) => (
-            <button
-              key={mode}
-              aria-selected={activeMode === mode}
-              className={activeMode === mode ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-              role="tab"
-              type="button"
-              onClick={() => onModeChange(mode)}
-            >
-              {formatModeLabel(mode)}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       {!document ? <p className="small-note">Choose a source to keep its live content visible here.</p> : null}
       {viewLoading ? <p className="small-note">Loading Reader content…</p> : null}
@@ -316,7 +321,11 @@ export function FocusedSourceReaderPane({
         <div ref={surfaceRef} className="recall-focused-reader-surface">
           <div className="recall-focused-reader-title">
             <h3>{document.title}</h3>
-            <p className="small-note">Read and validate evidence here before leaving the focused workspace.</p>
+            <p className="small-note">
+              {resolvedAnchorRange
+                ? 'Anchored evidence stays visible here while you validate the supporting work beside it.'
+                : 'Live reading stays here while you validate the supporting work beside it.'}
+            </p>
           </div>
           <ReaderSurface
             accessibleLabel={`${document.title} Reader`}

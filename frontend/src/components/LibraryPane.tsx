@@ -6,6 +6,7 @@ interface LibraryPaneProps {
   activeDocumentId: string | null
   deletingDocumentId: string | null
   documents: DocumentRecord[]
+  embedded?: boolean
   errorMessage?: string | null
   hasAnyDocuments: boolean
   loading: boolean
@@ -38,6 +39,7 @@ export function LibraryPane({
   activeDocumentId,
   deletingDocumentId,
   documents,
+  embedded = false,
   errorMessage = null,
   hasAnyDocuments,
   loading,
@@ -88,7 +90,10 @@ export function LibraryPane({
   }, [openActionsId])
 
   return (
-    <section ref={rootRef} className="card card-compact stack-gap library-pane">
+    <section
+      ref={rootRef}
+      className={embedded ? 'stack-gap library-pane library-pane-embedded' : 'card card-compact stack-gap library-pane'}
+    >
       <div className="toolbar library-pane-toolbar">
         <div className="section-header section-header-compact">
           <h2>{title}</h2>

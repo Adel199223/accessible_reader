@@ -836,7 +836,7 @@ function renderHarness(options?: {
   return { onOpenReader, onRequestNewSource }
 }
 
-test('populated Recall library stays browse-first and shows a resume card instead of source detail panels', async () => {
+test('populated Home stays browse-first with a continue workspace instead of source detail panels', async () => {
   renderHarness()
 
   await waitFor(() => {
@@ -844,175 +844,118 @@ test('populated Recall library stays browse-first and shows a resume card instea
   })
 
   expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Resume now', level: 3 })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Add source' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Continue working', level: 3 })).toBeInTheDocument()
+  expect(screen.getByText('Collection snapshot')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Resume Notes' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Source overview', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Search workspace', level: 2 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
 })
 
-test('Home utility rail keeps collection snapshot and search entry close without adding a second heavy card stack', async () => {
+test('Home workspace keeps a compact toolbar and collection snapshot without reviving the old inline rail shell', async () => {
   renderHarness()
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   })
 
-  const homeRail = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-library-home-inline-shell')
+  const homeWorkspace = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-home-workspace')
   const homeLanding = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-library-landing')
 
-  expect(homeRail).not.toBeNull()
+  expect(homeWorkspace).not.toBeNull()
   expect(homeLanding).toHaveClass('recall-library-landing-unboxed')
   expect(homeLanding).not.toHaveClass('card')
-  expect(within(homeRail as HTMLElement).getByRole('list', { name: 'Collection snapshot' })).toBeInTheDocument()
-  expect(within(homeRail as HTMLElement).getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
-  expect(within(homeRail as HTMLElement).getByRole('button', { name: 'Add source' })).toBeInTheDocument()
-  expect((homeRail as HTMLElement).querySelector('.recall-library-home-inline-summary')).toBeNull()
-  expect((homeRail as HTMLElement).querySelector('.recall-library-home-inline-heading-copy .recall-library-home-inline-meta')).not.toBeNull()
-  expect(within(homeRail as HTMLElement).queryByText('Older or specific sources.')).not.toBeInTheDocument()
+  expect(within(homeWorkspace as HTMLElement).getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(within(homeWorkspace as HTMLElement).getByText('Collection snapshot')).toBeInTheDocument()
+  expect((homeWorkspace as HTMLElement).querySelector('.recall-home-toolbar-summary')).not.toBeNull()
+  expect((homeWorkspace as HTMLElement).querySelector('.recall-home-toolbar-metrics')).not.toBeNull()
+  expect((homeWorkspace as HTMLElement).querySelector('.recall-library-home-inline-shell')).toBeNull()
+  expect((homeWorkspace as HTMLElement).querySelector('.recall-library-home-inline-heading-copy')).toBeNull()
 })
 
-test('browse-first Home groups sources into deliberate resume and reopen sections instead of one undifferentiated wall', async () => {
+test('browse-first Home groups sources into a continue panel plus a denser library card grid', async () => {
   renderHarness()
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Resume now', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Continue working', level: 3 })).toBeInTheDocument()
   })
 
   const earlierSection = screen.getByRole('heading', { name: 'Earlier', level: 3 }).closest('section')
-  const resumeSection = screen.getByRole('heading', { name: 'Resume now', level: 3 }).closest('section')
+  const continueSection = screen.getByRole('heading', { name: 'Continue working', level: 3 }).closest('section')
 
   expect(screen.getByRole('button', { name: 'Resume Notes' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Show all \d+ earlier sources/i })).toBeInTheDocument()
-  expect(resumeSection).not.toBeNull()
+  expect(continueSection).not.toBeNull()
   expect(earlierSection).not.toBeNull()
-  expect(within(resumeSection as HTMLElement).getByText('Stage 10 Debug Article')).toBeInTheDocument()
-  expect(within(resumeSection as HTMLElement).getByRole('button', { name: 'Open Stage 13 Debug Notes' })).toBeInTheDocument()
-  expect(within(earlierSection as HTMLElement).queryByText('Start here')).not.toBeInTheDocument()
-  const earlierSpotlightRow = (earlierSection as HTMLElement).querySelector('.recall-library-featured-spotlight-flat')
-  expect(earlierSpotlightRow).not.toBeNull()
-  expect(earlierSpotlightRow).toHaveClass('recall-library-featured-spotlight-flat')
-  expect((earlierSpotlightRow as HTMLElement).querySelector('.recall-library-featured-spotlight-kicker')).toBeNull()
-  expect((earlierSpotlightRow as HTMLElement).querySelector('.recall-library-featured-spotlight-meta .recall-library-row-cue')).toBeNull()
-  expect((earlierSpotlightRow as HTMLElement).querySelector('.recall-library-featured-spotlight-topline .recall-library-row-timestamp')).toBeNull()
-  expect((earlierSpotlightRow as HTMLElement).querySelector('.recall-library-featured-spotlight-meta .recall-library-row-timestamp')).not.toBeNull()
-  expect((earlierSection as HTMLElement).querySelector('.recall-library-featured-layout')).toHaveClass(
-    'recall-library-featured-layout-collapsed',
-  )
-  expect((earlierSection as HTMLElement).querySelector('.recall-library-featured-layout')).not.toHaveClass(
-    'recall-library-featured-layout-balanced',
-  )
-  const earlierSecondarySources = within(earlierSection as HTMLElement).getByRole('list', {
-    name: 'Earlier secondary sources',
-  })
-  expect(earlierSecondarySources).toHaveClass('recall-library-featured-support', 'recall-library-featured-support-inline')
-  const earlierSecondaryRow = within(earlierSecondarySources).getByRole('button', { name: 'Open Archived Reference 1' })
-  expect(earlierSecondaryRow).toHaveClass(
-    'recall-library-reopen-row-inline',
-  )
-  expect(within(earlierSecondaryRow).queryByText('Nearby')).not.toBeInTheDocument()
-  expect(within(earlierSecondaryRow).getByText('TXT')).toBeInTheDocument()
-  expect(within(earlierSecondaryRow).getByText('1 view ready')).toBeInTheDocument()
-  expect(earlierSecondaryRow.querySelector('.recall-library-reopen-row-head .recall-library-row-timestamp')).toBeNull()
-  expect(earlierSecondaryRow.querySelector('.recall-library-reopen-row-meta .recall-library-row-timestamp')).not.toBeNull()
-  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 1' })).toBeInTheDocument()
-  const earlierFollowOnList = within(earlierSection as HTMLElement).getByRole('list', { name: 'Earlier follow-on sources' })
-  const earlierFollowOnSection = earlierFollowOnList.closest('.recall-library-follow-on')
-  expect(earlierFollowOnList).toHaveClass('recall-library-follow-on-list')
-  expect(earlierFollowOnSection).toHaveClass('recall-library-follow-on-bridged')
-  expect(within(earlierSection as HTMLElement).queryByText('Keep going')).not.toBeInTheDocument()
-  const earlierFollowOnIntro = (earlierFollowOnSection as HTMLElement).querySelector('.recall-library-follow-on-intro')
-  expect(earlierFollowOnIntro).not.toBeNull()
-  expect(earlierFollowOnIntro).toHaveTextContent('More earlier sources stay in the same flow when you want the next one.')
-  const earlierFollowOnRow = within(earlierFollowOnList).getByRole('button', { name: 'Open Archived Reference 2' })
-  expect(earlierFollowOnRow).toHaveClass(
-    'recall-library-continuation-row-flat',
-  )
-  expect(within(earlierFollowOnRow).queryByText('Next')).not.toBeInTheDocument()
-  expect(within(earlierFollowOnRow).getByText('TXT')).toBeInTheDocument()
-  expect(within(earlierFollowOnRow).getByText('1 view ready')).toBeInTheDocument()
-  expect(earlierFollowOnRow.querySelector('.recall-library-continuation-row-head .recall-library-row-timestamp')).toBeNull()
-  expect(earlierFollowOnRow.querySelector('.recall-library-continuation-row-meta .recall-library-row-timestamp')).not.toBeNull()
-  expect(within(earlierFollowOnList).getByRole('button', { name: 'Open Archived Reference 5' })).toBeInTheDocument()
-  expect(within(earlierFollowOnList).queryByRole('button', { name: 'Open Archived Reference 6' })).not.toBeInTheDocument()
-  expect((earlierFollowOnSection as HTMLElement).querySelector('.recall-library-follow-on-footer')).toBeNull()
-  const earlierRevealButton = within(earlierFollowOnList).getByRole('button', { name: /Show all \d+ earlier sources/i })
-  expect(earlierRevealButton).toHaveClass('recall-library-continuation-row-reveal')
-  expect(earlierRevealButton).toHaveClass('recall-library-continuation-row-reveal-inline')
-  expect(earlierRevealButton).toHaveClass('recall-library-continuation-row-flat')
-  expect(earlierRevealButton.querySelector('.recall-library-continuation-row-head')).toBeNull()
-  expect(earlierRevealButton.querySelector('.recall-library-continuation-row-meta')).toBeNull()
-  expect(earlierRevealButton).toHaveTextContent(/hidden in the full collection/i)
-  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 2' })).toBeInTheDocument()
-  expect(within(earlierSection as HTMLElement).queryByRole('button', { name: 'Open Archived Reference 6' })).not.toBeInTheDocument()
+  expect(within(continueSection as HTMLElement).getByText('Stage 10 Debug Article')).toBeInTheDocument()
+  expect((continueSection as HTMLElement).querySelector('.recall-home-lead-card')).not.toBeNull()
+  expect((continueSection as HTMLElement).querySelector('.recall-home-continue-list')).not.toBeNull()
+  expect(within(continueSection as HTMLElement).getByRole('button', { name: 'Open Stage 13 Debug Notes' })).toBeInTheDocument()
+  expect(within(continueSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 1' })).toBeInTheDocument()
+  expect(within(continueSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 2' })).toBeInTheDocument()
+  expect(earlierSection).toHaveClass('recall-home-library-card')
+  const earlierList = (earlierSection as HTMLElement).querySelector('.recall-library-list')
+  expect(earlierList).not.toBeNull()
+  const earlierPrimaryRow = within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 3' })
+  expect(earlierPrimaryRow).toHaveClass('recall-library-list-row')
+  expect((earlierSection as HTMLElement).querySelector('.recall-home-lead-card')).toBeNull()
+  expect(within(earlierPrimaryRow).getByText('TXT')).toBeInTheDocument()
+  expect(within(earlierPrimaryRow).getByText('1 view ready')).toBeInTheDocument()
+  expect(earlierPrimaryRow.querySelector('.recall-library-row-timestamp')).not.toBeNull()
+  expect(within(earlierSection as HTMLElement).queryByRole('button', { name: 'Open Stage 13 Debug Notes' })).not.toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).queryByRole('button', { name: 'Open Archived Reference 1' })).not.toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 5' })).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 6' })).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).queryByRole('button', { name: 'Open Archived Reference 7' })).not.toBeInTheDocument()
+  expect((earlierSection as HTMLElement).querySelector('.recall-home-library-list')).not.toBeNull()
 })
 
-test('no-resume Home merges the landing header into the first reopen section so the first reopen point starts immediately', async () => {
+test('no-resume Home opens with one clear next source plus the denser library cards', async () => {
   renderHarness({ initialContinuityState: makeNoResumeHomeContinuityState() })
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   })
 
-  const homeInlineHeader = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-library-home-inline-shell')
-  const mergedLeadRow = screen.getByRole('button', { name: 'Open Stage 10 Debug Article' })
-  const savedSourcesSection = mergedLeadRow.closest('section')
+  const homeWorkspace = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('.recall-home-workspace')
+  const continueSection = screen.getByRole('heading', { name: 'Pick up with one source', level: 3 }).closest('section')
+  const primaryReopenButton = screen.getByRole('button', { name: 'Open Stage 10 Debug Article' })
+  const earlierSection = screen.getByRole('heading', { name: 'Earlier', level: 3 }).closest('section')
 
-  expect(homeInlineHeader).not.toBeNull()
-  expect(within(homeInlineHeader as HTMLElement).getByRole('list', { name: 'Collection snapshot' })).toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Saved sources', level: 2 })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Earlier', level: 3 })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Resume now', level: 3 })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Add source' })).toBeInTheDocument()
-  expect(savedSourcesSection).not.toBeNull()
-  expect((homeInlineHeader as HTMLElement).querySelector('.recall-library-home-inline-summary')).toBeNull()
-  expect(within(savedSourcesSection as HTMLElement).queryByText('Start here')).not.toBeInTheDocument()
-  expect(mergedLeadRow).not.toBeNull()
-  expect(mergedLeadRow).toHaveClass(
-    'recall-library-continuation-row-leading',
-    'recall-library-continuation-row-flat',
-  )
-  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-featured-spotlight-kicker')).toBeNull()
-  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-continuation-row-head .recall-library-row-cue')).toBeNull()
-  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-continuation-row-meta .recall-library-row-cue')).toBeNull()
-  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-continuation-row-head .recall-library-row-timestamp')).toBeNull()
-  expect((mergedLeadRow as HTMLElement).querySelector('.recall-library-continuation-row-meta .recall-library-row-timestamp')).not.toBeNull()
-  expect((savedSourcesSection as HTMLElement).querySelector('.recall-library-featured-layout')).toBeNull()
-  expect(within(savedSourcesSection as HTMLElement).queryByRole('list', {
-    name: 'Earlier secondary sources',
-  })).not.toBeInTheDocument()
-  const mergedFollowOnList = within(savedSourcesSection as HTMLElement).getByRole('list', { name: 'Earlier follow-on sources' })
-  const mergedFollowOnSection = mergedFollowOnList.closest('.recall-library-follow-on')
-  expect(mergedFollowOnList).toHaveClass('recall-library-follow-on-list')
-  expect(mergedFollowOnList).toHaveClass('recall-library-follow-on-list-leading')
-  expect(mergedFollowOnSection).toHaveClass('recall-library-follow-on-leading')
-  expect(mergedFollowOnSection).not.toHaveClass('recall-library-follow-on-bridged')
-  expect((mergedFollowOnSection as HTMLElement).querySelector('.recall-library-follow-on-intro')).toBeNull()
-  const mergedLeadCarryRow = within(mergedFollowOnList).getByRole('button', { name: 'Open Stage 13 Debug Notes' })
-  expect(mergedLeadCarryRow).toHaveClass(
-    'recall-library-continuation-row-flat',
-  )
-  expect(within(mergedLeadCarryRow).queryByText('Next')).not.toBeInTheDocument()
-  expect(within(mergedLeadCarryRow).getByText('PASTE')).toBeInTheDocument()
-  expect(within(mergedLeadCarryRow).getByText('1 view ready')).toBeInTheDocument()
-  expect(mergedLeadCarryRow.querySelector('.recall-library-continuation-row-head .recall-library-row-timestamp')).toBeNull()
-  expect(mergedLeadCarryRow.querySelector('.recall-library-continuation-row-meta .recall-library-row-timestamp')).not.toBeNull()
-  const mergedFollowOnRow = within(mergedFollowOnList).getByRole('button', { name: 'Open Archived Reference 1' })
-  expect(mergedFollowOnRow).toHaveClass(
-    'recall-library-continuation-row-flat',
-  )
-  expect(within(mergedFollowOnRow).getByText('TXT')).toBeInTheDocument()
-  expect(within(mergedFollowOnList).getByRole('button', { name: 'Open Archived Reference 30' })).toBeInTheDocument()
-  expect(within(mergedFollowOnList).queryByRole('button', { name: 'Open Archived Reference 31' })).not.toBeInTheDocument()
-  expect((mergedFollowOnSection as HTMLElement).querySelector('.recall-library-follow-on-footer')).toBeNull()
-  const mergedRevealButton = within(mergedFollowOnList).getByRole('button', { name: /Show all \d+ earlier sources/i })
-  expect(mergedRevealButton).toHaveClass('recall-library-continuation-row-reveal')
-  expect(mergedRevealButton).toHaveClass('recall-library-continuation-row-reveal-inline')
-  expect(mergedRevealButton).toHaveClass('recall-library-continuation-row-flat')
-  expect(mergedRevealButton.querySelector('.recall-library-continuation-row-head')).toBeNull()
-  expect(mergedRevealButton.querySelector('.recall-library-continuation-row-meta')).toBeNull()
-  expect(mergedRevealButton).toHaveTextContent(/hidden in the full collection/i)
-  expect(within(savedSourcesSection as HTMLElement).queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
+  expect(homeWorkspace).not.toBeNull()
+  expect(continueSection).not.toBeNull()
+  expect(earlierSection).not.toBeNull()
+  expect(screen.getByRole('heading', { name: 'Earlier', level: 3 })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Continue working', level: 3 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
+  expect((homeWorkspace as HTMLElement).querySelector('.recall-home-toolbar-summary')).not.toBeNull()
+  expect((continueSection as HTMLElement).querySelector('.recall-home-lead-card')).not.toBeNull()
+  expect(primaryReopenButton).not.toBeNull()
+  expect(within(continueSection as HTMLElement).getByRole('button', { name: 'Open Stage 13 Debug Notes' })).toBeInTheDocument()
+  expect(within(continueSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 1' })).toBeInTheDocument()
+  expect(within(continueSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 2' })).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).queryByRole('button', { name: 'Open Archived Reference 1' })).not.toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 5' })).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 6' })).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).queryByRole('button', { name: 'Open Archived Reference 7' })).not.toBeInTheDocument()
+})
+
+test('expanded no-resume Home rebalances Earlier into a compact lead card above the reopened list', async () => {
+  renderHarness({ initialContinuityState: makeNoResumeHomeContinuityState() })
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /show all \d+ earlier sources/i })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: /show all \d+ earlier sources/i }))
+
+  const earlierSection = screen.getByRole('heading', { name: 'Earlier', level: 3 }).closest('section')
+
+  expect(earlierSection).not.toBeNull()
+  expect((earlierSection as HTMLElement).querySelector('.recall-home-library-list')).not.toBeNull()
+  expect((earlierSection as HTMLElement).querySelector('.recall-home-lead-card')).toBeNull()
+  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 7' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /show fewer earlier sources/i })).toBeInTheDocument()
 })
 
 test('earlier Home sources stay collapsed until expanded intentionally', async () => {
@@ -1030,6 +973,25 @@ test('earlier Home sources stay collapsed until expanded intentionally', async (
   expect(screen.getByRole('button', { name: 'Open Archived Reference 7' })).toBeInTheDocument()
 })
 
+test('expanded no-resume Home keeps the primary reopen compact while revealing the full Earlier tail', async () => {
+  renderHarness({ initialContinuityState: makeNoResumeHomeContinuityState() })
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /show all \d+ earlier sources/i })).toBeInTheDocument()
+  })
+
+  const earlierSection = screen.getByRole('heading', { name: 'Earlier', level: 3 }).closest('section')
+  expect(earlierSection).not.toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: /show all \d+ earlier sources/i }))
+
+  const expandedList = (earlierSection as HTMLElement).querySelector('.recall-home-library-list')
+  expect(expandedList).not.toBeNull()
+  expect((earlierSection as HTMLElement).querySelector('.recall-home-lead-card')).toBeNull()
+  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 6' })).toBeInTheDocument()
+  expect(within(earlierSection as HTMLElement).getByRole('button', { name: 'Open Archived Reference 7' })).toBeInTheDocument()
+})
+
 test('clicking a source card enters focused library overview mode', async () => {
   renderHarness()
 
@@ -1037,7 +999,7 @@ test('clicking a source card enters focused library overview mode', async () => 
     expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Open Stage 10 Debug Article' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Open Stage 13 Debug Notes' }))
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
@@ -1050,19 +1012,19 @@ test('focused library overview keeps a Reader handoff for the selected source', 
   const { onOpenReader } = renderHarness()
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Open Stage 10 Debug Article' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open Stage 13 Debug Notes' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Open Stage 10 Debug Article' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Open Stage 13 Debug Notes' }))
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Stage 10 Debug Article', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Stage 13 Debug Notes', level: 3 })).toBeInTheDocument()
   })
 
   fireEvent.click(screen.getByRole('button', { name: 'Open in Reader' }))
 
-  expect(onOpenReader).toHaveBeenCalledWith('doc-stage10')
+  expect(onOpenReader).toHaveBeenCalledWith('doc-stage13')
 })
 
 test('focused library overview stays pinned while Home filtering narrows the source rail', async () => {
@@ -1118,16 +1080,15 @@ test('resume card re-enters the last focused source tab intentionally', async ()
   })
 })
 
-test('add source tile opens the existing import flow', async () => {
+test('Home relies on shell New instead of an in-body add source tile', async () => {
   const { onRequestNewSource } = renderHarness()
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Add source' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Home', level: 2 })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Add source' }))
-
-  expect(onRequestNewSource).toHaveBeenCalledTimes(1)
+  expect(screen.queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
+  expect(onRequestNewSource).not.toHaveBeenCalled()
 })
 
 test('graph browse mode now renders a graph-first canvas with quick picks instead of the old browse detail column', async () => {
@@ -1141,72 +1102,69 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   const graphSurface = screen.getByRole('region', { name: 'Knowledge graph canvas' }).closest('.recall-graph-browser-surface')
 
   expect(graphRail).not.toBeNull()
-  expect(graphRail).toHaveClass('recall-graph-sidebar-unboxed')
-  expect(graphRail).toHaveClass('recall-graph-sidebar-rail-slim')
-  expect(graphRail).toHaveClass('recall-graph-sidebar-rail-narrower')
+  expect(graphRail).toHaveClass('recall-graph-browser-utility-strip')
   expect(graphRail).not.toHaveClass('card')
   expect(graphSurface).not.toBeNull()
   expect(graphSurface).toHaveClass('recall-graph-browser-surface-unboxed')
   expect(graphSurface).not.toHaveClass('card')
   const graphGlance = screen.getByLabelText('Graph glance')
   const quickPickList = screen.getByRole('list', { name: 'Quick picks' })
-  const quickPickSection = quickPickList.closest('section')
   const graphSurfaceIntro = screen.getByLabelText('Graph surface intro')
   expect(within(graphGlance).getByText('1 node')).toBeInTheDocument()
   expect(within(graphGlance).queryByText(/last source:/i)).toBeNull()
-  expect(screen.queryByRole('list', { name: 'Graph metrics' })).not.toBeInTheDocument()
+  expect(screen.getByRole('list', { name: 'Graph metrics' })).toBeInTheDocument()
   expect(screen.queryByText('Last focused source')).not.toBeInTheDocument()
   expect(screen.queryByText('See the graph before you validate it.')).not.toBeInTheDocument()
-  expect(within(graphSurfaceIntro).getByText(/grounded evidence/i)).toBeInTheDocument()
+  expect(within(graphSurfaceIntro).getByText(/grounded (detail|evidence)/i)).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Quick picks', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Graph', level: 2 })).toBeNull()
-  expect(quickPickSection).not.toBeNull()
-  expect(quickPickSection).toHaveClass('recall-graph-sidebar-picker-flat')
-  expect(quickPickSection).toContainElement(graphGlance)
+  expect(graphRail).toContainElement(graphGlance)
+  expect(graphRail).toContainElement(quickPickList)
   expect(screen.getByRole('button', { name: 'Hide graph selector strip' })).toBeInTheDocument()
-  expect(within(quickPickSection as HTMLElement).queryByText('Quick picks')).toBeNull()
-  expect(within(quickPickSection as HTMLElement).queryByText(/start from/i)).toBeNull()
-  expect(within(quickPickSection as HTMLElement).getByText(/1 source doc/i)).toBeInTheDocument()
-  expect(within(quickPickSection as HTMLElement).queryByText('Stage ten sentence three.')).not.toBeInTheDocument()
+  expect(within(graphRail).getByText('Quick picks')).toBeInTheDocument()
+  expect(within(graphRail).queryByText(/start from/i)).toBeNull()
+  expect(within(graphRail).getByText(/1 source doc/i)).toBeInTheDocument()
+  expect(within(graphRail).getByRole('button', { name: /Stage 10 node/i })).toHaveAttribute(
+    'title',
+    'Stage ten sentence three.',
+  )
   expect(screen.queryByRole('heading', { name: 'Node detail', level: 2 })).not.toBeInTheDocument()
-
   fireEvent.click(screen.getByRole('button', { name: 'Select node Stage 10 node' }))
 
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Show detail' })).toBeInTheDocument()
   })
 
-  const graphOverlay = screen.getByRole('button', { name: 'Show detail' }).closest('.recall-graph-detail-overlay')
-  expect(graphOverlay).not.toBeNull()
-  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-compact')
-  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-slim')
-  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-peek')
-  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-peek-compact')
-  const overlaySummary = within(graphOverlay as HTMLElement).getByRole('list', { name: 'Selected node summary' })
-  expect(within(overlaySummary).getByText(/confidence/i)).toBeInTheDocument()
-  expect((graphOverlay as HTMLElement).querySelector('.recall-graph-detail-title-meta')).toBeNull()
-  expect(within(graphOverlay as HTMLElement).queryByRole('list', { name: 'Selected node mentions' })).toBeNull()
-  expect(within(graphOverlay as HTMLElement).queryByRole('list', { name: 'Selected node relations' })).toBeNull()
-  expect(within(graphOverlay as HTMLElement).queryByRole('button', { name: 'Confirm' })).toBeNull()
-  expect(within(graphOverlay as HTMLElement).queryByRole('button', { name: 'Reject' })).toBeNull()
-  expect((graphOverlay as HTMLElement).querySelector('.recall-graph-detail-peek-inline')).not.toBeNull()
-  expect((graphOverlay as HTMLElement).querySelector('.recall-graph-detail-peek-card')).toBeNull()
-  expect(within(graphOverlay as HTMLElement).getByText('Open source')).toBeInTheDocument()
+  const graphDock = screen.getByLabelText('Node detail dock')
+  expect(graphDock).toHaveClass('recall-graph-detail-dock')
+  expect(graphDock).toHaveClass('recall-graph-detail-dock-peek')
+  expect(graphDock).not.toHaveClass('recall-graph-detail-dock-expanded')
+  expect(within(graphDock).getByRole('list', { name: 'Selected node summary' })).toBeInTheDocument()
+  expect(within(graphDock).queryByRole('list', { name: 'Selected node mentions' })).toBeNull()
+  expect(within(graphDock).queryByRole('list', { name: 'Selected node relations' })).toBeNull()
+  expect(within(graphDock).queryByRole('button', { name: 'Confirm' })).toBeNull()
+  expect(within(graphDock).queryByRole('button', { name: 'Reject' })).toBeNull()
+  expect(graphDock.querySelector('.recall-graph-detail-dock-body-peek')).not.toBeNull()
+  expect(graphDock.querySelector('.recall-graph-detail-card-leading-peek')).not.toBeNull()
+  expect(within(graphDock).getByText('Grounded clue')).toBeInTheDocument()
+  expect(within(graphDock).getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+  expect(within(graphDock).getByText('Open source')).toBeInTheDocument()
 
-  fireEvent.click(within(graphOverlay as HTMLElement).getByRole('button', { name: 'Show detail' }))
+  fireEvent.click(within(graphDock).getByRole('button', { name: 'Show detail' }))
 
   await waitFor(() => {
-    expect(within(graphOverlay as HTMLElement).getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
+    expect(within(graphDock).getByRole('button', { name: 'Peek only' })).toBeInTheDocument()
   })
 
-  expect(graphOverlay).toHaveClass('recall-graph-detail-overlay-expanded')
-  const graphToolbarActions = (graphOverlay as HTMLElement).querySelector('.recall-graph-detail-toolbar-actions')
-  expect(graphToolbarActions).not.toBeNull()
-  expect(within(graphToolbarActions as HTMLElement).getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
-  expect(within(graphToolbarActions as HTMLElement).getByRole('button', { name: 'Reject' })).toBeInTheDocument()
-  const mentionsList = within(graphOverlay as HTMLElement).getByRole('list', { name: 'Selected node mentions' })
-  expect(mentionsList).toHaveClass('recall-graph-detail-list-compact')
-  expect(within(graphOverlay as HTMLElement).queryByRole('list', { name: 'Selected node relations' })).toBeNull()
+  expect(graphDock).toHaveClass('recall-graph-detail-dock-expanded')
+  expect(graphDock.querySelector('.recall-graph-detail-dock-body-expanded')).not.toBeNull()
+  expect(within(graphDock).getByRole('list', { name: 'Selected node summary' })).toBeInTheDocument()
+  const graphDockActions = graphDock.querySelector('.recall-graph-detail-dock-actions')
+  expect(graphDockActions).not.toBeNull()
+  expect(within(graphDockActions as HTMLElement).getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+  expect(within(graphDockActions as HTMLElement).getByRole('button', { name: 'Reject' })).toBeInTheDocument()
+  expect(within(graphDock).queryByRole('list', { name: 'Selected node mentions' })).toBeNull()
+  expect(within(graphDock).queryByRole('list', { name: 'Selected node relations' })).toBeNull()
 })
 
 test('study browse mode now lands summary-first while keeping the review card dominant', async () => {
@@ -1220,10 +1178,10 @@ test('study browse mode now lands summary-first while keeping the review card do
   expect(screen.queryByRole('heading', { name: 'Recall review', level: 2 })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Show answer' })).toBeInTheDocument()
-  expect(screen.getByText(/^Ready$/)).toBeInTheDocument()
   const studyQueueSummary = screen.getByLabelText('Active study queue summary')
-  const reviewSessionStrip = screen.getByText(/^Ready$/).closest('.recall-study-session-strip')
   const activeCardSection = screen.getByRole('heading', { name: 'Review card', level: 2 }).closest('section')
+  const studyQueueDock = screen.getByLabelText('Study queue support')
+  const studyEvidenceDock = screen.getByLabelText('Study evidence support')
   const browseStudySupportStrip = screen.getByLabelText('Browse study support')
   expect(within(studyQueueSummary).queryByText(/^\d+\s+cards$/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText(/reviews logged/i)).not.toBeInTheDocument()
@@ -1232,28 +1190,22 @@ test('study browse mode now lands summary-first while keeping the review card do
   expect(within(studyQueueSummary).queryByText(/^\d+\s+new$/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText('Stage 10 Debug Article')).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText('What do Knowledge Graphs support?')).not.toBeInTheDocument()
-  expect(reviewSessionStrip).not.toBeNull()
   expect(activeCardSection).not.toBeNull()
   expect(browseStudySupportStrip).not.toBeNull()
-  expect(activeCardSection).toHaveClass('recall-study-card-browse-expanded')
+  expect(studyQueueDock).not.toBeNull()
+  expect(studyEvidenceDock).not.toBeNull()
+  expect(activeCardSection).toHaveClass('recall-study-review-stage')
   expect(browseStudySupportStrip).toHaveClass('recall-study-toolbar-utility')
-  expect(activeCardSection).toContainElement(browseStudySupportStrip)
+  expect(studyQueueDock).toContainElement(browseStudySupportStrip)
   expect(document.querySelector('.recall-study-sidebar-collapsed-hidden')).toBeNull()
-  expect(within(reviewSessionStrip as HTMLElement).queryByText(/Due /i)).not.toBeInTheDocument()
-  expect(within(reviewSessionStrip as HTMLElement).queryByText('Stage 10 Debug Article')).not.toBeInTheDocument()
-  expect(within(reviewSessionStrip as HTMLElement).queryByText(/0 reviews/i)).not.toBeInTheDocument()
-  expect(within(reviewSessionStrip as HTMLElement).queryByText(/evidence span/i)).not.toBeInTheDocument()
-  expect(within(reviewSessionStrip as HTMLElement).queryByText(/^Choose$/)).not.toBeInTheDocument()
-  expect(within(reviewSessionStrip as HTMLElement).queryByText(/^Reveal$/)).not.toBeInTheDocument()
-  expect(within(reviewSessionStrip as HTMLElement).queryByText(/^Rate$/)).not.toBeInTheDocument()
-  expect(screen.getAllByRole('button', { name: /Open .* in Reader/ })).toHaveLength(1)
-  expect(screen.getByRole('button', { name: 'Open Stage 10 Debug Article in Reader' })).toBeInTheDocument()
-  expect(screen.getByText('Grounded')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
-  expect(screen.getByText(/^Source (chunk|evidence|graph relation|saved note)$/i)).toBeInTheDocument()
+  expect(document.querySelector('.recall-study-session-strip')).toBeNull()
+  expect(within(activeCardSection as HTMLElement).queryByRole('button', { name: /Open .* in Reader/ })).toBeNull()
+  expect(within(studyEvidenceDock).getByRole('button', { name: /Open .* in Reader/ })).toBeInTheDocument()
+  expect(within(studyQueueSummary).getByText(/Grounded:/i)).toBeInTheDocument()
+  expect(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+  expect(within(studyQueueSummary).getByText(/Source evidence/i)).toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText('Hidden until needed.')).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Source evidence', level: 3 })).not.toBeInTheDocument()
-  expect(screen.queryByText('Stage ten sentence three.')).not.toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByText('Stage ten sentence three.')).toBeInTheDocument()
   expect(screen.getByText('Reveal the answer to rate recall.')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Forgot' })).not.toBeInTheDocument()
   expect(screen.queryByText('Queue support is hidden until you want to switch cards or change the filter.')).not.toBeInTheDocument()
@@ -1265,26 +1217,28 @@ test('study browse mode now lands summary-first while keeping the review card do
     expect(screen.getByRole('button', { name: 'Forgot' })).toBeInTheDocument()
   })
 
-  expect(screen.getByText('Rate to schedule the next review.')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Source evidence', level: 3 })).toBeInTheDocument()
-  expect(screen.getByText('Stage ten sentence three.')).toBeInTheDocument()
+  expect(screen.getByText('Rate recall to schedule the next review.')).toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByText('Source evidence')).toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByText('Stage ten sentence three.')).toBeInTheDocument()
 })
 
 test('study browse can preview evidence before revealing the answer', async () => {
   renderHarness({ initialSection: 'study' })
+  const studyQueueDock = screen.getByLabelText('Study queue support')
+  const studyEvidenceDock = screen.getByLabelText('Study evidence support')
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+    expect(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Preview evidence' }))
+  fireEvent.click(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Source evidence', level: 3 })).toBeInTheDocument()
+    expect(within(studyEvidenceDock).getByText('Source evidence')).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('button', { name: 'Hide preview' })).toBeInTheDocument()
-  expect(screen.getByText('Stage ten sentence three.')).toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByRole('button', { name: 'Hide preview' })).toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByText('Stage ten sentence three.')).toBeInTheDocument()
 })
 
 test('study browse queue stays intentionally truncated until expanded', async () => {
