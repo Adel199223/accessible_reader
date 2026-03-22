@@ -9,37 +9,473 @@ Reference matrix for benchmark-driven Recall UI work.
 - Official supporting Recall sources:
   - [Recall docs](https://docs.getrecall.ai/)
   - [Add Content tutorial](https://docs.getrecall.ai/docs/tutorials/add-content)
+  - [Tagging deep dive](https://docs.getrecall.ai/deep-dives/tagging)
   - [Knowledge Graph overview](https://docs.getrecall.ai/docs/features/knowledge-graph/overview)
+  - [Graph navigation](https://docs.getrecall.ai/deep-dives/graph/navigation)
+  - [Graph filtering and customization](https://docs.getrecall.ai/deep-dives/graph/filtering-and-customization)
+  - [Graph selection and exploration](https://docs.getrecall.ai/deep-dives/graph/selection-and-exploration)
   - [Quiz & Spaced Repetition](https://docs.getrecall.ai/docs/features/quiz-and-spaced-repetition)
   - [How can LLMs and Knowledge Graphs help you build a second brain?](https://www.getrecall.ai/blog/how-can-llms-and-knowledge-graphs-help-you-build-a-second-brain)
+  - [Recall changelog](https://feedback.getrecall.ai/changelog)
+  - [Recall Release Notes: Jan 12, 2026 - Graph View 2.0 and much more](https://feedback.getrecall.ai/changelog/recall-release-notes-jan-12-2026-graph-view-20-and-much-more)
   - [Get Review Reminders on iPhone](https://www.getrecall.ai/changelog/get-review-reminders-on-iphone)
 
 ## Surface Matrix
 
 | Surface | Benchmark source and URL | Current localhost artifact | Structural target | Visual target | Allowed product-specific differences | Current benchmark role |
 | --- | --- | --- | --- | --- | --- | --- |
-| Shared shell + Home | User-provided Home screenshot in this thread on 2026-03-18, supported by [Recall docs](https://docs.getrecall.ai/) | `output/playwright/stage373-home-wide-top.png` | Use a thinner shell with a calmer left rail, a stronger collection workspace, and a denser resume/library flow above the fold instead of a header card plus oversized resume card plus sparse archive tail. | Dark neutral shell, restrained borders, more visible working content, fewer repeated labels, lighter metadata, less empty canvas. | Keep local-first wording, current core sections, and the shell-level `Search` / `New` actions. | Refreshed regression baseline |
+| Shared shell + Home | User-provided Home screenshot in this thread on 2026-03-18, supported by [Recall docs](https://docs.getrecall.ai/), the [Tagging deep dive](https://docs.getrecall.ai/deep-dives/tagging), the [Feb 6, 2026 release notes](https://feedback.getrecall.ai/changelog/recall-release-notes-feb-6-2026-ocr-improved-organization-track-your-reading-pos), the [Release: 15 November 2024 // Exciting Quality of Life Improvements!](https://feedback.getrecall.ai/changelog/release-15-november-2024-exciting-quality-of-life-improvements), and the [Recall changelog](https://feedback.getrecall.ai/changelog) | `output/playwright/stage492-home-wide-top.png` | Let the organizer rail own the current lens, support true manual ordering plus desktop batch work, keep the right side beginning as a grouped overview workspace before explicit branch drill-in, and expose a real resizable organizer rail for wider browse work. | Dark neutral shell, restrained borders, fewer repeated labels, lighter metadata, a clearer organizer overview/reset row, calmer grouped overview cards, visible drag handles in manual mode, a bottom organizer selection bar that reads like a real batch-action rail, and a left rail that can widen cleanly for longer names without overpowering the board. | Keep local-first wording, current core sections, and the shell-level `Search` / `New` actions. | Refreshed parity baseline |
 | Add Content modal | User-provided Add Content screenshot in this thread, supported by [Add Content tutorial](https://docs.getrecall.ai/docs/tutorials/add-content) | `output/playwright/stage43-add-content-dialog-desktop.png` | Present one deliberate import modal with grouped source modes and a stronger primary input area instead of a generic form-first dialog. | Cleaner CTA hierarchy, clearer grouping, less utilitarian panel styling. | Keep only the import modes this product actually supports; unsupported Recall tabs such as Wiki or Extension stay out of scope. | Low |
-| Knowledge graph | User-provided graph screenshot in this thread on 2026-03-18, supported by [Knowledge Graph overview](https://docs.getrecall.ai/docs/features/knowledge-graph/overview) and [Recall graph blog article](https://www.getrecall.ai/blog/how-can-llms-and-knowledge-graphs-help-you-build-a-second-brain) | `output/playwright/stage371-graph-wide-top.png` | Make the graph canvas the dominant surface with one settings/filter panel and a docked evidence flow instead of the old standing right detail card. | Much lighter chrome, fewer boxed metrics, less dashboard framing around node detail. | Keep evidence grounding, validation actions, and local provenance visible somewhere in the flow. | Refreshed regression baseline |
-| Study / review | User-provided spaced-repetition screenshot in this thread on 2026-03-18, supported by [Quiz & Spaced Repetition](https://docs.getrecall.ai/docs/features/quiz-and-spaced-repetition), [Release: 29 November 2024 // Recall Review Reminders](https://feedback.getrecall.ai/changelog/release-29-november-2024-recall-review-reminders), and [Recall Release Notes: Feb 19, 2026 - Quiz 2.0 with Shared Challenges](https://feedback.getrecall.ai/changelog/recall-release-notes-feb-19-2026-quiz-20-with-shared-challenges) | `output/playwright/stage367-study-wide-top.png` | Recenter the page on the review task with a guided flow and simpler queue support, rather than treating review as one panel inside a dashboard. | Cleaner step hierarchy, clearer main action, reduced sidebar weight and card framing. | Keep local FSRS state, source evidence, and Reader reopen actions. | Parked regression-only |
-| Notes workspace | User-provided Notes screenshot in this thread on 2026-03-18, supported by [Recall docs](https://docs.getrecall.ai/) for shell direction | `output/playwright/stage375-notes-wide-top.png` | Turn Notes into one clearer note workspace with primary browse/detail flow and quieter context support instead of a left rail plus large blank detail plus strong context column. | Calmer detail emphasis, less empty shell framing, fewer competing side cards. | Keep note edit/delete, promotion, search, anchored reopen, and `Open in Reader`. | Active priority target |
-| Reader workspace | User-provided Reader screenshot in this thread on 2026-03-18, supported by [Recall docs](https://docs.getrecall.ai/) for shell direction | `output/playwright/stage375-reader-wide-top.png` | Make document text more dominant, compress the header/control stack, and demote side support into a calmer dock or tray instead of a co-equal right column. | More reading-first space, calmer side chrome, tighter transport/header rhythm. | Preserve `/reader` compatibility, read-aloud, highlighting, note adjacency, and source-library access; do not change generated content behavior yet. | Refreshed regression baseline |
+| Knowledge graph | User-provided graph screenshot in this thread on 2026-03-18, supported by [Knowledge Graph overview](https://docs.getrecall.ai/docs/features/knowledge-graph/overview), [Graph navigation](https://docs.getrecall.ai/deep-dives/graph/navigation), [Graph filtering and customization](https://docs.getrecall.ai/deep-dives/graph/filtering-and-customization), [Graph selection and exploration](https://docs.getrecall.ai/deep-dives/graph/selection-and-exploration), and [Recall Release Notes: Jan 12, 2026 - Graph View 2.0 and much more](https://feedback.getrecall.ai/changelog/recall-release-notes-jan-12-2026-graph-view-20-and-much-more) | `output/playwright/stage492-graph-wide-top.png` | Make the graph canvas the dominant surface with a minimal settings launcher, top-right title search plus next/previous match navigation, explicit `Fit to view` and `Lock graph` / `Unlock graph` controls, a real saved-view workflow for starter and named local presets, timeline and content filters inside settings, explicit color-group ownership, a live bottom-right legend, a resizable settings drawer, a stronger bottom working rail for source continuity plus multi-select/path ownership, and a calmer tabbed inspect drawer that yields during path exploration and returns for single-node overview, mentions, and relations. | Much lighter chrome, fewer boxed metrics, calmer zoom/pan ownership on the canvas itself, real lock-led manual arrangement, quieter focus-mode dimming around selected-node work, less dashboard framing around node detail, visible save/update/rename/reset view controls inside the drawer, a legend that behaves like a real steering aid instead of decorative chrome, path-selection and path-result states that read clearly from the bottom rail, and a search/status corner that behaves like utility navigation rather than filtering chrome. | Keep evidence grounding, validation actions, source reopen, and local provenance visible somewhere in the flow. | Refreshed parity baseline |
+| Study / review | User-provided spaced-repetition screenshot in this thread on 2026-03-18, supported by [Quiz & Spaced Repetition](https://docs.getrecall.ai/docs/features/quiz-and-spaced-repetition), [Release: 29 November 2024 // Recall Review Reminders](https://feedback.getrecall.ai/changelog/release-29-november-2024-recall-review-reminders), and [Recall Release Notes: Feb 19, 2026 - Quiz 2.0 with Shared Challenges](https://feedback.getrecall.ai/changelog/recall-release-notes-feb-19-2026-quiz-20-with-shared-challenges) | `output/playwright/stage379-study-wide-top.png` | Recenter the page on the review task with a guided flow and simpler queue support, rather than treating review as one panel inside a dashboard. | Cleaner step hierarchy, clearer main action, reduced sidebar weight and card framing. | Keep local FSRS state, source evidence, and Reader reopen actions. | Refreshed regression baseline |
+| Notes workspace | User-provided Notes screenshot in this thread on 2026-03-18, supported by [Recall docs](https://docs.getrecall.ai/) for shell direction | `output/playwright/stage379-notes-wide-top.png` | Turn Notes into one clearer note workspace with primary browse/detail flow and quieter context support instead of a left rail plus large blank detail plus strong context column. | Calmer detail emphasis, less empty shell framing, fewer competing side cards. | Keep note edit/delete, promotion, search, anchored reopen, and `Open in Reader`. | Refreshed regression baseline |
+| Reader workspace | User-provided Reader screenshot in this thread on 2026-03-18, supported by [Recall docs](https://docs.getrecall.ai/) for shell direction | `output/playwright/stage492-reader-original-wide-top.png` | Make original document text more dominant, compress the header/control stack, and demote side support into a calmer dock or tray instead of a co-equal right column. | More reading-first space, calmer side chrome, tighter transport/header rhythm. | Preserve `/reader` compatibility, read-aloud, highlighting, note adjacency, and source-library access. In this track, `Reader` is original-only and cosmetic-only: do not touch `Reflowed`, `Simplified`, `Summary`, generated-view UX, transform logic, or mode-routing. | Refreshed parity baseline (original-only) |
 | Focused reader-led work regression | Internal product behavior reference only; preserve Stage 34 reader-led focused work even though Recall does not expose an exact equivalent screenshot here. | `output/playwright/stage362-focused-reader-narrow-top.png` | Keep live Reader content as the primary pane while Notes/Graph/Study detail stays secondary. | Align shell and framing with the calmer benchmark direction without losing the reader-led split. | Reader-led focused work stays product-specific and should not be removed to mimic Recall literally. | Regression-only |
 
 ## Current Priority Queue And Baseline
 
 - Canonical benchmark URL: `http://127.0.0.1:8000`
-- Current reopened audit set from March 19, 2026 after the Stage 375 audit:
-  - `Home`: `output/playwright/stage375-home-wide-top.png`
-  - `Graph`: `output/playwright/stage375-graph-wide-top.png`
-  - `Notes`: `output/playwright/stage375-notes-wide-top.png`
-  - `Reader`: `output/playwright/stage375-reader-wide-top.png`
-  - `Study`: `output/playwright/stage375-study-wide-top.png`
-  - `Study` answer-shown parked reference: `output/playwright/stage367-study-answer-shown-wide-top.png`
-- Stage 369 explicitly re-parked `Study` and refreshed only the user-priority surfaces, then Stage 370/371 finished the current broad Graph correction, Stage 372/373 finished the current broad Home correction, and Stage 374/375 finished the current broad Reader correction.
-- `Graph`, `Home`, and `Reader` are now refreshed regression baselines.
-- `Notes` is now the active unfinished priority surface.
-- Active queue: `Notes`, with `Graph`, `Home`, and `Reader` held as refreshed regression baselines and `Study` parked until the user explicitly reprioritizes it again.
+- Current refreshed audit set from March 22, 2026 after the Stage 496 audit:
+  - `Home`: `output/playwright/stage496-home-wide-top.png`
+  - `Graph`: `output/playwright/stage496-graph-wide-top.png`
+  - `Notes`: `output/playwright/stage379-notes-wide-top.png`
+  - `Reader` original-only: `output/playwright/stage496-reader-original-wide-top.png`
+  - `Study`: `output/playwright/stage379-study-wide-top.png`
+  - `Study` answer-shown reference: `output/playwright/stage379-study-answer-shown-wide-top.png`
+- Stage 380 explicitly reset the current Recall-parity track to `Graph`, `Home`, and original-only `Reader`, then Stage 381/382 completed the current broad Graph correction, Stage 383/384 completed the first broad Home correction, Stage 385/386 completed the current original-only Reader correction, Stage 387/388 completed the second-pass Home density correction, Stage 389/390 completed the second-pass Graph View 2.0 correction, Stage 391/392 completed the broader Home tree-filtered browse correction, Stage 393/394 completed the broader original-only Reader reading-space correction, Stage 395/396 completed the broader Home tag-tree board correction, Stage 397/398 completed the broader Home board-fill correction, Stage 399/400 completed the broader Home filtered-card density correction, Stage 401/402 completed the broader Home continuous-board-coverage correction, Stage 403/404 completed the broader Home library-sheet flattening correction, Stage 405/406 completed the broader Home tag-tree control-surface correction, Stage 407/408 completed the broader Home minimal-entry correction, Stage 409/410 completed the broader Home organizer-rail header correction, Stage 411/412 completed the broader Home organizer-row flattening correction, Stage 413/414 completed the broader Home organizer-selection continuity correction, Stage 415/416 completed the broader Home organizer-highlight deflation correction, Stage 417/418 completed the broader Home organizer-readout softening correction, Stage 419/420 completed the broader Home organizer-preview grouping correction, Stage 421/422 completed the broader Home summary-preview join correction, Stage 423/424 completed the broader Home active summary-note integration correction, Stage 425/426 completed the broader Home active summary-copy correction, Stage 427/428 completed the broader Home active bridge-hint retirement correction, Stage 429/430 completed the broader Graph corner-controls and focus-rail correction, Stage 431/432 completed the broader Home organizer-control deck correction, Stage 433/434 completed the broader Graph canvas-first drawer correction, Stage 435/436 completed the broader Home board-first organizer correction, Stage 437/438 completed the broader Graph corner-pods and overlay-drawer correction, Stage 439/440 completed the broader Home unified-workbench correction, Stage 441/442 completed the broader Graph minimal-launcher and compact-path-rail correction, Stage 443/444 completed the broader Home single-board pinned-cluster correction, Stage 445/446 completed the broader Graph working-control hierarchy correction, Stage 447/448 completed the broader Home organizer-owned navigation correction, Stage 449/450 completed the broader Graph corner-actions and drawer-hierarchy correction, Stage 451/452 completed the broader Home compact reopen rail and board-top hierarchy correction, Stage 453/454 completed the broader Graph settings-sidebar and search-navigation correction, Stage 455/456 completed the broader Home direct-board and organizer-hierarchy correction, Stage 457/458 completed the broader Graph node-language and hover-hierarchy correction, Stage 459/460 completed the broader Home inline-reopen-strip and board-dominant workspace correction, Stage 461/462 completed the broader Graph bottom-bar and drawer workflow correction, Stage 463/464 completed the broader Home organizer-deck and results-sheet correction, Stage 465/466 completed the broader Graph settings-panel and view-controls correction, Stage 467/468 completed the broader Home organizer sorting and board-view correction, Stage 469/470 completed the broader Graph focus-mode and drawer-exploration correction, Stage 471/472 completed the broader Home organizer tree-branch navigation correction, Stage 473/474 completed the broader Graph multi-select path-exploration correction, Stage 475/476 completed the broader Home collection-lens and organizer-model correction, Stage 477/478 completed the broader Graph timeline-presets and filter-customization correction, Stage 479/480 completed the broader Home overview-board and group drill-in correction, Stage 481/482 completed the broader Graph navigation-controls and locked-layout correction, Stage 483/484 completed the broader Home manual organizer ordering and selection correction, Stage 485/486 completed the broader Graph color-groups, live-legend, and resizable-settings correction, Stage 487/488 completed the broader Home drag-drop organizer workbench correction, Stage 489/490 completed the broader Graph saved-view presets workflow correction, Stage 491/492 completed the broader Home resizable organizer rail correction, Stage 493/494 completed the broader Graph card-drawer and connection-follow correction, and Stage 495/496 completed the broader Home custom collection management correction inside that track.
+- `Home` is now materially closer to Recall's current organizer-owned collection-management direction and is a refreshed parity baseline again; `Graph` is now the likeliest next broad parity target, original-only `Reader` remains a refreshed parity baseline, and generated-content Reader work remains explicitly locked until the user explicitly unlocks it.
+- `Notes` and `Study` remain refreshed regression baselines behind the active parity track.
+- Stage 497 is a repo closeout and publish step only: freeze benchmark interpretation at Stage 496 while the branch backlog is committed, validated, promoted to `main`, and pruned cleanly.
+
+## Stage 496 Home Custom Collection Management Audit Snapshot
+
+- Stage 496 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home collections-overview, create-collection, assignment, renamed custom collection, and explicit `Untagged` crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 495 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-owned collection-management direction because the organizer can create, rename, delete, and bulk-fill custom collections in place while an explicit `Untagged` branch keeps remaining sources discoverable.
+- The live audit evidence recorded a real custom collection flow in Windows Edge from `Audit lane` to `Audit route`, including bulk assignment from `Untagged`, while the selected custom collection still drove the right-side board and preserved `runtimeBrowser: "msedge"`.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 494 Graph Card Drawer And Connection Follow Audit Snapshot
+
+- Stage 494 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph peek, `Card`, `Reader`, `Connections`, and post-follow linked-card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 493 succeeded overall: wide desktop `Graph` now reads more like Recall's current selected-card drawer direction because the right drawer centers card context first, moves original-only source continuity into a dedicated `Reader` tab, and keeps linked-card exploration in `Connections` without losing the bottom-rail working trail.
+- The live audit evidence recorded a real follow step from `early` to `because` in Windows Edge while preserving `runtimeBrowser: "msedge"` and keeping the broader canvas-first workbench stable.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 492 Home Resizable Organizer Rail Audit Snapshot
+
+- Stage 492 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-default, organizer-widened, widened-branch, and organizer-hidden compact-controls crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 491 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer ergonomics direction because the left organizer behaves like a real working rail instead of a fixed narrow strip, the rail widens cleanly for browse-heavy work, and the right-side board still stays primary.
+- The live audit evidence recorded the organizer widening from `268px` to `388px` in real Edge while preserving the grouped-overview/branch workflow and the organizer-hidden compact fallback.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 490 Graph Saved-View Presets Workflow Audit Snapshot
+
+- Stage 490 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph settings-open and saved-preset crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 489 succeeded overall: wide desktop `Graph` now reads more like Recall's current saved-view customization direction because the settings drawer owns real save/update/rename/reset behavior for local views instead of leaving presets as fixed starter chips.
+- The live audit evidence recorded a real saved preset named `Audit view`, a reapplication of that preset after switching back to `Explore`, and stable `Home` plus original-only `Reader` regression captures behind the Graph pass.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 488 Home Drag-Drop Organizer Workbench Audit Snapshot
+
+- Stage 488 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home manual-group-drag, manual-branch-drag, and organizer-selection-bar crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 487 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-workbench direction because `Manual` feels like direct manipulation instead of a button-only reorder strip, top-level groups and active-branch source rows both reorder through visible drag-and-drop, and the bottom organizer bar reads more like a real batch-action rail.
+- The live audit evidence recorded a real group drag reorder to the front of the organizer rail, a real source-row drag reorder inside the active branch, and a visible source-selection action rail after desktop multi-selection.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 486 Graph Color Groups, Legend, And Resizable Settings Audit Snapshot
+
+- Stage 486 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph legend-visible, groups-open settings drawer, widened settings drawer, and legend-filtered crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 485 succeeded overall: wide desktop `Graph` now reads more like Recall's current settings-customization direction because the drawer owns explicit color-group selection, the bottom-right legend behaves like a live steering aid instead of decorative chrome, and the resizable settings panel makes deeper filter/group work believable without weakening the canvas-first hierarchy.
+- The live audit evidence captured the legend starting in `Source groups`, a widened drawer from `244px` to `356px`, and a real legend-driven filter action on `Captures`.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 484 Home Manual Organizer Ordering And Selection Audit Snapshot
+
+- Stage 484 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home manual-group-order, manual-branch-order, and organizer-selection-bar crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 483 succeeded overall: wide desktop `Home` now reads more like Recall's current tag-tree workbench direction because `Manual` behaves like a true organizer work mode, top-level groups and active-branch sources can be reordered visibly in place, and desktop multi-selection surfaces a bottom organizer selection bar instead of leaving the rail as a passive filter strip.
+- The live audit evidence recorded a real group reorder from `Documents` upward inside `Collections`, a real branch reorder inside the `Earlier` branch, and a visible organizer selection bar after desktop multi-selection.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 482 Graph Navigation Controls And Locked Layout Audit Snapshot
+
+- Stage 482 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph zoomed/panned, locked-layout, and fit-reset states against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 481 succeeded overall: wide desktop `Graph` now reads more like Recall's current interactive-canvas direction because the corner seam owns fit-to-view plus lock/unlock while the canvas itself supports zoom, pan, and lock-gated manual arrangement instead of behaving like a fixed poster.
+- The live audit evidence showed the Graph moving cleanly from default fit into zoomed/panned exploration, then into a locked manual layout, and back into a reset fit state while the settings drawer stayed focused on presets and filters.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 478 Graph Timeline-Presets And Filter-Customization Audit Snapshot
+
+- Stage 478 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph settings-drawer, content-filter, and timeline states against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 477 succeeded overall: wide desktop `Graph` now reads more like Recall's current filter-customization direction because the settings drawer owns named presets, an active timeline lens, and content filters instead of acting like a lighter version of the old depth/layout-only rail.
+- The live audit evidence showed the same canvas holding together while source-type filtering and timeline state changed inside the drawer, which keeps the canvas-first hierarchy intact instead of reviving banner-heavy Graph chrome.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 476 Home Collection-Lens And Organizer-Model Audit Snapshot
+
+- Stage 476 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home collection-led organizer-deck, recent-lens branch, recent-lens board, and organizer-hidden compact-controls crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 475 succeeded overall: wide desktop `Home` now reads more like Recall's current collection-led organizer direction because `Collections` is the default rail model, `Recent` stays available as a deliberate secondary branch lens, and organizer-owned controls no longer depend on recency buckets as the only underlying browse structure.
+- The live audit evidence showed the same organizer rail supporting both the collection-led default and the explicit recent branch without reopening the older recency-first shell hierarchy.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 474 Graph Multi-Select Path-Exploration Audit Snapshot
+
+- Stage 474 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph path-selection rail, path-result rail, and restored single-node focus dock crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 473 succeeded overall: wide desktop `Graph` now reads more like Recall's current selection-and-exploration direction because multi-select moves the bottom rail into an active path workflow, the shortest visible route highlights directly on the current canvas, and single-node focus still restores the calmer right drawer plus bottom-trail handoff instead of competing top chrome.
+- The live audit evidence recorded a real 3-step route from `early` to `in verse`, passing through `because` and `explicit`, which demonstrates that the path workflow is grounded in the current visible graph instead of a decorative selection state.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 472 Home Organizer Tree-Branch Navigation Audit Snapshot
+
+- Stage 472 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-tree-branch, expanded-tree-tail, selected-board, and organizer-hidden compact-controls crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 471 succeeded overall: wide desktop `Home` now reads more like Recall's current tree-driven organizer direction because the active organizer branch owns more direct source navigation, the earlier-source branch expands from a short inline set into a fuller tree tail when needed, and the board starts more cleanly without a competing reopen shelf while the organizer is visible.
+- The live audit evidence recorded the earlier-source branch growing from 6 visible source rows to 38 after expansion, which matches the intended tree-branch navigation correction instead of another decorative preview strip.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 470 Graph Focus-Mode And Drawer-Exploration Audit Snapshot
+
+- Stage 470 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph selected-focus canvas, bottom working rail, and tabbed drawer overview, mentions, and relations crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 469 succeeded overall: wide desktop `Graph` now reads more like Recall's current focus-mode and drawer-led exploration direction because selected-node work quiets the surrounding canvas more clearly, the bottom rail owns more source continuity and jump-back flow, and the right drawer expands into calmer overview, mentions, and relations states instead of one stacked evidence wall.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 468 Home Organizer Sorting And Board-View Audit Snapshot
+
+- Stage 468 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-control-deck, organizer-hidden compact-controls, active-board list-view, and filtered-results list-view crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 467 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-led control and board-view direction because the organizer owns `Updated`, `Created`, and `A-Z` sorting, direction toggles, and real `Board` / `List` switching, while the organizer-hidden compact fallback keeps the same command surface accessible.
+- The active board and filtered results now both flatten into a true list state instead of decorative view chips.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 466 Graph Settings-Panel And View-Controls Audit Snapshot
+
+- Stage 466 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph settings-sidebar, hover-focus canvas, bottom-rail, and detail-dock crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 465 succeeded overall: wide desktop `Graph` now reads more like Recall's current settings-sidebar and live-view-controls direction because the left drawer behaves like a true settings panel, live depth and spacing controls materially change the canvas, hover focus stays in the appearance layer instead of drifting into inspect chrome, and selected-node work stays clearer in the bottom rail plus right detail drawer.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 464 Home Organizer-Deck And Results-Sheet Audit Snapshot
+
+- Stage 464 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-deck, organizer-list-start, inline-reopen-strip, active-board, and filtered-results crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 463 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-led direct-results-sheet direction because the organizer deck is flatter and less boxy, the working board starts earlier, filtered matches stay inside the same board shell, and reopen continuity stays attached as a compact inline strip instead of reviving a side lane.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 460 Home Inline-Reopen-Strip And Board-Dominant Workspace Audit Snapshot
+
+- Stage 460 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated organizer-rail, inline-reopen-strip, active-board, and filtered-results crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 459 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-led library direction because the pinned reopen continuity stays attached inside the board as a compact inline strip, the grouped and filtered boards begin sooner, and the right side no longer behaves like a board-plus-side-lane split.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 454 Graph Settings-Sidebar And Search-Navigation Audit Snapshot
+
+- Stage 454 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph launcher-pod, search-navigation-corner, settings-sidebar, hover-preview, working-trail, and inspect-drawer crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 453 succeeded overall: wide desktop `Graph` now reads more like Recall's current settings-sidebar and search-navigation direction because the top-left control behaves like a true settings launcher, top-right search behaves like graph search with next/previous navigation instead of filtering chrome, filtering clearly lives in the settings sidebar, and hover preview keeps the canvas lighter at rest before the bottom trail plus right drawer take over for selected-node work.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 452 Home Compact Reopen Rail And Board-Top Audit Snapshot
+
+- Stage 452 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-rail, compact-reopen-rail, primary-board-shell, and active-board crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 451 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-led compact-board direction because the pinned reopen area reads as a compact working rail, the active board starts earlier, and the whole right side feels less like a featured shelf stacked ahead of the real library board.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 450 Graph Corner-Actions And Drawer-Hierarchy Audit Snapshot
+
+- Stage 450 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph launcher-pod, search-action-corner, tools-drawer, working-trail, and inspect-drawer crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 449 succeeded overall: wide desktop `Graph` now reads more like Recall's current corner-action and drawer hierarchy direction because the launcher pod is truer to a minimal launcher, the top-right corner is a tighter search/action cluster, the left tools drawer reads more like utility chrome, and selected-node context now lives more clearly in the working trail plus right inspect drawer instead of climbing back into the top seam.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 448 Home Organizer-Owned Navigation Audit Snapshot
+
+- Stage 448 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home shell-status-seam, organizer-control-header, organizer-list, primary-board-shell, and active-board crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 447 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-owned navigation direction because the shell seam is smaller, search/sort/collapse/hide live more clearly in the organizer rail, and the right-side board reads quieter instead of behaving like a second command deck.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 446 Graph Working-Control Hierarchy Audit Snapshot
+
+- Stage 446 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph launcher-pod, search-status-pod, working-trail, tools-overlay, and detail-dock crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 445 succeeded overall: wide desktop `Graph` now reads more like Recall's current light-control, canvas-first direction because the launcher pod and search/status pod are lighter, and the bottom rail now behaves more like an active working trail instead of passive HUD copy.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 444 Home Single-Board Pinned-Cluster Audit Snapshot
+
+- Stage 444 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-dock, primary-board, pinned-cluster, and active-board crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 443 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-led single-board library direction because the pinned reopen cluster sits inside the same library board, filtered matches stay in that same board shell, and the active source list starts sooner instead of after a separate pinned-shelf block.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 442 Graph Minimal Launcher And Path Rail Audit Snapshot
+
+- Stage 442 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph minimal-launcher, compact-path-rail, tools-overlay, and inspect-drawer crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 441 succeeded overall: wide desktop `Graph` now reads more like Recall's current lightweight-launcher graph direction because the idle state uses a smaller top-left launcher pod, a lighter top-right search pod, a tighter floating path rail, and slightly denser node footprints instead of the earlier mini-banner plus bottom-HUD feel.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 440 Home Unified Workbench Audit Snapshot
+
+- Stage 440 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home workbench-bar, organizer-dock, primary-workbench, reopen-dock, and active-board crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 439 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-led workbench direction because the top seam is a slimmer workbench bar, the organizer reads more like a docked control surface, and the reopen plus active-group board now feel more like one calmer shell.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 438 Graph Corner-Pods And Overlay-Drawer Audit Snapshot
+
+- Stage 438 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph corner-pods, path-rail, tools-overlay, and inspect-drawer crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 437 succeeded overall: wide desktop `Graph` now reads more like Recall's current canvas-first direction because the workbench uses compact corner pods, a true overlay tools drawer, a stable full-width canvas, and a smaller floating path rail instead of a canvas that still reflowed around open chrome.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 436 Home Board-First Organizer Audit Snapshot
+
+- Stage 436 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-rail, reopen-cluster, primary-board, and active-board crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 435 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-led, board-first direction because the organizer is slimmer, reopen is attached inside the main board, the active board is more dominant, and filtered results stay inside the same workspace.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 432 Home Organizer-Control Deck Audit Snapshot
+
+- Stage 432 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-control-deck, organizer-hidden, compact-control-deck, and primary-flow crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 431 succeeded overall: wide desktop `Home` now reads more like Recall's current organizer-led homepage direction because the page uses a slimmer utility seam, a real organizer control deck with search/sort/hide behavior, and a compact organizer-hidden fallback that keeps the board wide without stranding controls.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Graph` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 430 Graph Corner-Controls Audit Snapshot
+
+- Stage 430 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph control-seam, utility-drawer, canvas-shell, focus-rail, and detail-drawer crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 429 succeeded overall: wide desktop `Graph` now reads more like Recall's current Graph View 2.0 direction because the workbench uses lighter corner controls, a slimmer attached utility drawer, and a bottom focus rail with clear/open/jump-back actions instead of the earlier passive HUD treatment.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph pass.
+- No new top-level slice reopens automatically from this checkpoint; if another broad parity slice opens, `Home` is now the likeliest next target.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 428 Home Active Bridge-Hint Audit Snapshot
+
+- Stage 428 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, selected-organizer-state, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 427 succeeded overall: wide desktop `Home` now reads more like Recall's current lean utility-first organizer direction because the expanded active branch no longer shows a visible helper sentence and instead relies on the selected row plus attached previews.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining broader parity opportunity is no longer another tiny `Home` copy trim. `Graph` is now the likeliest next broad target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 426 Home Active Summary Copy Audit Snapshot
+
+- Stage 426 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, selected-organizer-state, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 425 succeeded overall: wide desktop `Home` now reads more like Recall's current lean utility-first organizer direction, with a shorter active bridge hint, calmer organizer rhythm, and a selected branch that feels less like helper copy and more like a lightweight rail cue.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the active bridge hint is materially lighter now, but it still carries slightly more visible helper copy than Recall's leanest organizer rails, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 424 Home Summary-Note Integration Audit Snapshot
+
+- Stage 424 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, selected-organizer-state, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 423 succeeded overall: wide desktop `Home` now reads more like Recall's current lean utility-first organizer direction, with the active summary note integrated into the attached preview flow, a calmer selected branch, and a clearer rail-driven handoff instead of the earlier selected state that still parked the description above the preview tier.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the active branch is materially leaner now, but the active description still carried slightly more copy weight than Recall's leanest organizer rails, so `Home` remained the likeliest next parity target before Stage 425/426 lightened that copy.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 422 Home Summary-Preview Join Audit Snapshot
+
+- Stage 422 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, selected-organizer-state, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 421 succeeded overall: wide desktop `Home` now reads more like Recall's current lean utility-first organizer direction, with a tighter summary-to-preview handoff, a calmer attached preview join, and a more continuous selected branch instead of the earlier selected state that still stacked the active summary above a slightly detached preview tier.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the active branch is materially tighter now, but the summary note still read slightly more standalone than Recall's leanest organizer rails, so `Home` remained the likeliest next parity target before Stage 423/424 integrated that note.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 420 Home Organizer Preview Grouping Audit Snapshot
+
+- Stage 420 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, selected-organizer-state, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 419 succeeded overall: wide desktop `Home` now reads more like Recall's current lean utility-first organizer direction, with an unboxed attached preview, a flatter selected row, and a more continuous organizer spine instead of the earlier selected state that still nested the lead preview inside a mini-card.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the organizer selection is materially flatter now, but the active group summary and attached previews still carry slightly more vertical grouping than Recall's leanest organizer rails, so `Home` remained the likeliest next parity target before Stage 421/422 tightened that join.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 418 Home Organizer Readout Audit Snapshot
+
+- Stage 418 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, selected-organizer-state, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 417 succeeded overall: wide desktop `Home` now reads more like Recall's current lean utility-first organizer direction, with an inline active count/readout hint, a flatter selected row, and calmer attached preview rhythm instead of the earlier selected state that still separated the count into a badge-like chip.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the organizer selection is materially leaner now, but the selected row and its attached previews still carry slightly more grouped framing than Recall's leanest organizer rails, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 416 Home Organizer Highlight Audit Snapshot
+
+- Stage 416 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, selected-organizer-state, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 415 succeeded overall: wide desktop `Home` now reads more like Recall's current minimal continuous tag-list-driven homepage direction, with a lighter active-row wash, a softer count chip, and quieter attached preview emphasis instead of the earlier selected state that still relied too much on badge-and-border chrome.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the organizer selection is materially lighter now, but the active count and row tint still carry slightly more emphasis than Recall's leanest organizer rails, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 414 Home Organizer-Selection Continuity Audit Snapshot
+
+- Stage 414 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, selected-organizer-state, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 413 succeeded overall: wide desktop `Home` now reads more like Recall's current continuous tag-list-driven homepage direction, with a lighter selected-row treatment, one continuous organizer spine, and attached previews that read more like rail flow than content inside a highlighted panel.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the organizer selection is materially calmer now, but the active row still carries slightly more highlight chrome than Recall's most minimal organizer rails, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 412 Home Organizer-Row Audit Snapshot
+
+- Stage 412 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, organizer-row, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 411 succeeded overall: wide desktop `Home` now reads more like Recall's current lean tag-list-driven homepage direction, with flatter organizer rows, a stronger selected-row treatment, and lighter attached preview children instead of the earlier mini-card tree that still felt too boxed inside the rail.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the organizer list is materially leaner now, but the active selection still carries slightly more panel weight than Recall's most continuous organizer rails, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 410 Home Organizer-Rail Header Audit Snapshot
+
+- Stage 410 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 409 succeeded overall: wide desktop `Home` now reads more like Recall's current utility-first, tag-tree-driven homepage direction, with a tighter organizer working header, a faster search/control handoff, and an earlier first visible group instead of the earlier rail-top stack that still read like a second intro card.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the organizer header is materially calmer now, but the selected tree rows still feel a little too carded and tall compared with Recall's leaner tag-list rhythm, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 408 Home Minimal-Entry Audit Snapshot
+
+- Stage 408 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 407 succeeded overall: wide desktop `Home` now reads more like Recall's current minimal-entry homepage direction, with a flatter utility seam, a lighter organizer entry, a slimmer board header, and a calmer next-source sidecar instead of the earlier entry stack that still read like multiple intro cards before the working board.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the top seam is materially calmer now, but the organizer rail still spends slightly too much height on its own top intro before the tree fully takes over, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 406 Home Tag-Tree Control-Surface Audit Snapshot
+
+- Stage 406 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, primary-flow, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 405 succeeded overall: wide desktop `Home` now reads more like Recall's current tag-tree-driven homepage direction, with a slimmer top seam, a denser organizer control surface, and an earlier board entry point instead of the earlier flatter sheet that still spent too much height on explanatory chrome.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the tag tree now drives the board more convincingly, but the very top seam still reads a little more explanatory than Recall's most minimal homepage entry, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 404 Home Library-Sheet Flattening Audit Snapshot
+
+- Stage 404 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-rail, collapsed organizer-rail, primary-flow, selected-group-board, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 403 succeeded overall: wide desktop `Home` now reads more like Recall's current library-sheet direction, with a flatter selected-group board, a later softer footer stop, and a tighter sidecar instead of the earlier framed dense card cluster.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the selected-group board now reads more like one continuous library sheet, but the sheet can still feel a little less expansive than Recall's fullest library boards, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 402 Home Continuous-Board-Coverage Audit Snapshot
+
+- Stage 402 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-rail, collapsed organizer-rail, primary-flow, selected-group-board, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 401 succeeded overall: wide desktop `Home` now reads more like Recall's current continuous filtered-card board direction, with longer default active-group coverage, a tighter sidecar, and a more continuous card sheet instead of the earlier dense board that still stopped too early.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the selected-group board now carries farther down the viewport, but the board still is not quite as uninterrupted or extensive as Recall's fullest library boards, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 400 Home Filtered-Card Density Audit Snapshot
+
+- Stage 400 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-rail, collapsed organizer-rail, primary-flow, selected-group-board, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 399 succeeded overall: wide desktop `Home` now reads more like Recall's current dense filtered-card board direction, with shorter active-group cards, broader visible board coverage above the fold, and a tighter reopen sidecar instead of the earlier tall-card board that still stopped too early.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the selected-group board now fills much more of the first viewport, but it still ends slightly earlier than Recall's fullest filtered-card boards, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 398 Home Board-Fill Audit Snapshot
+
+- Stage 398 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home organizer-rail, collapsed organizer-rail, primary-flow, selected-group-board, and pinned-reopen-shelf crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 397 succeeded overall: wide desktop `Home` now reads more like Recall's current filtered-card board direction, with the selected-group board finally occupying the dominant lane, a fuller multi-card active-group board, and a tighter companion reopen shelf instead of the earlier squeezed-right-column composition.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- The remaining mismatch is still in `Home`: the lower half of the selected-group board is calmer but still less continuously filled than Recall's denser filtered card list, so `Home` remains the likeliest next parity target if another slice is opened.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 394 Reader Reading-Space Audit Snapshot
+
+- Stage 394 refreshed the live wide desktop original-only `Reader`, `Home`, and `Graph` captures plus dedicated Reader control-seam, article-lane, support-dock, and dock-notes crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 393 succeeded overall: wide desktop original-only `Reader` now reads more like Recall's current reading direction, with a tighter top seam, an earlier article start, and a calmer attached dock instead of the earlier boxed reading-deck treatment.
+- `Home` and `Graph` stayed visually stable behind the Reader pass.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass, and the current Recall-parity trio is now back in a refreshed-baseline hold state again.
+
+## Stage 392 Home Tree-Filtered Audit Snapshot
+
+- Stage 392 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, organizer-rail, primary-flow, pinned-reopen-shelf, and selected-group-board crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 391 succeeded overall: wide desktop `Home` now reads more like Recall's current organized-library direction, with a slimmer seam, a stronger organizer rail, a pinned reopen shelf, and a denser selected-group board instead of the earlier hero-like landing composition.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home pass.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass, and the current Recall-parity trio is now back in a refreshed-baseline hold state again.
+
+## Stage 390 Graph View 2.0 Audit Snapshot
+
+- Stage 390 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph control-overlay, selector-drawer, canvas-shell, focus-band, and inspect-drawer crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 389 succeeded overall: wide desktop `Graph` now reads more like a canvas-first Graph View 2.0 workbench, with a slimmer in-workbench control overlay, one tighter attached browse drawer, and one drawer-first inspect flow instead of the earlier top-band-plus-standing-strip composition.
+- `Home` and original-only `Reader` stayed visually stable behind the Graph second pass.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass, and the current Recall-parity trio is now back in a refreshed-baseline hold state.
+
+## Stage 388 Home Density Audit Snapshot
+
+- Stage 388 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, browse-strip, primary-flow, and continuation-lane crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 387 succeeded overall: wide desktop `Home` now reads more like a denser saved-source card workspace, with a slimmer control seam, a side-attached browse strip, a denser primary flow, and a calmer lower continuation lane instead of the earlier hero-plus-stacked-library composition.
+- `Graph` and original-only `Reader` stayed visually stable behind the Home second pass.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass, and the current Recall-parity trio is now back in a refreshed-baseline hold state.
+
+## Stage 386 Reader Recall-Parity Audit Snapshot
+
+- Stage 386 refreshed the live wide desktop original-only `Reader`, `Graph`, and `Home` captures plus dedicated Reader control-seam, article-lane, and support-dock crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 385 succeeded overall: wide desktop original-only `Reader` now reads more like a reading-first workspace, with a slimmer top seam, a more dominant article lane, and a calmer attached support dock.
+- `Graph` and `Home` stayed visually stable behind the Reader pass.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass, and the current Recall-parity trio is now back in a refreshed-baseline hold state.
+
+## Stage 384 Home Recall-Parity Audit Snapshot
+
+- Stage 384 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home control-seam, browse-strip, primary-flow, and continuation-lane crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 383 succeeded overall: wide desktop `Home` now reads more like a browse-first, card-flow-first workspace, with a slimmer control seam, a lighter browse strip, a denser primary saved-source flow, and a calmer lower continuation lane.
+- `Graph` stayed visually stable behind the Home pass.
+- Original-only `Reader` stayed visually stable behind the Home pass, and generated-content `Reader` work remains explicitly out of scope for this track.
+- Original-only `Reader` is now the next likely parity target inside the active track.
+
+## Stage 382 Graph Recall-Parity Audit Snapshot
+
+- Stage 382 refreshed the live wide desktop `Graph`, `Home`, and original-only `Reader` captures plus dedicated Graph seam, selector-strip, and attached-tray crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 381 succeeded overall: wide desktop `Graph` now reads more like a canvas-first workspace, with a slimmer control seam, a lighter selector strip, and one attached inspect tray instead of the older banner-plus-standing-rail composition.
+- `Home` remained the next likely parity target after the Graph reset.
+- Original-only `Reader` stayed visually stable behind the Graph pass, and generated-content `Reader` work remains explicitly out of scope for this track.
+
+## Stage 379 Study Finish Audit Snapshot
+
+- Stage 379 refreshed the live wide desktop `Study`, `Home`, `Graph`, `Reader`, and `Notes` captures plus dedicated Study review-lane and support-dock crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 378 succeeded overall: wide desktop `Study` now reads more like one active review workspace, with a narrower review workbench, a guided review-flow strip, and a queue/evidence companion rail that surfaces grounding sooner than the Stage 377 version.
+- `Home`, `Graph`, `Reader`, and `Notes` remained visually stable as refreshed regression baselines behind the Study finish pass.
+- The explicit Study reopen is now closed again until the user explicitly reprioritizes another surface or a direct regression forces a detour.
 
 ## Stage 362 Notes Milestone Snapshot
 

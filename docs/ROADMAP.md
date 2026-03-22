@@ -21,11 +21,75 @@ Keep this repository as one local-first workspace.
 - Audits are regression gates and evidence snapshots, not automatic permission to reprioritize to a different section after every pass.
 - The original desktop-first milestone set for `Graph`, `Home`, `Reader`, and `Notes` is complete, and Stage 366/367 also redesigned `Study`.
 - The March 19, 2026 Stage 369 reopen audit then confirmed that the user-priority surfaces should not be treated as finished yet.
-- Current active queue: `Notes` first, with `Graph`, `Home`, and `Reader` held as refreshed regression baselines.
-- `Study` is parked again unless the user explicitly reprioritizes it or a direct regression forces a detour.
-- Current mode: Stage 376 Notes finish milestone. Do not reopen cross-surface queue hopping.
+- The March 19, 2026 Stage 376/377 Notes finish pass then closed that reopened user-priority queue again.
+- The March 19, 2026 Stage 378/379 Study finish pass then closed that explicit Study reopen again.
+- The March 19, 2026 Stage 380 Recall-parity audit then reopened the benchmark track around `Graph`, `Home`, and original-only `Reader`.
+- The March 19, 2026 Stage 381/382 Graph Recall-parity reset then completed the current Graph slice inside that reopened track.
+- The March 19, 2026 Stage 383/384 Home Recall-parity reset then completed the current Home slice inside that same reopened track.
+- The March 20, 2026 Stage 385/386 Reader Recall-parity reset then completed the current original-only `Reader` slice inside that same reopened track.
+- The March 20, 2026 Stage 387/388 Home density reset then reopened `Home` for one second-pass correction and closed that slice again.
+- The March 20, 2026 Stage 389/390 Graph View 2.0 reset then reopened `Graph` for one second-pass correction and closed that slice again.
+- The March 20, 2026 Stage 391/392 Home tree-filtered browse reset then reopened `Home` for one broader organizer-rail correction and closed that slice again.
+- The March 20, 2026 Stage 393/394 Reader reading-space reset then reopened original-only `Reader` for one broader reading-space correction and closed that slice again.
+- The March 20, 2026 Stage 395/396 Home tag-tree board reset then reopened `Home` for one broader organizer-tree and library-board correction and closed that slice again.
+- The March 20, 2026 Stage 397/398 Home board-fill reset then reopened `Home` for one broader selected-group-board and companion-shelf correction and closed that slice again.
+- The March 20, 2026 Stage 399/400 Home filtered-card density reset then reopened `Home` for one broader above-the-fold card-density correction and closed that slice again.
+- The March 20, 2026 Stage 401/402 Home continuous-board-coverage reset then reopened `Home` for one broader continuous-board-coverage correction and closed that slice again.
+- The March 20, 2026 Stage 403/404 Home library-sheet flattening reset then reopened `Home` for one broader continuous-library-sheet correction and closed that slice again.
+- The March 20, 2026 Stage 405/406 Home tag-tree control-surface reset then reopened `Home` for one broader organizer-rail and board-entry correction and closed that slice again.
+- The March 20, 2026 Stage 407/408 Home minimal-entry reset then reopened `Home` for one broader entry-stack correction and closed that slice again.
+- The March 20, 2026 Stage 409/410 Home organizer-rail header compression reset then reopened `Home` for one broader organizer-entry compression correction and closed that slice again.
+- The March 21, 2026 Stage 411/412 Home organizer-row flattening reset then reopened `Home` for one broader organizer-row rhythm correction and closed that slice again.
+- The March 21, 2026 Stage 413/414 Home organizer-selection continuity reset then reopened `Home` for one broader active-selection continuity correction and closed that slice again.
+- The March 21, 2026 Stage 415/416 Home organizer highlight-deflation reset then reopened `Home` for one broader selected-row highlight correction and closed that slice again.
+- The March 21, 2026 Stage 417/418 Home organizer readout-softening reset then reopened `Home` for one broader active-readout correction and closed that slice again.
+- The March 21, 2026 Stage 419/420 Home organizer preview-grouping deflation reset then reopened `Home` for one broader attached-preview correction and closed that slice again.
+- The March 21, 2026 Stage 421/422 Home summary-preview join tightening reset then reopened `Home` for one broader active-branch join correction and closed that slice again.
+- The March 21, 2026 Stage 423/424 Home active summary-note integration reset then reopened `Home` for one broader summary-note placement correction and closed that slice again.
+- The March 21, 2026 Stage 425/426 Home active summary copy-weight deflation reset then reopened `Home` for one broader active-bridge copy correction and closed that slice again.
+- The March 21, 2026 Stage 427/428 Home active bridge-hint retirement reset then reopened `Home` for one broader selected-branch simplification correction and closed that slice again.
+- The March 21, 2026 Stage 431/432 Home organizer-control deck reset then reopened `Home` for one broader organizer-led control-model correction and closed that slice again.
+- The March 21, 2026 Stage 433/434 Graph canvas-first drawer reset then reopened `Graph` for one broader canvas-first default-state correction and closed that slice again.
+- The March 21, 2026 Stage 435/436 Home board-first organizer reset then reopened `Home` for one broader organizer-led board-workspace correction and closed that slice again.
+- The March 21, 2026 Stage 437/438 Graph corner-pods and overlay-drawer reset then reopened `Graph` for one broader canvas-stability correction and closed that slice again.
+- The March 21, 2026 Stage 439/440 Home unified workbench reset then reopened `Home` for one broader organizer-led workbench hierarchy correction and closed that slice again.
+- The March 21, 2026 Stage 441/442 Graph minimal launcher and compact path rail reset then reopened `Graph` for one broader default-state hierarchy correction and closed that slice again.
+- The March 21, 2026 Stage 443/444 Home single-board pinned-cluster reset then reopened `Home` for one broader board-composition correction and closed that slice again.
+- The March 21, 2026 Stage 445/446 Graph working-control hierarchy reset then reopened `Graph` for one broader light-control and active-trail correction and closed that slice again.
+- The March 21, 2026 Stage 447/448 Home organizer-owned navigation reset then reopened `Home` for one broader organizer-owned control and quieter-board correction and closed that slice again.
+- The March 21, 2026 Stage 449/450 Graph corner-actions and drawer-hierarchy reset then reopened `Graph` for one broader launcher/search-corner/tools-drawer correction and closed that slice again.
+- The March 21, 2026 Stage 451/452 Home compact reopen rail and board-top hierarchy reset then reopened `Home` for one broader compact-reopen-rail and earlier-board-start correction and closed that slice again.
+- The March 21, 2026 Stage 453/454 Graph settings-sidebar and search-navigation reset then reopened `Graph` for one broader settings-owned filter split, real graph-search navigation corner, and lighter hover-preview exploration correction and closed that slice again.
+- The March 21, 2026 Stage 455/456 Home direct-board and organizer-hierarchy reset then reopened `Home` for one broader organizer-owned rail plus direct-board correction and closed that slice again.
+- The March 21, 2026 Stage 457/458 Graph node-language and hover-hierarchy reset then reopened `Graph` for one broader lighter-at-rest canvas plus stronger hover/selection correction and closed that slice again.
+- The March 21, 2026 Stage 459/460 Home inline-reopen-strip and board-dominant workspace reset then reopened `Home` for one broader board-dominant continuity correction and closed that slice again.
+- The March 21, 2026 Stage 461/462 Graph bottom-bar and drawer workflow reset then reopened `Graph` for one broader working-state hierarchy correction and closed that slice again.
+- The March 21, 2026 Stage 463/464 Home organizer-deck and results-sheet reset then reopened `Home` for one broader flatter-organizer-deck and earlier-working-board correction and closed that slice again.
+- The March 21, 2026 Stage 465/466 Graph settings-panel and view-controls reset then reopened `Graph` for one broader true-settings-sidebar, live-view-controls, and selected-workflow split correction and closed that slice again.
+- The March 21, 2026 Stage 467/468 Home organizer sorting and board-view reset then reopened `Home` for one broader organizer-owned sorting, direction, and board/list working-state correction and closed that slice again.
+- The March 21, 2026 Stage 469/470 Graph focus-mode and drawer exploration reset then reopened `Graph` for one broader selected-node focus-mode, bottom-rail ownership, and tabbed-drawer exploration correction and closed that slice again.
+- The March 21, 2026 Stage 471/472 Home organizer tree-branch navigation reset then reopened `Home` for one broader tree-driven organizer-navigation correction and closed that slice again.
+- The March 21, 2026 Stage 473/474 Graph multi-select path-exploration reset then reopened `Graph` for one broader multi-node selection and shortest-path exploration correction and closed that slice again.
+- The March 21, 2026 Stage 475/476 Home collection-lens and organizer-model reset then reopened `Home` for one broader collection-led organizer correction, a deliberate `Recent` fallback lens, and a truer organizer model split instead of styling recency buckets as the only browse structure, then closed that slice again.
+- The March 21, 2026 Stage 477/478 Graph timeline-presets and filter-customization reset then reopened `Graph` for one broader settings-led presets, timeline, and content-filter correction and closed that slice again.
+- The March 21, 2026 Stage 479/480 Home overview-board and group drill-in reset then reopened `Home` for one broader organizer-owned overview workspace correction and closed that slice again.
+- The March 21, 2026 Stage 481/482 Graph navigation-controls and locked-layout reset then reopened `Graph` for one broader interactive-canvas navigation correction and closed that slice again.
+- The March 22, 2026 Stage 483/484 Home manual organizer ordering and selection reset then reopened `Home` for one broader active organizer work-mode correction and closed that slice again.
+- The March 22, 2026 Stage 485/486 Graph color-groups, legend, and resizable-settings reset then reopened `Graph` for one broader settings-surface correction and closed that slice again.
+- The March 22, 2026 Stage 487/488 Home drag-drop organizer workbench reset then reopened `Home` for one broader direct-manipulation organizer correction and closed that slice again.
+- The March 22, 2026 Stage 489/490 Graph saved-view presets workflow reset then reopened `Graph` for one broader saved-view management correction and closed that slice again.
+- The March 22, 2026 Stage 491/492 Home resizable organizer rail reset then reopened `Home` for one broader organizer-rail ergonomics correction and closed that slice again.
+- The March 22, 2026 Stage 493/494 Graph card drawer and connection-follow reset then reopened `Graph` for one broader selected-card drawer correction and closed that slice again.
+- The March 22, 2026 Stage 495/496 Home custom collection management reset then reopened `Home` for one broader organizer-owned collection-management correction and closed that slice again.
+- The March 22, 2026 Stage 497 repo closeout is now active:
+  - commit the full pending Stage 369-496 backlog in exactly two commits
+  - rerun the last green Stage 495/496 validation ladder before promoting the branch
+  - promote `codex/stage8-closeout-doc-sync` to `main`, prune the feature branch, and verify clean local/remote state
+- Current active queue: no new Recall-parity slice is open during the closeout; Stage 496 remains the latest product checkpoint, `Graph`, `Home`, and original-only `Reader` remain refreshed parity baselines, and `Graph` is still the likeliest next broad parity target after the cleanup lands.
+- Current mode: Stage 497 repo closeout and publish cleanup after Stage 496. Keep desktop-first benchmark discipline, and keep Reader generated-content work explicitly out of scope unless the user explicitly reprioritizes it.
+- Current Reader restriction: do not change `Reflowed`, `Simplified`, or `Summary` workflows, transform logic, generated placeholders, generated-view controls, or mode-routing unless the user explicitly reprioritizes generated-content work.
 
-## Status As Of 2026-03-19
+## Status As Of 2026-03-22
 
 - The March 18, 2026 Stage 355/356 milestone is complete:
   - wide desktop `Graph` now uses a canvas-first composition with a lighter utility strip and a docked evidence flow instead of the old standing right-card layout
@@ -61,10 +125,252 @@ Keep this repository as one local-first workspace.
   - wide desktop `Reader` now further compresses the chrome around reading and keeps the support dock calmer relative to the document lane
   - focused and narrower `Reader` remain aligned with the same calmer hierarchy
   - the Stage 375 audit confirmed that `Reader` is materially calmer and no longer leads the unfinished queue
-- The reopened user-priority queue now advances to `Notes`:
-  - `Notes` is the active finish target
-  - `Graph`, `Home`, and `Reader` remain as refreshed regression baselines behind that queue
-  - `Study` stays parked until further notice
+- The March 19, 2026 Stage 376/377 Notes finish milestone is complete:
+  - wide desktop `Notes` now uses a stronger current-source glance, a denser next-note detail stage, and a calmer note-workbench/dock split instead of the earlier instruction-heavy empty stage and equally weighted side support
+  - focused and narrower `Notes` keep that same calmer hierarchy instead of drifting back toward a separate micro-language
+  - the Stage 377 audit confirmed that `Notes` is materially calmer at first glance, while `Graph`, `Home`, and `Reader` stayed stable behind it
+- The March 19, 2026 Stage 378/379 Study finish milestone is complete:
+  - wide desktop `Study` now uses a narrower current-review workbench, a guided review-flow strip, and a queue/evidence companion rail that surfaces grounding sooner instead of the older full-width banner plus co-equal dock
+  - focused and narrower `Study` keep that calmer hierarchy instead of drifting back toward the older detached dashboard language
+  - the Stage 379 audit confirmed that `Study` is materially calmer at first glance, while `Home`, `Graph`, `Reader`, and `Notes` stayed stable behind it
+- The explicit Study reopen is now closed again:
+  - `Graph`, `Home`, `Reader`, `Notes`, and `Study` are refreshed wide-desktop regression baselines
+  - no new redesign slice is open until the user explicitly reprioritizes another surface or a direct regression forces a detour
+- The March 19, 2026 Stage 380 Recall-parity audit is complete:
+  - the active benchmark track is now `Graph`, `Home`, and original-only `Reader`
+  - Reader generated-content work is explicitly locked out in this track: no `Reflowed`, `Simplified`, or `Summary` workflow changes, no generated-view UX work, and no transform or mode-routing changes
+- The March 19, 2026 Stage 381/382 Graph Recall-parity reset is complete:
+  - wide desktop `Graph` now uses a slimmer control seam, a lighter browse strip, a more dominant canvas shell, and one attached inspect tray instead of the older banner-plus-standing-rail composition
+  - the Stage 382 audit confirmed that `Graph` is materially closer to the current Recall direction, `Home` is the next likely parity target, and original-only `Reader` stayed visually stable behind the Graph pass
+- The March 19, 2026 Stage 383/384 Home Recall-parity reset is complete:
+  - wide desktop `Home` now uses a slimmer control seam, a lighter browse strip, a denser primary saved-source flow, and one calmer lower continuation lane instead of the older hero-plus-split-library composition
+  - focused overview and narrower `Home` regressions stayed aligned with that calmer hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 384 audit confirmed that `Home` is materially closer to the current Recall direction, `Graph` stayed stable, and original-only `Reader` is now the next likely parity target in the active track
+- The March 20, 2026 Stage 385/386 Reader Recall-parity reset is complete:
+  - wide desktop original-only `Reader` now uses a slimmer top seam, a more dominant article lane, and a calmer attached support dock instead of the older heavier header stack plus lower support treatment
+  - focused original-only `Reader` stayed visually stable behind that reset instead of drifting into a separate micro-language
+  - the Stage 386 audit confirmed that original-only `Reader` is materially closer to the current Recall direction, while `Graph` and `Home` stayed stable behind it
+- The March 20, 2026 Stage 387/388 Home density reset is complete:
+  - wide desktop `Home` now uses a slimmer control seam, a side-attached browse strip, a denser saved-source card flow, and a calmer lower continuation lane instead of the earlier hero-band-plus-stacked-library composition
+  - focused overview and narrower `Home` stayed aligned with that denser hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 388 audit confirmed that `Home` is materially closer to the current Recall direction, while `Graph` and original-only `Reader` stayed stable behind the Home second pass
+- The March 20, 2026 Stage 389/390 Graph View 2.0 reset is complete:
+  - wide desktop `Graph` now uses a slimmer in-workbench control overlay, a tighter attached browse drawer, a stronger canvas-first shell, and one drawer-first inspect flow instead of the earlier top-band-plus-standing-strip composition
+  - focused and narrower `Graph` regressions stayed aligned with that calmer hierarchy instead of drifting back toward the older detached graph chrome language
+  - the Stage 390 audit confirmed that `Graph` is materially closer to the current Recall Graph View 2.0 direction, while `Home` and original-only `Reader` stayed stable behind the Graph second pass
+- The March 20, 2026 Stage 391/392 Home tree-filtered browse reset is complete:
+  - wide desktop `Home` now uses a slimmer control seam, a stronger organizer-tree rail, a pinned reopen shelf, and a denser selected-group board instead of the earlier side-strip-plus-hero-card composition
+  - focused overview and narrower `Home` regressions stayed aligned with that calmer organized-library hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 392 audit confirmed that `Home` is materially closer to Recall's current organized-library direction, while `Graph` and original-only `Reader` stayed stable behind the Home third pass
+- The March 20, 2026 Stage 393/394 Reader reading-space reset is complete:
+  - wide desktop original-only `Reader` now uses a tighter top seam, an earlier article start, and a calmer attached dock instead of the earlier boxed reading deck plus heavier side support treatment
+  - focused original-only `Reader` stayed visually stable behind that reading-space reset instead of drifting into a separate micro-language
+  - the Stage 394 audit confirmed that original-only `Reader` is materially closer to Recall's current reading direction, while `Home` and `Graph` stayed stable behind the Reader second pass
+- The March 20, 2026 Stage 395/396 Home tag-tree board reset is complete:
+  - wide desktop `Home` now uses a slimmer control seam, a denser organizer rail with collapsible previews, a stronger selected-group board, and a calmer pinned reopen shelf instead of the earlier tree-plus-board composition that still left a large dead center
+  - focused overview and narrower `Home` regressions stayed aligned with that denser organized-library hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 396 audit confirmed that `Home` is materially closer to Recall's current tag-tree-driven library direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 20, 2026 Stage 397/398 Home board-fill reset is complete:
+  - wide desktop `Home` now gives the selected-group board the dominant lane, renders the active group as a fuller multi-card board, and keeps the reopen flow in a tighter companion shelf instead of squeezing the board into a narrow side strip
+  - focused overview and narrower `Home` regressions stayed aligned with that fuller organized-library hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 398 audit confirmed that `Home` is materially closer to Recall's current filtered-card board direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 20, 2026 Stage 399/400 Home filtered-card density reset is complete:
+  - wide desktop `Home` now keeps the selected-group board denser above the fold with shorter cards, broader visible card coverage, and a tighter reopen sidecar instead of the earlier tall-card board that still stopped early
+  - focused overview and narrower `Home` regressions stayed aligned with that denser board-first hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 400 audit confirmed that `Home` is materially closer to Recall's current dense filtered-card board direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 20, 2026 Stage 401/402 Home continuous-board-coverage reset is complete:
+  - wide desktop `Home` now keeps the selected-group board running farther down the viewport with longer default active-group coverage, a tighter sidecar, and a more continuous card sheet instead of the earlier dense board that still stopped too early
+  - focused overview and narrower `Home` regressions stayed aligned with that longer board-first hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 402 audit confirmed that `Home` is materially closer to Recall's current continuous filtered-card board direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 20, 2026 Stage 403/404 Home library-sheet flattening reset is complete:
+  - wide desktop `Home` now keeps the selected-group board flatter and more sheet-like, with longer default active-group coverage, a softer inline footer stop, and a tighter reopen sidecar instead of the earlier framed dense card cluster
+  - focused overview and narrower `Home` regressions stayed aligned with that flatter board-first hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 404 audit confirmed that `Home` is materially closer to Recall's current library-sheet direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 20, 2026 Stage 405/406 Home tag-tree control-surface reset is complete:
+  - wide desktop `Home` now uses a slimmer top seam, a denser organizer rail control surface, a clearer tag-tree working stack, and an earlier board entry point instead of the earlier flatter sheet that still spent too much height on explanatory chrome before the card field
+  - focused overview and narrower `Home` regressions stayed aligned with that denser organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 406 audit confirmed that `Home` is materially closer to Recall's current tag-tree-driven homepage direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 20, 2026 Stage 407/408 Home minimal-entry reset is complete:
+  - wide desktop `Home` now uses a flatter utility seam, a lighter organizer entry, a slimmer board header, and a calmer next-source sidecar instead of the earlier entry stack that still read like multiple intro cards before the working board
+  - focused overview and narrower `Home` regressions stayed aligned with that leaner organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 408 audit confirmed that `Home` is materially closer to Recall's current minimal-entry homepage direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 20, 2026 Stage 409/410 Home organizer-rail header compression reset is complete:
+  - wide desktop `Home` now starts the organizer rail with a tighter working header, a faster search/control handoff, and an earlier first visible group instead of the earlier rail-top stack that still read like a second intro card before the tree
+  - focused overview and narrower `Home` regressions stayed aligned with that tighter organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 410 audit confirmed that `Home` is materially closer to Recall's current utility-first, tag-tree-driven homepage direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 21, 2026 Stage 411/412 Home organizer-row flattening reset is complete:
+  - wide desktop `Home` now uses flatter organizer rows, a stronger selected-row treatment, and lighter attached preview children instead of the earlier mini-card tree that still felt too boxed inside the rail
+  - focused overview and narrower `Home` regressions stayed aligned with that leaner organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 412 audit confirmed that `Home` is materially closer to Recall's current lean tag-list-driven homepage direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 21, 2026 Stage 413/414 Home organizer-selection continuity reset is complete:
+  - wide desktop `Home` now uses a lighter selected-row treatment, one continuous organizer spine, and attached previews that read more like one rail flow instead of content sitting inside a highlighted panel
+  - focused overview and narrower `Home` regressions stayed aligned with that more continuous organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 414 audit confirmed that `Home` is materially closer to Recall's current continuous tag-list-driven homepage direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 21, 2026 Stage 415/416 Home organizer highlight-deflation reset is complete:
+  - wide desktop `Home` now uses a lighter active-row wash, a softer count chip, and quieter attached preview emphasis instead of the earlier selected state that still relied too much on badge-and-border chrome
+  - focused overview and narrower `Home` regressions stayed aligned with that calmer organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 416 audit confirmed that `Home` is materially closer to Recall's current minimal continuous tag-list-driven homepage direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 21, 2026 Stage 417/418 Home organizer readout-softening reset is complete:
+  - wide desktop `Home` now uses an inline active count/readout hint, a flatter selected row, and calmer attached preview rhythm instead of the earlier selected state that still separated the count into a badge-like chip
+  - focused overview and narrower `Home` regressions stayed aligned with that leaner organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 418 audit confirmed that `Home` is materially closer to Recall's current lean utility-first organizer direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 21, 2026 Stage 419/420 Home organizer preview-grouping deflation reset is complete:
+  - wide desktop `Home` now uses an unboxed attached preview, a flatter selected row, and a more continuous organizer spine instead of the earlier selected state that still nested the lead preview inside a mini-card
+  - focused overview and narrower `Home` regressions stayed aligned with that leaner organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 420 audit confirmed that `Home` is materially closer to Recall's current lean utility-first organizer direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 21, 2026 Stage 421/422 Home summary-preview join tightening reset is complete:
+  - wide desktop `Home` now uses a tighter active summary-to-preview handoff, a calmer attached preview join, and a more continuous selected branch instead of the earlier selected state that still stacked the active summary above a slightly detached preview tier
+  - focused overview and narrower `Home` regressions stayed aligned with that tighter organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 422 audit confirmed that `Home` is materially closer to Recall's current lean utility-first organizer direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 21, 2026 Stage 423/424 Home active summary-note integration reset is complete:
+  - wide desktop `Home` now integrates the active summary note into the attached preview flow, keeps collapsed organizer context intact, and makes the selected branch read more like one continuous rail instead of a title-plus-note block above the previews
+  - focused overview and narrower `Home` regressions stayed aligned with that tighter organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 424 audit confirmed that `Home` is materially closer to Recall's current lean utility-first organizer direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 21, 2026 Stage 425/426 Home active summary copy-weight deflation reset is complete:
+  - wide desktop `Home` now uses a shorter active bridge hint inside the expanded organizer branch while keeping broader section descriptions and collapsed context intact, so the selected branch reads less like explanatory helper copy and more like a lean rail hint
+  - focused overview and narrower `Home` regressions stayed aligned with that lighter organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 426 audit confirmed that `Home` is materially closer to Recall's current lean utility-first organizer direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass
+- The March 21, 2026 Stage 427/428 Home active bridge-hint retirement reset is complete:
+  - wide desktop `Home` now removes the visible helper hint from the expanded organizer branch and lets the selected row plus attached previews carry the branch on their own, while keeping collapsed organizer context intact
+  - focused overview and narrower `Home` regressions stayed aligned with that leaner organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 428 audit confirmed that `Home` is materially closer to Recall's current lean utility-first organizer direction, while `Graph` and original-only `Reader` stayed stable behind the Home pass; further Home-only trims were lower leverage at that checkpoint, so `Graph` became the likeliest next broad parity target
+  - the Stage 430 audit then confirmed that `Graph` is materially closer to Recall's current corner-controls and focus-rail direction after the broader workbench reset, while `Home` and original-only `Reader` stayed stable; `Home` then became the likeliest next broad parity target
+- The March 21, 2026 Stage 431/432 Home organizer-control deck reset is complete:
+  - wide desktop `Home` now uses a slimmer utility seam, a real organizer control deck with attached search/sort/hide behavior, and a compact organizer-hidden fallback that lets the board widen without losing control access
+  - focused overview and narrower `Home` regressions stayed aligned with that organizer-led hierarchy instead of drifting back toward the older detached landing-card language
+  - the Stage 432 audit confirmed that `Home` is materially closer to Recall's current organizer-led homepage direction, while `Graph` and original-only `Reader` stayed stable; `Graph` became the likeliest next broad parity target at that checkpoint
+- The March 21, 2026 Stage 433/434 Graph canvas-first drawer reset is complete:
+  - wide desktop `Graph` now defaults to a hidden-by-default tools drawer, a slimmer top seam, a stronger bottom path rail, and no always-visible empty inspect lane, so the canvas reads closer to Recall's current drawer-secondary default state
+  - focused and narrower `Graph` regressions stayed aligned with that calmer canvas-first hierarchy instead of drifting back toward the older standing-rail layout
+  - the Stage 434 audit confirmed that `Graph` is materially closer to Recall's current canvas-first, drawer-secondary direction, while `Home` and original-only `Reader` stayed stable; `Home` became the likeliest next broad parity target at that checkpoint
+- The March 21, 2026 Stage 435/436 Home board-first organizer reset is complete:
+  - wide desktop `Home` now uses a slimmer organizer rail, an attached reopen cluster at the top of the main board, a more dominant active board lane, and in-place filtered results instead of splitting attention between a standing reopen sidecar, a detached filtered card, and a lower library stream
+  - focused overview and narrower `Home` regressions stayed aligned with that board-first organizer hierarchy instead of drifting back toward the older multi-panel library dashboard language
+  - the Stage 436 audit confirmed that `Home` is materially closer to Recall's current organizer-led, board-first direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 437/438 Graph corner-pods and overlay-drawer reset is complete:
+  - wide desktop `Graph` now uses compact corner pods, a true overlay tools drawer, a stable full-width canvas, and a smaller floating path rail instead of the earlier canvas that still reflowed around chrome and over-weighted the top seam
+  - focused and narrower `Graph` regressions stayed aligned with that calmer canvas-first hierarchy instead of drifting back toward the older banner-plus-standing-drawer language
+  - the Stage 438 audit confirmed that `Graph` is materially closer to Recall's current corner-controls-plus-overlay-drawer direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 439/440 Home unified workbench reset is complete:
+  - wide desktop `Home` now uses a slimmer workbench bar, a more docked organizer rail, and a flatter single-shell library board instead of the earlier stacked hero-plus-rail-plus-board framing
+  - focused overview and narrower `Home` regressions stayed aligned with that calmer organizer-led workbench hierarchy instead of drifting back toward the older multi-panel library dashboard language
+  - the Stage 440 audit confirmed that `Home` is materially closer to Recall's current organizer-led workbench direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 441/442 Graph minimal launcher and compact path rail reset is complete:
+  - wide desktop `Graph` now uses a smaller top-left launcher pod, a lighter top-right search pod, a tighter floating path rail, and slightly denser node footprints instead of the earlier graph state that still read like a mini banner plus bottom HUD
+  - focused and narrower `Graph` regressions stayed aligned with that calmer canvas-first hierarchy instead of drifting back toward the older heavier launcher-and-rail framing
+  - the Stage 442 audit confirmed that `Graph` is materially closer to Recall's current lightweight-launcher graph direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 443/444 Home single-board pinned-cluster reset is complete:
+  - wide desktop `Home` now fuses the pinned reopen cluster into the main library board, keeps filtered matches inside the same canonical board shell, and starts the active source list earlier instead of splitting the board area between a separate pinned shelf and a separate selected-group panel
+  - focused overview and narrower `Home` regressions stayed aligned with that calmer organizer-led board hierarchy instead of drifting back toward the older multi-destination library stack
+  - the Stage 444 audit confirmed that `Home` is materially closer to Recall's current organizer-led single-board library direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 445/446 Graph working-control hierarchy reset is complete:
+  - wide desktop `Graph` now uses a lighter launcher pod, a lighter search/status pod, and a more active bottom working trail instead of the earlier corner controls that still read like mini cards plus passive HUD copy
+  - focused and narrower `Graph` regressions stayed aligned with that calmer canvas-first hierarchy instead of drifting back toward the older heavier launcher-and-rail framing
+  - the Stage 446 audit confirmed that `Graph` is materially closer to Recall's current light-control, canvas-first direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 447/448 Home organizer-owned navigation reset is complete:
+  - wide desktop `Home` now uses a smaller shell-status seam, keeps search/sort/collapse/hide behavior in the organizer rail, and lets the right-side board read more like the quieter filtered results surface instead of a second command deck
+  - focused overview and narrower `Home` regressions stayed aligned with that calmer organizer-owned navigation hierarchy instead of drifting back toward the older repeated-control stack
+  - the Stage 448 audit confirmed that `Home` is materially closer to Recall's current organizer-owned navigation direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 449/450 Graph corner-actions and drawer-hierarchy reset is complete:
+  - wide desktop `Graph` now uses a truer launcher-only pod, a tighter search-action corner, a slimmer utility-style tools drawer, and a clearer split between bottom working trail plus right inspect drawer instead of letting selected-node context creep back into the top seam
+  - focused and narrower `Graph` regressions stayed aligned with that calmer canvas-first hierarchy instead of drifting back toward the older heavier corner-control framing
+  - the Stage 450 audit confirmed that `Graph` is materially closer to Recall's current corner-action and drawer hierarchy direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 451/452 Home compact reopen rail and board-top hierarchy reset is complete:
+  - wide desktop `Home` now uses a compact reopen rail, a calmer board-top handoff, and an earlier active saved-source start instead of a taller featured reopen hero followed by the actual working board
+  - focused overview and narrower `Home` regressions stayed aligned with that calmer organizer-led board-top hierarchy instead of drifting back toward the older reopen-shelf-heavy stack
+  - the Stage 452 audit confirmed that `Home` is materially closer to Recall's current organizer-led compact-board direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 453/454 Graph settings-sidebar and search-navigation reset is complete:
+  - wide desktop `Graph` now uses a truer settings launcher, a distinct top-right graph-search navigation corner, a settings-owned filter lane, and lighter hover-preview exploration instead of leaning on the older search-as-filter strip plus heavier always-carded canvas model
+  - focused and narrower `Graph` regressions stayed aligned with that calmer canvas-first hierarchy instead of drifting back toward the older heavier control chrome
+  - the Stage 454 audit confirmed that `Graph` is materially closer to Recall's current settings-sidebar and search-navigation direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 455/456 Home direct-board and organizer-hierarchy reset is complete:
+  - wide desktop `Home` now uses a truer organizer-owned rail, a direct working board that begins earlier, and a compact attached reopen rail instead of a featured reopen shelf stacked above the board
+  - focused overview and narrower `Home` regressions stayed aligned with that calmer organizer-led direct-board hierarchy instead of drifting back toward the older reopen-shelf-heavy stack
+  - the Stage 456 audit confirmed that `Home` is materially closer to Recall's current organizer-led direct-board direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 457/458 Graph node-language and hover-hierarchy reset is complete:
+  - wide desktop `Graph` now uses lighter at-rest node treatment, a calmer full-canvas read, and hover previews that carry type/source/count context before selection hands off to the bottom working trail and right inspect drawer
+  - focused and narrower `Graph` regressions stayed aligned with that calmer canvas-first hierarchy instead of drifting back toward the older always-carded node field
+  - the Stage 458 audit confirmed that `Graph` is materially closer to Recall's current canvas-first node-language direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 459/460 Home inline-reopen-strip and board-dominant workspace reset is complete:
+  - wide desktop `Home` now keeps the pinned reopen continuity inside the active board as a compact inline strip instead of a competing right-side lane, so the grouped or filtered cards start sooner and hold more of the visible workspace
+  - focused overview and narrower `Home` regressions stayed aligned with that organizer-led board-dominant hierarchy instead of drifting back toward the older board-plus-side-lane split
+  - the Stage 460 audit confirmed that `Home` is materially closer to Recall's current organizer-led board-dominant direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 461/462 Graph bottom-bar and drawer workflow reset is complete:
+  - wide desktop `Graph` now keeps the top-right seam utility-first, lets the settings drawer stay focused on filtering and quick picks, and moves more of the selected-node/path workflow into the stronger bottom rail plus the right inspect drawer
+  - focused and narrower `Graph` regressions stayed aligned with that bottom-bar-plus-right-drawer workflow instead of drifting back toward the older metrics-heavy seam plus duplicated pinned-node framing
+  - the Stage 462 audit confirmed that `Graph` is materially closer to Recall's current working-state direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 463/464 Home organizer-deck and results-sheet reset is complete:
+  - wide desktop `Home` now uses a flatter organizer deck, a lighter inline reopen strip, and an earlier active-board start so the right side reads more like one Recall-style filtered working sheet
+  - focused overview and narrower `Home` regressions stayed aligned with that organizer-led direct-results-sheet hierarchy instead of drifting back toward the older staged header-plus-feature-strip composition
+  - the Stage 464 audit confirmed that `Home` is materially closer to Recall's current organizer-led direct-results-sheet direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 465/466 Graph settings-panel and view-controls reset is complete:
+  - wide desktop `Graph` now uses a true settings sidebar with live connection-depth, spacing, hover-focus, and count-visibility controls instead of letting the left drawer drift back toward a mixed utility-plus-inspect rail
+  - focused and narrower `Graph` regressions stayed aligned with that calmer canvas-first hierarchy instead of drifting back toward the older mixed-sidebar language
+  - the Stage 466 audit confirmed that `Graph` is materially closer to Recall's current settings-sidebar and live-view-controls direction, while `Home` and original-only `Reader` stayed stable; `Home` became the likeliest next broad parity target at that checkpoint
+- The March 21, 2026 Stage 467/468 Home organizer sorting and board-view reset is complete:
+  - wide desktop `Home` now uses organizer-owned `Updated`, `Created`, and `A-Z` sorting, explicit direction toggles, real `Board` / `List` view switching, and an organizer-hidden compact fallback that preserves the same command surface
+  - focused overview and narrower `Home` regressions stayed aligned with that richer organizer-led hierarchy instead of drifting back toward the older thinner sort-strip model
+  - the Stage 468 audit confirmed that `Home` is materially closer to Recall's current organizer-led control and board-view direction, while `Graph` and original-only `Reader` stayed stable; `Graph` then became the likeliest next broad parity target if another slice opened
+- The March 21, 2026 Stage 469/470 Graph focus-mode and drawer exploration reset is complete:
+  - wide desktop `Graph` now uses a stronger selected-node focus mode, a bottom working rail that owns more source continuity and jump-back flow, and a calmer tabbed right drawer for overview, mentions, and relations instead of one long stacked evidence wall
+  - focused and narrower `Graph` regressions stayed aligned with that calmer drawer-led exploration hierarchy instead of drifting back toward the older stacked dashboard language
+  - the Stage 470 audit confirmed that `Graph` is materially closer to Recall's current focus-mode and drawer-led exploration direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 471/472 Home organizer tree-branch navigation reset is complete:
+  - wide desktop `Home` now lets the active organizer branch own more direct source navigation with fuller inline source rows, expandable earlier-source tails, and a cleaner board start that no longer competes with a reopen shelf when the organizer is visible
+  - focused overview and narrower `Home` regressions stayed aligned with that tree-driven organizer hierarchy instead of drifting back toward a grouped preview strip
+  - the Stage 472 audit confirmed that `Home` is materially closer to Recall's current tree-driven organizer direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 473/474 Graph multi-select path-exploration reset is complete:
+  - wide desktop `Graph` now supports bounded multi-select with a bottom-rail-led path workflow, a visible shortest-path highlight across the current canvas, and a restored single-node focus handoff back into the right detail drawer instead of treating the bottom rail as passive status chrome
+  - focused and narrower `Graph` regressions stayed aligned with that calmer path-exploration hierarchy instead of drifting back toward banner-plus-drawer competition
+  - the Stage 474 audit confirmed that `Graph` is materially closer to Recall's current multi-select and path-exploration direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 475/476 Home collection-lens and organizer-model reset is complete:
+  - wide desktop `Home` now opens with a real collection-led organizer lens, a deliberate `Recent` lens for the tree-driven recency branch, and organizer-owned controls that no longer depend on recency buckets as the only underlying browse model
+  - focused overview and narrower `Home` regressions stayed aligned with that collection-led organizer hierarchy instead of drifting back toward recency-first grouping dressed up as a tag rail
+  - the Stage 476 audit confirmed that `Home` is materially closer to Recall's current collection-led organizer direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 477/478 Graph timeline-presets and filter-customization reset is complete:
+  - wide desktop `Graph` now uses named presets, an active timeline lens, and content filters inside the settings drawer while keeping selected-node workflow owned by the bottom rail plus right drawer instead of reviving heavier banner or top-seam chrome
+  - focused and narrower `Graph` regressions stayed aligned with that calmer settings-led hierarchy instead of drifting back toward the older depth-and-layout-only drawer language
+  - the Stage 478 audit confirmed that `Graph` is materially closer to Recall's current presets, timeline, and filter-customization direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 479/480 Home overview-board and group drill-in reset is complete:
+  - wide desktop `Home` now opens in an organizer-owned grouped overview workspace for the active lens, then drills into one branch only when the user explicitly selects it instead of auto-committing to the first branch board
+  - focused overview and organizer-hidden `Home` regressions stayed aligned with that calmer overview-first hierarchy instead of reviving the older default-single-board model
+  - the Stage 480 audit confirmed that `Home` is materially closer to Recall's current organizer-led homepage direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 21, 2026 Stage 481/482 Graph navigation-controls and locked-layout reset is complete:
+  - wide desktop `Graph` now owns fit-to-view, lock/unlock, wheel zoom, empty-space pan, keyboard search stepping, and lock-gated manual node arrangement directly from the corner control seam instead of treating the canvas as a mostly fixed poster
+  - focused and narrower `Graph` regressions stayed aligned with that interactive-canvas hierarchy instead of drifting back toward a search-plus-drawer-only graph model
+  - the Stage 482 audit confirmed that `Graph` is materially closer to Recall's current interactive-canvas direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 22, 2026 Stage 483/484 Home manual organizer ordering and selection reset is complete:
+  - wide desktop `Home` now treats `Manual` as a real organizer work mode with bounded group/source reordering, multi-select, and a bottom organizer selection bar instead of a mostly passive browse rail
+  - focused and narrower `Home` regressions stayed aligned with that organizer-workbench direction instead of reviving older card-first library hierarchy
+  - the Stage 484 audit confirmed that `Home` is materially closer to Recall's current tag-tree workbench direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 22, 2026 Stage 485/486 Graph color-groups, legend, and resizable-settings reset is complete:
+  - wide desktop `Graph` now uses explicit color-group ownership, a live legend, and a resizable settings drawer that reads more like a real configuration surface instead of fixed filter chrome
+  - focused and narrower `Graph` regressions stayed aligned with that settings-customization hierarchy instead of weakening the canvas-first graph workbench
+  - the Stage 486 audit confirmed that `Graph` is materially closer to Recall's current settings-customization direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 22, 2026 Stage 487/488 Home drag-drop organizer workbench reset is complete:
+  - wide desktop `Home` now lets top-level organizer groups and active-branch source rows reorder by drag-and-drop in `Manual`, while the organizer selection bar behaves more like a true batch-action rail
+  - focused and narrower `Home` regressions stayed aligned with that direct-manipulation organizer direction instead of falling back to button-only reordering
+  - the Stage 488 audit confirmed that `Home` is materially closer to Recall's current organizer-workbench direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 22, 2026 Stage 489/490 Graph saved-view presets workflow reset is complete:
+  - wide desktop `Graph` now supports local save, reapply, update, rename, delete, and reset flows for saved views instead of limiting presets to fixed starter states
+  - focused and narrower `Graph` regressions stayed aligned with that saved-view customization direction instead of pulling selected-node work back into the settings drawer
+  - the Stage 490 audit confirmed that `Graph` is materially closer to Recall's current saved-view customization direction, while `Home` and original-only `Reader` stayed stable; `Home` remained the likeliest next broad parity target before the next slice opened
+- The March 22, 2026 Stage 491/492 Home resizable organizer rail reset is complete:
+  - wide desktop `Home` now lets the organizer rail widen into a more believable working organizer without dropping the board-first library composition
+  - focused and narrower `Home` regressions stayed aligned with that organizer-ergonomics direction instead of forcing long labels and denser branch work through a fixed narrow strip
+  - the Stage 492 audit confirmed that `Home` is materially closer to Recall's current organizer ergonomics direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The March 22, 2026 Stage 493/494 Graph card drawer and connection-follow reset is complete:
+  - wide desktop `Graph` now uses a truer card-first right drawer, with selected-card context centered in `Card`, original-only source continuity separated into `Reader`, and linked-card exploration separated into `Connections`
+  - focused and narrower `Graph` regressions stayed aligned with that selected-card drawer direction instead of reviving an overview/mentions/relations evidence stack
+  - the Stage 494 audit confirmed that `Graph` is materially closer to Recall's current selected-card drawer direction, while `Home` and original-only `Reader` stayed stable; `Home` is now the likeliest next broad parity target if another slice opens
+- The March 22, 2026 Stage 495/496 Home custom collection management reset is complete:
+  - wide desktop `Home` now gives the organizer real custom collection ownership, with in-place create, rename, delete, bulk assignment, and an explicit `Untagged` branch instead of limiting collections to static browse buckets
+  - focused and narrower `Home` regressions stayed aligned with that organizer-owned collection-management direction instead of dropping the right-side board when a custom collection becomes active
+  - the Stage 496 audit confirmed that `Home` is materially closer to Recall's current organizer-owned collection-management direction, while `Graph` and original-only `Reader` stayed stable; `Graph` is now the likeliest next broad parity target if another slice opens
+- The current Recall-parity track is now in a guarded continuation state:
+  - no new redesign slice opens automatically, but `Graph` is now the likeliest next broad parity target if the user keeps pushing the same benchmark direction
+  - `Graph`, `Home`, and original-only `Reader` are refreshed parity baselines
+  - `Notes` and `Study` remain refreshed regression baselines
 - Wide desktop, not narrow-only focused mode, is now the primary visual truth for the remaining milestones.
 
 - The accessible-reader app already provides local import for TXT, Markdown, HTML, DOCX, and text-based PDF, deterministic `Original` and `Reflowed` views, opt-in AI `Simplify` and `Summary`, local library/search, saved progress/settings, and Edge-first browser speech.
