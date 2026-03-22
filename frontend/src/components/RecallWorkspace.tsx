@@ -1,4 +1,19 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type SetStateAction,
+  type WheelEvent as ReactWheelEvent,
+} from 'react'
 
 import {
   buildRecallExportUrl,
@@ -21,6 +36,10 @@ import {
 } from '../api'
 import type {
   ReaderAnchorRange,
+  RecallHomeOrganizerLens,
+  RecallHomeViewMode,
+  RecallLibrarySortDirection,
+  RecallLibrarySortMode,
   RecallSection,
   SourceWorkspaceTab,
   WorkspaceDockAction,
@@ -89,6 +108,46 @@ function formatRelationLabel(relationType: string) {
   return relationType.replace(/_/g, ' ')
 }
 
+function formatGraphNodeTypeLabel(nodeType: string) {
+  return nodeType
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function classifyGraphSourceType(sourceType: string): GraphSourceTypeBucket {
+  if (sourceType === 'web') {
+    return 'web'
+  }
+  if (sourceType === 'paste') {
+    return 'captures'
+  }
+  return 'documents'
+}
+
+function formatGraphSourceTypeLabel(sourceType: GraphSourceTypeBucket) {
+  if (sourceType === 'web') {
+    return 'Web'
+  }
+  if (sourceType === 'captures') {
+    return 'Captures'
+  }
+  return 'Documents'
+}
+
+function formatGraphColorGroupModeLabel(mode: GraphColorGroupMode) {
+  return mode === 'source' ? 'Source groups' : 'Node groups'
+}
+
+function clampGraphSettingsDrawerWidth(width: number) {
+  return Math.min(GRAPH_SETTINGS_DRAWER_MAX_WIDTH, Math.max(GRAPH_SETTINGS_DRAWER_MIN_WIDTH, width))
+}
+
+function clampHomeOrganizerRailWidth(width: number) {
+  return Math.min(HOME_ORGANIZER_RAIL_MAX_WIDTH, Math.max(HOME_ORGANIZER_RAIL_MIN_WIDTH, width))
+}
+
 
 function formatStudyStatus(status: StudyCardStatus) {
   return status.slice(0, 1).toUpperCase() + status.slice(1)
@@ -96,6 +155,101 @@ function formatStudyStatus(status: StudyCardStatus) {
 
 function formatCountLabel(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`
+}
+
+function pushGraphFocusTrail(currentTrail: string[], nodeId: string | null, maxLength = 5) {
+  if (!nodeId) {
+    return currentTrail.slice(0, maxLength)
+  }
+  return [nodeId, ...currentTrail.filter((currentNodeId) => currentNodeId !== nodeId)].slice(0, maxLength)
+}
+
+function toggleGraphPathSelection(currentPath: string[], nodeId: string, maxLength = 2) {
+  const withoutNode = currentPath.filter((currentNodeId) => currentNodeId !== nodeId)
+  if (withoutNode.length !== currentPath.length) {
+    return withoutNode
+  }
+  return [...withoutNode, nodeId].slice(-maxLength)
+}
+
+function buildGraphPathSelectionKey(nodeIds: string[]) {
+  return nodeIds.length === 2 ? nodeIds.join('::') : null
+}
+
+function isGraphPathSelectionGesture(event: Pick<ReactMouseEvent<HTMLElement>, 'ctrlKey' | 'metaKey' | 'shiftKey'>) {
+  return event.metaKey || event.ctrlKey || event.shiftKey
+}
+
+function findGraphShortestPath(edges: KnowledgeEdgeRecord[], startNodeId: string, endNodeId: string) {
+  if (!startNodeId || !endNodeId) {
+    return null
+  }
+
+  if (startNodeId === endNodeId) {
+    return {
+      edgeIds: [],
+      nodeIds: [startNodeId],
+    }
+  }
+
+  const adjacency = new Map<string, Array<{ edgeId: string; nodeId: string }>>()
+  for (const edge of edges) {
+    const sourceEntries = adjacency.get(edge.source_id) ?? []
+    sourceEntries.push({ edgeId: edge.id, nodeId: edge.target_id })
+    adjacency.set(edge.source_id, sourceEntries)
+
+    const targetEntries = adjacency.get(edge.target_id) ?? []
+    targetEntries.push({ edgeId: edge.id, nodeId: edge.source_id })
+    adjacency.set(edge.target_id, targetEntries)
+  }
+
+  if (!adjacency.has(startNodeId) || !adjacency.has(endNodeId)) {
+    return null
+  }
+
+  const previousByNodeId = new Map<string, { edgeId: string | null; nodeId: string | null }>([
+    [startNodeId, { edgeId: null, nodeId: null }],
+  ])
+  const pendingNodeIds = [startNodeId]
+
+  while (pendingNodeIds.length) {
+    const currentNodeId = pendingNodeIds.shift()
+    if (!currentNodeId) {
+      continue
+    }
+    if (currentNodeId === endNodeId) {
+      break
+    }
+    for (const entry of adjacency.get(currentNodeId) ?? []) {
+      if (previousByNodeId.has(entry.nodeId)) {
+        continue
+      }
+      previousByNodeId.set(entry.nodeId, { edgeId: entry.edgeId, nodeId: currentNodeId })
+      pendingNodeIds.push(entry.nodeId)
+    }
+  }
+
+  if (!previousByNodeId.has(endNodeId)) {
+    return null
+  }
+
+  const nodeIds: string[] = []
+  const edgeIds: string[] = []
+  let cursorNodeId: string | null = endNodeId
+  while (cursorNodeId) {
+    nodeIds.unshift(cursorNodeId)
+    const previousEntry: { edgeId: string | null; nodeId: string | null } | null =
+      previousByNodeId.get(cursorNodeId) ?? null
+    if (!previousEntry?.nodeId) {
+      break
+    }
+    if (previousEntry.edgeId) {
+      edgeIds.unshift(previousEntry.edgeId)
+    }
+    cursorNodeId = previousEntry.nodeId
+  }
+
+  return nodeIds.length ? { edgeIds, nodeIds } : null
 }
 
 function formatSentenceSpanLabel(start: number | null | undefined, end: number | null | undefined) {
@@ -141,12 +295,317 @@ function getDocumentSourcePreview(document: RecallDocumentRecord) {
   return document.source_locator || document.file_name || 'Local paste'
 }
 
+function getLibrarySortModeLabel(sortMode: RecallLibrarySortMode) {
+  if (sortMode === 'manual') {
+    return 'Manual order'
+  }
+  if (sortMode === 'created') {
+    return 'Created order'
+  }
+  if (sortMode === 'title') {
+    return 'A-Z order'
+  }
+  return 'Updated order'
+}
+
+function getLibrarySortModeShortLabel(sortMode: RecallLibrarySortMode) {
+  if (sortMode === 'manual') {
+    return 'Manual'
+  }
+  if (sortMode === 'created') {
+    return 'Created'
+  }
+  if (sortMode === 'title') {
+    return 'A-Z'
+  }
+  return 'Updated'
+}
+
+function getLibrarySortDirectionLabel(sortMode: RecallLibrarySortMode, sortDirection: RecallLibrarySortDirection) {
+  if (sortMode === 'manual') {
+    return 'Custom order'
+  }
+  if (sortMode === 'title') {
+    return sortDirection === 'asc' ? 'A-Z' : 'Z-A'
+  }
+  return sortDirection === 'desc' ? 'Newest first' : 'Oldest first'
+}
+
+function getLibrarySortDirectionShortLabel(sortMode: RecallLibrarySortMode, sortDirection: RecallLibrarySortDirection) {
+  if (sortMode === 'manual') {
+    return 'Custom'
+  }
+  if (sortMode === 'title') {
+    return sortDirection === 'asc' ? 'A-Z' : 'Z-A'
+  }
+  return sortDirection === 'desc' ? 'Newest' : 'Oldest'
+}
+
+function getHomeOrganizerLensLabel(lens: RecallHomeOrganizerLens) {
+  return lens === 'collections' ? 'Collections' : 'Recent'
+}
+
+function getHomeOrganizerLensEyebrow(lens: RecallHomeOrganizerLens) {
+  return lens === 'collections' ? 'Collection-led' : 'Recent-led'
+}
+
+function getDocumentSortTimestamp(document: RecallDocumentRecord, sortMode: RecallLibrarySortMode) {
+  const timestamp = new Date(sortMode === 'created' ? document.created_at : document.updated_at).getTime()
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function getHomeDocumentTimestampLabel(document: RecallDocumentRecord, sortMode: RecallLibrarySortMode, formatter: Intl.DateTimeFormat) {
+  if (sortMode === 'created') {
+    return `Created ${formatter.format(new Date(document.created_at))}`
+  }
+  return `Updated ${formatter.format(new Date(document.updated_at))}`
+}
+
+function sortRecallDocumentsForHome(
+  documents: RecallDocumentRecord[],
+  sortMode: RecallLibrarySortMode,
+  sortDirection: RecallLibrarySortDirection,
+) {
+  if (sortMode === 'manual') {
+    return [...documents]
+  }
+  const directionMultiplier = sortDirection === 'asc' ? 1 : -1
+
+  return [...documents].sort((left, right) => {
+    if (sortMode === 'title') {
+      const titleComparison = left.title.localeCompare(right.title, undefined, { numeric: true, sensitivity: 'base' })
+      if (titleComparison !== 0) {
+        return titleComparison * directionMultiplier
+      }
+
+      const updatedComparison = getDocumentSortTimestamp(right, 'updated') - getDocumentSortTimestamp(left, 'updated')
+      if (updatedComparison !== 0) {
+        return updatedComparison
+      }
+
+      return getDocumentSortTimestamp(right, 'created') - getDocumentSortTimestamp(left, 'created')
+    }
+
+    const primaryDateComparison =
+      (getDocumentSortTimestamp(left, sortMode) - getDocumentSortTimestamp(right, sortMode)) * directionMultiplier
+    if (primaryDateComparison !== 0) {
+      return primaryDateComparison
+    }
+
+    const secondaryDateComparison = getDocumentSortTimestamp(right, 'updated') - getDocumentSortTimestamp(left, 'updated')
+    if (secondaryDateComparison !== 0) {
+      return secondaryDateComparison
+    }
+
+    return left.title.localeCompare(right.title, undefined, { numeric: true, sensitivity: 'base' })
+  })
+}
+
+type StaticLibraryBrowseSectionKey =
+  | 'collection:web'
+  | 'collection:captures'
+  | 'collection:documents'
+  | 'recent:today'
+  | 'recent:this-week'
+  | 'recent:earlier'
+
+type CustomCollectionSectionKey = `collection:custom:${string}`
+type LibraryBrowseSectionKey = StaticLibraryBrowseSectionKey | CustomCollectionSectionKey | 'collection:untagged'
+type HomeOrganizerSelectionKey = string
+
+interface HomeOrganizerSelectionDescriptor {
+  documentId?: string
+  kind: 'document' | 'section'
+  sectionKey: LibraryBrowseSectionKey
+}
+
+interface HomeOrganizerDragSession {
+  documentId?: string
+  kind: 'document' | 'section'
+  sectionKey: LibraryBrowseSectionKey
+}
+
+interface HomeOrganizerDropTarget {
+  documentId?: string
+  kind: 'document' | 'section'
+  sectionKey: LibraryBrowseSectionKey
+}
+
+interface HomeCustomCollection {
+  documentIds: string[]
+  id: string
+  name: string
+}
+
+interface HomeCollectionDraftState {
+  collectionId?: string
+  mode: 'create' | 'rename'
+  seedDocumentIds?: string[]
+}
+
 interface LibraryBrowseSection {
   description: string
   documents: RecallDocumentRecord[]
-  key: 'today' | 'this-week' | 'earlier'
+  key: LibraryBrowseSectionKey
   label: string
+  lens: RecallHomeOrganizerLens
 }
+
+function buildHomeSectionSelectionKey(sectionKey: LibraryBrowseSectionKey): HomeOrganizerSelectionKey {
+  return `section|${sectionKey}`
+}
+
+function buildHomeDocumentSelectionKey(
+  sectionKey: LibraryBrowseSectionKey,
+  documentId: string,
+): HomeOrganizerSelectionKey {
+  return `document|${sectionKey}|${documentId}`
+}
+
+function parseHomeOrganizerSelectionKey(
+  selectionKey: HomeOrganizerSelectionKey,
+): HomeOrganizerSelectionDescriptor | null {
+  if (selectionKey.startsWith('section|')) {
+    return {
+      kind: 'section',
+      sectionKey: selectionKey.slice('section|'.length) as LibraryBrowseSectionKey,
+    }
+  }
+
+  if (selectionKey.startsWith('document|')) {
+    const remainder = selectionKey.slice('document|'.length)
+    const separatorIndex = remainder.lastIndexOf('|')
+    if (separatorIndex === -1) {
+      return null
+    }
+    const sectionKey = remainder.slice(0, separatorIndex)
+    const documentId = remainder.slice(separatorIndex + 1)
+    if (!sectionKey || !documentId) {
+      return null
+    }
+    return {
+      documentId,
+      kind: 'document',
+      sectionKey: sectionKey as LibraryBrowseSectionKey,
+    }
+  }
+
+  return null
+}
+
+function buildHomeCustomCollectionSectionKey(collectionId: string): CustomCollectionSectionKey {
+  return `collection:custom:${collectionId}`
+}
+
+function getHomeCustomCollectionIdFromSectionKey(sectionKey: LibraryBrowseSectionKey) {
+  return sectionKey.startsWith('collection:custom:') ? sectionKey.slice('collection:custom:'.length) : null
+}
+
+function isHomeCustomCollectionSection(sectionKey: LibraryBrowseSectionKey) {
+  return sectionKey.startsWith('collection:custom:')
+}
+
+function isHomeUntaggedSection(sectionKey: LibraryBrowseSectionKey) {
+  return sectionKey === 'collection:untagged'
+}
+
+function createHomeCustomCollectionId() {
+  return `home-collection-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function orderItemsByManualKeys<T>(items: T[], orderedKeys: string[], getKey: (item: T) => string) {
+  const orderIndex = new Map(orderedKeys.map((key, index) => [key, index]))
+  return [...items].sort((left, right) => {
+    const leftIndex = orderIndex.get(getKey(left))
+    const rightIndex = orderIndex.get(getKey(right))
+    if (leftIndex === undefined && rightIndex === undefined) {
+      return 0
+    }
+    if (leftIndex === undefined) {
+      return 1
+    }
+    if (rightIndex === undefined) {
+      return -1
+    }
+    return leftIndex - rightIndex
+  })
+}
+
+function mergeManualOrderKeys(existingKeys: string[], nextKeys: string[]) {
+  return [...existingKeys.filter((key) => nextKeys.includes(key)), ...nextKeys.filter((key) => !existingKeys.includes(key))]
+}
+
+function moveManualOrderKeys(existingKeys: string[], targetKeys: string[], direction: 'forward' | 'backward') {
+  if (!targetKeys.length) {
+    return existingKeys
+  }
+  const targetKeySet = new Set(targetKeys)
+  const nextKeys = [...existingKeys]
+
+  if (direction === 'backward') {
+    for (let index = 1; index < nextKeys.length; index += 1) {
+      if (targetKeySet.has(nextKeys[index]) && !targetKeySet.has(nextKeys[index - 1])) {
+        ;[nextKeys[index - 1], nextKeys[index]] = [nextKeys[index], nextKeys[index - 1]]
+      }
+    }
+    return nextKeys
+  }
+
+  for (let index = nextKeys.length - 2; index >= 0; index -= 1) {
+    if (targetKeySet.has(nextKeys[index]) && !targetKeySet.has(nextKeys[index + 1])) {
+      ;[nextKeys[index], nextKeys[index + 1]] = [nextKeys[index + 1], nextKeys[index]]
+    }
+  }
+  return nextKeys
+}
+
+function moveManualOrderKeyToTarget(existingKeys: string[], movingKey: string, targetKey: string) {
+  const movingIndex = existingKeys.indexOf(movingKey)
+  const targetIndex = existingKeys.indexOf(targetKey)
+  if (movingIndex === -1 || targetIndex === -1 || movingKey === targetKey) {
+    return existingKeys
+  }
+
+  const nextKeys = existingKeys.filter((key) => key !== movingKey)
+  const nextTargetIndex = nextKeys.indexOf(targetKey)
+  if (nextTargetIndex === -1) {
+    return existingKeys
+  }
+
+  const insertIndex = movingIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex
+  nextKeys.splice(insertIndex, 0, movingKey)
+  return nextKeys
+}
+
+const HOME_COLLECTION_SECTION_META: Array<{
+  description: string
+  key: LibraryBrowseSectionKey
+  label: string
+  matches: (document: RecallDocumentRecord) => boolean
+  priority: number
+}> = [
+  {
+    key: 'collection:web',
+    label: 'Web',
+    description: 'Saved article snapshots and web reading.',
+    matches: (document) => document.source_type === 'web',
+    priority: 0,
+  },
+  {
+    key: 'collection:documents',
+    label: 'Documents',
+    description: 'Imported files and longer local reading.',
+    matches: (document) => document.source_type !== 'web' && document.source_type !== 'paste',
+    priority: 1,
+  },
+  {
+    key: 'collection:captures',
+    label: 'Captures',
+    description: 'Quick local pastes and clipped notes-in-progress.',
+    matches: (document) => document.source_type === 'paste',
+    priority: 2,
+  },
+]
 
 interface GraphCanvasNodeLayout {
   emphasis: 'ambient' | 'focus' | 'linked'
@@ -161,24 +620,348 @@ interface GraphCanvasLayout {
   nodes: GraphCanvasNodeLayout[]
 }
 
+type GraphConnectionDepth = 1 | 2 | 3
+type GraphColorGroupMode = 'source' | 'node'
+type GraphSpacingMode = 'balanced' | 'compact' | 'spread'
+type GraphDetailView = 'card' | 'reader' | 'connections'
+type GraphViewPresetKey = 'explore' | 'connections' | 'timeline'
+type GraphSourceTypeBucket = 'web' | 'captures' | 'documents'
+
+interface GraphViewPresetSnapshot {
+  colorGroupMode: GraphColorGroupMode
+  connectionDepth: GraphConnectionDepth
+  filterQuery: string
+  hoverFocusEnabled: boolean
+  nodeTypeFilters: string[]
+  showNodeCounts: boolean
+  sourceTypeFilters: GraphSourceTypeBucket[]
+  spacingMode: GraphSpacingMode
+  timelineEnabled: boolean
+  timelineIndex: number
+}
+
+interface GraphSavedPreset {
+  id: string
+  name: string
+  snapshot: GraphViewPresetSnapshot
+}
+
+type GraphPresetBaseline =
+  | { kind: 'builtin'; key: GraphViewPresetKey }
+  | { id: string; kind: 'saved' }
+  | null
+
+interface GraphNodeLocalMeta {
+  firstSeenAt: number | null
+  firstSeenLabel: string | null
+  primarySourceBucket: GraphSourceTypeBucket
+  sourceBuckets: GraphSourceTypeBucket[]
+}
+
+interface GraphTimelineStep {
+  cutoff: number
+  documentCount: number
+  id: string
+  label: string
+  title: string
+}
+
+interface GraphCanvasLayoutOptions {
+  connectionDepth: GraphConnectionDepth
+  spacingMode: GraphSpacingMode
+}
+
+interface GraphCanvasViewportState {
+  offsetX: number
+  offsetY: number
+  scale: number
+}
+
+interface GraphCanvasDragPosition {
+  x: number
+  y: number
+}
+
+interface GraphCanvasPanSession {
+  pointerId: number
+  startClientX: number
+  startClientY: number
+  startOffsetX: number
+  startOffsetY: number
+}
+
+interface GraphCanvasNodeDragSession {
+  nodeId: string
+  pointerId: number
+  startClientX: number
+  startClientY: number
+  startX: number
+  startY: number
+}
+
+interface GraphSettingsDrawerResizeSession {
+  pointerId: number
+  startClientX: number
+  startWidth: number
+}
+
+interface HomeOrganizerRailResizeSession {
+  pointerId: number
+  startClientX: number
+  startWidth: number
+}
+
+const GRAPH_CANVAS_DEFAULT_WIDTH = 1200
+const GRAPH_CANVAS_DEFAULT_HEIGHT = 720
+const GRAPH_CANVAS_FIT_PADDING = 88
+const GRAPH_CANVAS_MIN_SCALE = 0.52
+const GRAPH_CANVAS_MAX_SCALE = 2.35
+const GRAPH_CANVAS_LOCKED_DRAG_MIN = 6
+const GRAPH_CANVAS_LOCKED_DRAG_MAX = 94
+const GRAPH_SETTINGS_DRAWER_DEFAULT_WIDTH = 244
+const GRAPH_SETTINGS_DRAWER_MIN_WIDTH = 228
+const GRAPH_SETTINGS_DRAWER_MAX_WIDTH = 388
+const HOME_ORGANIZER_RAIL_DEFAULT_WIDTH = 268
+const HOME_ORGANIZER_RAIL_MIN_WIDTH = 224
+const HOME_ORGANIZER_RAIL_MAX_WIDTH = 388
+const GRAPH_SOURCE_BUCKET_ACCENTS: Record<GraphSourceTypeBucket, string> = {
+  web: 'rgba(112, 167, 255, 0.78)',
+  captures: 'rgba(246, 195, 113, 0.82)',
+  documents: 'rgba(143, 226, 204, 0.74)',
+}
+const GRAPH_NODE_TYPE_ACCENT_PALETTE = [
+  'rgba(112, 167, 255, 0.78)',
+  'rgba(246, 195, 113, 0.82)',
+  'rgba(143, 226, 204, 0.74)',
+  'rgba(219, 163, 255, 0.76)',
+  'rgba(255, 141, 183, 0.78)',
+  'rgba(122, 216, 247, 0.76)',
+]
+
+const GRAPH_VIEW_PRESETS: Array<{
+  connectionDepth: GraphConnectionDepth
+  description: string
+  hoverFocusEnabled: boolean
+  key: GraphViewPresetKey
+  label: string
+  showNodeCounts: boolean
+  spacingMode: GraphSpacingMode
+  timelineEnabled: boolean
+}> = [
+  {
+    key: 'explore',
+    label: 'Explore',
+    description: 'Balanced graph browsing for the current visible network.',
+    connectionDepth: 2,
+    spacingMode: 'balanced',
+    hoverFocusEnabled: true,
+    showNodeCounts: true,
+    timelineEnabled: false,
+  },
+  {
+    key: 'connections',
+    label: 'Connections',
+    description: 'Wider spacing and deeper context for link review.',
+    connectionDepth: 3,
+    spacingMode: 'spread',
+    hoverFocusEnabled: false,
+    showNodeCounts: true,
+    timelineEnabled: false,
+  },
+  {
+    key: 'timeline',
+    label: 'Timeline',
+    description: 'Step through the graph as saved sources accumulate over time.',
+    connectionDepth: 1,
+    spacingMode: 'compact',
+    hoverFocusEnabled: true,
+    showNodeCounts: false,
+    timelineEnabled: true,
+  },
+]
+
+function normalizeGraphPresetSnapshot(
+  snapshot: GraphViewPresetSnapshot,
+  timelineStepCount: number,
+): GraphViewPresetSnapshot {
+  const maxTimelineIndex = Math.max(timelineStepCount - 1, 0)
+  return {
+    colorGroupMode: snapshot.colorGroupMode,
+    connectionDepth: snapshot.connectionDepth,
+    filterQuery: snapshot.filterQuery.trim(),
+    hoverFocusEnabled: snapshot.hoverFocusEnabled,
+    nodeTypeFilters: [...snapshot.nodeTypeFilters].sort((left, right) => left.localeCompare(right)),
+    showNodeCounts: snapshot.showNodeCounts,
+    sourceTypeFilters: [...snapshot.sourceTypeFilters].sort((left, right) => left.localeCompare(right)),
+    spacingMode: snapshot.spacingMode,
+    timelineEnabled: snapshot.timelineEnabled && timelineStepCount > 0,
+    timelineIndex:
+      snapshot.timelineEnabled && timelineStepCount > 0
+        ? clampNumber(snapshot.timelineIndex, 0, maxTimelineIndex)
+        : 0,
+  }
+}
+
+function buildGraphBuiltInPresetSnapshot(
+  presetKey: GraphViewPresetKey,
+  timelineStepCount: number,
+): GraphViewPresetSnapshot {
+  const maxTimelineIndex = Math.max(timelineStepCount - 1, 0)
+  if (presetKey === 'connections') {
+    return {
+      colorGroupMode: 'source',
+      connectionDepth: 3,
+      filterQuery: '',
+      hoverFocusEnabled: false,
+      nodeTypeFilters: [],
+      showNodeCounts: true,
+      sourceTypeFilters: [],
+      spacingMode: 'spread',
+      timelineEnabled: false,
+      timelineIndex: 0,
+    }
+  }
+  if (presetKey === 'timeline') {
+    return {
+      colorGroupMode: 'source',
+      connectionDepth: 1,
+      filterQuery: '',
+      hoverFocusEnabled: true,
+      nodeTypeFilters: [],
+      showNodeCounts: false,
+      sourceTypeFilters: [],
+      spacingMode: 'compact',
+      timelineEnabled: timelineStepCount > 0,
+      timelineIndex: maxTimelineIndex,
+    }
+  }
+  return {
+    colorGroupMode: 'source',
+    connectionDepth: 2,
+    filterQuery: '',
+    hoverFocusEnabled: true,
+    nodeTypeFilters: [],
+    showNodeCounts: true,
+    sourceTypeFilters: [],
+    spacingMode: 'balanced',
+    timelineEnabled: false,
+    timelineIndex: 0,
+  }
+}
+
+function areGraphPresetSnapshotsEqual(
+  left: GraphViewPresetSnapshot | null,
+  right: GraphViewPresetSnapshot | null,
+) {
+  if (!left || !right) {
+    return left === right
+  }
+  return (
+    left.colorGroupMode === right.colorGroupMode &&
+    left.connectionDepth === right.connectionDepth &&
+    left.filterQuery === right.filterQuery &&
+    left.hoverFocusEnabled === right.hoverFocusEnabled &&
+    left.showNodeCounts === right.showNodeCounts &&
+    left.spacingMode === right.spacingMode &&
+    left.timelineEnabled === right.timelineEnabled &&
+    left.timelineIndex === right.timelineIndex &&
+    left.nodeTypeFilters.length === right.nodeTypeFilters.length &&
+    left.nodeTypeFilters.every((value, index) => value === right.nodeTypeFilters[index]) &&
+    left.sourceTypeFilters.length === right.sourceTypeFilters.length &&
+    left.sourceTypeFilters.every((value, index) => value === right.sourceTypeFilters[index])
+  )
+}
+
+function createGraphSavedPresetId() {
+  return `graph-preset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function buildDefaultGraphPresetName(savedPresets: GraphSavedPreset[]) {
+  const existingNames = new Set(savedPresets.map((preset) => preset.name))
+  let index = 1
+  while (existingNames.has(`Saved view ${index}`)) {
+    index += 1
+  }
+  return `Saved view ${index}`
+}
+
+function buildGraphPresetSummary(snapshot: GraphViewPresetSnapshot) {
+  const spacingLabel =
+    snapshot.spacingMode === 'balanced'
+      ? 'Balanced'
+      : snapshot.spacingMode === 'compact'
+        ? 'Compact'
+        : 'Spread'
+  const items = [
+    snapshot.connectionDepth === 3 ? '3+ hops' : `${snapshot.connectionDepth} ${snapshot.connectionDepth === 1 ? 'hop' : 'hops'}`,
+    spacingLabel,
+    snapshot.timelineEnabled ? 'Timeline' : 'Static',
+    snapshot.colorGroupMode === 'source' ? 'Source groups' : 'Node groups',
+  ]
+  if (snapshot.filterQuery) {
+    items.push('Text filter')
+  }
+  if (snapshot.nodeTypeFilters.length || snapshot.sourceTypeFilters.length) {
+    items.push('Content filters')
+  }
+  return items.join(' · ')
+}
+
+function clampNumber(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value))
+}
+
+function isRecentTodaySection(sectionKey: LibraryBrowseSection['key']) {
+  return sectionKey === 'recent:today'
+}
+
+function isRecentThisWeekSection(sectionKey: LibraryBrowseSection['key']) {
+  return sectionKey === 'recent:this-week'
+}
+
+function isRecentEarlierSection(sectionKey: LibraryBrowseSection['key']) {
+  return sectionKey === 'recent:earlier'
+}
+
+function isCollectionCaptureSection(sectionKey: LibraryBrowseSection['key']) {
+  return sectionKey === 'collection:captures'
+}
+
 function getLibrarySectionDisplayLimit(sectionKey: LibraryBrowseSection['key']) {
-  if (sectionKey === 'today') {
+  if (isRecentTodaySection(sectionKey)) {
     return 3
   }
-  if (sectionKey === 'this-week') {
+  if (isRecentThisWeekSection(sectionKey)) {
+    return 5
+  }
+  if (isCollectionCaptureSection(sectionKey)) {
     return 5
   }
   return 6
 }
 
 function getHomeWorkspaceSectionDisplayLimit(sectionKey: LibraryBrowseSection['key']) {
-  if (sectionKey === 'today') {
+  if (isRecentTodaySection(sectionKey)) {
     return 3
   }
-  if (sectionKey === 'this-week') {
+  if (isRecentThisWeekSection(sectionKey)) {
     return 3
+  }
+  if (isCollectionCaptureSection(sectionKey)) {
+    return 6
   }
   return 4
+}
+
+function getHomeBrowseBranchDisplayLimit(sectionKey: LibraryBrowseSection['key'], viewMode: RecallHomeViewMode) {
+  const baseLimit = isRecentTodaySection(sectionKey)
+    ? 4
+    : isRecentThisWeekSection(sectionKey)
+      ? 5
+      : isCollectionCaptureSection(sectionKey)
+        ? 7
+        : 6
+  return viewMode === 'list' ? baseLimit + 2 : baseLimit
 }
 
 function getFeaturedLibraryVisibleDisplayLimit(
@@ -189,24 +972,99 @@ function getFeaturedLibraryVisibleDisplayLimit(
   if (!compactMergedHomeLead) {
     return baseLimit + 1
   }
-  if (sectionKey === 'earlier') {
+  if (isRecentEarlierSection(sectionKey)) {
     return baseLimit + 1
   }
-  if (sectionKey === 'this-week') {
+  if (isRecentThisWeekSection(sectionKey)) {
     return baseLimit + 1
   }
   return baseLimit + 1
 }
 
-function buildLibraryBrowseSections(documents: RecallDocumentRecord[], now: Date = new Date()): LibraryBrowseSection[] {
+function buildLibraryBrowseSections(
+  documents: RecallDocumentRecord[],
+  organizerLens: RecallHomeOrganizerLens,
+  customCollections: HomeCustomCollection[],
+  now: Date = new Date(),
+): LibraryBrowseSection[] {
+  if (organizerLens === 'collections') {
+    if (customCollections.length > 0) {
+      const documentById = new Map(documents.map((document) => [document.id, document]))
+      const assignedDocumentIds = new Set<string>()
+      const customSections = customCollections.map((collection) => {
+        const seenDocumentIds = new Set<string>()
+        const collectionDocuments = collection.documentIds
+          .map((documentId) => documentById.get(documentId))
+          .filter((document): document is RecallDocumentRecord => {
+            if (!document || seenDocumentIds.has(document.id)) {
+              return false
+            }
+            seenDocumentIds.add(document.id)
+            assignedDocumentIds.add(document.id)
+            return true
+          })
+
+        return {
+          description:
+            collectionDocuments.length > 0
+              ? 'Custom collection managed directly from the organizer.'
+              : 'Custom collection ready for sources from the organizer.',
+          documents: collectionDocuments,
+          key: buildHomeCustomCollectionSectionKey(collection.id),
+          label: collection.name,
+          lens: 'collections' as const,
+        }
+      })
+
+      const untaggedDocuments = documents.filter((document) => !assignedDocumentIds.has(document.id))
+      return [
+        ...customSections,
+        {
+          description:
+            untaggedDocuments.length > 0
+              ? 'Saved sources still outside custom collections.'
+              : 'Every saved source already belongs to a custom collection.',
+          documents: untaggedDocuments,
+          key: 'collection:untagged',
+          label: 'Untagged',
+          lens: 'collections' as const,
+        },
+      ]
+    }
+
+    const collectionSections = HOME_COLLECTION_SECTION_META.map((section) => ({
+      description: section.description,
+      documents: documents.filter(section.matches),
+      key: section.key,
+      label: section.label,
+      lens: 'collections' as const,
+      priority: section.priority,
+    })).filter((section) => section.documents.length > 0)
+
+    return collectionSections
+      .sort((left, right) => {
+        if (left.documents.length !== right.documents.length) {
+          return right.documents.length - left.documents.length
+        }
+        return left.priority - right.priority
+      })
+      .map(({ description, documents, key, label, lens }) => ({
+        description,
+        documents,
+        key,
+        label,
+        lens,
+      }))
+  }
+
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const mondayOffset = (now.getDay() + 6) % 7
   const startOfWeek = startOfToday - mondayOffset * 24 * 60 * 60 * 1000
 
   const sections: LibraryBrowseSection[] = [
-    { key: 'today', label: 'Today', description: 'Most recently touched sources.', documents: [] },
-    { key: 'this-week', label: 'This week', description: 'Recent sources still close at hand.', documents: [] },
-    { key: 'earlier', label: 'Earlier', description: 'Older saved sources still ready to reopen.', documents: [] },
+    { key: 'recent:today', label: 'Today', description: 'Most recently touched sources.', documents: [], lens: 'recent' },
+    { key: 'recent:this-week', label: 'This week', description: 'Recent sources still close at hand.', documents: [], lens: 'recent' },
+    { key: 'recent:earlier', label: 'Earlier', description: 'Older saved sources still ready to reopen.', documents: [], lens: 'recent' },
   ]
 
   for (const document of documents) {
@@ -242,6 +1100,10 @@ function getGraphNodePreview(node: KnowledgeNodeRecord) {
 
 function getGraphEdgeCounterpartLabel(edge: KnowledgeEdgeRecord, nodeId: string) {
   return edge.source_id === nodeId ? edge.target_label : edge.source_label
+}
+
+function getGraphEdgeCounterpartId(edge: KnowledgeEdgeRecord, nodeId: string) {
+  return edge.source_id === nodeId ? edge.target_id : edge.source_id
 }
 
 function sortGraphNodesForBrowse(
@@ -299,6 +1161,8 @@ function buildGraphCanvasLayout(
   edges: KnowledgeEdgeRecord[],
   selectedNodeId: string | null,
   activeSourceDocumentId: string | null,
+  focusNodeId: string | null,
+  options: GraphCanvasLayoutOptions,
 ): GraphCanvasLayout {
   if (!nodes.length) {
     return {
@@ -308,26 +1172,100 @@ function buildGraphCanvasLayout(
     }
   }
 
-  const orderedNodes = sortGraphNodesForBrowse(nodes, selectedNodeId, activeSourceDocumentId)
-  const visibleNodes = orderedNodes.slice(0, 11)
-  const focusNode = visibleNodes.find((node) => node.id === selectedNodeId) ?? visibleNodes[0]
-  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id))
-  const visibleEdges = edges.filter((edge) => visibleNodeIds.has(edge.source_id) && visibleNodeIds.has(edge.target_id))
-  const directlyConnectedNodeIds = new Set(
-    visibleEdges.flatMap((edge) => {
-      if (edge.source_id === focusNode.id) {
-        return [edge.target_id]
-      }
-      if (edge.target_id === focusNode.id) {
-        return [edge.source_id]
-      }
-      return []
-    }),
-  )
+  const priorityNodeId = selectedNodeId ?? focusNodeId
+  const orderedNodes = sortGraphNodesForBrowse(nodes, priorityNodeId, activeSourceDocumentId)
+  const candidateNodes = orderedNodes.slice(0, 18)
+  const focusNode = candidateNodes.find((node) => node.id === priorityNodeId) ?? candidateNodes[0]
+  const candidateNodeIds = new Set(candidateNodes.map((node) => node.id))
+  const candidateEdges = edges.filter((edge) => candidateNodeIds.has(edge.source_id) && candidateNodeIds.has(edge.target_id))
+  const adjacency = new Map<string, Set<string>>()
 
-  const orbitNodes = visibleNodes.filter((node) => node.id !== focusNode.id)
-  const linkedNodes = orbitNodes.filter((node) => directlyConnectedNodeIds.has(node.id)).slice(0, 5)
-  const ambientNodes = orbitNodes.filter((node) => !directlyConnectedNodeIds.has(node.id))
+  for (const node of candidateNodes) {
+    adjacency.set(node.id, new Set())
+  }
+
+  for (const edge of candidateEdges) {
+    adjacency.get(edge.source_id)?.add(edge.target_id)
+    adjacency.get(edge.target_id)?.add(edge.source_id)
+  }
+
+  const depthByNodeId = new Map<string, number>([[focusNode.id, 0]])
+  const pendingNodeIds: string[] = [focusNode.id]
+  while (pendingNodeIds.length) {
+    const currentNodeId = pendingNodeIds.shift()
+    if (!currentNodeId) {
+      continue
+    }
+    const currentDepth = depthByNodeId.get(currentNodeId) ?? 0
+    if (currentDepth >= 2) {
+      continue
+    }
+    for (const neighborNodeId of adjacency.get(currentNodeId) ?? []) {
+      if (depthByNodeId.has(neighborNodeId)) {
+        continue
+      }
+      depthByNodeId.set(neighborNodeId, currentDepth + 1)
+      pendingNodeIds.push(neighborNodeId)
+    }
+  }
+
+  const orbitNodes = candidateNodes.filter((node) => node.id !== focusNode.id)
+  const directlyConnectedNodes = orbitNodes.filter((node) => depthByNodeId.get(node.id) === 1)
+  const secondaryConnectedNodes = orbitNodes.filter((node) => depthByNodeId.get(node.id) === 2)
+  const ambientNodes = orbitNodes.filter((node) => {
+    const depth = depthByNodeId.get(node.id)
+    return depth === undefined || depth > 2
+  })
+
+  const visibleLinkedNodes =
+    options.connectionDepth === 1
+      ? directlyConnectedNodes.slice(0, 6)
+      : directlyConnectedNodes.slice(0, 6)
+  const visibleSecondaryNodes =
+    options.connectionDepth >= 2
+      ? secondaryConnectedNodes.slice(0, options.connectionDepth === 2 ? 5 : 4)
+      : []
+  let visibleAmbientNodes =
+    options.connectionDepth === 3
+      ? ambientNodes.slice(0, 6)
+      : []
+
+  if (options.connectionDepth === 1 && !visibleLinkedNodes.length) {
+    visibleAmbientNodes = ambientNodes.slice(0, 4)
+  } else if (options.connectionDepth === 2 && visibleLinkedNodes.length + visibleSecondaryNodes.length < 6) {
+    visibleAmbientNodes = ambientNodes.slice(0, 6 - (visibleLinkedNodes.length + visibleSecondaryNodes.length))
+  }
+
+  const visibleNodes = [focusNode, ...visibleLinkedNodes, ...visibleSecondaryNodes, ...visibleAmbientNodes]
+  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id))
+  const visibleEdges = candidateEdges.filter((edge) => visibleNodeIds.has(edge.source_id) && visibleNodeIds.has(edge.target_id))
+  const spacingByMode: Record<GraphSpacingMode, { ambientRadiusX: number; ambientRadiusY: number; linkedRadiusX: number; linkedRadiusY: number; secondaryRadiusX: number; secondaryRadiusY: number }> = {
+    compact: {
+      ambientRadiusX: 37,
+      ambientRadiusY: 29,
+      linkedRadiusX: 22,
+      linkedRadiusY: 16,
+      secondaryRadiusX: 30,
+      secondaryRadiusY: 23,
+    },
+    balanced: {
+      ambientRadiusX: 42,
+      ambientRadiusY: 32,
+      linkedRadiusX: 24,
+      linkedRadiusY: 18,
+      secondaryRadiusX: 34,
+      secondaryRadiusY: 25,
+    },
+    spread: {
+      ambientRadiusX: 46,
+      ambientRadiusY: 35,
+      linkedRadiusX: 27,
+      linkedRadiusY: 20,
+      secondaryRadiusX: 38,
+      secondaryRadiusY: 28,
+    },
+  }
+  const spacing = spacingByMode[options.spacingMode]
 
   return {
     edges: visibleEdges,
@@ -339,8 +1277,9 @@ function buildGraphCanvasLayout(
         x: 50,
         y: 52,
       },
-      ...placeGraphOrbit(linkedNodes, 'linked', 28, 22),
-      ...placeGraphOrbit(ambientNodes, 'ambient', 42, 34),
+      ...placeGraphOrbit(visibleLinkedNodes, 'linked', spacing.linkedRadiusX, spacing.linkedRadiusY),
+      ...placeGraphOrbit(visibleSecondaryNodes, 'ambient', spacing.secondaryRadiusX, spacing.secondaryRadiusY),
+      ...placeGraphOrbit(visibleAmbientNodes, 'ambient', spacing.ambientRadiusX, spacing.ambientRadiusY),
     ],
   }
 }
@@ -503,11 +1442,49 @@ export function RecallWorkspace({
   const [graphError, setGraphError] = useState<string | null>(null)
   const [graphBusyKey, setGraphBusyKey] = useState<string | null>(null)
   const [graphFilterQuery, setGraphFilterQuery] = useState('')
+  const [graphSearchQuery, setGraphSearchQuery] = useState('')
+  const [graphSearchMatchIndex, setGraphSearchMatchIndex] = useState(0)
+  const [graphRequestedPathSelectionKey, setGraphRequestedPathSelectionKey] = useState<string | null>(null)
+  const [graphHoveredNodeId, setGraphHoveredNodeId] = useState<string | null>(null)
+  const [graphPresetBaseline, setGraphPresetBaseline] = useState<GraphPresetBaseline>({ kind: 'builtin', key: 'explore' })
+  const [graphSavedPresets, setGraphSavedPresets] = useState<GraphSavedPreset[]>([])
+  const [graphPresetDraftName, setGraphPresetDraftName] = useState('')
+  const [graphConnectionDepth, setGraphConnectionDepth] = useState<GraphConnectionDepth>(2)
+  const [graphSpacingMode, setGraphSpacingMode] = useState<GraphSpacingMode>('balanced')
+  const [graphHoverFocusEnabled, setGraphHoverFocusEnabled] = useState(true)
+  const [graphShowNodeCounts, setGraphShowNodeCounts] = useState(true)
+  const [graphTimelineEnabled, setGraphTimelineEnabled] = useState(false)
+  const [graphTimelineIndex, setGraphTimelineIndex] = useState(0)
+  const [graphTimelinePlaying, setGraphTimelinePlaying] = useState(false)
+  const [graphNodeTypeFilters, setGraphNodeTypeFilters] = useState<string[]>([])
+  const [graphSourceTypeFilters, setGraphSourceTypeFilters] = useState<GraphSourceTypeBucket[]>([])
+  const [graphColorGroupMode, setGraphColorGroupMode] = useState<GraphColorGroupMode>('source')
   const [selectedNodeDetail, setSelectedNodeDetail] = useState<KnowledgeNodeDetail | null>(null)
   const [nodeDetailLoading, setNodeDetailLoading] = useState(false)
   const [graphDetailPeekOpen, setGraphDetailPeekOpen] = useState(false)
+  const [graphDetailView, setGraphDetailView] = useState<GraphDetailView>('card')
   const [graphDetailMentionsExpanded, setGraphDetailMentionsExpanded] = useState(false)
   const [graphDetailRelationsExpanded, setGraphDetailRelationsExpanded] = useState(false)
+  const [graphSettingsDrawerWidth, setGraphSettingsDrawerWidth] = useState(GRAPH_SETTINGS_DRAWER_DEFAULT_WIDTH)
+  const [graphSettingsDrawerResizing, setGraphSettingsDrawerResizing] = useState(false)
+  const graphCanvasViewportRef = useRef<HTMLDivElement | null>(null)
+  const graphCanvasPanSessionRef = useRef<GraphCanvasPanSession | null>(null)
+  const graphNodeDragSessionRef = useRef<GraphCanvasNodeDragSession | null>(null)
+  const graphSettingsDrawerResizeSessionRef = useRef<GraphSettingsDrawerResizeSession | null>(null)
+  const graphNodeDragSuppressClickRef = useRef(false)
+  const graphLastHandledFitRequestKeyRef = useRef(0)
+  const [graphViewport, setGraphViewport] = useState<GraphCanvasViewportState>({
+    offsetX: 0,
+    offsetY: 0,
+    scale: 1,
+  })
+  const [, setGraphViewportInitialized] = useState(false)
+  const [graphViewportFitRequestKey, setGraphViewportFitRequestKey] = useState(0)
+  const [graphViewportUserAdjusted, setGraphViewportUserAdjusted] = useState(false)
+  const [graphLayoutLocked, setGraphLayoutLocked] = useState(false)
+  const [graphCanvasPanning, setGraphCanvasPanning] = useState(false)
+  const [graphDraggingNodeId, setGraphDraggingNodeId] = useState<string | null>(null)
+  const [graphManualNodePositions, setGraphManualNodePositions] = useState<Record<string, GraphCanvasDragPosition>>({})
   const [studyOverview, setStudyOverview] = useState<StudyOverview | null>(null)
   const [studyCards, setStudyCards] = useState<StudyCardRecord[]>([])
   const [studyStatus, setStudyStatus] = useState<LoadState>('loading')
@@ -544,15 +1521,61 @@ export function RecallWorkspace({
   const [focusedGraphEvidenceKey, setFocusedGraphEvidenceKey] = useState<string | null>(null)
   const [focusedStudySourceSpanIndex, setFocusedStudySourceSpanIndex] = useState(0)
   const [studyQueueExpanded, setStudyQueueExpanded] = useState(false)
-  const [expandedLibrarySectionKeys, setExpandedLibrarySectionKeys] = useState<Record<LibraryBrowseSection['key'], boolean>>({
-    today: false,
-    'this-week': false,
-    earlier: false,
+  const [homeSelectedSectionKey, setHomeSelectedSectionKey] = useState<LibraryBrowseSection['key'] | null>(null)
+  const [homeBrowsePreviewsCollapsed, setHomeBrowsePreviewsCollapsed] = useState(false)
+  const [homeOrganizerRailWidth, setHomeOrganizerRailWidth] = useState(HOME_ORGANIZER_RAIL_DEFAULT_WIDTH)
+  const [homeOrganizerRailResizing, setHomeOrganizerRailResizing] = useState(false)
+  const [homeOrganizerSelectionKeys, setHomeOrganizerSelectionKeys] = useState<HomeOrganizerSelectionKey[]>([])
+  const [homeOrganizerDragSession, setHomeOrganizerDragSession] = useState<HomeOrganizerDragSession | null>(null)
+  const [homeOrganizerDropTarget, setHomeOrganizerDropTarget] = useState<HomeOrganizerDropTarget | null>(null)
+  const [homeCustomCollections, setHomeCustomCollections] = useState<HomeCustomCollection[]>([])
+  const [homeCollectionDraftState, setHomeCollectionDraftState] = useState<HomeCollectionDraftState | null>(null)
+  const [homeCollectionDraftName, setHomeCollectionDraftName] = useState('')
+  const [homeCollectionAssignmentPanelOpen, setHomeCollectionAssignmentPanelOpen] = useState(false)
+  const homeOrganizerRailResizeSessionRef = useRef<HomeOrganizerRailResizeSession | null>(null)
+  const [homeManualSectionOrderByLens, setHomeManualSectionOrderByLens] = useState<
+    Record<RecallHomeOrganizerLens, LibraryBrowseSectionKey[]>
+  >({
+    collections: [],
+    recent: [],
+  })
+  const [homeManualDocumentOrderBySectionKey, setHomeManualDocumentOrderBySectionKey] = useState<
+    Partial<Record<LibraryBrowseSectionKey, string[]>>
+  >({})
+  const [expandedLibrarySectionKeys, setExpandedLibrarySectionKeys] = useState<Record<string, boolean>>({
+    'collection:web': false,
+    'collection:captures': false,
+    'collection:documents': false,
+    'recent:today': false,
+    'recent:this-week': false,
+    'recent:earlier': false,
+  })
+  const [expandedHomeBrowseBranchKeys, setExpandedHomeBrowseBranchKeys] = useState<Record<string, boolean>>({
+    'collection:web': false,
+    'collection:captures': false,
+    'collection:documents': false,
+    'recent:today': false,
+    'recent:this-week': false,
+    'recent:earlier': false,
+  })
+  const homeLastAutomaticSortRef = useRef<{
+    direction: RecallLibrarySortDirection
+    mode: Exclude<RecallLibrarySortMode, 'manual'>
+  }>({
+    direction: 'desc',
+    mode: 'updated',
   })
   const previousActiveSourceDocumentIdRef = useRef<string | null>(null)
   const libraryFilterQuery = continuityState.library.filterQuery
+  const homeOrganizerLens = continuityState.library.homeOrganizerLens
+  const homeOrganizerVisible = continuityState.library.homeOrganizerVisible
+  const homeSortDirection = continuityState.library.homeSortDirection
+  const homeSortMode = continuityState.library.homeSortMode
+  const homeViewMode = continuityState.library.homeViewMode
   const selectedLibraryDocumentId = continuityState.library.selectedDocumentId
   const selectedNodeId = continuityState.graph.selectedNodeId
+  const graphFocusTrailNodeIds = continuityState.graph.focusTrailNodeIds
+  const graphPathSelectedNodeIds = continuityState.graph.pathSelectedNodeIds
   const studyFilter = continuityState.study.filter
   const activeCardId = continuityState.study.activeCardId
   const selectedNotesDocumentId = continuityState.notes.selectedDocumentId
@@ -576,6 +1599,7 @@ export function RecallWorkspace({
     section === 'study' && sourceWorkspaceFocused && !studyBrowseDrawerOpen && Boolean(activeSourceDocumentId)
   const deferredLibraryFilter = useDeferredValue(libraryFilterQuery)
   const deferredGraphFilter = useDeferredValue(graphFilterQuery)
+  const deferredGraphSearch = useDeferredValue(graphSearchQuery)
   const deferredNoteSearch = useDeferredValue(noteSearchQuery)
 
   const updateContinuityState = useCallback((updater: (current: RecallWorkspaceContinuityState) => RecallWorkspaceContinuityState) => {
@@ -642,6 +1666,91 @@ export function RecallWorkspace({
     }))
   }, [updateBrowseDrawersState])
 
+  const setHomeOrganizerVisible = useCallback((nextVisible: boolean) => {
+    if (!nextVisible) {
+      setHomeOrganizerSelectionKeys([])
+    }
+    updateLibraryState((current) =>
+      current.homeOrganizerVisible === nextVisible
+        ? current
+        : {
+            ...current,
+            homeOrganizerVisible: nextVisible,
+          },
+    )
+  }, [updateLibraryState])
+
+  const setHomeOrganizerLens = useCallback((nextLens: RecallHomeOrganizerLens) => {
+    setHomeOrganizerSelectionKeys([])
+    updateLibraryState((current) =>
+      current.homeOrganizerLens === nextLens
+        ? current
+        : {
+            ...current,
+            homeOrganizerLens: nextLens,
+          },
+    )
+  }, [updateLibraryState])
+
+  const setHomeSortMode = useCallback((nextSortMode: RecallLibrarySortMode) => {
+    updateLibraryState((current) =>
+      current.homeSortMode === nextSortMode
+        ? current
+        : {
+            ...current,
+            homeSortMode: nextSortMode,
+          },
+    )
+  }, [updateLibraryState])
+
+  const setHomeSortDirection = useCallback((nextSortDirection: RecallLibrarySortDirection) => {
+    updateLibraryState((current) =>
+      current.homeSortDirection === nextSortDirection
+        ? current
+        : {
+            ...current,
+            homeSortDirection: nextSortDirection,
+          },
+    )
+  }, [updateLibraryState])
+
+  const setHomeViewMode = useCallback((nextViewMode: RecallHomeViewMode) => {
+    updateLibraryState((current) =>
+      current.homeViewMode === nextViewMode
+        ? current
+        : {
+            ...current,
+            homeViewMode: nextViewMode,
+          },
+    )
+  }, [updateLibraryState])
+
+  const clearHomeOrganizerSelection = useCallback(() => {
+    setHomeOrganizerSelectionKeys([])
+  }, [])
+
+  const toggleHomeOrganizerSelectionKey = useCallback((selectionKey: HomeOrganizerSelectionKey) => {
+    setHomeOrganizerSelectionKeys((current) =>
+      current.includes(selectionKey)
+        ? current.filter((key) => key !== selectionKey)
+        : [...current, selectionKey],
+    )
+  }, [])
+
+  useEffect(() => {
+    if (homeSortMode !== 'manual') {
+      homeLastAutomaticSortRef.current = {
+        direction: homeSortDirection,
+        mode: homeSortMode,
+      }
+    }
+  }, [homeSortDirection, homeSortMode])
+
+  const effectiveHomeAutomaticSortMode =
+    homeSortMode === 'manual' ? homeLastAutomaticSortRef.current.mode : homeSortMode
+  const effectiveHomeAutomaticSortDirection =
+    homeSortMode === 'manual' ? homeLastAutomaticSortRef.current.direction : homeSortDirection
+
   const dateFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(undefined, {
@@ -663,24 +1772,223 @@ export function RecallWorkspace({
   )
 
   const activeStudyCard = studyCards.find((card) => card.id === activeCardId) ?? studyCards[0] ?? null
+  const documentById = useMemo(() => new Map(documents.map((document) => [document.id, document])), [documents])
   const documentTitleById = useMemo(() => new Map(documents.map((document) => [document.id, document.title])), [documents])
-  const visibleDocuments = useMemo(() => {
+  const filteredVisibleDocuments = useMemo(() => {
     const normalized = deferredLibraryFilter.trim().toLowerCase()
-    const filtered = !normalized
-      ? documents
-      : documents.filter((document) =>
-          [document.title, document.source_type, document.source_locator ?? '', document.file_name ?? '']
-            .join(' ')
-            .toLowerCase()
-            .includes(normalized),
-        )
-    return [...filtered].sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+    if (!normalized) {
+      return documents
+    }
+    return documents.filter((document) =>
+      [document.title, document.source_type, document.source_locator ?? '', document.file_name ?? '']
+        .join(' ')
+        .toLowerCase()
+        .includes(normalized),
+    )
   }, [deferredLibraryFilter, documents])
+  const automaticallySortedVisibleDocuments = useMemo(
+    () =>
+      sortRecallDocumentsForHome(
+        filteredVisibleDocuments,
+        effectiveHomeAutomaticSortMode,
+        effectiveHomeAutomaticSortDirection,
+      ),
+    [effectiveHomeAutomaticSortDirection, effectiveHomeAutomaticSortMode, filteredVisibleDocuments],
+  )
+  const rawLibraryBrowseSections = useMemo(
+    () => buildLibraryBrowseSections(automaticallySortedVisibleDocuments, homeOrganizerLens, homeCustomCollections),
+    [automaticallySortedVisibleDocuments, homeCustomCollections, homeOrganizerLens],
+  )
+  const orderedLibraryBrowseSections = useMemo(() => {
+    if (homeSortMode !== 'manual') {
+      return rawLibraryBrowseSections
+    }
+    const manualSectionOrder = homeManualSectionOrderByLens[homeOrganizerLens]
+    return orderItemsByManualKeys(
+      rawLibraryBrowseSections.map((section) => ({
+        ...section,
+        documents: orderItemsByManualKeys(
+          section.documents,
+          homeManualDocumentOrderBySectionKey[section.key] ?? [],
+          (document) => document.id,
+        ),
+      })),
+      manualSectionOrder,
+      (section) => section.key,
+    )
+  }, [
+    homeManualDocumentOrderBySectionKey,
+    homeManualSectionOrderByLens,
+    homeOrganizerLens,
+    homeSortMode,
+    rawLibraryBrowseSections,
+  ])
+  const visibleDocuments = useMemo(() => {
+    if (homeSortMode !== 'manual') {
+      return automaticallySortedVisibleDocuments
+    }
+    return orderedLibraryBrowseSections.flatMap((section) => section.documents)
+  }, [automaticallySortedVisibleDocuments, homeSortMode, orderedLibraryBrowseSections])
   const libraryFilterActive = deferredLibraryFilter.trim().length > 0
   const libraryBrowseSections = useMemo(
-    () => (libraryFilterActive ? [] : buildLibraryBrowseSections(visibleDocuments)),
-    [libraryFilterActive, visibleDocuments],
+    () => (libraryFilterActive ? [] : orderedLibraryBrowseSections),
+    [libraryFilterActive, orderedLibraryBrowseSections],
   )
+
+  const moveHomeBrowseSections = useCallback(
+    (sectionKeys: LibraryBrowseSectionKey[], direction: 'forward' | 'backward') => {
+      if (!sectionKeys.length) {
+        return
+      }
+      setHomeManualSectionOrderByLens((current) => {
+        const orderedKeys = current[homeOrganizerLens] ?? rawLibraryBrowseSections.map((section) => section.key)
+        return {
+          ...current,
+          [homeOrganizerLens]: moveManualOrderKeys(orderedKeys, sectionKeys, direction),
+        }
+      })
+    },
+    [homeOrganizerLens, rawLibraryBrowseSections],
+  )
+
+  const moveHomeBrowseDocuments = useCallback(
+    (sectionKey: LibraryBrowseSectionKey, documentIds: string[], direction: 'forward' | 'backward') => {
+      if (!documentIds.length) {
+        return
+      }
+      const section = rawLibraryBrowseSections.find((entry) => entry.key === sectionKey)
+      if (!section) {
+        return
+      }
+      setHomeManualDocumentOrderBySectionKey((current) => ({
+        ...current,
+        [sectionKey]: moveManualOrderKeys(
+          current[sectionKey] ?? section.documents.map((document) => document.id),
+          documentIds,
+          direction,
+        ),
+      }))
+    },
+    [rawLibraryBrowseSections],
+  )
+
+  useEffect(() => {
+    setHomeManualSectionOrderByLens((current) => {
+      const nextKeys = rawLibraryBrowseSections.map((section) => section.key)
+      const mergedKeys = mergeManualOrderKeys(current[homeOrganizerLens] ?? [], nextKeys)
+      if (
+        mergedKeys.length === (current[homeOrganizerLens]?.length ?? 0) &&
+        mergedKeys.every((key, index) => key === current[homeOrganizerLens]?.[index])
+      ) {
+        return current
+      }
+      return {
+        ...current,
+        [homeOrganizerLens]: mergedKeys,
+      }
+    })
+  }, [homeOrganizerLens, rawLibraryBrowseSections])
+
+  useEffect(() => {
+    setHomeManualDocumentOrderBySectionKey((current) => {
+      let changed = false
+      const nextState: Partial<Record<LibraryBrowseSectionKey, string[]>> = { ...current }
+
+      for (const section of rawLibraryBrowseSections) {
+        const documentIds = section.documents.map((document) => document.id)
+        const mergedIds = mergeManualOrderKeys(current[section.key] ?? [], documentIds)
+        if (
+          mergedIds.length !== (current[section.key]?.length ?? 0) ||
+          mergedIds.some((id, index) => id !== current[section.key]?.[index])
+        ) {
+          nextState[section.key] = mergedIds
+          changed = true
+        }
+      }
+
+      return changed ? nextState : current
+    })
+  }, [rawLibraryBrowseSections])
+
+  useEffect(() => {
+    setHomeCustomCollections((current) => {
+      let changed = false
+      const validDocumentIds = new Set(documents.map((document) => document.id))
+      const nextCollections = current
+        .map((collection) => {
+          const nextDocumentIds = collection.documentIds.filter((documentId, index, allIds) => {
+            if (!validDocumentIds.has(documentId)) {
+              changed = true
+              return false
+            }
+            if (allIds.indexOf(documentId) !== index) {
+              changed = true
+              return false
+            }
+            return true
+          })
+          if (nextDocumentIds.length !== collection.documentIds.length) {
+            return {
+              ...collection,
+              documentIds: nextDocumentIds,
+            }
+          }
+          return collection
+        })
+      return changed ? nextCollections : current
+    })
+  }, [documents])
+
+  useEffect(() => {
+    setHomeOrganizerSelectionKeys((current) =>
+      current.filter((selectionKey) => {
+        const descriptor = parseHomeOrganizerSelectionKey(selectionKey)
+        if (!descriptor) {
+          return false
+        }
+        const section = rawLibraryBrowseSections.find((entry) => entry.key === descriptor.sectionKey)
+        if (!section) {
+          return false
+        }
+        if (descriptor.kind === 'section') {
+          return true
+        }
+        return section.documents.some((document) => document.id === descriptor.documentId)
+      }),
+    )
+  }, [rawLibraryBrowseSections])
+
+  useEffect(() => {
+    if (homeSelectedSectionKey && !rawLibraryBrowseSections.some((section) => section.key === homeSelectedSectionKey)) {
+      setHomeSelectedSectionKey(null)
+    }
+  }, [homeSelectedSectionKey, rawLibraryBrowseSections])
+
+  useEffect(() => {
+    if (!homeOrganizerSelectionKeys.length) {
+      setHomeCollectionAssignmentPanelOpen(false)
+    }
+  }, [homeOrganizerSelectionKeys.length])
+
+  useEffect(() => {
+    if (
+      homeCollectionDraftState?.mode === 'rename' &&
+      homeCollectionDraftState.collectionId &&
+      !homeCustomCollections.some((collection) => collection.id === homeCollectionDraftState.collectionId)
+    ) {
+      setHomeCollectionDraftState(null)
+      setHomeCollectionDraftName('')
+    }
+  }, [homeCollectionDraftName, homeCollectionDraftState, homeCustomCollections])
+
+  useEffect(() => {
+    if (homeSortMode === 'manual') {
+      return
+    }
+    setHomeOrganizerDragSession(null)
+    setHomeOrganizerDropTarget(null)
+  }, [homeSortMode])
+
   const featuredLibrarySection = libraryBrowseSections[0] ?? null
   const compactMergedHomeLeadSection = !libraryFilterActive && !activeSourceDocumentId && !!featuredLibrarySection
   const featuredLibrarySectionDisplayLimit = featuredLibrarySection
@@ -768,9 +2076,198 @@ export function RecallWorkspace({
     () => (selectedNodeDetail ? [...selectedNodeDetail.outgoing_edges, ...selectedNodeDetail.incoming_edges] : []),
     [selectedNodeDetail],
   )
+  const graphNodeById = useMemo(
+    () => new Map((graphSnapshot?.nodes ?? []).map((node) => [node.id, node])),
+    [graphSnapshot?.nodes],
+  )
+  const graphNodeMetaById = useMemo(
+    () =>
+      new Map(
+        (graphSnapshot?.nodes ?? []).map((node) => {
+          const sourceDocuments = node.source_document_ids
+            .map((documentId) => documentById.get(documentId) ?? null)
+            .filter((document): document is RecallDocumentRecord => Boolean(document))
+          const datedSourceDocuments = sourceDocuments
+            .map((document) => ({
+              cutoff: new Date(document.created_at).getTime(),
+              document,
+            }))
+            .filter(({ cutoff }) => Number.isFinite(cutoff))
+            .sort((left, right) => left.cutoff - right.cutoff)
+          const sourceBuckets = Array.from(
+            new Set(sourceDocuments.map((document) => classifyGraphSourceType(document.source_type))),
+          ) as GraphSourceTypeBucket[]
+          const firstSeenAt = datedSourceDocuments[0]?.cutoff ?? null
+          return [
+            node.id,
+            {
+              firstSeenAt,
+              firstSeenLabel: firstSeenAt !== null ? homeDateFormatter.format(new Date(firstSeenAt)) : null,
+              primarySourceBucket: sourceBuckets[0] ?? 'documents',
+              sourceBuckets,
+            } satisfies GraphNodeLocalMeta,
+          ]
+        }),
+      ),
+    [documentById, graphSnapshot?.nodes, homeDateFormatter],
+  )
+  const graphAvailableNodeTypes = useMemo(
+    () =>
+      Array.from(new Set((graphSnapshot?.nodes ?? []).map((node) => node.node_type))).sort((left, right) =>
+        formatGraphNodeTypeLabel(left).localeCompare(formatGraphNodeTypeLabel(right)),
+      ),
+    [graphSnapshot?.nodes],
+  )
+  const graphAvailableSourceTypes = useMemo(
+    () =>
+      Array.from(
+        new Set(Array.from(graphNodeMetaById.values()).flatMap((metadata) => metadata.sourceBuckets)),
+      ).sort((left, right) => formatGraphSourceTypeLabel(left).localeCompare(formatGraphSourceTypeLabel(right))),
+    [graphNodeMetaById],
+  )
+  const graphNodeTypeAccentByType = useMemo(
+    () =>
+      new Map(
+        graphAvailableNodeTypes.map((nodeType, index) => [
+          nodeType,
+          GRAPH_NODE_TYPE_ACCENT_PALETTE[index % GRAPH_NODE_TYPE_ACCENT_PALETTE.length],
+        ]),
+      ),
+    [graphAvailableNodeTypes],
+  )
+  const graphTimelineSteps = useMemo<GraphTimelineStep[]>(
+    () =>
+      documents
+        .map((document) => ({
+          cutoff: new Date(document.created_at).getTime(),
+          document,
+        }))
+        .filter(({ cutoff }) => Number.isFinite(cutoff))
+        .sort((left, right) => left.cutoff - right.cutoff || left.document.title.localeCompare(right.document.title))
+        .map(({ cutoff, document }, index) => ({
+          cutoff,
+          documentCount: index + 1,
+          id: document.id,
+          label: homeDateFormatter.format(new Date(cutoff)),
+          title: document.title,
+        })),
+    [documents, homeDateFormatter],
+  )
+  const graphTimelineStep =
+    graphTimelineEnabled && graphTimelineSteps.length
+      ? graphTimelineSteps[Math.min(graphTimelineIndex, graphTimelineSteps.length - 1)] ?? null
+      : null
+  const graphCurrentPresetSnapshot = useMemo(
+    () =>
+      normalizeGraphPresetSnapshot(
+        {
+          colorGroupMode: graphColorGroupMode,
+          connectionDepth: graphConnectionDepth,
+          filterQuery: graphFilterQuery,
+          hoverFocusEnabled: graphHoverFocusEnabled,
+          nodeTypeFilters: graphNodeTypeFilters,
+          showNodeCounts: graphShowNodeCounts,
+          sourceTypeFilters: graphSourceTypeFilters,
+          spacingMode: graphSpacingMode,
+          timelineEnabled: graphTimelineEnabled,
+          timelineIndex: graphTimelineIndex,
+        },
+        graphTimelineSteps.length,
+      ),
+    [
+      graphColorGroupMode,
+      graphConnectionDepth,
+      graphFilterQuery,
+      graphHoverFocusEnabled,
+      graphNodeTypeFilters,
+      graphShowNodeCounts,
+      graphSourceTypeFilters,
+      graphSpacingMode,
+      graphTimelineEnabled,
+      graphTimelineIndex,
+      graphTimelineSteps.length,
+    ],
+  )
+  const graphActiveSavedPreset = useMemo(
+    () =>
+      graphPresetBaseline?.kind === 'saved'
+        ? graphSavedPresets.find((preset) => preset.id === graphPresetBaseline.id) ?? null
+        : null,
+    [graphPresetBaseline, graphSavedPresets],
+  )
+  const graphPresetBaselineSnapshot = useMemo(() => {
+    if (graphPresetBaseline?.kind === 'builtin') {
+      return buildGraphBuiltInPresetSnapshot(graphPresetBaseline.key, graphTimelineSteps.length)
+    }
+    if (graphActiveSavedPreset) {
+      return normalizeGraphPresetSnapshot(graphActiveSavedPreset.snapshot, graphTimelineSteps.length)
+    }
+    return null
+  }, [graphActiveSavedPreset, graphPresetBaseline, graphTimelineSteps.length])
+  const graphPresetDirty = useMemo(
+    () => !areGraphPresetSnapshotsEqual(graphPresetBaselineSnapshot, graphCurrentPresetSnapshot),
+    [graphCurrentPresetSnapshot, graphPresetBaselineSnapshot],
+  )
+  const graphFocusTrailNodes = useMemo(
+    () =>
+      graphFocusTrailNodeIds
+        .map((nodeId) => graphNodeById.get(nodeId) ?? null)
+        .filter((node): node is KnowledgeNodeRecord => Boolean(node)),
+    [graphFocusTrailNodeIds, graphNodeById],
+  )
+  const graphPathSelectedNodes = useMemo(
+    () =>
+      graphPathSelectedNodeIds
+        .map((nodeId) => graphNodeById.get(nodeId) ?? null)
+        .filter((node): node is KnowledgeNodeRecord => Boolean(node)),
+    [graphNodeById, graphPathSelectedNodeIds],
+  )
+  const graphPathSelectionKey = useMemo(
+    () => buildGraphPathSelectionKey(graphPathSelectedNodeIds),
+    [graphPathSelectedNodeIds],
+  )
+  const graphPathSelectionActive = graphPathSelectedNodeIds.length > 0
+  const graphPathSelectionReady = graphPathSelectedNodeIds.length === 2
+  const graphPathSelectedNodeIdSet = useMemo(
+    () => new Set(graphPathSelectedNodeIds),
+    [graphPathSelectedNodeIds],
+  )
+  const selectedGraphNode = selectedNodeDetail?.node ?? (selectedNodeId ? graphNodeById.get(selectedNodeId) ?? null : null)
+  const graphNodesMatchingViewFilters = useMemo(() => {
+    const allowedNodeTypes = graphNodeTypeFilters.length ? new Set(graphNodeTypeFilters) : null
+    const allowedSourceTypes = graphSourceTypeFilters.length ? new Set(graphSourceTypeFilters) : null
+
+    return (graphSnapshot?.nodes ?? []).filter((node) => {
+      if (allowedNodeTypes && !allowedNodeTypes.has(node.node_type)) {
+        return false
+      }
+
+      const metadata = graphNodeMetaById.get(node.id)
+      if (allowedSourceTypes) {
+        if (!metadata) {
+          return false
+        }
+        const hasMatchingSourceType = metadata.sourceBuckets.some((sourceType) => allowedSourceTypes.has(sourceType))
+        if (!hasMatchingSourceType) {
+          return false
+        }
+      }
+
+      if (graphTimelineStep) {
+        if (!metadata || metadata.firstSeenAt === null) {
+          return false
+        }
+        if (metadata.firstSeenAt > graphTimelineStep.cutoff) {
+          return false
+        }
+      }
+
+      return true
+    })
+  }, [graphNodeMetaById, graphNodeTypeFilters, graphSourceTypeFilters, graphSnapshot?.nodes, graphTimelineStep])
   const filteredGraphNodes = useMemo(() => {
     const normalized = deferredGraphFilter.trim().toLowerCase()
-    const nodes = graphSnapshot?.nodes ?? []
+    const nodes = graphNodesMatchingViewFilters
     const filtered = !normalized
       ? nodes
       : nodes.filter((node) =>
@@ -780,28 +2277,498 @@ export function RecallWorkspace({
             .includes(normalized),
         )
     return sortGraphNodesForBrowse(filtered, selectedNodeId, activeSourceDocumentId)
-  }, [activeSourceDocumentId, deferredGraphFilter, graphSnapshot?.nodes, selectedNodeId])
-  const graphCanvasLayout = useMemo(
-    () => buildGraphCanvasLayout(filteredGraphNodes, graphSnapshot?.edges ?? [], selectedNodeId, activeSourceDocumentId),
-    [activeSourceDocumentId, filteredGraphNodes, graphSnapshot?.edges, selectedNodeId],
+  }, [activeSourceDocumentId, deferredGraphFilter, graphNodesMatchingViewFilters, selectedNodeId])
+  const graphSearchMatches = useMemo(() => {
+    const normalized = deferredGraphSearch.trim().toLowerCase()
+    if (!normalized) {
+      return []
+    }
+
+    return filteredGraphNodes.filter((node) => node.label.toLowerCase().includes(normalized))
+  }, [deferredGraphSearch, filteredGraphNodes])
+  const graphSearchActive = deferredGraphSearch.trim().length > 0
+  const graphSearchMatchCount = graphSearchMatches.length
+  const graphSearchMatchPosition =
+    graphSearchMatchCount > 0 ? Math.min(graphSearchMatchIndex, graphSearchMatchCount - 1) : 0
+  const graphSearchCurrentNode = graphSearchMatches[graphSearchMatchPosition] ?? null
+  const graphSearchMatchNodeIds = useMemo(
+    () => new Set(graphSearchMatches.map((node) => node.id)),
+    [graphSearchMatches],
   )
-  const graphCanvasNodes = graphCanvasLayout.nodes
+  const graphCanvasLayout = useMemo(
+    () =>
+      buildGraphCanvasLayout(
+        filteredGraphNodes,
+        graphSnapshot?.edges ?? [],
+        selectedNodeId,
+        activeSourceDocumentId,
+        graphSearchCurrentNode?.id ?? null,
+        {
+          connectionDepth: graphConnectionDepth,
+          spacingMode: graphSpacingMode,
+        },
+      ),
+    [
+      activeSourceDocumentId,
+      filteredGraphNodes,
+      graphConnectionDepth,
+      graphSearchCurrentNode?.id,
+      graphSnapshot?.edges,
+      graphSpacingMode,
+      selectedNodeId,
+    ],
+  )
+  const graphCanvasNodes = useMemo(
+    () =>
+      graphCanvasLayout.nodes.map((layoutNode) => {
+        const manualPosition = graphManualNodePositions[layoutNode.node.id]
+        return manualPosition
+          ? {
+              ...layoutNode,
+              x: manualPosition.x,
+              y: manualPosition.y,
+            }
+          : layoutNode
+      }),
+    [graphCanvasLayout.nodes, graphManualNodePositions],
+  )
   const graphCanvasEdges = graphCanvasLayout.edges
   const graphCanvasFocusNodeId = graphCanvasLayout.focusNodeId
+  const graphCanvasNodeIdsSignature = useMemo(
+    () => graphCanvasLayout.nodes.map(({ node }) => node.id).join('|'),
+    [graphCanvasLayout.nodes],
+  )
   const graphFilterActive = deferredGraphFilter.trim().length > 0
   const graphQuickPickNodes = useMemo(
-    () => filteredGraphNodes.slice(0, graphFilterActive ? 6 : 1),
-    [filteredGraphNodes, graphFilterActive],
+    () => graphCanvasNodes.map(({ node }) => node).slice(0, graphFilterActive ? 7 : 4),
+    [graphCanvasNodes, graphFilterActive],
   )
+  const graphLegendItems = useMemo(() => {
+    if (graphColorGroupMode === 'source') {
+      return graphAvailableSourceTypes.map((sourceType) => ({
+        active: graphSourceTypeFilters.includes(sourceType),
+        accent: GRAPH_SOURCE_BUCKET_ACCENTS[sourceType],
+        count: filteredGraphNodes.filter((node) => {
+          const metadata = graphNodeMetaById.get(node.id)
+          return metadata ? metadata.sourceBuckets.includes(sourceType) : false
+        }).length,
+        key: sourceType,
+        label: formatGraphSourceTypeLabel(sourceType),
+      }))
+    }
+
+    return graphAvailableNodeTypes.map((nodeType) => ({
+      active: graphNodeTypeFilters.includes(nodeType),
+      accent: graphNodeTypeAccentByType.get(nodeType) ?? GRAPH_SOURCE_BUCKET_ACCENTS.documents,
+      count: filteredGraphNodes.filter((node) => node.node_type === nodeType).length,
+      key: nodeType,
+      label: formatGraphNodeTypeLabel(nodeType),
+    }))
+  }, [
+    filteredGraphNodes,
+    graphAvailableNodeTypes,
+    graphAvailableSourceTypes,
+    graphColorGroupMode,
+    graphNodeMetaById,
+    graphNodeTypeAccentByType,
+    graphNodeTypeFilters,
+    graphSourceTypeFilters,
+  ])
   const graphCanvasNodePositionById = useMemo(
     () => new Map(graphCanvasNodes.map(({ node, x, y }) => [node.id, { x, y }])),
     [graphCanvasNodes],
   )
+  const graphPathSelectionVisible = useMemo(
+    () => graphPathSelectedNodeIds.every((nodeId) => graphCanvasNodePositionById.has(nodeId)),
+    [graphCanvasNodePositionById, graphPathSelectedNodeIds],
+  )
+  const graphVisiblePathResult = useMemo(() => {
+    if (!graphPathSelectionReady) {
+      return null
+    }
+    const [startNodeId, endNodeId] = graphPathSelectedNodeIds
+    if (!startNodeId || !endNodeId) {
+      return null
+    }
+    return findGraphShortestPath(graphCanvasEdges, startNodeId, endNodeId)
+  }, [graphCanvasEdges, graphPathSelectedNodeIds, graphPathSelectionReady])
+  const graphPathResultActive = Boolean(graphPathSelectionKey) && graphRequestedPathSelectionKey === graphPathSelectionKey
+  const graphPathVisibleResult = graphPathResultActive ? graphVisiblePathResult : null
+  const graphPathResultNodeIds = useMemo(
+    () => new Set(graphPathVisibleResult?.nodeIds ?? []),
+    [graphPathVisibleResult],
+  )
+  const graphPathResultEdgeIds = useMemo(
+    () => new Set(graphPathVisibleResult?.edgeIds ?? []),
+    [graphPathVisibleResult],
+  )
+  const hoveredGraphNodeLayout = useMemo(
+    () => graphCanvasNodes.find(({ node }) => node.id === graphHoveredNodeId) ?? null,
+    [graphCanvasNodes, graphHoveredNodeId],
+  )
+  const graphHoverFocusNodeId = graphHoverFocusEnabled ? hoveredGraphNodeLayout?.node.id ?? null : null
+  const graphHoverRelatedNodeIds = useMemo(() => {
+    if (!graphHoverFocusNodeId) {
+      return null
+    }
+    const relatedNodeIds = new Set<string>([graphHoverFocusNodeId])
+    for (const edge of graphCanvasEdges) {
+      if (edge.source_id === graphHoverFocusNodeId) {
+        relatedNodeIds.add(edge.target_id)
+      }
+      if (edge.target_id === graphHoverFocusNodeId) {
+        relatedNodeIds.add(edge.source_id)
+      }
+    }
+    return relatedNodeIds
+  }, [graphCanvasEdges, graphHoverFocusNodeId])
+  const graphSelectedFocusNodeId = useMemo(
+    () =>
+      graphPathSelectionActive
+        ? null
+        : selectedNodeId && graphCanvasNodes.some(({ node }) => node.id === selectedNodeId)
+          ? selectedNodeId
+          : null,
+    [graphCanvasNodes, graphPathSelectionActive, selectedNodeId],
+  )
+  const graphSelectedRelatedNodeIds = useMemo(() => {
+    if (!graphSelectedFocusNodeId) {
+      return null
+    }
+    const relatedNodeIds = new Set<string>([graphSelectedFocusNodeId])
+    for (const edge of graphCanvasEdges) {
+      if (edge.source_id === graphSelectedFocusNodeId || edge.target_id === graphSelectedFocusNodeId) {
+        relatedNodeIds.add(edge.source_id)
+        relatedNodeIds.add(edge.target_id)
+      }
+    }
+    return relatedNodeIds
+  }, [graphCanvasEdges, graphSelectedFocusNodeId])
+  const getGraphCanvasViewportMetrics = useCallback(() => {
+    const canvasBounds = graphCanvasViewportRef.current?.getBoundingClientRect() ?? null
+    return {
+      height: canvasBounds && canvasBounds.height > 0 ? canvasBounds.height : GRAPH_CANVAS_DEFAULT_HEIGHT,
+      left: canvasBounds?.left ?? 0,
+      top: canvasBounds?.top ?? 0,
+      width: canvasBounds && canvasBounds.width > 0 ? canvasBounds.width : GRAPH_CANVAS_DEFAULT_WIDTH,
+    }
+  }, [])
+  const buildGraphFitViewport = useCallback((targetNodes: GraphCanvasNodeLayout[]) => {
+    if (!targetNodes.length) {
+      return null
+    }
+
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+
+    for (const layoutNode of targetNodes) {
+      const nodeHalfWidth = layoutNode.emphasis === 'focus' ? 92 : 68
+      const nodeHalfHeight = layoutNode.emphasis === 'focus' ? 48 : 34
+      const worldX = (layoutNode.x / 100) * GRAPH_CANVAS_DEFAULT_WIDTH
+      const worldY = (layoutNode.y / 100) * GRAPH_CANVAS_DEFAULT_HEIGHT
+      minX = Math.min(minX, worldX - nodeHalfWidth)
+      maxX = Math.max(maxX, worldX + nodeHalfWidth)
+      minY = Math.min(minY, worldY - nodeHalfHeight)
+      maxY = Math.max(maxY, worldY + nodeHalfHeight)
+    }
+
+    const { height, width } = getGraphCanvasViewportMetrics()
+    const usableWidth = Math.max(width - GRAPH_CANVAS_FIT_PADDING * 2, width * 0.34)
+    const usableHeight = Math.max(height - GRAPH_CANVAS_FIT_PADDING * 2, height * 0.34)
+    const boundsWidth = Math.max(maxX - minX, 240)
+    const boundsHeight = Math.max(maxY - minY, 180)
+    const nextScale = clampNumber(
+      Math.min(usableWidth / boundsWidth, usableHeight / boundsHeight, GRAPH_CANVAS_MAX_SCALE),
+      GRAPH_CANVAS_MIN_SCALE,
+      GRAPH_CANVAS_MAX_SCALE,
+    )
+    const boundsCenterX = (minX + maxX) / 2
+    const boundsCenterY = (minY + maxY) / 2
+
+    return {
+      offsetX: -((boundsCenterX - GRAPH_CANVAS_DEFAULT_WIDTH / 2) * nextScale),
+      offsetY: -((boundsCenterY - GRAPH_CANVAS_DEFAULT_HEIGHT / 2) * nextScale),
+      scale: nextScale,
+    }
+  }, [getGraphCanvasViewportMetrics])
+  const centerGraphViewportOnNode = useCallback((nodeId: string | null) => {
+    if (!nodeId) {
+      return
+    }
+    const layoutNode = graphCanvasNodes.find(({ node }) => node.id === nodeId)
+    if (!layoutNode) {
+      return
+    }
+    const worldX = (layoutNode.x / 100) * GRAPH_CANVAS_DEFAULT_WIDTH
+    const worldY = (layoutNode.y / 100) * GRAPH_CANVAS_DEFAULT_HEIGHT
+    setGraphViewport((current) => ({
+      ...current,
+      offsetX: -((worldX - GRAPH_CANVAS_DEFAULT_WIDTH / 2) * current.scale),
+      offsetY: -((worldY - GRAPH_CANVAS_DEFAULT_HEIGHT / 2) * current.scale),
+    }))
+    setGraphViewportInitialized(true)
+    setGraphViewportUserAdjusted(true)
+  }, [graphCanvasNodes])
+  const handleFitGraphToView = useCallback(() => {
+    const nextViewport = buildGraphFitViewport(graphCanvasNodes)
+    if (!nextViewport) {
+      return
+    }
+    setGraphViewport(nextViewport)
+    setGraphViewportInitialized(true)
+    setGraphViewportUserAdjusted(false)
+    setGraphCanvasPanning(false)
+  }, [buildGraphFitViewport, graphCanvasNodes])
+  const handleToggleGraphLayoutLock = useCallback(() => {
+    if (graphLayoutLocked) {
+      graphNodeDragSessionRef.current = null
+      graphNodeDragSuppressClickRef.current = false
+      setGraphDraggingNodeId(null)
+      setGraphManualNodePositions({})
+    }
+    setGraphLayoutLocked((current) => !current)
+  }, [graphLayoutLocked])
+  const handleGraphCanvasWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const { height, left, top, width } = getGraphCanvasViewportMetrics()
+    const pointerX = event.clientX - left
+    const pointerY = event.clientY - top
+    const zoomFactor = event.deltaY < 0 ? 1.12 : 0.88
+
+    setGraphViewport((current) => {
+      const nextScale = clampNumber(current.scale * zoomFactor, GRAPH_CANVAS_MIN_SCALE, GRAPH_CANVAS_MAX_SCALE)
+      if (nextScale === current.scale) {
+        return current
+      }
+      const worldX =
+        GRAPH_CANVAS_DEFAULT_WIDTH / 2 + (pointerX - width / 2 - current.offsetX) / current.scale
+      const worldY =
+        GRAPH_CANVAS_DEFAULT_HEIGHT / 2 + (pointerY - height / 2 - current.offsetY) / current.scale
+      return {
+        offsetX: pointerX - width / 2 - (worldX - GRAPH_CANVAS_DEFAULT_WIDTH / 2) * nextScale,
+        offsetY: pointerY - height / 2 - (worldY - GRAPH_CANVAS_DEFAULT_HEIGHT / 2) * nextScale,
+        scale: nextScale,
+      }
+    })
+    setGraphViewportInitialized(true)
+    setGraphViewportUserAdjusted(true)
+  }, [getGraphCanvasViewportMetrics])
+  const handleGraphCanvasPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || graphDraggingNodeId) {
+      return
+    }
+    const target = event.target
+    if (target instanceof Element && target.closest('.recall-graph-node-button')) {
+      return
+    }
+    graphCanvasPanSessionRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startOffsetX: graphViewport.offsetX,
+      startOffsetY: graphViewport.offsetY,
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    setGraphCanvasPanning(true)
+    setGraphHoveredNodeId(null)
+  }, [graphDraggingNodeId, graphViewport.offsetX, graphViewport.offsetY])
+  const handleGraphCanvasPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const panSession = graphCanvasPanSessionRef.current
+    if (!panSession || panSession.pointerId !== event.pointerId) {
+      return
+    }
+    const deltaX = event.clientX - panSession.startClientX
+    const deltaY = event.clientY - panSession.startClientY
+    setGraphViewport((current) => ({
+      ...current,
+      offsetX: panSession.startOffsetX + deltaX,
+      offsetY: panSession.startOffsetY + deltaY,
+    }))
+    setGraphViewportInitialized(true)
+    setGraphViewportUserAdjusted(true)
+  }, [])
+  const finishGraphCanvasPan = useCallback((pointerId?: number) => {
+    if (pointerId !== undefined && graphCanvasPanSessionRef.current?.pointerId !== pointerId) {
+      return
+    }
+    graphCanvasPanSessionRef.current = null
+    setGraphCanvasPanning(false)
+  }, [])
+  const handleGraphNodePointerDown = useCallback((
+    node: KnowledgeNodeRecord,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    if (!graphLayoutLocked || event.button !== 0 || isGraphPathSelectionGesture(event)) {
+      return
+    }
+    const currentPosition = graphManualNodePositions[node.id] ?? graphCanvasNodePositionById.get(node.id)
+    if (!currentPosition) {
+      return
+    }
+    graphNodeDragSessionRef.current = {
+      nodeId: node.id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: currentPosition.x,
+      startY: currentPosition.y,
+    }
+    graphNodeDragSuppressClickRef.current = false
+    event.preventDefault()
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }, [graphCanvasNodePositionById, graphLayoutLocked, graphManualNodePositions])
+  const handleGraphNodePointerMove = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    const dragSession = graphNodeDragSessionRef.current
+    if (!dragSession || dragSession.pointerId !== event.pointerId) {
+      return
+    }
+    const deltaClientX = event.clientX - dragSession.startClientX
+    const deltaClientY = event.clientY - dragSession.startClientY
+    const deltaX = (deltaClientX / Math.max(graphViewport.scale, GRAPH_CANVAS_MIN_SCALE)) / GRAPH_CANVAS_DEFAULT_WIDTH * 100
+    const deltaY = (deltaClientY / Math.max(graphViewport.scale, GRAPH_CANVAS_MIN_SCALE)) / GRAPH_CANVAS_DEFAULT_HEIGHT * 100
+    const nextX = clampNumber(dragSession.startX + deltaX, GRAPH_CANVAS_LOCKED_DRAG_MIN, GRAPH_CANVAS_LOCKED_DRAG_MAX)
+    const nextY = clampNumber(dragSession.startY + deltaY, GRAPH_CANVAS_LOCKED_DRAG_MIN, GRAPH_CANVAS_LOCKED_DRAG_MAX)
+    if (Math.abs(deltaClientX) > 3 || Math.abs(deltaClientY) > 3) {
+      graphNodeDragSuppressClickRef.current = true
+      setGraphDraggingNodeId(dragSession.nodeId)
+    }
+    setGraphManualNodePositions((current) => ({
+      ...current,
+      [dragSession.nodeId]: {
+        x: nextX,
+        y: nextY,
+      },
+    }))
+    setGraphViewportInitialized(true)
+    setGraphViewportUserAdjusted(true)
+    setGraphHoveredNodeId(null)
+  }, [graphViewport.scale])
+  const finishGraphNodeDrag = useCallback((pointerId?: number) => {
+    if (pointerId !== undefined && graphNodeDragSessionRef.current?.pointerId !== pointerId) {
+      return
+    }
+    graphNodeDragSessionRef.current = null
+    setGraphDraggingNodeId(null)
+  }, [])
+  const handleGraphNodePointerUp = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    finishGraphNodeDrag(event.pointerId)
+  }, [finishGraphNodeDrag])
 
   useEffect(() => {
     setGraphDetailMentionsExpanded(false)
     setGraphDetailRelationsExpanded(false)
+    setGraphDetailView('card')
   }, [selectedNodeId])
+  useEffect(() => {
+    setGraphSearchMatchIndex(0)
+  }, [deferredGraphSearch])
+  useEffect(() => {
+    if (!graphSearchMatchCount && graphSearchMatchIndex !== 0) {
+      setGraphSearchMatchIndex(0)
+      return
+    }
+    if (graphSearchMatchCount > 0 && graphSearchMatchIndex > graphSearchMatchCount - 1) {
+      setGraphSearchMatchIndex(graphSearchMatchCount - 1)
+    }
+  }, [graphSearchMatchCount, graphSearchMatchIndex])
+  useEffect(() => {
+    if (hoveredGraphNodeLayout) {
+      return
+    }
+    setGraphHoveredNodeId(null)
+  }, [hoveredGraphNodeLayout])
+  useEffect(() => {
+    if (!graphTimelineEnabled) {
+      if (graphTimelinePlaying) {
+        setGraphTimelinePlaying(false)
+      }
+      return
+    }
+    if (!graphTimelineSteps.length) {
+      if (graphTimelineIndex !== 0) {
+        setGraphTimelineIndex(0)
+      }
+      if (graphTimelinePlaying) {
+        setGraphTimelinePlaying(false)
+      }
+      return
+    }
+    if (graphTimelineIndex > graphTimelineSteps.length - 1) {
+      setGraphTimelineIndex(graphTimelineSteps.length - 1)
+    }
+  }, [graphTimelineEnabled, graphTimelineIndex, graphTimelinePlaying, graphTimelineSteps.length])
+  useEffect(() => {
+    if (!graphTimelineEnabled || !graphTimelinePlaying || graphTimelineSteps.length < 2) {
+      return
+    }
+    const maxIndex = graphTimelineSteps.length - 1
+    const timer = window.setInterval(() => {
+      setGraphTimelineIndex((current) => {
+        if (current >= maxIndex) {
+          setGraphTimelinePlaying(false)
+          return maxIndex
+        }
+        return current + 1
+      })
+    }, 1200)
+    return () => window.clearInterval(timer)
+  }, [graphTimelineEnabled, graphTimelinePlaying, graphTimelineSteps.length])
+  useEffect(() => {
+    if (!graphCanvasNodeIdsSignature) {
+      return
+    }
+    setGraphManualNodePositions((current) => {
+      const visibleNodeIds = new Set(graphCanvasLayout.nodes.map(({ node }) => node.id))
+      let changed = false
+      const nextEntries = Object.entries(current).filter(([nodeId]) => {
+        const keepNode = visibleNodeIds.has(nodeId)
+        if (!keepNode) {
+          changed = true
+        }
+        return keepNode
+      })
+      return changed ? Object.fromEntries(nextEntries) : current
+    })
+  }, [graphCanvasLayout.nodes, graphCanvasNodeIdsSignature])
+  useEffect(() => {
+    if (!graphCanvasNodes.length || graphViewportUserAdjusted) {
+      return
+    }
+    const nextViewport = buildGraphFitViewport(graphCanvasNodes)
+    if (!nextViewport) {
+      return
+    }
+    setGraphViewport(nextViewport)
+    setGraphViewportInitialized(true)
+  }, [buildGraphFitViewport, graphCanvasNodes, graphCanvasNodeIdsSignature, graphViewportUserAdjusted])
+  useEffect(() => {
+    if (!graphCanvasNodes.length || graphLastHandledFitRequestKeyRef.current === graphViewportFitRequestKey) {
+      return
+    }
+    graphLastHandledFitRequestKeyRef.current = graphViewportFitRequestKey
+    const nextViewport = buildGraphFitViewport(graphCanvasNodes)
+    if (!nextViewport) {
+      return
+    }
+    setGraphViewport(nextViewport)
+    setGraphViewportInitialized(true)
+  }, [buildGraphFitViewport, graphCanvasNodes, graphViewportFitRequestKey])
+  useEffect(() => {
+    if (!graphSearchActive || !graphSearchCurrentNode || graphDraggingNodeId) {
+      return
+    }
+    centerGraphViewportOnNode(graphSearchCurrentNode.id)
+  }, [centerGraphViewportOnNode, graphDraggingNodeId, graphSearchActive, graphSearchCurrentNode])
+  useEffect(() => {
+    if (graphLayoutLocked) {
+      return
+    }
+    if (Object.keys(graphManualNodePositions).length > 0) {
+      setGraphManualNodePositions({})
+    }
+  }, [graphLayoutLocked, graphManualNodePositions])
   const activeStudySourceSpans = useMemo(() => activeStudyCard?.source_spans ?? [], [activeStudyCard])
   const focusedGraphEvidence = useMemo(() => {
     if (!selectedNodeDetail || !activeSourceDocumentId) {
@@ -1210,17 +3177,6 @@ export function RecallWorkspace({
 
     return featuredDocuments.filter((document) => document.id !== (homeFeaturedPrimaryDocument?.id ?? null)).slice(0, 3)
   }, [homeFeaturedPrimaryDocument, libraryFilterActive, resumeSourceDocument, visibleFeaturedLibraryDocuments])
-  const homeWorkspaceSectionCounts = useMemo(
-    () =>
-      libraryBrowseSections
-        .map((section) => ({
-          key: section.key,
-          label: section.label,
-          count: section.documents.filter((document) => document.id !== homeExcludedDocumentId).length,
-        }))
-        .filter((section) => section.count > 0),
-    [homeExcludedDocumentId, libraryBrowseSections],
-  )
   const homeWorkspaceLibrarySections = useMemo(() => {
     if (libraryFilterActive) {
       return []
@@ -1252,50 +3208,317 @@ export function RecallWorkspace({
     homeSecondaryLibrarySections,
     libraryFilterActive,
   ])
-  const homeStageLibrarySection = homeWorkspaceLibrarySections[0] ?? null
-  const homeStageLibraryDocuments = useMemo(() => {
-    if (!homeStageLibrarySection) {
-      return []
-    }
-    return homeStageLibrarySection.documents.slice(0, 4)
-  }, [homeStageLibrarySection])
-  const homeRemainingLibrarySections = useMemo(() => {
-    if (libraryFilterActive || homeWorkspaceLibrarySections.length === 0) {
-      return []
-    }
-    if (!homeStageLibrarySection || homeStageLibraryDocuments.length === 0) {
-      return homeWorkspaceLibrarySections
+  const homeSelectedBrowseSection = useMemo(() => {
+    if (libraryFilterActive || libraryBrowseSections.length === 0) {
+      return null
     }
 
-    const stagedDocumentIds = new Set(homeStageLibraryDocuments.map((document) => document.id))
+    if (!homeSelectedSectionKey) {
+      return null
+    }
 
-    return homeWorkspaceLibrarySections
-      .map((section) =>
-        section.key === homeStageLibrarySection.key
-          ? {
-              ...section,
-              documents: section.documents.filter((document) => !stagedDocumentIds.has(document.id)),
-            }
-          : section,
-      )
-      .filter((section) => section.documents.length > 0)
-  }, [homeStageLibraryDocuments, homeStageLibrarySection, homeWorkspaceLibrarySections, libraryFilterActive])
+    return libraryBrowseSections.find((section) => section.key === homeSelectedSectionKey) ?? null
+  }, [homeSelectedSectionKey, libraryBrowseSections, libraryFilterActive])
+  const homeSelectedCustomCollection = useMemo(() => {
+    const collectionId = homeSelectedBrowseSection ? getHomeCustomCollectionIdFromSectionKey(homeSelectedBrowseSection.key) : null
+    if (!collectionId) {
+      return null
+    }
+    return homeCustomCollections.find((collection) => collection.id === collectionId) ?? null
+  }, [homeCustomCollections, homeSelectedBrowseSection])
+  const homeSelectedWorkspaceSection = useMemo(() => {
+    if (!homeSelectedBrowseSection) {
+      return null
+    }
+
+    return homeWorkspaceLibrarySections.find((section) => section.key === homeSelectedBrowseSection.key) ?? null
+  }, [homeSelectedBrowseSection, homeWorkspaceLibrarySections])
+  const homeSelectedSectionDocuments = useMemo(() => {
+    if (!homeSelectedBrowseSection) {
+      return []
+    }
+
+    if (
+      isHomeCustomCollectionSection(homeSelectedBrowseSection.key) ||
+      isHomeUntaggedSection(homeSelectedBrowseSection.key)
+    ) {
+      return homeSelectedBrowseSection.documents
+    }
+
+    return homeSelectedWorkspaceSection?.documents ?? []
+  }, [homeSelectedBrowseSection, homeSelectedWorkspaceSection])
+  const homeSelectedSectionDisplayLimit = homeSelectedBrowseSection
+    ? getHomeWorkspaceSectionDisplayLimit(homeSelectedBrowseSection.key) +
+      (homeViewMode === 'list' ? 4 : 0) +
+      (isRecentEarlierSection(homeSelectedBrowseSection.key) ? 16 : 8)
+    : 0
+  const visibleHomeSelectedSectionDocuments = useMemo(() => {
+    if (!homeSelectedBrowseSection) {
+      return []
+    }
+
+    return expandedLibrarySectionKeys[homeSelectedBrowseSection.key]
+      ? homeSelectedSectionDocuments
+      : homeSelectedSectionDocuments.slice(0, homeSelectedSectionDisplayLimit)
+  }, [
+    expandedLibrarySectionKeys,
+    homeSelectedBrowseSection,
+    homeSelectedSectionDisplayLimit,
+    homeSelectedSectionDocuments,
+  ])
+  const showHomeReopenCluster = Boolean(homeLeadDocument || homeContinueDocuments.length > 0)
   const homeWorkspaceLeadLabel = resumeSourceDocument ? 'Continue where you left off' : 'Open next'
   const homeWorkspaceLeadSummary =
     documentsStatus === 'error'
       ? 'Saved sources are temporarily unavailable until the local service reconnects.'
       : resumeSourceDocument
         ? `${formatSourceWorkspaceTabLabel(activeSourceTab)} is still ready from ${getDocumentSourcePreview(resumeSourceDocument)}.`
-        : 'Start from one clear source, then keep moving through the saved library without dropping into an archive wall.'
-  const homeWorkspaceContinueHeading = resumeSourceDocument ? 'Continue working' : 'Pick up with one source'
+        : 'Open one next source, then keep the board moving.'
+  const homeWorkspaceContinueHeading = resumeSourceDocument ? 'Resume here' : 'Next source'
   const homeWorkspaceContinueSummary = resumeSourceDocument
-    ? 'Resume the exact source and tab you were using, then reopen nearby material without losing the flow.'
-    : 'Open one strong next source first, then scan the denser library cards and rows around it only when you need more.'
+    ? 'Pinned at the top of the board.'
+    : 'Keep one next source pinned in the board.'
   const homeWorkspaceLeadActionLabel = resumeSourceDocument
     ? activeSourceTab === 'reader'
       ? 'Resume Reader'
       : `Resume ${formatSourceWorkspaceTabLabel(activeSourceTab)}`
     : 'Open source'
+  const homeSavedSourceLabel = `${documents.length} ready`
+  const homeOrganizerActiveDocumentId =
+    (selectedLibraryDocumentId && visibleDocuments.some((document) => document.id === selectedLibraryDocumentId)
+      ? selectedLibraryDocumentId
+      : activeSourceDocumentId) ?? null
+  const homeBrowseSectionEntries = useMemo(
+    () =>
+      libraryBrowseSections.map((section) => {
+        const sectionActive = section.key === homeSelectedBrowseSection?.key
+        const branchDisplayLimit = getHomeBrowseBranchDisplayLimit(section.key, homeViewMode)
+        const branchExpanded = expandedHomeBrowseBranchKeys[section.key]
+        const previewDocuments =
+          !homeBrowsePreviewsCollapsed && sectionActive
+            ? branchExpanded
+              ? section.documents
+              : section.documents.slice(0, branchDisplayLimit)
+            : []
+
+        return {
+          branchDisplayLimit,
+          branchExpanded,
+          count: section.documents.length,
+          description: section.description,
+          key: section.key,
+          label: section.label,
+          previewLeadDocument: section.documents[0] ?? null,
+          previewDocuments,
+        }
+      }),
+    [expandedHomeBrowseBranchKeys, homeBrowsePreviewsCollapsed, homeSelectedBrowseSection?.key, homeViewMode, libraryBrowseSections],
+  )
+  const homeSelectedGroupHeading = homeSelectedBrowseSection?.label ?? 'Selected group'
+  const homeOrganizerLensLabel = getHomeOrganizerLensLabel(homeOrganizerLens)
+  const homeViewModeLabel = homeViewMode === 'list' ? 'List' : 'Board'
+  const homeViewModePhrase = homeViewMode === 'list' ? 'list view' : 'board view'
+  const homeOverviewRowLabel = homeOrganizerLens === 'collections' ? 'All collections' : 'All recent groups'
+  const homeOverviewRowSummary =
+    homeOrganizerLens === 'collections'
+      ? homeCustomCollections.length > 0
+        ? `Keep the grouped ${homeViewModePhrase} on the right until you drill into one custom collection or the untagged lane.`
+        : `Keep the grouped ${homeViewModePhrase} on the right until you drill into one collection.`
+      : `Keep the grouped ${homeViewModePhrase} on the right until you drill into one recent branch.`
+  const showHomeBoardOverview =
+    !libraryFilterActive && !homeSelectedBrowseSection && homeWorkspaceLibrarySections.length > 0
+  const homeSelectedGroupSummary = homeSelectedBrowseSection
+    ? homeSelectedSectionDocuments.length > 0
+      ? homeOrganizerVisible
+        ? `${homeSelectedBrowseSection.description} Direct source picks stay attached while the ${homeViewModePhrase} opens on the right.`
+        : `${homeSelectedBrowseSection.label} still drives the ${homeViewModePhrase} while the organizer is hidden.`
+      : isHomeCustomCollectionSection(homeSelectedBrowseSection.key)
+        ? 'No sources are in this custom collection yet. Add them from any organizer branch.'
+        : isHomeUntaggedSection(homeSelectedBrowseSection.key)
+          ? 'Every saved source already belongs to a custom collection.'
+          : 'Pinned picks already cover this group.'
+    : `Pick a group from the organizer to focus the library ${homeViewModePhrase}.`
+  const homeSelectedGroupEmptyNote = !homeSelectedBrowseSection
+    ? ''
+    : isHomeCustomCollectionSection(homeSelectedBrowseSection.key)
+      ? 'No sources are in this custom collection yet. Add them from any organizer branch.'
+      : isHomeUntaggedSection(homeSelectedBrowseSection.key)
+        ? 'Every saved source already belongs to a custom collection.'
+        : 'Pinned reopen picks already cover this group, so switch groups when you want a broader pass.'
+  const homeManualModeActive = homeSortMode === 'manual'
+  const homeSortModeLabel = getLibrarySortModeLabel(homeSortMode)
+  const homeSortModeShortLabel = getLibrarySortModeShortLabel(homeSortMode)
+  const homeSortDirectionLabel = getLibrarySortDirectionLabel(homeSortMode, homeSortDirection)
+  const homeSortDirectionShortLabel = getLibrarySortDirectionShortLabel(homeSortMode, homeSortDirection)
+  const homeOrganizerToggleLabel = homeOrganizerVisible ? 'Hide organizer' : 'Show organizer'
+  const showHomeCompactControls =
+    documentsStatus !== 'loading' && documentsStatus !== 'error' && documents.length > 0 && (!homeOrganizerVisible || visibleDocuments.length === 0)
+  const showHomeControlSeam =
+    showHomeCompactControls ||
+    documentsStatus === 'loading' ||
+    documentsStatus === 'error' ||
+    documents.length === 0 ||
+    visibleDocuments.length === 0
+  const homeCompactControlsHeading = !homeOrganizerVisible ? 'Compact organizer controls' : `${homeOrganizerLensLabel} controls`
+  const homeControlSeamEyebrow = libraryFilterActive
+    ? 'Search'
+    : homeOrganizerVisible
+      ? getHomeOrganizerLensEyebrow(homeOrganizerLens)
+      : 'Saved library'
+  const homeControlSeamHeading = libraryFilterActive ? 'Matches' : 'Board'
+  const homeControlSeamGuide = libraryFilterActive
+    ? `Matches stay in the same ${homeViewModePhrase}.`
+    : homeOrganizerVisible
+      ? homeSelectedBrowseSection
+        ? `${homeOrganizerLensLabel}, search, sort, ${homeManualModeActive ? 'manual order' : 'direction'}, view, collapse, and hide stay in the organizer while ${homeSelectedBrowseSection.label.toLowerCase()} drives the board.`
+        : `${homeOrganizerLensLabel}, search, sort, ${homeManualModeActive ? 'manual order' : 'direction'}, view, collapse, and hide stay in the organizer while the grouped overview stays on the right.`
+      : homeSelectedBrowseSection
+        ? `${homeSelectedBrowseSection.label} still drives the ${homeViewModePhrase} while the organizer is hidden.`
+        : `The grouped overview stays in the ${homeViewModePhrase} while the organizer is hidden.`
+  const homeControlSeamLeadStatus = libraryFilterActive
+    ? `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'match' : 'matches'}`
+    : homeSavedSourceLabel
+  const homeWorkingSetStatus = `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel} · ${homeViewModeLabel}`
+  const homeControlSeamSecondaryStatus =
+    libraryFilterActive || homeOrganizerVisible ? `${homeOrganizerLensLabel} · ${homeWorkingSetStatus}` : 'Organizer hidden'
+  const homeBrowseStripHeading = libraryFilterActive ? 'Matching sources' : homeOrganizerLensLabel
+  const homeBrowseStripStatus = libraryFilterActive
+    ? `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'match' : 'matches'}`
+    : homeSelectedBrowseSection
+      ? `${homeSelectedBrowseSection.label} · ${homeSelectedBrowseSection.documents.length}`
+      : `${homeOverviewRowLabel} · ${visibleDocuments.length}`
+  const homeBrowseStripGuide = libraryFilterActive
+    ? 'Search, lens, sort, and view stay here.'
+    : homeSelectedBrowseSection
+      ? homeManualModeActive
+        ? 'Switch lenses, search, create collections, keep manual order active, change view, collapse, switch groups, reorder items, or open sources directly from the active branch here.'
+        : 'Switch lenses, search, create collections, sort, change view, collapse, switch groups, or open sources directly from the active branch here.'
+      : homeManualModeActive
+        ? 'Switch lenses, search, create collections, keep manual order active, change view, stay in the grouped overview, or drill into one branch here.'
+        : 'Switch lenses, search, create collections, sort, change view, stay in the grouped overview, or drill into one branch here.'
+  const homeOrganizerRailSummary = libraryFilterActive
+    ? homeManualModeActive
+      ? `${visibleDocuments.length} matches stay in manual order on ${homeViewModePhrase}.`
+      : `${visibleDocuments.length} matches in ${homeSortModeLabel.toLowerCase()} with ${homeSortDirectionLabel.toLowerCase()} on ${homeViewModePhrase}.`
+    : homeSelectedBrowseSection
+      ? homeManualModeActive
+        ? `${homeSelectedBrowseSection.label} is driving the ${homeViewModePhrase} in ${homeOrganizerLensLabel.toLowerCase()} while manual order keeps branch rows in place.`
+        : `${homeSelectedBrowseSection.label} is driving the ${homeViewModePhrase} in ${homeOrganizerLensLabel.toLowerCase()} with ${homeSortModeLabel.toLowerCase()} and ${homeSortDirectionLabel.toLowerCase()}, and the active branch now carries direct source rows.`
+      : homeManualModeActive
+        ? `The organizer keeps the grouped library visible in ${homeOrganizerLensLabel.toLowerCase()} while manual order stays in control on the right.`
+        : `The organizer keeps the grouped library visible in ${homeOrganizerLensLabel.toLowerCase()} with ${homeSortModeLabel.toLowerCase()} and ${homeSortDirectionLabel.toLowerCase()} while the overview stays on the right.`
+  const homeBrowsePreviewToggleLabel = homeBrowsePreviewsCollapsed ? 'Expand all' : 'Collapse all'
+  const homeBrowsePreviewToggleShortLabel = homeBrowsePreviewToggleLabel
+  const homeBrowserLayoutStyle = homeOrganizerVisible
+    ? ({
+        '--recall-home-organizer-width': `${homeOrganizerRailWidth}px`,
+      } as CSSProperties)
+    : undefined
+  const homeOrganizerRailStyle = homeOrganizerVisible
+    ? ({
+        width: `${homeOrganizerRailWidth}px`,
+      } as CSSProperties)
+    : undefined
+  const homeOrganizerSelectionDescriptors = useMemo(
+    () =>
+      homeOrganizerSelectionKeys
+        .map((selectionKey) => parseHomeOrganizerSelectionKey(selectionKey))
+        .filter((descriptor): descriptor is HomeOrganizerSelectionDescriptor => Boolean(descriptor)),
+    [homeOrganizerSelectionKeys],
+  )
+  const homeSelectedOrganizerSectionCount = homeOrganizerSelectionDescriptors.filter((item) => item.kind === 'section').length
+  const homeSelectedOrganizerDocumentCount = homeOrganizerSelectionDescriptors.filter((item) => item.kind === 'document').length
+  const homeSelectedOrganizerDocumentIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          homeOrganizerSelectionDescriptors
+            .map((descriptor) => (descriptor.kind === 'document' ? descriptor.documentId ?? null : null))
+            .filter((documentId): documentId is string => Boolean(documentId)),
+        ),
+      ),
+    [homeOrganizerSelectionDescriptors],
+  )
+  const homeSingleOrganizerSelection =
+    homeOrganizerSelectionDescriptors.length === 1 ? homeOrganizerSelectionDescriptors[0] : null
+  const homeOrganizerSelectionMoveDescriptor = useMemo(() => {
+    if (!homeOrganizerSelectionDescriptors.length) {
+      return null
+    }
+
+    if (homeOrganizerSelectionDescriptors.every((descriptor) => descriptor.kind === 'section')) {
+      return {
+        kind: 'section' as const,
+        sectionKeys: homeOrganizerSelectionDescriptors.map((descriptor) => descriptor.sectionKey),
+      }
+    }
+
+    if (homeOrganizerSelectionDescriptors.every((descriptor) => descriptor.kind === 'document')) {
+      const firstSectionKey = homeOrganizerSelectionDescriptors[0]?.sectionKey
+      if (
+        firstSectionKey &&
+        homeOrganizerSelectionDescriptors.every((descriptor) => descriptor.sectionKey === firstSectionKey)
+      ) {
+        return {
+          documentIds: homeOrganizerSelectionDescriptors
+            .map((descriptor) => descriptor.documentId)
+            .filter((documentId): documentId is string => Boolean(documentId)),
+          kind: 'document' as const,
+          sectionKey: firstSectionKey,
+        }
+      }
+    }
+
+    return null
+  }, [homeOrganizerSelectionDescriptors])
+  const homeOrganizerSelectionSummary = [
+    homeSelectedOrganizerSectionCount
+      ? formatCountLabel(homeSelectedOrganizerSectionCount, 'group', 'groups')
+      : null,
+    homeSelectedOrganizerDocumentCount
+      ? formatCountLabel(homeSelectedOrganizerDocumentCount, 'source', 'sources')
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const homeCreateCollectionButtonLabel =
+    homeSelectedOrganizerDocumentCount > 0 ? 'New collection from selection' : 'New collection'
+  const homeCanCreateCustomCollection = documentsStatus !== 'loading' && documentsStatus !== 'error' && visibleDocuments.length > 0
+  const homeCanAssignSelectedSourcesToCollections =
+    documentsStatus !== 'loading' &&
+    documentsStatus !== 'error' &&
+    homeCustomCollections.length > 0 &&
+    homeSelectedOrganizerDocumentIds.length > 0
+  const homeCollectionAssignmentEntries = useMemo(
+    () =>
+      homeCustomCollections.map((collection) => {
+        const selectedDocumentMembershipCount = homeSelectedOrganizerDocumentIds.filter((documentId) =>
+          collection.documentIds.includes(documentId),
+        ).length
+        return {
+          collection,
+          collectionOwnsAllSelectedDocuments:
+            homeSelectedOrganizerDocumentIds.length > 0 &&
+            selectedDocumentMembershipCount === homeSelectedOrganizerDocumentIds.length,
+          selectedDocumentMembershipCount,
+        }
+      }),
+    [homeCustomCollections, homeSelectedOrganizerDocumentIds],
+  )
+  const homeCollectionDraftTitle =
+    homeCollectionDraftState?.mode === 'rename' ? 'Rename collection' : 'Create custom collection'
+  const homeCollectionDraftActionLabel =
+    homeCollectionDraftState?.mode === 'rename' ? 'Save name' : 'Create collection'
+  const homeCollectionDraftHint =
+    homeCollectionDraftState?.mode === 'rename'
+      ? 'Update the organizer label without leaving the workbench.'
+      : homeCollectionDraftState?.seedDocumentIds?.length
+        ? `Create a new collection with ${formatCountLabel(homeCollectionDraftState.seedDocumentIds.length, 'selected source', 'selected sources')}.`
+        : 'Create an empty collection, then fill it from any organizer branch.'
+  const homeCollectionAssignmentSummary =
+    homeSelectedOrganizerDocumentIds.length > 0
+      ? `${formatCountLabel(homeSelectedOrganizerDocumentIds.length, 'selected source', 'selected sources')} can move into or out of custom collections.`
+      : 'Select sources in the organizer to assign them into custom collections.'
 
   const loadGraph = useCallback(async () => {
     setGraphStatus('loading')
@@ -1305,10 +3528,17 @@ export function RecallWorkspace({
       setGraphSnapshot(snapshot)
       updateGraphState((current) => ({
         ...current,
+        pathSelectedNodeIds: current.pathSelectedNodeIds.filter((nodeId) => snapshot.nodes.some((node) => node.id === nodeId)),
         selectedNodeId:
           current.selectedNodeId && snapshot.nodes.some((node) => node.id === current.selectedNodeId)
             ? current.selectedNodeId
-            : snapshot.nodes[0]?.id ?? null,
+            : null,
+        focusTrailNodeIds: pushGraphFocusTrail(
+          current.focusTrailNodeIds.filter((nodeId) => snapshot.nodes.some((node) => node.id === nodeId)),
+          current.selectedNodeId && snapshot.nodes.some((node) => node.id === current.selectedNodeId)
+            ? current.selectedNodeId
+            : null,
+        ),
       }))
     } catch (loadError) {
       setGraphSnapshot(null)
@@ -1714,7 +3944,7 @@ export function RecallWorkspace({
   }, [selectedNodeId])
 
   useEffect(() => {
-    if (section !== 'graph' || !activeSourceDocumentId || !graphSnapshot) {
+    if (section !== 'graph' || !activeSourceDocumentId || !graphSnapshot || graphPathSelectionActive) {
       return
     }
     const currentNodeMatches =
@@ -1726,12 +3956,22 @@ export function RecallWorkspace({
     if (!matchingNode) {
       updateGraphState((current) => ({
         ...current,
+        pathSelectedNodeIds: [],
         selectedNodeId: null,
+        focusTrailNodeIds: current.focusTrailNodeIds.filter((nodeId) => graphSnapshot.nodes.some((node) => node.id === nodeId)),
       }))
       return
     }
-    updateGraphState((current) => ({ ...current, selectedNodeId: matchingNode.id }))
-  }, [activeSourceDocumentId, graphSnapshot, section, selectedNodeId, updateGraphState])
+    updateGraphState((current) => ({
+      ...current,
+      pathSelectedNodeIds: [],
+      selectedNodeId: matchingNode.id,
+      focusTrailNodeIds: pushGraphFocusTrail(
+        current.focusTrailNodeIds.filter((nodeId) => graphSnapshot.nodes.some((node) => node.id === nodeId)),
+        matchingNode.id,
+      ),
+    }))
+  }, [activeSourceDocumentId, graphPathSelectionActive, graphSnapshot, section, selectedNodeId, updateGraphState])
 
   useEffect(() => {
     void loadStudy(studyFilter)
@@ -1792,6 +4032,12 @@ export function RecallWorkspace({
       return
     }
     setNotePromotionMode(null)
+  }, [activeNoteId])
+
+  useEffect(() => {
+    if (!activeNoteId || notePromotionMode !== null) {
+      return
+    }
     setNoteGraphDraft({
       label: activeNoteAnchorText,
       description: activeNoteBodyText,
@@ -1800,7 +4046,7 @@ export function RecallWorkspace({
       prompt: activeNoteBodyText.trim() || 'What should you remember from this note?',
       answer: activeNoteAnchorText,
     })
-  }, [activeNoteAnchorText, activeNoteBodyText, activeNoteId])
+  }, [activeNoteAnchorText, activeNoteBodyText, activeNoteId, notePromotionMode])
 
   useEffect(() => {
     setNotesMessage(null)
@@ -1833,7 +4079,12 @@ export function RecallWorkspace({
       }))
     }
     if (focusRequest.nodeId) {
-      updateGraphState((current) => ({ ...current, selectedNodeId: focusRequest.nodeId ?? null }))
+      updateGraphState((current) => ({
+        ...current,
+        pathSelectedNodeIds: [],
+        selectedNodeId: focusRequest.nodeId ?? null,
+        focusTrailNodeIds: pushGraphFocusTrail(current.focusTrailNodeIds, focusRequest.nodeId ?? null),
+      }))
     }
     if (focusRequest.cardId) {
       updateStudyState((current) => ({
@@ -1935,6 +4186,72 @@ export function RecallWorkspace({
     setSourceWorkspaceReaderAnchor(anchorRange)
   }, [activeStudyCard, focusedStudySourceSpan, setSourceWorkspaceReaderAnchor, showFocusedStudySplitView])
 
+  useEffect(() => {
+    if (!graphSettingsDrawerResizing) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeSession = graphSettingsDrawerResizeSessionRef.current
+      if (!resizeSession || event.pointerId !== resizeSession.pointerId) {
+        return
+      }
+      const nextWidth = clampGraphSettingsDrawerWidth(resizeSession.startWidth + (event.clientX - resizeSession.startClientX))
+      setGraphSettingsDrawerWidth(nextWidth)
+    }
+
+    const finishResize = () => {
+      graphSettingsDrawerResizeSessionRef.current = null
+      setGraphSettingsDrawerResizing(false)
+    }
+
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', finishResize)
+    window.addEventListener('pointercancel', finishResize)
+
+    return () => {
+      document.body.style.userSelect = previousUserSelect
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', finishResize)
+      window.removeEventListener('pointercancel', finishResize)
+    }
+  }, [graphSettingsDrawerResizing])
+
+  useEffect(() => {
+    if (!homeOrganizerRailResizing) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeSession = homeOrganizerRailResizeSessionRef.current
+      if (!resizeSession || event.pointerId !== resizeSession.pointerId) {
+        return
+      }
+      const nextWidth = clampHomeOrganizerRailWidth(resizeSession.startWidth + (event.clientX - resizeSession.startClientX))
+      setHomeOrganizerRailWidth(nextWidth)
+    }
+
+    const finishResize = () => {
+      homeOrganizerRailResizeSessionRef.current = null
+      setHomeOrganizerRailResizing(false)
+    }
+
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', finishResize)
+    window.addEventListener('pointercancel', finishResize)
+
+    return () => {
+      document.body.style.userSelect = previousUserSelect
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', finishResize)
+      window.removeEventListener('pointercancel', finishResize)
+    }
+  }, [homeOrganizerRailResizing])
+
   const handleSelectLibraryDocument = useCallback((documentId: string) => {
     setDetailStatus('loading')
     setDetailError(null)
@@ -1942,7 +4259,13 @@ export function RecallWorkspace({
   }, [updateLibraryState])
 
   const handleSelectGraphNode = useCallback((node: KnowledgeNodeRecord) => {
-    updateGraphState((current) => ({ ...current, selectedNodeId: node.id }))
+    setGraphRequestedPathSelectionKey(null)
+    updateGraphState((current) => ({
+      ...current,
+      pathSelectedNodeIds: [],
+      selectedNodeId: node.id,
+      focusTrailNodeIds: pushGraphFocusTrail(current.focusTrailNodeIds, node.id),
+    }))
     updateSourceWorkspaceState((current) => ({
       ...current,
       activeDocumentId: node.source_document_ids[0] ?? current.activeDocumentId,
@@ -1953,6 +4276,375 @@ export function RecallWorkspace({
           : null,
     }))
   }, [updateGraphState, updateSourceWorkspaceState])
+
+  const handleToggleGraphPathNode = useCallback((node: KnowledgeNodeRecord) => {
+    updateGraphState((current) => ({
+      ...current,
+      pathSelectedNodeIds: toggleGraphPathSelection(current.pathSelectedNodeIds, node.id),
+      selectedNodeId: null,
+      focusTrailNodeIds: pushGraphFocusTrail(current.focusTrailNodeIds, node.id),
+    }))
+  }, [updateGraphState])
+
+  const handleFollowGraphConnection = useCallback((edge: KnowledgeEdgeRecord) => {
+    const selectedGraphNodeId = selectedNodeDetail?.node.id
+    if (!selectedGraphNodeId) {
+      return
+    }
+    const counterpartNodeId = getGraphEdgeCounterpartId(edge, selectedGraphNodeId)
+    const counterpartNode = graphNodeById.get(counterpartNodeId)
+    if (!counterpartNode) {
+      return
+    }
+    handleSelectGraphNode(counterpartNode)
+  }, [graphNodeById, handleSelectGraphNode, selectedNodeDetail])
+
+  const handleOpenGraphDetailDrawer = useCallback(() => {
+    setGraphDetailPeekOpen(true)
+    setGraphDetailView('card')
+  }, [])
+
+  const handleCloseGraphDetailDrawer = useCallback(() => {
+    setGraphDetailPeekOpen(false)
+    setGraphDetailView('card')
+  }, [])
+
+  const handleClearGraphFocus = useCallback(() => {
+    setGraphRequestedPathSelectionKey(null)
+    updateGraphState((current) => ({
+      ...current,
+      pathSelectedNodeIds: [],
+      selectedNodeId: null,
+    }))
+  }, [updateGraphState])
+
+  const handleClearGraphPathSelection = useCallback(() => {
+    setGraphRequestedPathSelectionKey(null)
+    updateGraphState((current) => ({
+      ...current,
+      pathSelectedNodeIds: [],
+    }))
+  }, [updateGraphState])
+
+  const handleFindGraphPath = useCallback(() => {
+    if (!graphPathSelectionKey) {
+      return
+    }
+    setGraphRequestedPathSelectionKey(graphPathSelectionKey)
+  }, [graphPathSelectionKey])
+
+  const applyGraphPresetSnapshot = useCallback((snapshot: GraphViewPresetSnapshot) => {
+    const normalizedSnapshot = normalizeGraphPresetSnapshot(snapshot, graphTimelineSteps.length)
+    setGraphFilterQuery(normalizedSnapshot.filterQuery)
+    setGraphConnectionDepth(normalizedSnapshot.connectionDepth)
+    setGraphSpacingMode(normalizedSnapshot.spacingMode)
+    setGraphHoverFocusEnabled(normalizedSnapshot.hoverFocusEnabled)
+    setGraphShowNodeCounts(normalizedSnapshot.showNodeCounts)
+    setGraphNodeTypeFilters(normalizedSnapshot.nodeTypeFilters)
+    setGraphSourceTypeFilters(normalizedSnapshot.sourceTypeFilters)
+    setGraphColorGroupMode(normalizedSnapshot.colorGroupMode)
+    setGraphTimelinePlaying(false)
+    setGraphTimelineEnabled(normalizedSnapshot.timelineEnabled)
+    setGraphTimelineIndex(normalizedSnapshot.timelineEnabled ? normalizedSnapshot.timelineIndex : 0)
+  }, [graphTimelineSteps.length])
+
+  const handleApplyGraphPreset = useCallback((presetKey: GraphViewPresetKey) => {
+    setGraphPresetBaseline({ kind: 'builtin', key: presetKey })
+    setGraphPresetDraftName('')
+    applyGraphPresetSnapshot(buildGraphBuiltInPresetSnapshot(presetKey, graphTimelineSteps.length))
+  }, [applyGraphPresetSnapshot, graphTimelineSteps.length])
+
+  const handleApplySavedGraphPreset = useCallback((presetId: string) => {
+    const preset = graphSavedPresets.find((candidate) => candidate.id === presetId)
+    if (!preset) {
+      return
+    }
+    setGraphPresetBaseline({ kind: 'saved', id: preset.id })
+    setGraphPresetDraftName(preset.name)
+    applyGraphPresetSnapshot(preset.snapshot)
+  }, [applyGraphPresetSnapshot, graphSavedPresets])
+
+  const handleSaveNewGraphPreset = useCallback(() => {
+    const resolvedName = graphPresetDraftName.trim() || buildDefaultGraphPresetName(graphSavedPresets)
+    const nextPreset: GraphSavedPreset = {
+      id: createGraphSavedPresetId(),
+      name: resolvedName,
+      snapshot: graphCurrentPresetSnapshot,
+    }
+    setGraphSavedPresets((current) => [...current, nextPreset])
+    setGraphPresetBaseline({ kind: 'saved', id: nextPreset.id })
+    setGraphPresetDraftName(resolvedName)
+  }, [graphCurrentPresetSnapshot, graphPresetDraftName, graphSavedPresets])
+
+  const handleUpdateGraphPreset = useCallback(() => {
+    if (!graphActiveSavedPreset) {
+      return
+    }
+    setGraphSavedPresets((current) =>
+      current.map((preset) =>
+        preset.id === graphActiveSavedPreset.id
+          ? {
+              ...preset,
+              snapshot: graphCurrentPresetSnapshot,
+            }
+          : preset,
+      ),
+    )
+  }, [graphActiveSavedPreset, graphCurrentPresetSnapshot])
+
+  const handleRenameGraphPreset = useCallback(() => {
+    const trimmedDraftName = graphPresetDraftName.trim()
+    if (!graphActiveSavedPreset || !trimmedDraftName) {
+      return
+    }
+    setGraphSavedPresets((current) =>
+      current.map((preset) =>
+        preset.id === graphActiveSavedPreset.id
+          ? {
+              ...preset,
+              name: trimmedDraftName,
+            }
+          : preset,
+      ),
+    )
+    setGraphPresetDraftName(trimmedDraftName)
+  }, [graphActiveSavedPreset, graphPresetDraftName])
+
+  const handleDeleteGraphPreset = useCallback(() => {
+    if (!graphActiveSavedPreset) {
+      return
+    }
+    setGraphSavedPresets((current) => current.filter((preset) => preset.id !== graphActiveSavedPreset.id))
+    setGraphPresetBaseline(null)
+    setGraphPresetDraftName('')
+  }, [graphActiveSavedPreset])
+
+  const handleResetGraphPresetDefaults = useCallback(() => {
+    setGraphPresetBaseline({ kind: 'builtin', key: 'explore' })
+    setGraphPresetDraftName('')
+    applyGraphPresetSnapshot(buildGraphBuiltInPresetSnapshot('explore', graphTimelineSteps.length))
+  }, [applyGraphPresetSnapshot, graphTimelineSteps.length])
+
+  const handleSetGraphConnectionDepth = useCallback((depth: GraphConnectionDepth) => {
+    setGraphConnectionDepth(depth)
+  }, [])
+
+  const handleSetGraphSpacingMode = useCallback((mode: GraphSpacingMode) => {
+    if (graphLayoutLocked) {
+      return
+    }
+    setGraphSpacingMode(mode)
+  }, [graphLayoutLocked])
+
+  const handleToggleGraphHoverFocus = useCallback(() => {
+    setGraphHoverFocusEnabled((current) => !current)
+  }, [])
+
+  const handleToggleGraphShowNodeCounts = useCallback(() => {
+    setGraphShowNodeCounts((current) => !current)
+  }, [])
+
+  const handleToggleGraphTimelineEnabled = useCallback(() => {
+    setGraphTimelinePlaying(false)
+    setGraphTimelineEnabled((current) => {
+      if (!current && graphTimelineSteps.length) {
+        setGraphTimelineIndex(graphTimelineSteps.length - 1)
+      }
+      return !current
+    })
+  }, [graphTimelineSteps.length])
+
+  const handleSetGraphTimelineIndex = useCallback((nextIndex: number) => {
+    setGraphTimelineIndex(nextIndex)
+  }, [])
+
+  const handleToggleGraphTimelinePlayback = useCallback(() => {
+    if (!graphTimelineEnabled) {
+      setGraphTimelineEnabled(true)
+    }
+    if (graphTimelineSteps.length < 2) {
+      return
+    }
+    setGraphTimelinePlaying((current) => !current)
+  }, [graphTimelineEnabled, graphTimelineSteps.length])
+
+  const handleToggleGraphNodeTypeFilter = useCallback((nodeType: string) => {
+    setGraphNodeTypeFilters((current) =>
+      current.includes(nodeType) ? current.filter((value) => value !== nodeType) : [...current, nodeType],
+    )
+  }, [])
+
+  const handleToggleGraphSourceTypeFilter = useCallback((sourceType: GraphSourceTypeBucket) => {
+    setGraphSourceTypeFilters((current) =>
+      current.includes(sourceType) ? current.filter((value) => value !== sourceType) : [...current, sourceType],
+    )
+  }, [])
+
+  const handleSetGraphColorGroupMode = useCallback((mode: GraphColorGroupMode) => {
+    setGraphColorGroupMode(mode)
+  }, [])
+
+  const handleStartGraphSettingsDrawerResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    graphSettingsDrawerResizeSessionRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startWidth: graphSettingsDrawerWidth,
+    }
+    setGraphSettingsDrawerResizing(true)
+  }, [graphSettingsDrawerWidth])
+
+  const handleGraphSettingsDrawerResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      setGraphSettingsDrawerWidth((current) => clampGraphSettingsDrawerWidth(current - 24))
+      return
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      setGraphSettingsDrawerWidth((current) => clampGraphSettingsDrawerWidth(current + 24))
+      return
+    }
+    if (event.key === 'Home') {
+      event.preventDefault()
+      setGraphSettingsDrawerWidth(GRAPH_SETTINGS_DRAWER_MIN_WIDTH)
+      return
+    }
+    if (event.key === 'End') {
+      event.preventDefault()
+      setGraphSettingsDrawerWidth(GRAPH_SETTINGS_DRAWER_MAX_WIDTH)
+    }
+  }, [])
+
+  const handleResetGraphSettingsDrawerWidth = useCallback(() => {
+    setGraphSettingsDrawerWidth(GRAPH_SETTINGS_DRAWER_DEFAULT_WIDTH)
+  }, [])
+
+  const handleStartHomeOrganizerRailResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    homeOrganizerRailResizeSessionRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startWidth: homeOrganizerRailWidth,
+    }
+    setHomeOrganizerRailResizing(true)
+  }, [homeOrganizerRailWidth])
+
+  const handleHomeOrganizerRailResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      setHomeOrganizerRailWidth((current) => clampHomeOrganizerRailWidth(current - 24))
+      return
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      setHomeOrganizerRailWidth((current) => clampHomeOrganizerRailWidth(current + 24))
+      return
+    }
+    if (event.key === 'Home') {
+      event.preventDefault()
+      setHomeOrganizerRailWidth(HOME_ORGANIZER_RAIL_MIN_WIDTH)
+      return
+    }
+    if (event.key === 'End') {
+      event.preventDefault()
+      setHomeOrganizerRailWidth(HOME_ORGANIZER_RAIL_MAX_WIDTH)
+    }
+  }, [])
+
+  const handleResetHomeOrganizerRailWidth = useCallback(() => {
+    setHomeOrganizerRailWidth(HOME_ORGANIZER_RAIL_DEFAULT_WIDTH)
+  }, [])
+
+  const handleJumpBackGraphFocus = useCallback(() => {
+    const previousNode = graphFocusTrailNodes[1] ?? null
+    if (!previousNode) {
+      return
+    }
+    handleSelectGraphNode(previousNode)
+  }, [graphFocusTrailNodes, handleSelectGraphNode])
+
+  const handleStepGraphSearchMatch = useCallback((direction: -1 | 1) => {
+    if (!graphSearchMatchCount) {
+      return
+    }
+
+    setGraphSearchMatchIndex((current) => {
+      const nextIndex = current + direction
+      if (nextIndex < 0) {
+        return graphSearchMatchCount - 1
+      }
+      if (nextIndex >= graphSearchMatchCount) {
+        return 0
+      }
+      return nextIndex
+    })
+  }, [graphSearchMatchCount])
+  const handleGraphSearchKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+      return
+    }
+    if (graphSearchMatchCount < 2) {
+      return
+    }
+    event.preventDefault()
+    handleStepGraphSearchMatch(event.key === 'ArrowDown' ? 1 : -1)
+  }, [graphSearchMatchCount, handleStepGraphSearchMatch])
+
+  const handleResetGraphView = useCallback(() => {
+    setGraphPresetBaseline({ kind: 'builtin', key: 'explore' })
+    setGraphPresetDraftName('')
+    setGraphFilterQuery('')
+    setGraphSearchQuery('')
+    setGraphSearchMatchIndex(0)
+    setGraphRequestedPathSelectionKey(null)
+    setGraphHoveredNodeId(null)
+    setGraphConnectionDepth(2)
+    setGraphSpacingMode('balanced')
+    setGraphHoverFocusEnabled(true)
+    setGraphShowNodeCounts(true)
+    setGraphTimelineEnabled(false)
+    setGraphTimelineIndex(0)
+    setGraphTimelinePlaying(false)
+    setGraphColorGroupMode('source')
+    setGraphNodeTypeFilters([])
+    setGraphSourceTypeFilters([])
+    setGraphLayoutLocked(false)
+    setGraphCanvasPanning(false)
+    setGraphDraggingNodeId(null)
+    setGraphManualNodePositions({})
+    setGraphViewportUserAdjusted(false)
+    setGraphViewportFitRequestKey((current) => current + 1)
+    updateGraphState((current) => ({
+      ...current,
+      pathSelectedNodeIds: [],
+      selectedNodeId: null,
+    }))
+  }, [updateGraphState])
+
+  const handleGraphNodeInteraction = useCallback((
+    node: KnowledgeNodeRecord,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => {
+    if (graphNodeDragSuppressClickRef.current) {
+      graphNodeDragSuppressClickRef.current = false
+      return
+    }
+    if (isGraphPathSelectionGesture(event)) {
+      event.preventDefault()
+      handleToggleGraphPathNode(node)
+      return
+    }
+    handleSelectGraphNode(node)
+  }, [handleSelectGraphNode, handleToggleGraphPathNode])
+
+  const handleGraphNodePathContextMenu = useCallback((
+    node: KnowledgeNodeRecord,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => {
+    event.preventDefault()
+    handleToggleGraphPathNode(node)
+  }, [handleToggleGraphPathNode])
 
   function handleSelectNotesDocument(documentId: string) {
     updateNotesState((current) => ({
@@ -2194,7 +4886,12 @@ export function RecallWorkspace({
         description: noteGraphDraft.description?.trim().length ? noteGraphDraft.description.trim() : null,
       })
       await loadGraph()
-      updateGraphState((current) => ({ ...current, selectedNodeId: nodeDetail.node.id }))
+      updateGraphState((current) => ({
+        ...current,
+        pathSelectedNodeIds: [],
+        selectedNodeId: nodeDetail.node.id,
+        focusTrailNodeIds: pushGraphFocusTrail(current.focusTrailNodeIds, nodeDetail.node.id),
+      }))
       setSelectedNodeDetail(nodeDetail)
       setNotePromotionMode(null)
       setNotesMessage('Note promoted to the graph.')
@@ -2306,7 +5003,6 @@ export function RecallWorkspace({
       : studyOverview
         ? `${studyOverview.new_count + studyOverview.due_count + studyOverview.scheduled_count} cards`
         : 'Loading study…'
-  const homeSavedSourceLabel = `${documents.length} ready`
   const homeSidebarStatusCopy =
     documentsLoading
       ? 'Loading local collection.'
@@ -2328,7 +5024,6 @@ export function RecallWorkspace({
               ? 'Resume one source now, then expand grouped sections only when you need more.'
               : 'Open one saved source now.'
   const showInlineHomeSearch = !documentsLoading && documentsStatus !== 'error' && documents.length > 0
-  const homeInlineHeading = libraryFilterActive ? 'Search results' : 'Home'
   const homeInlineSummary =
     documentsLoading
       ? 'Loading saved sources.'
@@ -2339,20 +5034,82 @@ export function RecallWorkspace({
           : libraryFilterActive
             ? libraryLandingIntroCopy
             : `${homeSavedSourceLabel}.`
-  const graphSidebarGlanceLabel =
-    graphStatus === 'error'
-      ? 'Graph unavailable'
-      : graphLoading
-        ? 'Loading graph…'
-        : formatCountLabel(graphSnapshot?.nodes.length ?? 0, 'node', 'nodes')
-  const graphSidebarGlanceMeta =
-    graphStatus === 'error'
-      ? 'Reconnect the local service to reload the graph.'
-      : `${graphSnapshot?.pending_edges ?? 0} pending · ${graphSnapshot?.confirmed_edges ?? 0} confirmed`
-  const graphQuickPickSectionLabel = graphFilterActive ? 'Matching nodes' : 'Quick picks'
-  const graphQuickPickSectionNote = graphFilterActive
-    ? `${filteredGraphNodes.length} matching ${filteredGraphNodes.length === 1 ? 'node' : 'nodes'}`
-    : null
+  const graphContentFilterActive = graphNodeTypeFilters.length > 0 || graphSourceTypeFilters.length > 0
+  const graphTimelineActive = Boolean(graphTimelineStep)
+  const graphActiveBuiltInPreset =
+    graphPresetBaseline?.kind === 'builtin'
+      ? GRAPH_VIEW_PRESETS.find((preset) => preset.key === graphPresetBaseline.key) ?? null
+      : null
+  const graphActivePresetLabel = graphActiveSavedPreset?.name ?? graphActiveBuiltInPreset?.label ?? 'Custom view'
+  const graphActivePresetDescription = graphActiveSavedPreset
+    ? graphPresetDirty
+      ? `${graphActiveSavedPreset.name} is active with unsaved view changes. Update it or save a new preset when this view should stick.`
+      : `${graphActiveSavedPreset.name} captures the current graph filters, timeline, groups, and appearance choices.`
+    : graphActiveBuiltInPreset
+      ? graphPresetDirty
+        ? `${graphActiveBuiltInPreset.description} Local view changes are layered on top of this starter preset.`
+        : graphActiveBuiltInPreset.description
+      : 'Mixed settings from timeline, content filters, or manual view changes.'
+  const graphPresetStatusLabel = graphActiveSavedPreset
+    ? graphPresetDirty
+      ? 'Saved view modified'
+      : 'Saved view active'
+    : graphActiveBuiltInPreset
+      ? graphPresetDirty
+        ? `${graphActiveBuiltInPreset.label} modified`
+        : `${graphActiveBuiltInPreset.label} default`
+      : 'Custom view'
+  const graphPresetDraftNameTrimmed = graphPresetDraftName.trim()
+  const graphCanRenameSavedPreset = Boolean(
+    graphActiveSavedPreset &&
+      graphPresetDraftNameTrimmed.length > 0 &&
+      graphPresetDraftNameTrimmed !== graphActiveSavedPreset.name,
+  )
+  const graphCanUpdateSavedPreset = Boolean(graphActiveSavedPreset && graphPresetDirty)
+  const graphCanDeleteSavedPreset = Boolean(graphActiveSavedPreset)
+  const graphPresetStatusNote = graphActiveSavedPreset
+    ? graphPresetDirty
+      ? `${graphActiveSavedPreset.name} has local changes waiting to be saved.`
+      : `${graphActiveSavedPreset.name} is active and ready to reuse.`
+    : graphActiveBuiltInPreset
+      ? graphPresetDirty
+        ? `You are editing ${graphActiveBuiltInPreset.label}. Save this as a new view or reset back to defaults.`
+        : `${graphActiveBuiltInPreset.label} is the current starter preset.`
+      : 'This is a custom graph view. Save it as a new preset when it becomes useful.'
+  const graphQuickPickSectionLabel =
+    graphTimelineActive || graphContentFilterActive || graphFilterActive ? 'Filtered nodes' : 'Visible nodes'
+  const graphQuickPickSectionNote = graphTimelineActive
+    ? `${filteredGraphNodes.length} visible through ${graphTimelineStep?.label ?? 'timeline'}`
+    : graphContentFilterActive || graphFilterActive
+      ? `${filteredGraphNodes.length} matching ${filteredGraphNodes.length === 1 ? 'node' : 'nodes'}`
+      : null
+  const graphColorGroupModeLabel = formatGraphColorGroupModeLabel(graphColorGroupMode)
+  const graphColorGroupSummary =
+    graphColorGroupMode === 'source'
+      ? 'Color nodes by source type and use the legend to steer matching filters.'
+      : 'Color nodes by node type and use the legend to steer matching filters.'
+  const graphTimelineStatusLabel = graphTimelineStep
+    ? `Through ${graphTimelineStep.label}`
+    : graphTimelineEnabled
+      ? 'Timeline ready'
+      : 'Timeline off'
+  const graphContentFilterSummary = [
+    graphNodeTypeFilters.length ? `${graphNodeTypeFilters.length} type${graphNodeTypeFilters.length === 1 ? '' : 's'}` : null,
+    graphSourceTypeFilters.length ? `${graphSourceTypeFilters.length} source${graphSourceTypeFilters.length === 1 ? '' : 's'}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const graphDrawerStatusItems = [
+    `${graphCanvasNodes.length} visible ${graphCanvasNodes.length === 1 ? 'node' : 'nodes'}`,
+    graphColorGroupModeLabel,
+    graphTimelineEnabled
+      ? graphTimelineStatusLabel
+      : graphContentFilterActive
+        ? graphContentFilterSummary
+        : graphFilterActive
+          ? 'Text filter active'
+          : graphPresetStatusLabel,
+  ].filter(Boolean)
   const studyNewCountLabel = studyStatus === 'error' ? 'Study unavailable' : `${studyOverview?.new_count ?? 0} new`
   const studyDueCountLabel = studyStatus === 'error' ? 'Counts unavailable' : `${studyOverview?.due_count ?? 0} due`
   const studyReviewCountLabel =
@@ -2425,6 +5182,467 @@ export function RecallWorkspace({
     onSectionChange('library')
   }, [handleSelectLibraryDocument, onSectionChange, setBrowseDrawerOpen, updateSourceWorkspaceState])
 
+  useEffect(() => {
+    if (!homeOrganizerSelectionKeys.length) {
+      return undefined
+    }
+
+    function handleWindowKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setHomeOrganizerSelectionKeys([])
+      }
+    }
+
+    window.addEventListener('keydown', handleWindowKeyDown)
+    return () => window.removeEventListener('keydown', handleWindowKeyDown)
+  }, [homeOrganizerSelectionKeys.length])
+
+  const handleHomeOverviewOrganizerClick = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      if (event.metaKey || event.ctrlKey) {
+        return
+      }
+      clearHomeOrganizerSelection()
+      setHomeSelectedSectionKey(null)
+    },
+    [clearHomeOrganizerSelection],
+  )
+
+  const handleHomeOrganizerSectionClick = useCallback(
+    (sectionKey: LibraryBrowseSectionKey, event: ReactMouseEvent<HTMLButtonElement>) => {
+      if (event.metaKey || event.ctrlKey) {
+        toggleHomeOrganizerSelectionKey(buildHomeSectionSelectionKey(sectionKey))
+        return
+      }
+      clearHomeOrganizerSelection()
+      setHomeSelectedSectionKey(sectionKey)
+    },
+    [clearHomeOrganizerSelection, toggleHomeOrganizerSelectionKey],
+  )
+
+  const handleHomeOrganizerDocumentClick = useCallback(
+    (sectionKey: LibraryBrowseSectionKey, documentId: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+      if (event.metaKey || event.ctrlKey) {
+        toggleHomeOrganizerSelectionKey(buildHomeDocumentSelectionKey(sectionKey, documentId))
+        return
+      }
+      clearHomeOrganizerSelection()
+      focusSourceLibrary(documentId)
+    },
+    [clearHomeOrganizerSelection, focusSourceLibrary, toggleHomeOrganizerSelectionKey],
+  )
+
+  const handleHomeSingleSelectionPrimaryAction = useCallback(() => {
+    if (!homeSingleOrganizerSelection) {
+      return
+    }
+    if (homeSingleOrganizerSelection.kind === 'section') {
+      setHomeSelectedSectionKey(homeSingleOrganizerSelection.sectionKey)
+      clearHomeOrganizerSelection()
+      return
+    }
+    focusSourceLibrary(homeSingleOrganizerSelection.documentId as string)
+    clearHomeOrganizerSelection()
+  }, [clearHomeOrganizerSelection, focusSourceLibrary, homeSingleOrganizerSelection])
+
+  const handleHomeSelectionMove = useCallback(
+    (direction: 'forward' | 'backward') => {
+      if (!homeOrganizerSelectionMoveDescriptor || !homeManualModeActive) {
+        return
+      }
+      if (homeOrganizerSelectionMoveDescriptor.kind === 'section') {
+        moveHomeBrowseSections(homeOrganizerSelectionMoveDescriptor.sectionKeys, direction)
+        return
+      }
+      moveHomeBrowseDocuments(
+        homeOrganizerSelectionMoveDescriptor.sectionKey,
+        homeOrganizerSelectionMoveDescriptor.documentIds,
+        direction,
+      )
+    },
+    [homeManualModeActive, homeOrganizerSelectionMoveDescriptor, moveHomeBrowseDocuments, moveHomeBrowseSections],
+  )
+
+  const openHomeCollectionDraft = useCallback(
+    (mode: HomeCollectionDraftState['mode'], options?: { collectionId?: string; seedDocumentIds?: string[] }) => {
+      setHomeCollectionAssignmentPanelOpen(false)
+      if (mode === 'rename' && options?.collectionId) {
+        const collection = homeCustomCollections.find((candidate) => candidate.id === options.collectionId)
+        setHomeCollectionDraftName(collection?.name ?? '')
+        setHomeCollectionDraftState({
+          collectionId: options.collectionId,
+          mode,
+        })
+        return
+      }
+
+      setHomeCollectionDraftName('')
+      setHomeCollectionDraftState({
+        mode,
+        seedDocumentIds: options?.seedDocumentIds ?? [],
+      })
+    },
+    [homeCustomCollections],
+  )
+
+  const closeHomeCollectionDraft = useCallback(() => {
+    setHomeCollectionDraftState(null)
+    setHomeCollectionDraftName('')
+  }, [])
+
+  const handleSubmitHomeCollectionDraft = useCallback(() => {
+    const trimmedName = homeCollectionDraftName.trim()
+    if (!trimmedName || !homeCollectionDraftState) {
+      return
+    }
+
+    if (homeCollectionDraftState.mode === 'rename' && homeCollectionDraftState.collectionId) {
+      setHomeCustomCollections((current) =>
+        current.map((collection) =>
+          collection.id === homeCollectionDraftState.collectionId
+            ? {
+                ...collection,
+                name: trimmedName,
+              }
+            : collection,
+        ),
+      )
+      closeHomeCollectionDraft()
+      return
+    }
+
+    const nextCollectionId = createHomeCustomCollectionId()
+    const seedDocumentIds = Array.from(new Set(homeCollectionDraftState.seedDocumentIds ?? []))
+    setHomeCustomCollections((current) => [
+      ...current,
+      {
+        documentIds: seedDocumentIds,
+        id: nextCollectionId,
+        name: trimmedName,
+      },
+    ])
+    updateLibraryState((current) => ({
+      ...current,
+      homeOrganizerLens: 'collections',
+    }))
+    setHomeSelectedSectionKey(buildHomeCustomCollectionSectionKey(nextCollectionId))
+    clearHomeOrganizerSelection()
+    setHomeCollectionAssignmentPanelOpen(false)
+    closeHomeCollectionDraft()
+  }, [
+    clearHomeOrganizerSelection,
+    closeHomeCollectionDraft,
+    homeCollectionDraftName,
+    homeCollectionDraftState,
+    updateLibraryState,
+  ])
+
+  const handleDeleteSelectedHomeCustomCollection = useCallback(() => {
+    if (!homeSelectedCustomCollection) {
+      return
+    }
+    setHomeCustomCollections((current) => current.filter((collection) => collection.id !== homeSelectedCustomCollection.id))
+    if (homeSelectedSectionKey === buildHomeCustomCollectionSectionKey(homeSelectedCustomCollection.id)) {
+      setHomeSelectedSectionKey(null)
+    }
+    if (
+      homeCollectionDraftState?.mode === 'rename' &&
+      homeCollectionDraftState.collectionId === homeSelectedCustomCollection.id
+    ) {
+      closeHomeCollectionDraft()
+    }
+    setHomeCollectionAssignmentPanelOpen(false)
+  }, [
+    closeHomeCollectionDraft,
+    homeCollectionDraftState,
+    homeSelectedCustomCollection,
+    homeSelectedSectionKey,
+  ])
+
+  const handleToggleHomeCollectionAssignment = useCallback(
+    (collectionId: string) => {
+      if (!homeSelectedOrganizerDocumentIds.length) {
+        return
+      }
+      setHomeCustomCollections((current) =>
+        current.map((collection) => {
+          if (collection.id !== collectionId) {
+            return collection
+          }
+          const collectionOwnsAllSelectedDocuments = homeSelectedOrganizerDocumentIds.every((documentId) =>
+            collection.documentIds.includes(documentId),
+          )
+          return {
+            ...collection,
+            documentIds: collectionOwnsAllSelectedDocuments
+              ? collection.documentIds.filter((documentId) => !homeSelectedOrganizerDocumentIds.includes(documentId))
+              : [...collection.documentIds, ...homeSelectedOrganizerDocumentIds.filter((documentId) => !collection.documentIds.includes(documentId))],
+          }
+        }),
+      )
+    },
+    [homeSelectedOrganizerDocumentIds],
+  )
+
+  const renderHomeCreateCollectionButton = () => {
+    if (libraryFilterActive || !homeCanCreateCustomCollection) {
+      return null
+    }
+
+    return (
+      <button
+        className="ghost-button recall-home-browse-strip-tool recall-home-browse-strip-tool-stage495-reset"
+        type="button"
+        onClick={() =>
+          openHomeCollectionDraft('create', {
+            seedDocumentIds: homeSelectedOrganizerDocumentIds,
+          })
+        }
+      >
+        {homeCreateCollectionButtonLabel}
+      </button>
+    )
+  }
+
+  const renderHomeCollectionManagementPanel = () => {
+    if (libraryFilterActive || !(homeCollectionDraftState || homeSelectedCustomCollection || homeCollectionAssignmentPanelOpen)) {
+      return null
+    }
+
+    return (
+      <div
+        className="recall-home-collection-management-stage495-reset"
+        role="group"
+        aria-label="Collection management"
+      >
+        {homeSelectedCustomCollection ? (
+          <div className="recall-home-collection-toolbar-stage495-reset">
+            <div className="recall-home-collection-toolbar-copy-stage495-reset">
+              <strong>{homeSelectedCustomCollection.name}</strong>
+              <span>Custom collection actions stay inside the organizer.</span>
+            </div>
+            <div className="recall-home-collection-toolbar-actions-stage495-reset">
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() =>
+                  openHomeCollectionDraft('rename', {
+                    collectionId: homeSelectedCustomCollection.id,
+                  })
+                }
+              >
+                Rename collection
+              </button>
+              <button className="ghost-button" type="button" onClick={handleDeleteSelectedHomeCustomCollection}>
+                Delete collection
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {homeCollectionDraftState ? (
+          <div className="recall-home-collection-draft-stage495-reset">
+            <div className="recall-home-collection-draft-copy-stage495-reset">
+              <strong>{homeCollectionDraftTitle}</strong>
+              <span>{homeCollectionDraftHint}</span>
+            </div>
+            <label className="field recall-inline-field recall-home-collection-draft-field-stage495-reset">
+              <span className="visually-hidden">Collection name</span>
+              <input
+                aria-label="Collection name"
+                type="text"
+                placeholder="Collection name"
+                value={homeCollectionDraftName}
+                onChange={(event) => setHomeCollectionDraftName(event.target.value)}
+              />
+            </label>
+            <div className="recall-home-collection-draft-actions-stage495-reset">
+              <button
+                className="ghost-button"
+                disabled={homeCollectionDraftName.trim().length === 0}
+                type="button"
+                onClick={handleSubmitHomeCollectionDraft}
+              >
+                {homeCollectionDraftActionLabel}
+              </button>
+              <button className="ghost-button" type="button" onClick={closeHomeCollectionDraft}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+            {homeCollectionAssignmentPanelOpen ? (
+          <div
+            className="recall-home-collection-assignment-panel-stage495-reset"
+            role="group"
+            aria-label="Collection assignment panel"
+          >
+            <div className="recall-home-collection-assignment-copy-stage495-reset">
+              <strong>Collection assignment</strong>
+              <span>{homeCollectionAssignmentSummary}</span>
+            </div>
+            {homeCollectionAssignmentEntries.length > 0 ? (
+              <div className="recall-home-collection-assignment-actions-stage495-reset">
+                {homeCollectionAssignmentEntries.map((entry) => (
+                  <button
+                    key={entry.collection.id}
+                    className={
+                      entry.collectionOwnsAllSelectedDocuments
+                        ? 'ghost-button recall-home-collection-assignment-button-stage495-reset recall-home-collection-assignment-button-active-stage495-reset'
+                        : 'ghost-button recall-home-collection-assignment-button-stage495-reset'
+                    }
+                    type="button"
+                    onClick={() => handleToggleHomeCollectionAssignment(entry.collection.id)}
+                  >
+                    {entry.collectionOwnsAllSelectedDocuments ? 'Remove ' : 'Add '}
+                    {entry.collection.name}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="recall-home-collection-assignment-empty-stage495-reset">
+                Create a custom collection first, then come back here to assign sources.
+              </p>
+            )}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  const handleHomeOrganizerDragEnd = useCallback(() => {
+    setHomeOrganizerDragSession(null)
+    setHomeOrganizerDropTarget(null)
+  }, [])
+
+  const handleHomeOrganizerSectionDragStart = useCallback(
+    (sectionKey: LibraryBrowseSectionKey, event: ReactDragEvent<HTMLButtonElement>) => {
+      if (!homeManualModeActive) {
+        event.preventDefault()
+        return
+      }
+      event.stopPropagation()
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData('text/plain', sectionKey)
+      setHomeOrganizerDragSession({
+        kind: 'section',
+        sectionKey,
+      })
+      setHomeOrganizerDropTarget(null)
+    },
+    [homeManualModeActive],
+  )
+
+  const handleHomeOrganizerDocumentDragStart = useCallback(
+    (sectionKey: LibraryBrowseSectionKey, documentId: string, event: ReactDragEvent<HTMLButtonElement>) => {
+      if (!homeManualModeActive) {
+        event.preventDefault()
+        return
+      }
+      event.stopPropagation()
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData('text/plain', `${sectionKey}:${documentId}`)
+      setHomeOrganizerDragSession({
+        documentId,
+        kind: 'document',
+        sectionKey,
+      })
+      setHomeOrganizerDropTarget(null)
+    },
+    [homeManualModeActive],
+  )
+
+  const handleHomeOrganizerSectionDragOver = useCallback(
+    (sectionKey: LibraryBrowseSectionKey, event: ReactDragEvent<HTMLDivElement>) => {
+      if (!homeManualModeActive || !homeOrganizerDragSession || homeOrganizerDragSession.kind !== 'section') {
+        return
+      }
+      if (homeOrganizerDragSession.sectionKey === sectionKey) {
+        return
+      }
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      setHomeOrganizerDropTarget({
+        kind: 'section',
+        sectionKey,
+      })
+    },
+    [homeManualModeActive, homeOrganizerDragSession],
+  )
+
+  const handleHomeOrganizerDocumentDragOver = useCallback(
+    (sectionKey: LibraryBrowseSectionKey, documentId: string, event: ReactDragEvent<HTMLDivElement>) => {
+      if (!homeManualModeActive || !homeOrganizerDragSession || homeOrganizerDragSession.kind !== 'document') {
+        return
+      }
+      if (homeOrganizerDragSession.sectionKey !== sectionKey || homeOrganizerDragSession.documentId === documentId) {
+        return
+      }
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      setHomeOrganizerDropTarget({
+        documentId,
+        kind: 'document',
+        sectionKey,
+      })
+    },
+    [homeManualModeActive, homeOrganizerDragSession],
+  )
+
+  const handleHomeOrganizerSectionDrop = useCallback(
+    (sectionKey: LibraryBrowseSectionKey, event: ReactDragEvent<HTMLDivElement>) => {
+      if (!homeManualModeActive || !homeOrganizerDragSession || homeOrganizerDragSession.kind !== 'section') {
+        return
+      }
+      event.preventDefault()
+      setHomeManualSectionOrderByLens((current) => {
+        const orderedKeys = current[homeOrganizerLens] ?? rawLibraryBrowseSections.map((section) => section.key)
+        return {
+          ...current,
+          [homeOrganizerLens]: moveManualOrderKeyToTarget(
+            orderedKeys,
+            homeOrganizerDragSession.sectionKey,
+            sectionKey,
+          ),
+        }
+      })
+      setHomeOrganizerDragSession(null)
+      setHomeOrganizerDropTarget(null)
+    },
+    [homeManualModeActive, homeOrganizerDragSession, homeOrganizerLens, rawLibraryBrowseSections],
+  )
+
+  const handleHomeOrganizerDocumentDrop = useCallback(
+    (sectionKey: LibraryBrowseSectionKey, documentId: string, event: ReactDragEvent<HTMLDivElement>) => {
+      if (
+        !homeManualModeActive ||
+        !homeOrganizerDragSession ||
+        homeOrganizerDragSession.kind !== 'document' ||
+        homeOrganizerDragSession.sectionKey !== sectionKey
+      ) {
+        return
+      }
+      event.preventDefault()
+      const section = rawLibraryBrowseSections.find((entry) => entry.key === sectionKey)
+      const draggedDocumentId = homeOrganizerDragSession.documentId
+      if (!section || !draggedDocumentId) {
+        setHomeOrganizerDragSession(null)
+        setHomeOrganizerDropTarget(null)
+        return
+      }
+      setHomeManualDocumentOrderBySectionKey((current) => ({
+        ...current,
+        [sectionKey]: moveManualOrderKeyToTarget(
+          current[sectionKey] ?? section.documents.map((document) => document.id),
+          draggedDocumentId,
+          documentId,
+        ),
+      }))
+      setHomeOrganizerDragSession(null)
+      setHomeOrganizerDropTarget(null)
+    },
+    [homeManualModeActive, homeOrganizerDragSession, rawLibraryBrowseSections],
+  )
+
   const focusSourceNotes = useCallback((documentId: string, noteId?: string | null) => {
     handleSelectLibraryDocument(documentId)
     updateSourceWorkspaceState((current) => ({
@@ -2457,7 +5675,9 @@ export function RecallWorkspace({
     }))
     updateGraphState((current) => ({
       ...current,
+      pathSelectedNodeIds: [],
       selectedNodeId: matchingNodeId,
+      focusTrailNodeIds: pushGraphFocusTrail(current.focusTrailNodeIds, matchingNodeId),
     }))
     setBrowseDrawerOpen('graph', false)
     onSectionChange('graph')
@@ -2801,15 +6021,20 @@ export function RecallWorkspace({
     updateSourceWorkspaceState,
   ])
 
-  function renderLibrarySourceRow(document: RecallDocumentRecord) {
-    const updatedLabel = homeDateFormatter.format(new Date(document.updated_at))
+  function renderLibrarySourceRow(document: RecallDocumentRecord, options?: { viewMode?: RecallHomeViewMode }) {
+    const sortTimestamp = getHomeDocumentTimestampLabel(document, effectiveHomeAutomaticSortMode, homeDateFormatter)
     const availableViewLabel = `${document.available_modes.length} ${document.available_modes.length === 1 ? 'view' : 'views'} ready`
+    const listView = options?.viewMode === 'list'
 
     return (
       <button
         aria-label={`Open ${document.title}`}
         key={`row:${document.id}`}
-        className="recall-library-list-row"
+        className={
+          listView
+            ? 'recall-library-list-row recall-home-library-results-row-list-view-stage467-reset'
+            : 'recall-library-list-row'
+        }
         type="button"
         onClick={() => focusSourceLibrary(document.id)}
       >
@@ -2819,17 +6044,18 @@ export function RecallWorkspace({
           <span>{getDocumentSourcePreview(document)}</span>
         </span>
         <span className="recall-library-list-row-meta">
-          <span className="recall-library-row-timestamp">{updatedLabel}</span>
+          <span className="recall-library-row-timestamp">{sortTimestamp}</span>
           <span>{availableViewLabel}</span>
         </span>
       </button>
     )
   }
 
-  function renderHomeContinueCard(document: RecallDocumentRecord) {
+  function renderHomeContinueCard(document: RecallDocumentRecord, variant: 'default' | 'compactRail' = 'default') {
     const updatedLabel = homeDateFormatter.format(new Date(document.updated_at))
     const availableViewLabel = `${document.available_modes.length} ${document.available_modes.length === 1 ? 'view' : 'views'} ready`
     const isResumeCard = document.id === resumeSourceDocument?.id
+    const compactRail = variant === 'compactRail'
     const handleOpen = () => {
       if (isResumeCard) {
         resumeFocusedSource()
@@ -2839,7 +6065,13 @@ export function RecallWorkspace({
     }
 
     return (
-      <div className="recall-home-lead-card">
+      <div
+        className={
+          compactRail
+            ? 'recall-home-lead-card recall-home-lead-card-rail-reset recall-home-lead-card-results-sheet-reset'
+            : 'recall-home-lead-card'
+        }
+      >
         <span className="recall-home-lead-card-topline">
           <span className="status-chip">{homeWorkspaceLeadLabel}</span>
           <span className="recall-library-row-overline">{document.source_type.toUpperCase()}</span>
@@ -2847,12 +6079,18 @@ export function RecallWorkspace({
         <span className="recall-home-lead-card-copy">
           <strong>{document.title}</strong>
           <span>{homeWorkspaceLeadSummary}</span>
-          <span className="recall-home-lead-card-note">{availableViewLabel}</span>
+          {compactRail ? (
+            <span className="recall-home-lead-card-note">
+              {updatedLabel} · {availableViewLabel}
+            </span>
+          ) : (
+            <span className="recall-home-lead-card-note">{availableViewLabel}</span>
+          )}
         </span>
         <span className="recall-home-lead-card-meta" role="list" aria-label={`${document.title} details`}>
           <span role="listitem">{getDocumentSourcePreview(document)}</span>
           <span>{updatedLabel}</span>
-          <span role="listitem">{document.source_type.toUpperCase()}</span>
+          {compactRail ? null : <span role="listitem">{document.source_type.toUpperCase()}</span>}
           <span role="listitem">{availableViewLabel}</span>
         </span>
         <div className="recall-home-lead-card-actions">
@@ -2868,14 +6106,19 @@ export function RecallWorkspace({
     )
   }
 
-  function renderHomeContinueRow(document: RecallDocumentRecord) {
+  function renderHomeContinueRow(document: RecallDocumentRecord, variant: 'default' | 'compactRail' = 'default') {
     const updatedLabel = homeDateFormatter.format(new Date(document.updated_at))
     const availableViewLabel = `${document.available_modes.length} ${document.available_modes.length === 1 ? 'view' : 'views'} ready`
+    const compactRail = variant === 'compactRail'
 
     return (
       <button
         aria-label={`Open ${document.title}`}
-        className="recall-home-continue-row"
+        className={
+          compactRail
+            ? 'recall-home-continue-row recall-home-continue-row-rail-reset recall-home-continue-row-results-sheet-reset'
+            : 'recall-home-continue-row'
+        }
         key={`continue:${document.id}`}
         type="button"
         onClick={() => focusSourceLibrary(document.id)}
@@ -2887,20 +6130,103 @@ export function RecallWorkspace({
         </span>
         <span className="recall-home-continue-row-meta">
           <span>{updatedLabel}</span>
+          {compactRail ? <span>{document.source_type.toUpperCase()}</span> : null}
           <span>{availableViewLabel}</span>
         </span>
       </button>
     )
   }
 
-  function renderHomeLibraryStageRow(document: RecallDocumentRecord) {
-    const updatedLabel = homeDateFormatter.format(new Date(document.updated_at))
+  function renderHomeBrowseGroupChild(
+    sectionKey: LibraryBrowseSectionKey,
+    sectionLabel: string,
+    document: RecallDocumentRecord,
+    active = false,
+  ) {
+    const sortTimestamp = getHomeDocumentTimestampLabel(document, effectiveHomeAutomaticSortMode, homeDateFormatter)
     const availableViewLabel = `${document.available_modes.length} ${document.available_modes.length === 1 ? 'view' : 'views'} ready`
+    const childMetaSummary = [getDocumentSourcePreview(document), sortTimestamp, availableViewLabel].join(' · ')
+    const selectionKey = buildHomeDocumentSelectionKey(sectionKey, document.id)
+    const selected = homeOrganizerSelectionKeys.includes(selectionKey)
+    const dragging =
+      homeOrganizerDragSession?.kind === 'document' &&
+      homeOrganizerDragSession.sectionKey === sectionKey &&
+      homeOrganizerDragSession.documentId === document.id
+    const dropTarget =
+      homeOrganizerDropTarget?.kind === 'document' &&
+      homeOrganizerDropTarget.sectionKey === sectionKey &&
+      homeOrganizerDropTarget.documentId === document.id
+    const childClassName = [
+      active
+        ? 'recall-home-browse-group-child recall-home-browse-group-child-active recall-home-browse-group-child-row-flatten-reset recall-home-browse-group-child-active-continuity-reset recall-home-browse-group-child-active-highlight-deflation-reset recall-home-browse-group-child-active-readout-softening-reset recall-home-browse-group-child-active-grouping-deflation-reset recall-home-browse-group-child-active-summary-preview-join-reset recall-home-browse-group-child-tree-branch-reset recall-home-browse-group-child-lean-branch-reset'
+        : 'recall-home-browse-group-child recall-home-browse-group-child-row-flatten-reset recall-home-browse-group-child-tree-branch-reset recall-home-browse-group-child-lean-branch-reset',
+      selected ? 'recall-home-browse-group-child-selected-stage483-reset' : '',
+      dragging ? 'recall-home-organizer-dragging-stage487-reset' : '',
+      dropTarget ? 'recall-home-organizer-drop-target-stage487-reset' : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    return (
+      <div
+        className={
+          dropTarget
+            ? 'recall-home-browse-group-child-row-stage483-reset recall-home-organizer-drop-target-row-stage487-reset'
+            : 'recall-home-browse-group-child-row-stage483-reset'
+        }
+        key={`browse-group-child:${sectionKey}:${document.id}`}
+        onDragOver={(event) => handleHomeOrganizerDocumentDragOver(sectionKey, document.id, event)}
+        onDrop={(event) => handleHomeOrganizerDocumentDrop(sectionKey, document.id, event)}
+      >
+        <button
+          aria-label={`Open ${document.title} from organizer`}
+          aria-pressed={selected}
+          className={childClassName}
+          type="button"
+          onClick={(event) => handleHomeOrganizerDocumentClick(sectionKey, document.id, event)}
+        >
+          <span aria-hidden="true" className="recall-home-browse-group-child-marker" />
+          <span className="recall-home-browse-group-child-copy recall-home-browse-group-child-copy-lean-branch-reset">
+            <span className="recall-home-browse-group-child-title recall-home-browse-group-child-title-lean-branch-reset">
+              {document.title}
+            </span>
+            <span className="recall-home-browse-group-child-meta recall-home-browse-group-child-meta-lean-branch-reset">
+              {childMetaSummary}
+            </span>
+          </span>
+        </button>
+        {homeManualModeActive ? (
+          <div className="recall-home-organizer-workbench-controls-stage487-reset">
+            <button
+              aria-label={`Drag ${document.title} in ${sectionLabel}`}
+              className="ghost-button recall-home-organizer-drag-handle-stage487-reset"
+              draggable
+              type="button"
+              onClick={(event) => event.preventDefault()}
+              onDragEnd={handleHomeOrganizerDragEnd}
+              onDragStart={(event) => handleHomeOrganizerDocumentDragStart(sectionKey, document.id, event)}
+            >
+              Drag
+            </button>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  function renderHomeLibraryStageRow(document: RecallDocumentRecord, options?: { viewMode?: RecallHomeViewMode }) {
+    const sortTimestamp = getHomeDocumentTimestampLabel(document, effectiveHomeAutomaticSortMode, homeDateFormatter)
+    const availableViewLabel = `${document.available_modes.length} ${document.available_modes.length === 1 ? 'view' : 'views'} ready`
+    const listView = options?.viewMode === 'list'
 
     return (
       <button
         aria-label={`Open ${document.title}`}
-        className="recall-home-library-stage-row"
+        className={
+          listView
+            ? 'recall-home-library-stage-row recall-home-library-stage-row-source-context-reset recall-home-library-stage-row-board-top-reset recall-home-library-stage-row-results-sheet-reset recall-home-library-stage-row-list-view-stage467-reset'
+            : 'recall-home-library-stage-row recall-home-library-stage-row-source-context-reset recall-home-library-stage-row-board-top-reset recall-home-library-stage-row-results-sheet-reset'
+        }
         key={`stage:${document.id}`}
         type="button"
         onClick={() => focusSourceLibrary(document.id)}
@@ -2911,20 +6237,24 @@ export function RecallWorkspace({
           <span>{getDocumentSourcePreview(document)}</span>
         </span>
         <span className="recall-home-library-stage-row-meta">
-          <span>{updatedLabel}</span>
+          <span>{sortTimestamp}</span>
           <span>{availableViewLabel}</span>
         </span>
       </button>
     )
   }
 
-  function renderHomeLibrarySection(section: LibraryBrowseSection, options?: { stream?: boolean }) {
+  function renderHomeLibrarySection(
+    section: LibraryBrowseSection,
+    options?: { stream?: boolean; viewMode?: RecallHomeViewMode },
+  ) {
     const displayLimit = getHomeWorkspaceSectionDisplayLimit(section.key)
     const visibleSectionDocuments = expandedLibrarySectionKeys[section.key]
       ? section.documents
       : section.documents.slice(0, displayLimit)
-    const isWideSection = section.key === 'earlier'
+    const isWideSection = section.key === 'recent:earlier'
     const isStreamSection = options?.stream ?? false
+    const viewMode = options?.viewMode ?? 'board'
 
     return (
       <section
@@ -2933,6 +6263,7 @@ export function RecallWorkspace({
           'recall-home-library-card',
           isWideSection ? 'recall-home-library-card-wide' : '',
           isStreamSection ? 'recall-home-library-card-stream' : '',
+          isStreamSection ? 'recall-home-library-card-overview-stage479-reset' : '',
         ]
           .filter(Boolean)
           .join(' ')}
@@ -2949,8 +6280,15 @@ export function RecallWorkspace({
             <p>{section.description}</p>
           </div>
         </div>
-        <div className="recall-library-list recall-home-library-list" role="list">
-          {visibleSectionDocuments.map((document) => renderLibrarySourceRow(document))}
+        <div
+          className={
+            viewMode === 'list'
+              ? 'recall-library-list recall-home-library-list recall-home-library-stage-list recall-home-library-stage-list-overview-stage479-reset recall-home-library-stage-list-list-view-stage467-reset'
+              : 'recall-library-list recall-home-library-list recall-home-library-stage-list recall-home-library-stage-list-overview-stage479-reset'
+          }
+          role="list"
+        >
+          {visibleSectionDocuments.map((document) => renderHomeLibraryStageRow(document, { viewMode }))}
         </div>
         {section.documents.length > displayLimit ? (
           <div className="recall-library-section-footer">
@@ -2970,6 +6308,58 @@ export function RecallWorkspace({
             </button>
           </div>
         ) : null}
+      </section>
+    )
+  }
+
+  function renderHomeReopenCluster() {
+    if (!showHomeReopenCluster) {
+      return null
+    }
+
+    const homeContinueCountLabel = formatCountLabel(homeContinueDocuments.length, 'nearby source', 'nearby sources')
+
+    return (
+      <section
+        className={
+          homeOrganizerVisible
+            ? 'recall-home-reopen-shelf recall-home-reopen-shelf-secondary recall-home-reopen-shelf-companion recall-home-reopen-shelf-sidecar-density-reset recall-home-reopen-shelf-sidecar-coverage-reset recall-home-reopen-shelf-sidecar-sheet-reset recall-home-reopen-shelf-minimal-entry-reset recall-home-reopen-shelf-organizer-control-reset recall-home-reopen-shelf-board-first-reset recall-home-reopen-shelf-board-fusion-reset recall-home-reopen-shelf-organizer-owned-reset recall-home-reopen-shelf-unified-workbench-reset recall-home-reopen-shelf-rail-reset recall-home-reopen-shelf-direct-board-reset recall-home-reopen-shelf-inline-strip-reset recall-home-reopen-shelf-results-sheet-reset stack-gap'
+            : 'recall-home-reopen-shelf recall-home-reopen-shelf-secondary recall-home-reopen-shelf-companion recall-home-reopen-shelf-sidecar-density-reset recall-home-reopen-shelf-sidecar-coverage-reset recall-home-reopen-shelf-sidecar-sheet-reset recall-home-reopen-shelf-minimal-entry-reset recall-home-reopen-shelf-organizer-control-reset recall-home-reopen-shelf-organizer-hidden-reset recall-home-reopen-shelf-board-first-reset recall-home-reopen-shelf-board-first-hidden-reset recall-home-reopen-shelf-board-fusion-reset recall-home-reopen-shelf-organizer-owned-reset recall-home-reopen-shelf-unified-workbench-reset recall-home-reopen-shelf-rail-reset recall-home-reopen-shelf-direct-board-reset recall-home-reopen-shelf-inline-strip-reset recall-home-reopen-shelf-results-sheet-reset stack-gap'
+        }
+        aria-label="Pinned reopen shelf"
+      >
+        <div className="recall-home-stage-lane-header recall-home-stage-lane-header-board-top-reset recall-home-stage-lane-header-direct-board-reset recall-home-stage-lane-header-board-dominant-reset recall-home-stage-lane-header-results-sheet-reset">
+          <div className="recall-home-library-stage-source">
+            <h3>{homeWorkspaceContinueHeading}</h3>
+            <span>{homeWorkspaceContinueSummary}</span>
+          </div>
+        </div>
+        <div className="recall-home-reopen-rail-layout recall-home-reopen-rail-layout-direct-board-reset recall-home-reopen-rail-layout-inline-strip-reset recall-home-reopen-rail-layout-results-sheet-reset">
+          {homeLeadDocument ? (
+            <div className="recall-home-primary-flow-lead recall-home-reopen-rail-lead">
+              {renderHomeContinueCard(homeLeadDocument, 'compactRail')}
+            </div>
+          ) : null}
+          {homeContinueDocuments.length > 0 ? (
+            <div className="recall-home-reopen-rail-nearby">
+              <div className="recall-home-reopen-rail-nearby-header recall-home-reopen-rail-nearby-header-direct-board-reset recall-home-reopen-rail-nearby-header-results-sheet-reset">
+                <strong>Nearby</strong>
+                <span>{homeContinueCountLabel}</span>
+              </div>
+              <div
+                className="recall-home-continue-list recall-home-continue-list-rail-reset recall-home-continue-list-inline-strip-reset recall-home-continue-list-results-sheet-reset"
+                role="list"
+                aria-label="Nearby sources"
+              >
+                {homeContinueDocuments.map((document) => renderHomeContinueRow(document, 'compactRail'))}
+              </div>
+            </div>
+          ) : (
+            <p className="recall-home-stage-lane-note recall-home-stage-lane-note-rail-reset">
+              The pinned source already gives this board one clear next step.
+            </p>
+          )}
+        </div>
       </section>
     )
   }
@@ -3035,18 +6425,24 @@ export function RecallWorkspace({
     const sourceDocumentCount = node.source_document_ids.length || node.document_count
     const quickPickGlance = node.aliases[0]?.trim() || formatCountLabel(sourceDocumentCount, 'source doc', 'source docs')
     const quickPickSummary = `${quickPickGlance} · ${formatCountLabel(node.mention_count, 'mention', 'mentions')}`
+    const quickPickPressed = selectedNodeId === node.id || graphPathSelectedNodeIdSet.has(node.id)
+    const quickPickClassName = [
+      'recall-graph-quick-pick',
+      'recall-graph-quick-pick-row-reset',
+      quickPickPressed ? 'recall-graph-quick-pick-active' : '',
+      graphPathSelectedNodeIdSet.has(node.id) ? 'recall-graph-quick-pick-path-selected' : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
 
     return (
       <button
         key={node.id}
-        aria-pressed={selectedNodeId === node.id}
-        className={
-          selectedNodeId === node.id
-            ? 'recall-graph-quick-pick recall-graph-quick-pick-active'
-            : 'recall-graph-quick-pick'
-        }
+        aria-pressed={quickPickPressed}
+        className={quickPickClassName}
         type="button"
-        onClick={() => handleSelectGraphNode(node)}
+        onClick={(event) => handleGraphNodeInteraction(node, event)}
+        onContextMenu={(event) => handleGraphNodePathContextMenu(node, event)}
         title={getGraphNodePreview(node)}
         >
         <span className="recall-graph-quick-pick-topline">
@@ -3062,23 +6458,52 @@ export function RecallWorkspace({
   function renderBrowseGraphDetailDock() {
     type BrowseGraphMention = NonNullable<typeof selectedNodeDetail>['mentions'][number]
     type BrowseGraphSourceRun = {
-      continuesPrimarySource?: boolean
       documentTitle: string
       mentions: BrowseGraphMention[]
       sourceDocumentId: string | null
       startIndex: number
     }
+    type BrowseGraphSourceDocument = {
+      id: string
+      preview: string
+      sourceTypeLabel: string | null
+      title: string
+    }
 
     const primarySourceDocumentId =
       selectedNodeDetail?.mentions[0]?.source_document_id ?? selectedNodeDetail?.node.source_document_ids[0] ?? null
+    const primarySourceDocument = primarySourceDocumentId ? documentById.get(primarySourceDocumentId) ?? null : null
     const primarySourceDocumentTitle = primarySourceDocumentId
       ? documentTitleById.get(primarySourceDocumentId) ?? 'Saved source'
       : null
     const primaryMention = selectedNodeDetail?.mentions[0] ?? null
     const graphDetailExpanded = Boolean(selectedNodeDetail) && graphDetailPeekOpen
+    const selectedNodeAliases = selectedNodeDetail?.node.aliases.filter((alias) => alias.trim().length > 0) ?? []
     const selectedNodeSourceDocumentCount = selectedNodeDetail
       ? selectedNodeDetail.node.source_document_ids.length || selectedNodeDetail.node.document_count
       : 0
+    const selectedNodeSourceDocuments = selectedNodeDetail
+      ? Array.from(
+          new Set([
+            ...selectedNodeDetail.node.source_document_ids,
+            ...selectedNodeDetail.mentions.map((mention) => mention.source_document_id),
+          ]),
+        ).map<BrowseGraphSourceDocument>((documentId) => {
+          const documentRecord = documentById.get(documentId) ?? null
+          const firstMentionForDocument =
+            selectedNodeDetail.mentions.find((mention) => mention.source_document_id === documentId) ?? null
+          return {
+            id: documentId,
+            preview: documentRecord
+              ? getDocumentSourcePreview(documentRecord)
+              : firstMentionForDocument?.document_title ?? 'Saved source',
+            sourceTypeLabel: documentRecord
+              ? formatGraphSourceTypeLabel(classifyGraphSourceType(documentRecord.source_type))
+              : null,
+            title: documentRecord?.title ?? firstMentionForDocument?.document_title ?? 'Saved source',
+          }
+        })
+      : []
     const mentionSourceRuns = selectedNodeDetail
       ? selectedNodeDetail.mentions.reduce<BrowseGraphSourceRun[]>((runs, mention, index) => {
           const lastRun = runs[runs.length - 1]
@@ -3101,33 +6526,12 @@ export function RecallWorkspace({
       : []
     const leadingSourceRun = mentionSourceRuns[0] ?? null
     const leadingMention = leadingSourceRun?.mentions[0] ?? primaryMention
-    const continuationSourceRuns = mentionSourceRuns.reduce<BrowseGraphSourceRun[]>((runs, sourceRun, runIndex) => {
-      const continuationMentions = runIndex === 0 ? sourceRun.mentions.slice(1) : sourceRun.mentions
-      if (!continuationMentions.length) {
-        return runs
-      }
-      runs.push({
-        continuesPrimarySource: runIndex === 0,
-        documentTitle: sourceRun.documentTitle,
-        mentions: continuationMentions,
-        sourceDocumentId: sourceRun.sourceDocumentId,
-        startIndex: runIndex === 0 ? sourceRun.startIndex + 1 : sourceRun.startIndex,
-      })
-      return runs
-    }, [])
-    const visibleContinuationSourceRuns = graphDetailExpanded
+    const visibleMentionSourceRuns = graphDetailExpanded
       ? graphDetailMentionsExpanded
-        ? continuationSourceRuns
-        : continuationSourceRuns.slice(0, 2)
+        ? mentionSourceRuns
+        : mentionSourceRuns.slice(0, 3)
       : []
-    const hiddenContinuationSourceRunCount = Math.max(
-      continuationSourceRuns.length - visibleContinuationSourceRuns.length,
-      0,
-    )
-    const continuationMentionCount = continuationSourceRuns.reduce(
-      (total, sourceRun) => total + sourceRun.mentions.length,
-      0,
-    )
+    const hiddenMentionSourceRunCount = Math.max(mentionSourceRuns.length - visibleMentionSourceRuns.length, 0)
     const visibleRelations = selectedNodeDetail
       ? graphDetailExpanded
         ? graphDetailRelationsExpanded
@@ -3138,20 +6542,13 @@ export function RecallWorkspace({
     const graphDetailPeekCopy =
       leadingMention?.excerpt ??
       selectedNodeDetail?.node.description ??
-      'Preview one grounded clue here, then expand only when you want the full evidence stack.'
+      'Open one grounded clue here, then expand into mentions or relations only when you need them.'
     const graphDetailPeekLabel =
       leadingMention?.document_title ?? primarySourceDocumentTitle ?? selectedNodeDetail?.node.label ?? 'Grounded evidence'
     const graphDetailMetaSummary = selectedNodeDetail
       ? `${selectedNodeDetail.node.status} · ${Math.round(selectedNodeDetail.node.confidence * 100)}% confidence`
       : null
-    const graphDetailFollowOnSummary = [
-      continuationMentionCount
-        ? formatCountLabel(continuationMentionCount, 'follow-on mention', 'follow-on mentions')
-        : null,
-      selectedNodeEdges.length ? formatCountLabel(selectedNodeEdges.length, 'relation', 'relations') : null,
-    ]
-      .filter(Boolean)
-      .join(' · ')
+    const graphDetailTypeSummary = selectedNodeDetail ? formatGraphNodeTypeLabel(selectedNodeDetail.node.node_type) : 'Card'
     const graphDetailCountSummary = selectedNodeDetail
       ? [
           formatCountLabel(selectedNodeSourceDocumentCount, 'source doc', 'source docs'),
@@ -3160,24 +6557,41 @@ export function RecallWorkspace({
         ].join(' · ')
       : null
     const graphDetailSelectedNodeCopy = selectedNodeDetail
-      ? `${graphDetailCountSummary}. Start with one grounded clue, then expand the tray only when you need grouped continuation and nearby relations.`
-      : 'Loading grounded evidence.'
+      ? graphDetailExpanded
+        ? `${graphDetailCountSummary}. Card context stays first, original source runs stay in Reader, and linked cards stay in Connections.`
+        : `${graphDetailCountSummary}. Start from one grounded clue here, then expand into the full card drawer when you need more context.`
+      : 'Loading grounded node detail.'
+    const graphDetailTabs: Array<{
+      disabled?: boolean
+      label: string
+      summary: string
+      view: GraphDetailView
+    }> = [
+      {
+        label: 'Card',
+        summary: graphDetailTypeSummary,
+        view: 'card',
+      },
+      {
+        disabled: !selectedNodeDetail?.mentions.length,
+        label: 'Reader',
+        summary: selectedNodeDetail
+          ? formatCountLabel(selectedNodeSourceDocumentCount, 'source doc', 'source docs')
+          : 'No sources',
+        view: 'reader',
+      },
+      {
+        disabled: !selectedNodeEdges.length,
+        label: 'Connections',
+        summary: selectedNodeEdges.length
+          ? formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')
+          : 'No relations',
+        view: 'connections',
+      },
+    ]
 
     if (!selectedNodeDetail && !nodeDetailLoading) {
-      return (
-        <section
-          aria-label="Node detail dock"
-          className="recall-graph-detail-dock recall-graph-detail-dock-tray recall-graph-detail-dock-empty priority-surface-support-rail priority-surface-support-rail-strong"
-        >
-          <div className="recall-graph-detail-dock-header">
-            <div className="recall-graph-detail-dock-heading">
-              <span className="recall-graph-detail-dock-kicker">Inspect</span>
-              <h3>Choose one node</h3>
-              <p>Pick from the canvas or the filter strip to open one attached clue tray instead of a separate detail page.</p>
-            </div>
-          </div>
-        </section>
-      )
+      return null
     }
 
     return (
@@ -3186,27 +6600,26 @@ export function RecallWorkspace({
         className={
           selectedNodeDetail
             ? graphDetailExpanded
-              ? 'recall-graph-detail-dock recall-graph-detail-dock-tray recall-graph-detail-dock-expanded priority-surface-support-rail priority-surface-support-rail-strong'
-              : 'recall-graph-detail-dock recall-graph-detail-dock-tray recall-graph-detail-dock-peek priority-surface-support-rail priority-surface-support-rail-strong'
-            : 'recall-graph-detail-dock recall-graph-detail-dock-tray recall-graph-detail-dock-empty priority-surface-support-rail priority-surface-support-rail-strong'
+              ? 'recall-graph-detail-dock recall-graph-detail-dock-attached recall-graph-detail-dock-tray recall-graph-detail-dock-expanded recall-graph-detail-dock-drawer-reset priority-surface-support-rail priority-surface-support-rail-strong'
+              : 'recall-graph-detail-dock recall-graph-detail-dock-attached recall-graph-detail-dock-tray recall-graph-detail-dock-peek recall-graph-detail-dock-drawer-reset priority-surface-support-rail priority-surface-support-rail-strong'
+            : 'recall-graph-detail-dock recall-graph-detail-dock-attached recall-graph-detail-dock-tray recall-graph-detail-dock-empty recall-graph-detail-dock-drawer-reset priority-surface-support-rail priority-surface-support-rail-strong'
         }
       >
-        <div className="recall-graph-detail-dock-header">
-          <div className="recall-graph-detail-dock-heading">
+        <div className="recall-graph-detail-dock-header recall-graph-detail-dock-header-drawer-reset">
+          <div className="recall-graph-detail-dock-heading recall-graph-detail-dock-heading-drawer-reset">
             <div className="recall-graph-detail-dock-topline">
               <div className="recall-graph-detail-dock-title-group">
-                <span className="recall-graph-detail-dock-kicker">Inspect</span>
+                <span className="recall-graph-detail-dock-kicker">Card drawer</span>
                 <h3>{selectedNodeDetail ? selectedNodeDetail.node.label : 'Loading node detail'}</h3>
               </div>
-              {selectedNodeDetail ? (
-                <span className="recall-graph-detail-dock-meta-inline">
-                  {selectedNodeDetail.node.node_type} · {Math.round(selectedNodeDetail.node.confidence * 100)}% confidence
-                </span>
-              ) : null}
             </div>
             {selectedNodeDetail ? (
-              <div className="recall-graph-detail-dock-meta-row">
+              <div className="recall-graph-detail-dock-meta-row recall-graph-detail-dock-meta-row-drawer-reset">
+                <span className="status-chip status-muted">{selectedNodeDetail.node.node_type}</span>
                 <span className="status-chip recall-graph-detail-dock-chip-status">{selectedNodeDetail.node.status}</span>
+                <span className="recall-graph-detail-dock-meta-inline">
+                  {Math.round(selectedNodeDetail.node.confidence * 100)}% confidence
+                </span>
                 {graphDetailCountSummary ? (
                   <span className="recall-graph-detail-dock-meta-inline">{graphDetailCountSummary}</span>
                 ) : null}
@@ -3217,8 +6630,8 @@ export function RecallWorkspace({
           {selectedNodeDetail ? (
             <div className="recall-actions recall-actions-inline recall-graph-detail-dock-actions">
               {!graphDetailExpanded ? (
-                <button type="button" onClick={() => setGraphDetailPeekOpen(true)}>
-                  Expand tray
+                <button type="button" onClick={handleOpenGraphDetailDrawer}>
+                  Open card
                 </button>
               ) : (
                 <>
@@ -3239,32 +6652,13 @@ export function RecallWorkspace({
                   </button>
                 </>
               )}
-              {primarySourceDocumentId ? (
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => focusSourceGraph(primarySourceDocumentId, selectedNodeDetail.node.id)}
-                >
-                  Focus source
-                </button>
-              ) : null}
-              {primarySourceDocumentId && primarySourceDocumentTitle ? (
-                <button
-                  className="ghost-button"
-                  aria-label={buildOpenReaderLabel(primarySourceDocumentTitle)}
-                  type="button"
-                  onClick={() => handleOpenDocumentInReader(primarySourceDocumentId)}
-                >
-                  Open source
-                </button>
-              ) : null}
               {graphDetailExpanded ? (
                 <button
                   className="ghost-button recall-graph-detail-expand-button"
                   type="button"
-                  onClick={() => setGraphDetailPeekOpen(false)}
+                  onClick={handleCloseGraphDetailDrawer}
                 >
-                  Collapse tray
+                  Close drawer
                 </button>
               ) : null}
             </div>
@@ -3280,74 +6674,219 @@ export function RecallWorkspace({
                 : 'recall-graph-detail-dock-body recall-graph-detail-dock-body-peek'
             }
           >
-            <div className="recall-graph-detail-flow">
-              <article
-                className={
-                  graphDetailExpanded
-                    ? 'recall-graph-detail-card recall-graph-detail-card-leading'
-                    : 'recall-graph-detail-card recall-graph-detail-card-leading recall-graph-detail-card-leading-peek'
-                }
-              >
-                <div className="recall-graph-detail-card-header">
-                  <span className="recall-graph-detail-card-kicker">Grounded clue</span>
-                  <strong>{graphDetailPeekLabel}</strong>
+            {!graphDetailExpanded ? (
+              <div className="recall-graph-detail-flow">
+                <article className="recall-graph-detail-card recall-graph-detail-card-leading recall-graph-detail-card-leading-peek recall-graph-detail-card-drawer-reset">
+                  <div className="recall-graph-detail-card-header">
+                    <span className="recall-graph-detail-card-kicker">Grounded clue</span>
+                    <strong>{graphDetailPeekLabel}</strong>
+                    {leadingMention ? (
+                      <span className="recall-graph-detail-card-confidence">
+                        {Math.round(leadingMention.confidence * 100)}%
+                      </span>
+                    ) : graphDetailMetaSummary ? (
+                      <span className="recall-graph-detail-card-confidence">{graphDetailMetaSummary}</span>
+                    ) : null}
+                  </div>
+                  <p className="recall-graph-detail-card-copy">{graphDetailPeekCopy}</p>
                   {leadingMention ? (
-                    <span className="recall-graph-detail-card-confidence">
-                      {Math.round(leadingMention.confidence * 100)}%
-                    </span>
-                  ) : graphDetailMetaSummary ? (
-                    <span className="recall-graph-detail-card-confidence">{graphDetailMetaSummary}</span>
+                    <div className="recall-graph-detail-card-meta">
+                      <span className="status-chip">{leadingMention.entity_type}</span>
+                      <span className="status-chip">{leadingMention.text}</span>
+                      {leadingMention.chunk_id ? <span className="status-chip">Chunk evidence</span> : null}
+                    </div>
                   ) : null}
+                </article>
+              </div>
+            ) : (
+              <div className="recall-graph-detail-flow recall-graph-detail-flow-tabbed">
+                <div className="recall-graph-detail-tabs" role="tablist" aria-label="Graph detail views">
+                  {graphDetailTabs.map((tab) => (
+                    <button
+                      key={tab.view}
+                      aria-controls={`graph-detail-panel-${tab.view}`}
+                      aria-selected={graphDetailView === tab.view}
+                      className={
+                        graphDetailView === tab.view
+                          ? 'ghost-button recall-graph-detail-tab recall-graph-detail-tab-active'
+                          : 'ghost-button recall-graph-detail-tab'
+                      }
+                      disabled={tab.disabled}
+                      id={`graph-detail-tab-${tab.view}`}
+                      role="tab"
+                      type="button"
+                      onClick={() => setGraphDetailView(tab.view)}
+                    >
+                      <span>{tab.label}</span>
+                      <span className="recall-graph-detail-tab-summary">{tab.summary}</span>
+                    </button>
+                  ))}
                 </div>
-                <p className="recall-graph-detail-card-copy">{graphDetailPeekCopy}</p>
-                {leadingMention ? (
-                  <div className="recall-graph-detail-card-meta">
-                    <span className="status-chip">{leadingMention.entity_type}</span>
-                    <span className="status-chip">{leadingMention.text}</span>
-                    {leadingMention.chunk_id ? <span className="status-chip">Chunk evidence</span> : null}
+                {graphDetailView === 'card' ? (
+                  <div
+                    aria-labelledby="graph-detail-tab-card"
+                    className="recall-graph-detail-panel"
+                    id="graph-detail-panel-card"
+                    role="tabpanel"
+                  >
+                    <article className="recall-graph-detail-card recall-graph-detail-card-leading recall-graph-detail-card-drawer-reset">
+                      <div className="recall-graph-detail-card-header">
+                        <span className="recall-graph-detail-card-kicker">Card</span>
+                        <strong>{selectedNodeDetail.node.label}</strong>
+                        <span className="recall-graph-detail-card-confidence">{graphDetailTypeSummary}</span>
+                      </div>
+                      <p className="recall-graph-detail-card-copy">
+                        {selectedNodeDetail.node.description?.trim() || graphDetailPeekCopy}
+                      </p>
+                      <div className="recall-graph-detail-card-meta">
+                        <span className="status-chip">{graphDetailTypeSummary}</span>
+                        <span className="status-chip">{selectedNodeDetail.node.status}</span>
+                        {selectedNodeSourceDocumentCount ? (
+                          <span className="status-chip">
+                            {formatCountLabel(selectedNodeSourceDocumentCount, 'source doc', 'source docs')}
+                          </span>
+                        ) : null}
+                        {selectedNodeAliases.length ? (
+                          <span className="status-chip">
+                            {formatCountLabel(selectedNodeAliases.length, 'alias', 'aliases')}
+                          </span>
+                        ) : null}
+                      </div>
+                    </article>
+
+                    {selectedNodeAliases.length ? (
+                      <section className="recall-graph-detail-card-section">
+                        <div className="recall-graph-detail-card-section-head">
+                          <strong>Aliases</strong>
+                          <span>Alternate labels that help this card stay discoverable.</span>
+                        </div>
+                        <div className="recall-graph-detail-chip-list" role="list" aria-label="Selected node aliases">
+                          {selectedNodeAliases.map((alias) => (
+                            <span key={alias} className="status-chip" role="listitem">
+                              {alias}
+                            </span>
+                          ))}
+                        </div>
+                      </section>
+                    ) : null}
+
+                    {selectedNodeSourceDocuments.length ? (
+                      <section className="recall-graph-detail-card-section">
+                        <div className="section-header section-header-compact">
+                          <h3>Source documents</h3>
+                          <p>Open the original source from here while the bottom rail keeps your broader path nearby.</p>
+                        </div>
+                        <div className="recall-graph-detail-source-document-list" role="list" aria-label="Selected node source documents">
+                          {selectedNodeSourceDocuments.map((document) => (
+                            <article
+                              key={`graph-detail-source-document:${document.id}`}
+                              className="recall-graph-detail-source-document-card"
+                              role="listitem"
+                            >
+                              <div className="recall-graph-detail-card-section-head">
+                                <strong>{document.title}</strong>
+                                <span>{document.sourceTypeLabel ?? 'Saved source'}</span>
+                              </div>
+                              <p className="recall-graph-detail-card-section-copy">{document.preview}</p>
+                              <div className="recall-actions recall-actions-inline recall-graph-detail-source-document-actions">
+                                <button
+                                  className="ghost-button"
+                                  type="button"
+                                  onClick={() => handleOpenDocumentInReader(document.id)}
+                                >
+                                  {buildOpenReaderLabel(document.title)}
+                                </button>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      </section>
+                    ) : (
+                      <p className="recall-graph-detail-overview-note">No source documents are attached to this card yet.</p>
+                    )}
+                    <p className="recall-graph-detail-overview-note">
+                      {primarySourceDocumentTitle
+                        ? `Original source continuity for ${primarySourceDocumentTitle} stays in Reader, while linked-card exploration stays in Connections.`
+                        : 'Original source continuity stays in Reader, while linked-card exploration stays in Connections.'}
+                    </p>
                   </div>
                 ) : null}
-              </article>
 
-              {graphDetailExpanded && (continuationSourceRuns.length || selectedNodeEdges.length) ? (
-                <div className="recall-graph-detail-secondary-stack">
-                  {continuationSourceRuns.length ? (
-                    <section className="recall-graph-detail-follow-on">
-                      <div className="recall-graph-detail-follow-on-header">
-                        <div className="section-header section-header-compact">
-                          <h3>Continuation</h3>
-                          <p>Grouped by source so the tray stays readable.</p>
+                {graphDetailView === 'reader' ? (
+                  <section
+                    aria-labelledby="graph-detail-tab-reader"
+                    className="recall-graph-detail-panel recall-graph-detail-follow-on recall-graph-detail-follow-on-drawer-reset"
+                    id="graph-detail-panel-reader"
+                    role="tabpanel"
+                  >
+                    <div className="recall-graph-detail-follow-on-header">
+                      <div className="section-header section-header-compact">
+                        <h3>Original source runs</h3>
+                        <p>Grouped grounded runs keep the original source close without crowding the card tab.</p>
+                      </div>
+                      <div className="recall-graph-detail-follow-on-header-actions">
+                        <span className="recall-graph-detail-follow-on-summary">
+                          {formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions')}
+                        </span>
+                        {mentionSourceRuns.length > 3 ? (
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() => setGraphDetailMentionsExpanded((current) => !current)}
+                          >
+                            {graphDetailMentionsExpanded ? 'Show less' : `Show all ${mentionSourceRuns.length}`}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                    {primarySourceDocumentTitle ? (
+                      <article className="recall-graph-detail-card recall-graph-detail-card-drawer-reset">
+                        <div className="recall-graph-detail-card-header">
+                          <span className="recall-graph-detail-card-kicker">Primary source</span>
+                          <strong>{primarySourceDocumentTitle}</strong>
+                          <span className="recall-graph-detail-card-confidence">
+                            {primarySourceDocument
+                              ? formatGraphSourceTypeLabel(classifyGraphSourceType(primarySourceDocument.source_type))
+                              : 'Saved source'}
+                          </span>
                         </div>
-                        <div className="recall-graph-detail-follow-on-header-actions">
-                          {graphDetailFollowOnSummary ? (
-                            <span className="recall-graph-detail-follow-on-summary">{graphDetailFollowOnSummary}</span>
+                        <p className="recall-graph-detail-card-copy">{leadingMention?.excerpt ?? graphDetailPeekCopy}</p>
+                        <div className="recall-graph-detail-card-meta">
+                          {leadingMention ? <span className="status-chip">{leadingMention.entity_type}</span> : null}
+                          {primarySourceDocument?.source_locator ? (
+                            <span className="status-chip">{primarySourceDocument.source_locator}</span>
                           ) : null}
-                          {continuationSourceRuns.length > 2 ? (
+                        </div>
+                        {primarySourceDocumentId ? (
+                          <div className="recall-actions recall-actions-inline recall-graph-detail-source-document-actions">
                             <button
                               className="ghost-button"
                               type="button"
-                              onClick={() => setGraphDetailMentionsExpanded((current) => !current)}
+                              onClick={() => handleOpenDocumentInReader(primarySourceDocumentId)}
                             >
-                              {graphDetailMentionsExpanded ? 'Show less' : `Show all ${continuationSourceRuns.length}`}
+                              {buildOpenReaderLabel(primarySourceDocumentTitle)}
                             </button>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="recall-graph-detail-follow-on-groups" role="list" aria-label="Selected node mentions">
-                        {visibleContinuationSourceRuns.map((sourceRun) => {
+                          </div>
+                        ) : null}
+                      </article>
+                    ) : null}
+                    <div className="recall-graph-detail-follow-on-groups" role="list" aria-label="Selected node source runs">
+                      {visibleMentionSourceRuns.length ? (
+                        visibleMentionSourceRuns.map((sourceRun, sourceRunIndex) => {
                           const leadExcerpt = sourceRun.mentions[0]?.excerpt ?? 'Grounded evidence available.'
+                          const leadSourceRun = sourceRunIndex === 0
                           return (
                             <article
                               key={`graph-follow-on:${sourceRun.startIndex}:${sourceRun.documentTitle}`}
                               className={
-                                sourceRun.continuesPrimarySource
+                                leadSourceRun
                                   ? 'recall-graph-detail-follow-on-group recall-graph-detail-follow-on-group-same-source'
                                   : 'recall-graph-detail-follow-on-group'
                               }
                               role="listitem"
                             >
                               <div className="recall-graph-detail-follow-on-group-header">
-                                <strong>{sourceRun.continuesPrimarySource ? 'Same source' : sourceRun.documentTitle}</strong>
+                                <strong>{leadSourceRun ? 'Lead source' : sourceRun.documentTitle}</strong>
                                 <span>{formatCountLabel(sourceRun.mentions.length, 'mention', 'mentions')}</span>
                               </div>
                               <p className="recall-graph-detail-follow-on-group-copy">{leadExcerpt}</p>
@@ -3377,89 +6916,115 @@ export function RecallWorkspace({
                               ) : null}
                             </article>
                           )
-                        })}
-                        {hiddenContinuationSourceRunCount > 0 ? (
-                          <div className="recall-graph-detail-follow-on-remainder" role="listitem">
-                            {formatCountLabel(hiddenContinuationSourceRunCount, 'more grouped source run', 'more grouped source runs')} hidden until you expand them.
-                          </div>
+                        })
+                      ) : (
+                        <div className="recall-graph-detail-tab-empty" role="listitem">
+                          No original source runs are available for this card yet.
+                        </div>
+                      )}
+                      {hiddenMentionSourceRunCount > 0 ? (
+                        <div className="recall-graph-detail-follow-on-remainder" role="listitem">
+                          {formatCountLabel(hiddenMentionSourceRunCount, 'more grouped source run', 'more grouped source runs')} hidden until you expand them.
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+                ) : null}
+
+                {graphDetailView === 'connections' ? (
+                  <section
+                    aria-labelledby="graph-detail-tab-connections"
+                    className="recall-graph-detail-panel recall-graph-detail-relations recall-graph-detail-relations-drawer-reset"
+                    id="graph-detail-panel-connections"
+                    role="tabpanel"
+                  >
+                    <div className="recall-graph-detail-follow-on-header">
+                      <div className="section-header section-header-compact">
+                        <h3>Connections</h3>
+                        <p>Follow linked cards from here while the working trail keeps your broader path visible.</p>
+                      </div>
+                      <div className="recall-graph-detail-follow-on-header-actions">
+                        <span className="recall-graph-detail-follow-on-summary">
+                          {formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')}
+                        </span>
+                        {selectedNodeEdges.length > 2 ? (
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() => setGraphDetailRelationsExpanded((current) => !current)}
+                          >
+                            {graphDetailRelationsExpanded ? 'Show less' : `Show all ${selectedNodeEdges.length}`}
+                          </button>
                         ) : null}
                       </div>
-                    </section>
-                  ) : null}
-
-                  {selectedNodeEdges.length ? (
-                    <section className="recall-graph-detail-relations">
-                      <div className="recall-graph-detail-follow-on-header">
-                        <div className="section-header section-header-compact">
-                          <h3>Nearby relations</h3>
-                          <p>Links stay attached beneath the main clue instead of becoming a separate stage.</p>
-                        </div>
-                        <div className="recall-graph-detail-follow-on-header-actions">
-                          <span className="recall-graph-detail-follow-on-summary">
-                            {formatCountLabel(selectedNodeEdges.length, 'relation', 'relations')}
-                          </span>
-                          {selectedNodeEdges.length > 2 ? (
-                            <button
-                              className="ghost-button"
-                              type="button"
-                              onClick={() => setGraphDetailRelationsExpanded((current) => !current)}
+                    </div>
+                    <div className="recall-search-results recall-graph-detail-relation-list" role="list" aria-label="Selected node connections">
+                      {visibleRelations.length ? (
+                        visibleRelations.map((edge) => {
+                          const counterpartLabel = getGraphEdgeCounterpartLabel(edge, selectedNodeDetail.node.id)
+                          const counterpartNodeId = getGraphEdgeCounterpartId(edge, selectedNodeDetail.node.id)
+                          const canFollowConnection = graphNodeById.has(counterpartNodeId)
+                          return (
+                            <div
+                              key={`${selectedNodeDetail.node.id}:${edge.id}`}
+                              className="recall-search-hit recall-edge-card recall-evidence-card recall-graph-detail-relation-card"
+                              role="listitem"
                             >
-                              {graphDetailRelationsExpanded ? 'Show less' : `Show all ${selectedNodeEdges.length}`}
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="recall-search-results recall-graph-detail-relation-list" role="list" aria-label="Selected node relations">
-                        {visibleRelations.map((edge) => (
-                          <div
-                            key={`${selectedNodeDetail.node.id}:${edge.id}`}
-                            className="recall-search-hit recall-edge-card recall-evidence-card recall-graph-detail-relation-card"
-                            role="listitem"
-                          >
-                            <span className="recall-collection-row-head">
-                              <strong>{edge.source_label} {formatRelationLabel(edge.relation_type)} {edge.target_label}</strong>
-                              <span>{Math.round(edge.confidence * 100)}%</span>
-                            </span>
-                            {edge.excerpt ? <span className="recall-collection-row-preview">{edge.excerpt}</span> : null}
-                            <span className="recall-collection-row-meta">
-                              <span className="status-chip">{edge.status}</span>
-                              <span className="status-chip">{edge.provenance}</span>
-                              <span className="status-chip">{formatCountLabel(edge.evidence_count, 'evidence span', 'evidence spans')}</span>
-                            </span>
-                            <div className="recall-actions recall-actions-inline">
-                              <button
-                                disabled={graphBusyKey === `edge:${edge.id}:confirmed`}
-                                type="button"
-                                onClick={() => handleDecideEdge(edge, 'confirmed')}
-                              >
-                                Confirm
-                              </button>
-                              <button
-                                className="ghost-button"
-                                disabled={graphBusyKey === `edge:${edge.id}:rejected`}
-                                type="button"
-                                onClick={() => handleDecideEdge(edge, 'rejected')}
-                              >
-                                Reject
-                              </button>
-                              {edge.source_document_ids[0] ? (
+                              <span className="recall-collection-row-head">
+                                <strong>{edge.source_label} {formatRelationLabel(edge.relation_type)} {edge.target_label}</strong>
+                                <span>{Math.round(edge.confidence * 100)}%</span>
+                              </span>
+                              {edge.excerpt ? <span className="recall-collection-row-preview">{edge.excerpt}</span> : null}
+                              <span className="recall-collection-row-meta">
+                                <span className="status-chip">{edge.status}</span>
+                                <span className="status-chip">{edge.provenance}</span>
+                                <span className="status-chip">{formatCountLabel(edge.evidence_count, 'evidence span', 'evidence spans')}</span>
+                              </span>
+                              <div className="recall-actions recall-actions-inline">
+                                {canFollowConnection ? (
+                                  <button type="button" onClick={() => handleFollowGraphConnection(edge)}>
+                                    {`Follow ${counterpartLabel}`}
+                                  </button>
+                                ) : null}
                                 <button
                                   className="ghost-button"
+                                  disabled={graphBusyKey === `edge:${edge.id}:confirmed`}
                                   type="button"
-                                  onClick={() => handleOpenEdgeInReader(edge)}
+                                  onClick={() => handleDecideEdge(edge, 'confirmed')}
                                 >
-                                  {buildOpenReaderLabel(documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source')}
+                                  Confirm
                                 </button>
-                              ) : null}
+                                <button
+                                  className="ghost-button"
+                                  disabled={graphBusyKey === `edge:${edge.id}:rejected`}
+                                  type="button"
+                                  onClick={() => handleDecideEdge(edge, 'rejected')}
+                                >
+                                  Reject
+                                </button>
+                                {edge.source_document_ids[0] ? (
+                                  <button
+                                    className="ghost-button"
+                                    type="button"
+                                    onClick={() => handleOpenEdgeInReader(edge)}
+                                  >
+                                    {buildOpenReaderLabel(documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source')}
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+                          )
+                        })
+                      ) : (
+                        <div className="recall-graph-detail-tab-empty" role="listitem">
+                          No linked cards are available for this card yet.
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            )}
           </div>
         ) : null}
       </section>
@@ -4093,138 +7658,275 @@ export function RecallWorkspace({
   }
 
   function renderGraphBrowseSection() {
-    const graphSelectedNodeSummary = selectedNodeDetail
-      ? [
-          formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions'),
-          formatCountLabel(selectedNodeEdges.length, 'relation', 'relations'),
-        ].join(' · ')
+    const graphDetailExpanded = Boolean(selectedNodeDetail) && graphDetailPeekOpen
+    const graphSelectedNodeSummary = selectedGraphNode
+      ? selectedNodeDetail
+        ? [
+            formatCountLabel(selectedNodeDetail.mentions.length, 'mention', 'mentions'),
+            formatCountLabel(selectedNodeEdges.length, 'relation', 'relations'),
+          ].join(' · ')
+        : [
+            formatCountLabel(selectedGraphNode.mention_count, 'mention', 'mentions'),
+            formatCountLabel(selectedGraphNode.document_count, 'source doc', 'source docs'),
+          ].join(' · ')
       : `${graphSnapshot?.nodes.length ?? 0} nodes ready for review.`
     const graphSelectedNodeSourceLabel =
       selectedNodeDetail?.mentions[0]?.document_title ??
-      (selectedNodeDetail?.node.source_document_ids[0]
-        ? documentTitleById.get(selectedNodeDetail.node.source_document_ids[0]) ?? 'Saved source'
+      (selectedGraphNode?.source_document_ids[0]
+        ? documentTitleById.get(selectedGraphNode.source_document_ids[0]) ?? 'Saved source'
         : null)
-    const graphHeaderGuide = selectedNodeDetail
-      ? 'Canvas leads, while one attached inspect tray keeps the grounded clue and grouped follow-on evidence nearby.'
-      : 'Browse the map first, then open one attached tray only when you want grounded evidence and nearby relations.'
+    const graphSelectedNodeSourceDocumentId = selectedNodeDetail?.mentions[0]?.source_document_id ?? selectedGraphNode?.source_document_ids[0] ?? null
+    const graphSelectedNodeTypeLabel = selectedGraphNode ? formatGraphNodeTypeLabel(selectedGraphNode.node_type) : null
+    const graphPathStartNode = graphPathSelectedNodes[0] ?? null
+    const graphPathEndNode = graphPathSelectedNodes[1] ?? null
+    const graphPathEndpointSummary =
+      graphPathStartNode && graphPathEndNode
+        ? `${graphPathStartNode.label} to ${graphPathEndNode.label}`
+        : graphPathStartNode?.label ?? 'Path selection'
+    const graphPathPreviewNodes = graphPathVisibleResult
+      ? graphPathVisibleResult.nodeIds
+          .map((nodeId) => graphNodeById.get(nodeId) ?? null)
+          .filter((node): node is KnowledgeNodeRecord => Boolean(node))
+      : graphPathSelectedNodes
+    const graphPathResultNodeCount = graphPathVisibleResult?.nodeIds.length ?? 0
+    const graphPathResultStepCount = Math.max(graphPathResultNodeCount - 1, 0)
+    const graphPathModeSummary = graphPathResultActive
+      ? graphPathVisibleResult
+        ? `${formatCountLabel(graphPathResultNodeCount, 'node', 'nodes')} across ${formatCountLabel(graphPathResultStepCount, 'step', 'steps')}`
+        : graphPathSelectionVisible
+          ? 'No visible path'
+          : 'Path hidden by current view'
+      : graphPathSelectionReady
+        ? '2 nodes selected'
+        : graphPathSelectionActive
+          ? '1 node selected'
+          : null
+    const graphControlStateLabel = graphPathSelectionActive
+      ? 'Path'
+      : selectedGraphNode
+        ? 'Focus'
+        : graphSearchActive
+          ? 'Search'
+          : graphTimelineActive
+            ? 'Timeline'
+            : graphContentFilterActive || graphFilterActive
+              ? 'Filtered'
+              : graphActivePresetLabel
+    const graphFocusRailKicker = graphPathSelectionActive ? 'Path' : selectedGraphNode ? 'Focus' : graphFocusTrailNodes.length ? 'Path' : 'Graph'
+    const graphFocusRailTitle = graphPathSelectionActive
+      ? graphPathResultActive
+        ? graphPathVisibleResult
+          ? 'Shortest visible path'
+          : graphPathSelectionVisible
+            ? 'No visible path'
+            : 'Path hidden by current view'
+        : graphPathSelectionReady
+          ? 'Ready to find a path'
+          : 'Path selection'
+      : selectedGraphNode
+        ? selectedGraphNode.label
+        : graphFocusTrailNodes.length
+          ? 'Recent path'
+          : 'Working trail'
+    const graphFocusRailSummary = graphPathSelectionActive
+      ? graphPathResultActive
+        ? graphPathVisibleResult
+          ? `${graphPathModeSummary} from ${graphPathEndpointSummary}.`
+          : graphPathSelectionVisible
+            ? `No visible route connects ${graphPathEndpointSummary}. Try broader depth or clearer filters.`
+            : 'One selected node is outside the current visible graph. Broaden depth or clear filters.'
+        : graphPathSelectionReady
+          ? `Find the shortest visible route between ${graphPathEndpointSummary}.`
+          : graphPathStartNode
+            ? 'Choose one more node with Ctrl/Cmd-click, Shift-click, or a right-click on the canvas.'
+            : 'Choose up to two visible nodes to trace a path.'
+      : selectedGraphNode
+        ? graphSelectedNodeSourceLabel
+          ? `${graphSelectedNodeTypeLabel ?? 'Node'} from ${graphSelectedNodeSourceLabel}`
+          : graphSelectedNodeTypeLabel ?? graphSelectedNodeSummary
+        : graphFocusTrailNodes.length
+          ? 'Jump back into the last nodes.'
+          : 'Select a node to start.'
+    const graphFocusRailMetaItems = graphPathSelectionActive
+      ? [
+          'Path mode',
+          graphPathModeSummary,
+          graphPathSelectionReady
+            ? graphPathSelectionVisible
+              ? 'Visible graph only'
+              : 'Selection partly hidden'
+            : null,
+        ].filter(Boolean)
+      : selectedGraphNode
+        ? ['Focus mode', graphSelectedNodeSummary, graphSelectedNodeSourceLabel ? `Source: ${graphSelectedNodeSourceLabel}` : null].filter(Boolean)
+        : graphFocusTrailNodes.length
+          ? [`${graphFocusTrailNodes.length} recent ${graphFocusTrailNodes.length === 1 ? 'node' : 'nodes'}`]
+          : ['Path and source jumps appear here.']
+    const graphFocusRailTrailNodes = graphPathSelectionActive ? graphPathPreviewNodes.slice(0, 6) : graphFocusTrailNodes.slice(0, 5)
+    const graphJumpBackNode = !graphPathSelectionActive && selectedNodeId ? graphFocusTrailNodes[1] ?? null : null
+    const graphFocusRailClassName = [
+      'recall-graph-focus-rail',
+      graphPathSelectionActive
+        ? 'recall-graph-focus-rail-path-active'
+        : selectedGraphNode
+        ? 'recall-graph-focus-rail-node-active'
+        : graphFocusRailTrailNodes.length
+          ? 'recall-graph-focus-rail-trail-active'
+          : 'recall-graph-focus-rail-idle',
+    ]
+      .filter(Boolean)
+      .join(' ')
+    const graphDrawerIntro =
+      'Save, update, rename, and reset graph views here while selected-node work stays in the trail and detail drawer.'
+    const graphBrowseToggleLabel = graphBrowseDrawerOpen ? 'Hide settings' : 'Show settings'
+    const graphBrowseToggleGlyph = graphBrowseDrawerOpen ? '<' : '>'
+    const graphResetActionVisible =
+      Boolean(graphFilterQuery.trim()) ||
+      Boolean(graphSearchQuery.trim()) ||
+      Boolean(selectedNodeId) ||
+      graphTimelineEnabled ||
+      graphContentFilterActive ||
+      graphColorGroupMode !== 'source' ||
+      graphPathSelectionActive ||
+      graphLayoutLocked ||
+      graphViewportUserAdjusted ||
+      Object.keys(graphManualNodePositions).length > 0
+    const graphQuickPickSectionSummary = graphFilterActive
+      ? graphQuickPickSectionNote ?? 'Text filter keeps matching nodes in view.'
+      : graphTimelineActive
+        ? `Step through ${graphTimelineStep?.label ?? 'saved-source history'}.`
+        : graphContentFilterActive
+          ? `${graphContentFilterSummary} kept in view.`
+      : graphSearchActive
+        ? 'Search keeps matching nodes in view.'
+        : 'Jump to visible nodes.'
+    const graphAppearanceSummary = [
+      graphColorGroupModeLabel,
+      graphHoverFocusEnabled ? 'Hover focus on' : 'Hover focus off',
+      graphShowNodeCounts ? 'Counts visible' : 'Counts hidden',
+    ].join(' · ')
+    const graphSearchStatusLabel = graphSearchActive
+      ? graphSearchMatchCount > 0
+        ? `${graphSearchMatchPosition + 1} of ${graphSearchMatchCount}`
+        : '0 matches'
+      : 'Search'
+    const graphSearchStatusSummary = graphSearchActive
+      ? graphSearchMatchCount > 0
+        ? `${graphSearchMatchCount} ${graphSearchMatchCount === 1 ? 'node' : 'nodes'} by title`
+        : 'No node titles match'
+      : 'Find node titles'
+    const graphCornerStatusLabel = graphPathSelectionActive
+      ? graphPathResultActive
+        ? graphPathVisibleResult
+          ? 'Path highlighted'
+          : graphPathSelectionVisible
+            ? 'No visible path'
+            : 'Path hidden by current view'
+        : graphPathSelectionReady
+          ? 'Path ready'
+          : '1 node selected'
+      : selectedGraphNode
+        ? 'Focus mode active'
+        : graphSearchActive
+          ? graphSearchStatusSummary
+          : graphTimelineActive
+            ? graphTimelineStatusLabel
+            : graphLayoutLocked
+              ? 'Layout locked'
+              : graphContentFilterActive
+                ? graphContentFilterSummary || 'Content filters active'
+                : graphFilterActive
+                  ? 'Text filter active'
+                  : graphColorGroupMode !== 'source'
+                    ? graphColorGroupModeLabel
+                  : graphPresetStatusLabel
+    const graphViewportScaleLabel = `${Math.round(graphViewport.scale * 100)}%`
+    const graphViewControlStatusLabel = graphLayoutLocked
+      ? graphDraggingNodeId
+        ? 'Adjusting layout'
+        : 'Locked layout'
+      : graphCanvasPanning
+        ? 'Panning graph'
+        : 'Unlocked'
+    const hoveredGraphNodeSourceLabel = hoveredGraphNodeLayout?.node.source_document_ids[0]
+      ? documentTitleById.get(hoveredGraphNodeLayout.node.source_document_ids[0]) ?? null
+      : null
+    const hoveredGraphNodeMeta = hoveredGraphNodeLayout
+      ? graphNodeMetaById.get(hoveredGraphNodeLayout.node.id) ?? null
+      : null
+    const hoveredGraphNodeSourceBucketLabel = hoveredGraphNodeMeta
+      ? formatGraphSourceTypeLabel(hoveredGraphNodeMeta.primarySourceBucket)
+      : null
+    const hoveredGraphNodeFirstSeenLabel = hoveredGraphNodeMeta?.firstSeenLabel
+      ? `Since ${hoveredGraphNodeMeta.firstSeenLabel}`
+      : null
+    const hoveredGraphNodeTypeLabel = hoveredGraphNodeLayout
+      ? formatGraphNodeTypeLabel(hoveredGraphNodeLayout.node.node_type)
+      : null
+    const hoveredGraphNodeSummary = hoveredGraphNodeLayout
+      ? [
+          formatCountLabel(hoveredGraphNodeLayout.node.mention_count, 'mention', 'mentions'),
+          formatCountLabel(hoveredGraphNodeLayout.node.document_count, 'source doc', 'source docs'),
+        ].join(' · ')
+      : null
+    const hoveredGraphNodePreview = hoveredGraphNodeLayout
+      ? getGraphNodePreview(hoveredGraphNodeLayout.node)
+      : null
+    const graphHoverPreviewAlignmentClassName = hoveredGraphNodeLayout
+      ? [
+          hoveredGraphNodeLayout.x > 64
+            ? 'recall-graph-hover-preview-align-left'
+            : 'recall-graph-hover-preview-align-right',
+          hoveredGraphNodeLayout.y < 30
+            ? 'recall-graph-hover-preview-align-below'
+            : 'recall-graph-hover-preview-align-above',
+        ].join(' ')
+      : ''
+    const graphLegendClassName = [
+      'recall-graph-browser-legend',
+      'recall-graph-browser-legend-overlay',
+      graphDetailExpanded
+        ? 'recall-graph-browser-legend-detail-expanded'
+        : selectedNodeDetail
+          ? 'recall-graph-browser-legend-detail-peek'
+          : 'recall-graph-browser-legend-detail-empty',
+    ]
+      .filter(Boolean)
+      .join(' ')
+    const graphCanvasShellClassName = [
+      'recall-graph-canvas-shell',
+      'recall-graph-canvas-shell-finish',
+      'recall-graph-canvas-shell-parity-reset',
+      'recall-graph-canvas-shell-v20-reset',
+      graphBrowseDrawerOpen ? 'recall-graph-canvas-shell-tools-open' : 'recall-graph-canvas-shell-tools-collapsed',
+      selectedNodeDetail
+        ? graphDetailExpanded
+          ? 'recall-graph-canvas-shell-detail-expanded'
+          : 'recall-graph-canvas-shell-detail-peek'
+        : 'recall-graph-canvas-shell-detail-empty',
+      ]
+      .filter(Boolean)
+      .join(' ')
+    const graphCanvasClassName = [
+      'recall-graph-canvas',
+      graphCanvasPanning ? 'recall-graph-canvas-panning' : '',
+      graphLayoutLocked ? 'recall-graph-canvas-layout-locked' : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+    const graphViewportStageClassName = [
+      'recall-graph-canvas-viewport-stage',
+      graphCanvasPanning ? 'recall-graph-canvas-viewport-stage-panning' : '',
+      graphLayoutLocked ? 'recall-graph-canvas-viewport-stage-locked' : '',
+      graphDraggingNodeId ? 'recall-graph-canvas-viewport-stage-dragging' : '',
+      graphViewport.scale !== 1 ? 'recall-graph-canvas-viewport-stage-zoomed' : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
 
     return (
-      <div className="recall-graph-browser-layout recall-graph-browser-layout-milestone-reset">
-        <div className="recall-graph-browser-header recall-graph-browser-header-finish priority-surface-stage-shell">
-          <div
-            className="recall-graph-browser-surface-intro recall-graph-browser-surface-intro-milestone"
-            aria-label="Graph surface intro"
-          >
-            <span className="eyebrow">Graph workspace</span>
-            <strong>{selectedNodeDetail ? 'Canvas leads. Inspect in one tray.' : 'Graph canvas first.'}</strong>
-            <span>{graphHeaderGuide}</span>
-          </div>
-          <div className="recall-graph-browser-header-utility">
-            <div className="recall-graph-browser-header-meta" role="list" aria-label="Graph metrics">
-              <span className="status-chip" role="listitem">{graphSidebarGlanceLabel}</span>
-              <span className="status-chip status-muted" role="listitem">{graphSidebarGlanceMeta}</span>
-            </div>
-            {selectedNodeDetail ? (
-              <div className="recall-graph-browser-header-selected" aria-label="Selected node overview">
-                <span className="recall-graph-browser-node-peek-kicker">Inspecting</span>
-                <strong>{selectedNodeDetail.node.label}</strong>
-                <span>{graphSelectedNodeSummary}</span>
-                {graphSelectedNodeSourceLabel ? (
-                  <span className="recall-graph-browser-node-peek-source">{graphSelectedNodeSourceLabel}</span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div
-          className={
-            graphBrowseDrawerOpen
-              ? 'recall-graph-browser-workspace recall-graph-browser-workspace-tools-open'
-              : 'recall-graph-browser-workspace recall-graph-browser-workspace-tools-collapsed'
-          }
-        >
-          {graphBrowseDrawerOpen ? (
-            <aside aria-label="Graph selector strip" className="recall-graph-browser-utility-strip">
-              <div className="recall-graph-browser-utility-shell recall-graph-browser-utility-shell-finish priority-surface-support-rail">
-                <div className="recall-graph-browser-utility-shell-topline">
-                  <div className="recall-graph-browser-utility-header" aria-label="Graph glance">
-                    <span className="recall-graph-browser-node-peek-kicker">Browse</span>
-                    <strong>{graphSidebarGlanceLabel}</strong>
-                    <span>{graphSidebarGlanceMeta}</span>
-                  </div>
-                  <button
-                    aria-label="Hide graph selector strip"
-                    className="ghost-button recall-graph-sidebar-toggle"
-                    type="button"
-                    onClick={() => setBrowseDrawerOpen('graph', false)}
-                  >
-                    Hide
-                  </button>
-                </div>
-                <div className="recall-graph-browser-utility-controls">
-                  <label className="field recall-inline-field recall-graph-sidebar-search">
-                    <span className="visually-hidden">Find nodes</span>
-                    <input
-                      aria-label="Find nodes"
-                      type="search"
-                      placeholder="Search node, type, or alias"
-                      value={graphFilterQuery}
-                      onChange={(event) => setGraphFilterQuery(event.target.value)}
-                    />
-                  </label>
-                </div>
-                <div className="recall-graph-browser-node-peek recall-graph-browser-node-peek-selected-strip">
-                  <span className="recall-graph-browser-node-peek-kicker">Current node</span>
-                  <strong>{selectedNodeDetail?.node.label ?? 'No node pinned yet'}</strong>
-                  <span>{selectedNodeDetail ? graphSelectedNodeSummary : 'Pick from the map or the list to inspect one clue.'}</span>
-                  {graphSelectedNodeSourceLabel ? (
-                    <span className="recall-graph-browser-node-peek-source">{graphSelectedNodeSourceLabel}</span>
-                  ) : null}
-                </div>
-                <div className="recall-graph-browser-utility-list-head">
-                  <strong>{graphQuickPickSectionLabel}</strong>
-                  <span>
-                    {graphFilterActive && graphQuickPickSectionNote
-                      ? graphQuickPickSectionNote
-                      : 'Pick a node from the list or the canvas.'}
-                  </span>
-                </div>
-                <div className="recall-graph-quick-picks" role="list" aria-label={graphQuickPickSectionLabel}>
-                  {graphLoading ? <p className="small-note recall-graph-sidebar-status">Loading nodes…</p> : null}
-                  {!graphLoading && graphStatus === 'error' ? (
-                    <p className="small-note recall-graph-sidebar-status">Graph unavailable.</p>
-                  ) : null}
-                  {!graphLoading && graphStatus !== 'error' && !graphSnapshot?.nodes.length ? (
-                    <p className="small-note recall-graph-sidebar-status">No nodes yet.</p>
-                  ) : null}
-                  {!graphLoading && graphStatus !== 'error' && graphSnapshot?.nodes.length && !filteredGraphNodes.length ? (
-                    <p className="small-note recall-graph-sidebar-status">No matches yet.</p>
-                  ) : null}
-                  {graphQuickPickNodes.map((node) => renderGraphQuickPick(node))}
-                </div>
-              </div>
-            </aside>
-          ) : (
-            <div className="recall-graph-browser-collapsed-utility">
-              <button
-                aria-label="Show graph selector strip"
-                className="ghost-button"
-                type="button"
-                onClick={() => setBrowseDrawerOpen('graph', true)}
-              >
-                Show graph tools
-              </button>
-              <div className="recall-graph-browser-node-peek recall-graph-browser-node-peek-inline">
-                <span className="recall-graph-browser-node-peek-kicker">Selected</span>
-                <strong>{selectedNodeDetail?.node.label ?? 'Graph canvas ready'}</strong>
-                <span>{graphSelectedNodeSummary}</span>
-              </div>
-            </div>
-          )}
-
-          <section className="stack-gap recall-graph-browser-surface recall-graph-browser-surface-unboxed recall-graph-browser-surface-milestone-reset">
-
+      <div className="recall-graph-browser-layout recall-graph-browser-layout-milestone-reset recall-graph-browser-layout-parity-reset recall-graph-browser-layout-v20-reset">
+        <section className="stack-gap recall-graph-browser-surface recall-graph-browser-surface-unboxed recall-graph-browser-surface-milestone-reset recall-graph-browser-surface-parity-reset recall-graph-browser-surface-v20-reset">
           {graphLoading ? <div className="recall-library-inline-state" role="status">Loading graph canvas…</div> : null}
           {!graphLoading && graphStatus === 'error' ? (
             <div className="recall-library-inline-state" role="alert">
@@ -4246,73 +7948,858 @@ export function RecallWorkspace({
           ) : null}
 
           {!graphLoading && graphStatus !== 'error' && graphCanvasNodes.length > 0 ? (
-            <div className="recall-graph-browser-stage recall-graph-browser-stage-milestone-reset">
-              <div className="recall-graph-canvas-shell recall-graph-canvas-shell-finish">
-                <div className="recall-graph-canvas" aria-label="Knowledge graph canvas" role="region">
-                  <div className="recall-graph-canvas-grid" aria-hidden="true" />
-                  <svg
-                    aria-hidden="true"
-                    className="recall-graph-canvas-svg"
-                    preserveAspectRatio="none"
-                    viewBox="0 0 100 100"
-                  >
-                    {graphCanvasEdges.map((edge) => {
-                      const sourcePosition = graphCanvasNodePositionById.get(edge.source_id)
-                      const targetPosition = graphCanvasNodePositionById.get(edge.target_id)
-                      if (!sourcePosition || !targetPosition) {
-                        return null
-                      }
-                      const edgeFocused = edge.source_id === graphCanvasFocusNodeId || edge.target_id === graphCanvasFocusNodeId
-                      return (
-                        <line
-                          key={edge.id}
-                          className={edgeFocused ? 'recall-graph-edge recall-graph-edge-focused' : 'recall-graph-edge'}
-                          x1={sourcePosition.x}
-                          x2={targetPosition.x}
-                          y1={sourcePosition.y}
-                          y2={targetPosition.y}
-                        />
-                      )
-                    })}
-                  </svg>
-                  <div className="recall-graph-node-layer">
-                    {graphCanvasNodes.map(({ emphasis, node, x, y }) => {
-                      const className = [
-                        'recall-graph-node-button',
-                        emphasis === 'focus'
-                          ? 'recall-graph-node-button-focus'
-                          : emphasis === 'linked'
-                            ? 'recall-graph-node-button-linked'
-                            : 'recall-graph-node-button-ambient',
-                        selectedNodeId === node.id ? 'recall-graph-node-button-active' : '',
-                        activeSourceDocumentId && node.source_document_ids.includes(activeSourceDocumentId)
-                          ? 'recall-graph-node-button-source-backed'
-                          : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')
-                      return (
-                        <button
-                          key={node.id}
-                          aria-label={`Select node ${node.label}`}
-                          aria-pressed={selectedNodeId === node.id}
-                          className={className}
-                          style={{ left: `${x}%`, top: `${y}%` }}
-                          type="button"
-                          onClick={() => handleSelectGraphNode(node)}
-                        >
-                          <strong>{node.label}</strong>
-                          <span>{node.node_type}</span>
-                        </button>
-                      )
-                    })}
+            <div className="recall-graph-browser-stage recall-graph-browser-stage-milestone-reset recall-graph-browser-stage-parity-reset recall-graph-browser-stage-v20-reset">
+              <div className={graphCanvasShellClassName}>
+                <div className="recall-graph-browser-control-seam recall-graph-browser-control-seam-overlay recall-graph-browser-control-seam-corner-reset" aria-label="Graph control seam">
+                  <div className="recall-graph-browser-control-overlay-primary recall-graph-browser-control-overlay-primary-workbench-reset recall-graph-browser-control-overlay-primary-corner-reset recall-graph-browser-control-overlay-primary-launcher-reset">
+                    <button
+                      aria-label={graphBrowseToggleLabel}
+                      className="ghost-button recall-graph-sidebar-toggle recall-graph-sidebar-toggle-compact"
+                      type="button"
+                      onClick={() => setBrowseDrawerOpen('graph', !graphBrowseDrawerOpen)}
+                    >
+                      {graphBrowseToggleGlyph}
+                    </button>
+                    <span className="status-chip status-muted recall-graph-browser-control-state-chip">
+                      {graphControlStateLabel}
+                    </span>
+                  </div>
+                  <div className="recall-graph-browser-control-actions recall-graph-browser-control-actions-overlay recall-graph-browser-control-actions-workbench-reset recall-graph-browser-control-actions-corner-reset recall-graph-browser-control-actions-navigation-reset">
+                    <label className="field recall-inline-field recall-graph-workbench-search">
+                      <span className="visually-hidden">Search graph</span>
+                      <input
+                        aria-label="Search graph"
+                        type="search"
+                        placeholder="Search titles"
+                        value={graphSearchQuery}
+                        onChange={(event) => setGraphSearchQuery(event.target.value)}
+                        onKeyDown={handleGraphSearchKeyDown}
+                      />
+                    </label>
+                    <div className="recall-graph-search-navigation" role="group" aria-label="Graph search navigation">
+                      <button
+                        className="ghost-button recall-graph-search-navigation-button"
+                        disabled={graphSearchMatchCount < 2}
+                        type="button"
+                        onClick={() => handleStepGraphSearchMatch(-1)}
+                      >
+                        Prev
+                      </button>
+                      <span className="status-chip status-muted recall-graph-search-navigation-status">
+                        {graphSearchStatusLabel}
+                      </span>
+                      <button
+                        className="ghost-button recall-graph-search-navigation-button"
+                        disabled={graphSearchMatchCount < 2}
+                        type="button"
+                        onClick={() => handleStepGraphSearchMatch(1)}
+                      >
+                        Next
+                      </button>
+                    </div>
+                    <div className="recall-graph-view-controls" role="group" aria-label="Graph view controls">
+                      <span className="status-chip status-muted recall-graph-view-controls-scale">
+                        {graphViewportScaleLabel}
+                      </span>
+                      <button
+                        className="ghost-button recall-graph-view-controls-button"
+                        type="button"
+                        onClick={handleFitGraphToView}
+                      >
+                        Fit to view
+                      </button>
+                      <button
+                        className="ghost-button recall-graph-view-controls-button"
+                        type="button"
+                        onClick={handleToggleGraphLayoutLock}
+                      >
+                        {graphLayoutLocked ? 'Unlock graph' : 'Lock graph'}
+                      </button>
+                    </div>
+                    {graphResetActionVisible ? (
+                      <button
+                        className="ghost-button recall-graph-browser-control-reset-button"
+                        type="button"
+                        onClick={handleResetGraphView}
+                      >
+                        Show all
+                      </button>
+                    ) : null}
+                    <div
+                      className="recall-graph-browser-control-utility-status recall-graph-browser-control-utility-status-workbench-reset"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <span className="status-chip status-muted">{graphCornerStatusLabel}</span>
+                      <span className="status-chip status-muted recall-graph-view-controls-lock-status">
+                        {graphViewControlStatusLabel}
+                      </span>
+                      <span className="status-chip status-muted">{graphPresetStatusLabel}</span>
+                    </div>
                   </div>
                 </div>
-                <div className="recall-graph-canvas-shell-footer">
-                  <div className="recall-graph-browser-legend" role="list" aria-label="Graph legend">
-                    <span className="status-chip" role="listitem">Center node: active focus</span>
-                    <span className="status-chip status-muted" role="listitem">Inner orbit: directly linked</span>
-                    <span className="status-chip status-muted" role="listitem">Outer orbit: nearby concepts</span>
+
+                {graphBrowseDrawerOpen ? (
+                  <aside
+                    aria-label="Graph settings sidebar"
+                    className={[
+                      'recall-graph-browser-utility-strip',
+                      'recall-graph-browser-utility-strip-attached',
+                      'recall-graph-browser-utility-strip-drawer-reset',
+                      'recall-graph-browser-utility-strip-resizable',
+                      graphSettingsDrawerResizing ? 'recall-graph-browser-utility-strip-resizing' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    style={{ width: `${graphSettingsDrawerWidth}px` }}
+                  >
+                    <div className="recall-graph-browser-utility-shell recall-graph-browser-utility-shell-parity-reset recall-graph-browser-utility-shell-attached recall-graph-browser-utility-shell-workbench-reset recall-graph-browser-utility-shell-drawer-reset recall-graph-browser-utility-shell-settings-reset priority-surface-support-rail">
+                      <div className="recall-graph-browser-utility-header recall-graph-browser-utility-header-workbench-reset recall-graph-browser-utility-header-drawer-reset" aria-label="Graph settings panel">
+                        <span className="recall-graph-browser-node-peek-kicker">Settings</span>
+                        <strong>Graph settings</strong>
+                        <span>{graphDrawerIntro}</span>
+                      </div>
+                      <div className="recall-graph-browser-utility-meta recall-graph-browser-utility-meta-workbench-reset recall-graph-browser-utility-meta-drawer-reset" role="list" aria-label="Graph drawer status">
+                        {graphDrawerStatusItems.map((item) => (
+                          <span
+                            key={`graph-drawer-status:${item}`}
+                            className={item === graphDrawerStatusItems[0] ? 'status-chip' : 'status-chip status-muted'}
+                            role="listitem"
+                          >
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-presets-reset">
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Presets</strong>
+                          <span>{graphActivePresetDescription}</span>
+                        </div>
+                        <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-presets-reset" role="group" aria-label="Graph starter presets">
+                          {GRAPH_VIEW_PRESETS.map((preset) => (
+                            <button
+                              key={`graph-preset:${preset.key}`}
+                              aria-pressed={graphPresetBaseline?.kind === 'builtin' && graphPresetBaseline.key === preset.key}
+                              className={
+                                graphPresetBaseline?.kind === 'builtin' && graphPresetBaseline.key === preset.key
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              type="button"
+                              onClick={() => handleApplyGraphPreset(preset.key)}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                        <span className="recall-graph-sidebar-filter-note">
+                          Active view: {graphActivePresetLabel}
+                        </span>
+                        <div className="recall-graph-sidebar-saved-presets">
+                          <div className="recall-graph-sidebar-section-head">
+                            <strong>Saved views</strong>
+                            <span>Reuse named combinations of filters, timeline, groups, and appearance changes.</span>
+                          </div>
+                          {graphSavedPresets.length ? (
+                            <div className="recall-graph-sidebar-preset-list" role="list" aria-label="Saved graph presets">
+                              {graphSavedPresets.map((preset) => {
+                                const savedPresetActive =
+                                  graphPresetBaseline?.kind === 'saved' && graphPresetBaseline.id === preset.id
+                                return (
+                                  <span key={`graph-saved-preset:${preset.id}`} className="recall-graph-sidebar-preset-entry" role="listitem">
+                                    <button
+                                      aria-pressed={savedPresetActive}
+                                      className={
+                                        savedPresetActive
+                                          ? 'recall-graph-sidebar-preset-item recall-graph-sidebar-preset-item-active'
+                                          : 'recall-graph-sidebar-preset-item'
+                                      }
+                                      type="button"
+                                      onClick={() => handleApplySavedGraphPreset(preset.id)}
+                                    >
+                                      <span className="recall-graph-sidebar-preset-item-topline">
+                                        <strong>{preset.name}</strong>
+                                        <span className={savedPresetActive && graphPresetDirty ? 'status-chip' : 'status-chip status-muted'}>
+                                          {savedPresetActive && graphPresetDirty ? 'Modified' : 'Saved'}
+                                        </span>
+                                      </span>
+                                      <span className="recall-graph-sidebar-preset-item-summary">
+                                        {buildGraphPresetSummary(preset.snapshot)}
+                                      </span>
+                                    </button>
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <span className="recall-graph-sidebar-filter-note">
+                              No saved views yet. Save the current graph setup when it becomes worth reusing.
+                            </span>
+                          )}
+                          <label className="field recall-inline-field recall-graph-sidebar-preset-name">
+                            <span className="recall-graph-browser-node-peek-kicker">Preset name</span>
+                            <input
+                              aria-label="Graph preset name"
+                              type="text"
+                              placeholder="Name this view"
+                              value={graphPresetDraftName}
+                              onChange={(event) => setGraphPresetDraftName(event.target.value)}
+                            />
+                          </label>
+                          <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-preset-actions" role="group" aria-label="Graph preset actions">
+                            <button
+                              className="ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active"
+                              type="button"
+                              onClick={handleSaveNewGraphPreset}
+                            >
+                              Save new preset
+                            </button>
+                            <button
+                              className="ghost-button recall-graph-sidebar-toggle-chip"
+                              disabled={!graphCanUpdateSavedPreset}
+                              type="button"
+                              onClick={handleUpdateGraphPreset}
+                            >
+                              Update preset
+                            </button>
+                            <button
+                              className="ghost-button recall-graph-sidebar-toggle-chip"
+                              disabled={!graphCanRenameSavedPreset}
+                              type="button"
+                              onClick={handleRenameGraphPreset}
+                            >
+                              Rename preset
+                            </button>
+                            <button
+                              className="ghost-button recall-graph-sidebar-toggle-chip"
+                              disabled={!graphCanDeleteSavedPreset}
+                              type="button"
+                              onClick={handleDeleteGraphPreset}
+                            >
+                              Delete preset
+                            </button>
+                            <button
+                              className="ghost-button recall-graph-sidebar-toggle-chip"
+                              type="button"
+                              onClick={handleResetGraphPresetDefaults}
+                            >
+                              Reset to defaults
+                            </button>
+                          </div>
+                          <span className="recall-graph-sidebar-filter-note">{graphPresetStatusNote}</span>
+                        </div>
+                      </section>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-filter-reset">
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Text filter</strong>
+                          <span>Narrow visible labels and aliases without changing title search.</span>
+                        </div>
+                        <label className="field recall-inline-field recall-graph-sidebar-filter">
+                          <span className="recall-graph-browser-node-peek-kicker">Filter query</span>
+                          <input
+                            aria-label="Filter graph"
+                            type="search"
+                            placeholder="Filter visible labels or aliases"
+                            value={graphFilterQuery}
+                            onChange={(event) => setGraphFilterQuery(event.target.value)}
+                          />
+                          <span className="recall-graph-sidebar-filter-note">
+                            {graphFilterActive
+                              ? `${filteredGraphNodes.length} visible ${filteredGraphNodes.length === 1 ? 'node' : 'nodes'}`
+                              : 'Works alongside presets, timeline, and content filters.'}
+                          </span>
+                        </label>
+                      </section>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-timeline-reset">
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Timeline</strong>
+                          <span>
+                            {graphTimelineEnabled
+                              ? graphTimelineStep
+                                ? `${graphTimelineStep.documentCount} saved sources through ${graphTimelineStep.label}.`
+                                : 'Timeline ready for saved-source checkpoints.'
+                              : 'Reveal the graph as saved sources accumulate over time.'}
+                          </span>
+                        </div>
+                        <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-timeline-reset" role="group" aria-label="Graph timeline controls">
+                          <button
+                            aria-pressed={graphTimelineEnabled}
+                            className={
+                              graphTimelineEnabled
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={handleToggleGraphTimelineEnabled}
+                          >
+                            Timeline filter
+                          </button>
+                          <button
+                            aria-pressed={graphTimelinePlaying}
+                            className={
+                              graphTimelinePlaying
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            disabled={!graphTimelineEnabled || graphTimelineSteps.length < 2}
+                            type="button"
+                            onClick={handleToggleGraphTimelinePlayback}
+                          >
+                            {graphTimelinePlaying ? 'Pause timeline' : 'Play timeline'}
+                          </button>
+                        </div>
+                        <label className="recall-graph-sidebar-range" htmlFor="graph-timeline-range">
+                          <span className="recall-graph-sidebar-range-label">Graph timeline</span>
+                          <span className="recall-graph-sidebar-range-status">{graphTimelineStatusLabel}</span>
+                          <input
+                            id="graph-timeline-range"
+                            aria-label="Graph timeline"
+                            disabled={!graphTimelineEnabled || graphTimelineSteps.length < 2}
+                            max={Math.max(graphTimelineSteps.length - 1, 0)}
+                            min={0}
+                            type="range"
+                            value={graphTimelineSteps.length ? Math.min(graphTimelineIndex, graphTimelineSteps.length - 1) : 0}
+                            onChange={(event) => handleSetGraphTimelineIndex(Number(event.target.value))}
+                          />
+                        </label>
+                        <div className="recall-graph-sidebar-timeline-meta" role="list" aria-label="Timeline checkpoint status">
+                          <span className="status-chip status-muted" role="listitem">
+                            {graphTimelineSteps.length ? `${graphTimelineSteps.length} checkpoints` : 'No checkpoints'}
+                          </span>
+                          {graphTimelineStep?.title ? (
+                            <span className="status-chip status-muted" role="listitem">
+                              {graphTimelineStep.title}
+                            </span>
+                          ) : null}
+                        </div>
+                      </section>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-content-reset">
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Content</strong>
+                          <span>{graphContentFilterActive ? graphContentFilterSummary : 'Filter the graph by node or source type.'}</span>
+                        </div>
+                        <div className="recall-graph-sidebar-filter-groups">
+                          <div className="recall-graph-sidebar-filter-group">
+                            <span className="recall-graph-sidebar-filter-group-label">Node types</span>
+                            <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph node type filters">
+                              {graphAvailableNodeTypes.map((nodeType) => (
+                                <button
+                                  key={`graph-node-type:${nodeType}`}
+                                  aria-pressed={graphNodeTypeFilters.includes(nodeType)}
+                                  className={
+                                    graphNodeTypeFilters.includes(nodeType)
+                                      ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                      : 'ghost-button recall-graph-sidebar-toggle-chip'
+                                  }
+                                  type="button"
+                                  onClick={() => handleToggleGraphNodeTypeFilter(nodeType)}
+                                >
+                                  {formatGraphNodeTypeLabel(nodeType)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="recall-graph-sidebar-filter-group">
+                            <span className="recall-graph-sidebar-filter-group-label">Source types</span>
+                            <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph source type filters">
+                              {graphAvailableSourceTypes.map((sourceType) => (
+                                <button
+                                  key={`graph-source-type:${sourceType}`}
+                                  aria-pressed={graphSourceTypeFilters.includes(sourceType)}
+                                  className={
+                                    graphSourceTypeFilters.includes(sourceType)
+                                      ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                      : 'ghost-button recall-graph-sidebar-toggle-chip'
+                                  }
+                                  type="button"
+                                  onClick={() => handleToggleGraphSourceTypeFilter(sourceType)}
+                                >
+                                  {formatGraphSourceTypeLabel(sourceType)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </section>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-groups-reset">
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Groups</strong>
+                          <span>{graphColorGroupSummary}</span>
+                        </div>
+                        <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph color groups">
+                          {([
+                            ['source', 'Source type'],
+                            ['node', 'Node type'],
+                          ] as const).map(([mode, label]) => (
+                            <button
+                              key={`graph-group-mode:${mode}`}
+                              aria-pressed={graphColorGroupMode === mode}
+                              className={
+                                graphColorGroupMode === mode
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              type="button"
+                              onClick={() => handleSetGraphColorGroupMode(mode)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <span className="recall-graph-sidebar-filter-note">
+                          Legend follows {graphColorGroupMode === 'source' ? 'source type' : 'node type'} and toggles matching filters.
+                        </span>
+                      </section>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-depth-reset">
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>View</strong>
+                          <span>Control how much connected context stays visible around the current graph focus.</span>
+                        </div>
+                        <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-depth-reset" role="group" aria-label="Graph connection depth">
+                          {([1, 2, 3] as const).map((depth) => (
+                            <button
+                              key={`graph-depth:${depth}`}
+                              aria-pressed={graphConnectionDepth === depth}
+                              className={
+                                graphConnectionDepth === depth
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              type="button"
+                              onClick={() => handleSetGraphConnectionDepth(depth)}
+                            >
+                              {depth === 1 ? '1 hop' : depth === 2 ? '2 hops' : '3+ hops'}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-layout-reset">
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Layout</strong>
+                          <span>
+                            {graphLayoutLocked
+                              ? 'Unlock the graph to switch spacing presets. Locked mode keeps your manual arrangement in place.'
+                              : 'Spread nodes farther apart or keep the canvas denser for quicker scanning.'}
+                          </span>
+                        </div>
+                        <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-layout-reset" role="group" aria-label="Graph layout spacing">
+                          {([
+                            ['compact', 'Compact'],
+                            ['balanced', 'Balanced'],
+                            ['spread', 'Spread'],
+                          ] as const).map(([mode, label]) => (
+                            <button
+                              key={`graph-spacing:${mode}`}
+                              aria-pressed={graphSpacingMode === mode}
+                              className={
+                                graphSpacingMode === mode
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              disabled={graphLayoutLocked}
+                              type="button"
+                              onClick={() => handleSetGraphSpacingMode(mode)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-appearance-reset">
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Appearance</strong>
+                          <span>{graphAppearanceSummary}</span>
+                        </div>
+                        <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-appearance-reset" role="group" aria-label="Graph appearance">
+                          <button
+                            aria-pressed={graphHoverFocusEnabled}
+                            className={
+                              graphHoverFocusEnabled
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={handleToggleGraphHoverFocus}
+                          >
+                            Hover focus
+                          </button>
+                          <button
+                            aria-pressed={graphShowNodeCounts}
+                            className={
+                              graphShowNodeCounts
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={handleToggleGraphShowNodeCounts}
+                          >
+                            Show counts
+                          </button>
+                        </div>
+                      </section>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-jump-reset">
+                        <div className="recall-graph-browser-utility-list-head recall-graph-browser-utility-list-head-drawer-reset">
+                          <strong>{graphQuickPickSectionLabel}</strong>
+                          <span>{graphQuickPickSectionSummary}</span>
+                        </div>
+                        <div className="recall-graph-quick-picks" role="list" aria-label={graphQuickPickSectionLabel}>
+                          {graphQuickPickNodes.map((node) => renderGraphQuickPick(node))}
+                        </div>
+                      </section>
+                    </div>
+                    <div
+                      aria-label="Resize graph settings sidebar"
+                      aria-orientation="vertical"
+                      className="recall-graph-sidebar-resize-handle"
+                      role="separator"
+                      tabIndex={0}
+                      onDoubleClick={handleResetGraphSettingsDrawerWidth}
+                      onKeyDown={handleGraphSettingsDrawerResizeKeyDown}
+                      onPointerDown={handleStartGraphSettingsDrawerResize}
+                    >
+                      <span className="recall-graph-sidebar-resize-grip" aria-hidden="true" />
+                    </div>
+                  </aside>
+                ) : null}
+
+                <div className="recall-graph-canvas-shell-main">
+                  <div
+                    ref={graphCanvasViewportRef}
+                    aria-label="Knowledge graph canvas"
+                    className={graphCanvasClassName}
+                    role="region"
+                    onLostPointerCapture={() => finishGraphCanvasPan()}
+                    onPointerCancel={() => finishGraphCanvasPan()}
+                    onPointerDown={handleGraphCanvasPointerDown}
+                    onPointerMove={handleGraphCanvasPointerMove}
+                    onPointerUp={(event) => {
+                      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture?.(event.pointerId)
+                      }
+                      finishGraphCanvasPan(event.pointerId)
+                    }}
+                    onWheel={handleGraphCanvasWheel}
+                  >
+                    <div className="recall-graph-canvas-pan-surface">
+                      <div
+                        className={graphViewportStageClassName}
+                        data-graph-layout-lock={graphLayoutLocked ? 'locked' : 'unlocked'}
+                        data-graph-scale={graphViewport.scale.toFixed(2)}
+                        style={{
+                          transform: `translate(-50%, -50%) translate(${graphViewport.offsetX}px, ${graphViewport.offsetY}px) scale(${graphViewport.scale})`,
+                        }}
+                      >
+                        <div className="recall-graph-canvas-grid" aria-hidden="true" />
+                        <svg
+                          aria-hidden="true"
+                          className="recall-graph-canvas-svg"
+                          preserveAspectRatio="none"
+                          viewBox="0 0 100 100"
+                        >
+                          {graphCanvasEdges.map((edge) => {
+                            const sourcePosition = graphCanvasNodePositionById.get(edge.source_id)
+                            const targetPosition = graphCanvasNodePositionById.get(edge.target_id)
+                            if (!sourcePosition || !targetPosition) {
+                              return null
+                            }
+                            const edgeFocused = edge.source_id === graphCanvasFocusNodeId || edge.target_id === graphCanvasFocusNodeId
+                            const edgePathHighlighted = Boolean(graphPathVisibleResult) && graphPathResultEdgeIds.has(edge.id)
+                            const edgePathDimmed = Boolean(graphPathVisibleResult) && graphPathResultActive && !edgePathHighlighted
+                            const edgeSelectedRelated =
+                              !graphSelectedFocusNodeId ||
+                              edge.source_id === graphSelectedFocusNodeId ||
+                              edge.target_id === graphSelectedFocusNodeId
+                            const edgeHoverRelated =
+                              graphSelectedFocusNodeId
+                                ? true
+                                : !graphHoverRelatedNodeIds ||
+                                  edge.source_id === graphHoverFocusNodeId ||
+                                  edge.target_id === graphHoverFocusNodeId
+                            const edgeClassName = [
+                              'recall-graph-edge',
+                              edgeFocused ? 'recall-graph-edge-focused' : '',
+                              edgePathHighlighted ? 'recall-graph-edge-path-active' : '',
+                              edgePathDimmed ? 'recall-graph-edge-path-dimmed' : '',
+                              !graphPathResultActive && graphSelectedFocusNodeId && !edgeSelectedRelated ? 'recall-graph-edge-selected-dimmed' : '',
+                              !graphPathResultActive && graphHoverFocusEnabled && graphHoverFocusNodeId && !edgeHoverRelated ? 'recall-graph-edge-dimmed' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')
+                            return (
+                              <line
+                                key={edge.id}
+                                className={edgeClassName}
+                                x1={sourcePosition.x}
+                                x2={targetPosition.x}
+                                y1={sourcePosition.y}
+                                y2={targetPosition.y}
+                              />
+                            )
+                          })}
+                        </svg>
+                        <div
+                          className={[
+                            'recall-graph-node-layer',
+                            graphHoverFocusEnabled ? 'recall-graph-node-layer-hover-focus-reset' : '',
+                            graphSelectedFocusNodeId ? 'recall-graph-node-layer-selected-focus-reset' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                        >
+                          {graphCanvasNodes.map(({ emphasis, node, x, y }) => {
+                            const graphNodeMentionSummary = formatCountLabel(node.mention_count, 'mention', 'mentions')
+                            const graphNodeMeta = graphNodeMetaById.get(node.id) ?? null
+                            const graphNodeSourceBucket = graphNodeMeta?.primarySourceBucket ?? 'documents'
+                            const graphNodeAccent =
+                              graphColorGroupMode === 'node'
+                                ? graphNodeTypeAccentByType.get(node.node_type) ?? GRAPH_SOURCE_BUCKET_ACCENTS.documents
+                                : GRAPH_SOURCE_BUCKET_ACCENTS[graphNodeSourceBucket]
+                            const nodePathSelected = graphPathSelectedNodeIdSet.has(node.id)
+                            const nodeInPathResult = Boolean(graphPathVisibleResult) && graphPathResultNodeIds.has(node.id)
+                            const nodeSelectedRelated = !graphSelectedRelatedNodeIds || graphSelectedRelatedNodeIds.has(node.id)
+                            const nodeHoverRelated =
+                              graphSelectedFocusNodeId ? true : !graphHoverRelatedNodeIds || graphHoverRelatedNodeIds.has(node.id)
+                            const className = [
+                              'recall-graph-node-button',
+                              emphasis === 'focus'
+                                ? 'recall-graph-node-button-focus'
+                                : emphasis === 'linked'
+                                  ? 'recall-graph-node-button-linked'
+                                  : 'recall-graph-node-button-ambient',
+                              selectedNodeId === node.id ? 'recall-graph-node-button-active' : '',
+                              nodePathSelected ? 'recall-graph-node-button-path-selected' : '',
+                              nodeInPathResult ? 'recall-graph-node-button-path-active' : '',
+                              graphSearchMatchNodeIds.has(node.id) ? 'recall-graph-node-button-search-match' : '',
+                              graphSearchCurrentNode?.id === node.id ? 'recall-graph-node-button-search-current' : '',
+                              !graphShowNodeCounts ? 'recall-graph-node-button-count-hidden' : '',
+                              `recall-graph-node-button-source-${graphNodeSourceBucket}`,
+                              graphPathResultActive && graphPathVisibleResult && !nodeInPathResult ? 'recall-graph-node-button-path-dimmed' : '',
+                              graphSelectedFocusNodeId && node.id !== graphSelectedFocusNodeId && nodeSelectedRelated
+                                ? 'recall-graph-node-button-selected-linked'
+                                : '',
+                              !graphPathResultActive && graphSelectedFocusNodeId && !nodeSelectedRelated
+                                ? 'recall-graph-node-button-selected-dimmed'
+                                : '',
+                              !graphPathResultActive && graphHoverFocusEnabled && graphHoverFocusNodeId && !nodeHoverRelated ? 'recall-graph-node-button-dimmed' : '',
+                              activeSourceDocumentId && node.source_document_ids.includes(activeSourceDocumentId)
+                                ? 'recall-graph-node-button-source-backed'
+                                : '',
+                              graphLayoutLocked ? 'recall-graph-node-button-layout-locked' : '',
+                              graphDraggingNodeId === node.id ? 'recall-graph-node-button-dragging' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')
+                            return (
+                              <button
+                                key={node.id}
+                                aria-label={`Select node ${node.label}`}
+                                aria-pressed={selectedNodeId === node.id || nodePathSelected}
+                                className={className}
+                                style={
+                                  {
+                                    '--graph-node-source-accent': graphNodeAccent,
+                                    left: `${x}%`,
+                                    top: `${y}%`,
+                                  } as CSSProperties
+                                }
+                                type="button"
+                                onBlur={() => setGraphHoveredNodeId((current) => (current === node.id ? null : current))}
+                                onFocus={() => setGraphHoveredNodeId(node.id)}
+                                onMouseEnter={() => setGraphHoveredNodeId(node.id)}
+                                onMouseLeave={() => setGraphHoveredNodeId((current) => (current === node.id ? null : current))}
+                                onClick={(event) => handleGraphNodeInteraction(node, event)}
+                                onContextMenu={(event) => handleGraphNodePathContextMenu(node, event)}
+                                onLostPointerCapture={() => finishGraphNodeDrag()}
+                                onPointerCancel={() => finishGraphNodeDrag()}
+                                onPointerDown={(event) => handleGraphNodePointerDown(node, event)}
+                                onPointerMove={handleGraphNodePointerMove}
+                                onPointerUp={(event) => {
+                                  if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+                                    event.currentTarget.releasePointerCapture?.(event.pointerId)
+                                  }
+                                  handleGraphNodePointerUp(event)
+                                }}
+                              >
+                                <span className="recall-graph-node-button-shell">
+                                  <strong className="recall-graph-node-button-label">{node.label}</strong>
+                                  {graphShowNodeCounts ? (
+                                    <span className="recall-graph-node-button-summary">{graphNodeMentionSummary}</span>
+                                  ) : null}
+                                </span>
+                              </button>
+                            )
+                          })}
+                          {hoveredGraphNodeLayout && hoveredGraphNodeLayout.node.id !== selectedNodeId ? (
+                            <div
+                              className={`recall-graph-hover-preview ${graphHoverPreviewAlignmentClassName}`}
+                              style={{ left: `${hoveredGraphNodeLayout.x}%`, top: `${hoveredGraphNodeLayout.y}%` }}
+                            >
+                              <span className="recall-graph-browser-node-peek-kicker">{hoveredGraphNodeTypeLabel}</span>
+                              <strong>{hoveredGraphNodeLayout.node.label}</strong>
+                              <div className="recall-graph-hover-preview-meta">
+                                {hoveredGraphNodeSourceLabel ? (
+                                  <span className="recall-graph-hover-preview-source">{hoveredGraphNodeSourceLabel}</span>
+                                ) : null}
+                                {hoveredGraphNodeSourceBucketLabel ? (
+                                  <span className="recall-graph-hover-preview-pill">{hoveredGraphNodeSourceBucketLabel}</span>
+                                ) : null}
+                                {hoveredGraphNodeFirstSeenLabel ? (
+                                  <span className="recall-graph-hover-preview-pill">{hoveredGraphNodeFirstSeenLabel}</span>
+                                ) : null}
+                                <span className="recall-graph-hover-preview-summary">{hoveredGraphNodeSummary}</span>
+                              </div>
+                              <p>{hoveredGraphNodePreview}</p>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {graphLegendItems.length ? (
+                    <div className={graphLegendClassName} aria-label="Graph legend" role="group">
+                      <div className="recall-graph-browser-legend-head">
+                        <span className="recall-graph-browser-node-peek-kicker">Legend</span>
+                        <strong>{graphColorGroupModeLabel}</strong>
+                        <span>Click a group to toggle the matching filter.</span>
+                      </div>
+                      <div className="recall-graph-browser-legend-list" role="list" aria-label="Graph legend items">
+                        {graphLegendItems.map((item) => (
+                          <span key={`graph-legend:${item.key}`} className="recall-graph-browser-legend-entry" role="listitem">
+                            <button
+                              aria-pressed={item.active}
+                              className={
+                                item.active
+                                  ? 'recall-graph-browser-legend-item recall-graph-browser-legend-item-active'
+                                  : 'recall-graph-browser-legend-item'
+                              }
+                              style={{ '--graph-legend-accent': item.accent } as CSSProperties}
+                              type="button"
+                              onClick={() => {
+                                if (graphColorGroupMode === 'source') {
+                                  handleToggleGraphSourceTypeFilter(item.key as GraphSourceTypeBucket)
+                                  return
+                                }
+                                handleToggleGraphNodeTypeFilter(item.key)
+                              }}
+                            >
+                              <span className="recall-graph-browser-legend-swatch" aria-hidden="true" />
+                              <span className="recall-graph-browser-legend-label">{item.label}</span>
+                              <span className="recall-graph-browser-legend-count">{item.count}</span>
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="recall-graph-canvas-shell-footer recall-graph-canvas-shell-footer-v20 recall-graph-canvas-shell-footer-workbench-reset">
+                    <div className={`${graphFocusRailClassName} recall-graph-focus-rail-corner-reset`} aria-label="Graph focus rail">
+                      <div className="recall-graph-focus-rail-main">
+                        <div className="recall-graph-focus-rail-copy">
+                          <span className="status-chip status-muted recall-graph-focus-rail-kicker">{graphFocusRailKicker}</span>
+                          <div className="recall-graph-focus-rail-heading">
+                            <strong>{graphFocusRailTitle}</strong>
+                            <span className="recall-graph-focus-rail-summary">{graphFocusRailSummary}</span>
+                          </div>
+                          <div className="recall-graph-focus-rail-meta" role="list" aria-label="Graph focus context">
+                            {graphFocusRailMetaItems.map((item) => (
+                              <span key={`graph-focus-meta:${item}`} className="status-chip status-muted" role="listitem">
+                                {item}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="recall-graph-focus-rail-path">
+                          <span className="recall-graph-focus-rail-path-label">Path</span>
+                          <div className="recall-graph-focus-rail-trail" role="list" aria-label="Graph focus trail">
+                            {graphFocusRailTrailNodes.length ? (
+                              graphPathSelectionActive ? (
+                                graphFocusRailTrailNodes.map((node) => (
+                                  <span key={node.id} className="recall-graph-focus-trail-item" role="listitem">
+                                    <span
+                                      className={
+                                        graphPathResultActive && graphPathVisibleResult && graphPathResultNodeIds.has(node.id)
+                                          ? 'recall-graph-focus-trail-chip recall-graph-focus-trail-chip-path-active'
+                                          : graphPathSelectedNodeIdSet.has(node.id)
+                                            ? 'recall-graph-focus-trail-chip recall-graph-focus-trail-chip-active'
+                                            : 'recall-graph-focus-trail-chip'
+                                      }
+                                      title={getGraphNodePreview(node)}
+                                    >
+                                      {node.label}
+                                    </span>
+                                  </span>
+                                ))
+                              ) : (
+                                graphFocusRailTrailNodes.map((node) => (
+                                  <span key={node.id} className="recall-graph-focus-trail-item" role="listitem">
+                                    <button
+                                      aria-pressed={selectedNodeId === node.id}
+                                      className={
+                                        selectedNodeId === node.id
+                                          ? 'recall-graph-focus-trail-chip recall-graph-focus-trail-chip-active'
+                                          : 'recall-graph-focus-trail-chip'
+                                      }
+                                      title={getGraphNodePreview(node)}
+                                      type="button"
+                                      onClick={() => handleSelectGraphNode(node)}
+                                    >
+                                      {node.label}
+                                    </button>
+                                  </span>
+                                ))
+                              )
+                            ) : (
+                              <span className="status-chip status-muted recall-graph-focus-trail-empty" role="listitem">
+                                Select nodes to build a recent path.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {graphPathSelectionActive ? (
+                          <div className="recall-graph-focus-rail-actions">
+                            {graphPathSelectionReady && !graphPathResultActive ? (
+                              <button type="button" onClick={handleFindGraphPath}>
+                                Find path
+                              </button>
+                            ) : null}
+                            <button className="ghost-button" type="button" onClick={handleClearGraphPathSelection}>
+                              Clear selection
+                            </button>
+                          </div>
+                        ) : graphSelectedNodeSourceDocumentId || selectedNodeId ? (
+                          <div className="recall-graph-focus-rail-actions">
+                            {graphJumpBackNode ? (
+                              <button className="ghost-button" type="button" onClick={handleJumpBackGraphFocus}>
+                                Jump back
+                              </button>
+                            ) : null}
+                            {graphSelectedNodeSourceDocumentId && selectedNodeId ? (
+                              <button
+                                className="ghost-button"
+                                type="button"
+                                onClick={() => focusSourceGraph(graphSelectedNodeSourceDocumentId, selectedNodeId)}
+                              >
+                                Focus source
+                              </button>
+                            ) : null}
+                            {graphSelectedNodeSourceDocumentId ? (
+                              <button
+                                className="ghost-button"
+                                type="button"
+                                onClick={() => handleOpenMentionInReader(graphSelectedNodeSourceDocumentId)}
+                              >
+                                Open source
+                              </button>
+                            ) : null}
+                            {selectedNodeId ? (
+                              <button className="ghost-button" type="button" onClick={handleClearGraphFocus}>
+                                Clear focus
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 </div>
                 {renderBrowseGraphDetailDock()}
@@ -4320,7 +8807,6 @@ export function RecallWorkspace({
             </div>
           ) : null}
         </section>
-        </div>
       </div>
     )
   }
@@ -4377,10 +8863,26 @@ export function RecallWorkspace({
         ? 'Reconnect local study service'
         : activeStudyCard?.document_title ??
           (studyCards.length > 0 ? collapsedStudyQueueOverview : 'No active card yet')
-    const queuePreviewCards = studyCards.filter((card) => card.id !== activeStudyCard?.id).slice(0, 4)
+    const queuePreviewCards = studyCards.filter((card) => card.id !== activeStudyCard?.id).slice(0, 2)
+    const studySessionActiveStep =
+      studyStatus === 'error' || !activeStudyCard ? 'queue' : showAnswer ? 'rate' : 'recall'
+    const studySessionSummary =
+      studyStatus === 'error'
+        ? 'Reconnect the local service to restore the review flow.'
+        : activeStudyCard
+          ? `Up next ${collapsedStudyQueueOverview} while grounded ${browseStudyEvidenceSummary.toLowerCase()} stays nearby.`
+          : studyCards.length > 0
+            ? 'Choose one grounded card, recall the answer, then rate the result without leaving this workspace.'
+            : 'Generate or promote one grounded card to begin the review flow.'
 
     return (
-      <div className="recall-study-workspace stack-gap">
+      <div
+        className={
+          studyBrowseDrawerOpen
+            ? 'recall-study-workspace stack-gap recall-study-workspace-queue-open'
+            : 'recall-study-workspace stack-gap'
+        }
+      >
         <section className="card recall-study-stage-shell priority-surface-stage-shell">
           <div className="recall-study-stage-shell-copy">
             <div className="reader-stage-kicker-row">
@@ -4390,6 +8892,44 @@ export function RecallWorkspace({
             <div className="recall-study-stage-heading">
               <h2>Study</h2>
               <p>{studyWorkspaceSummary}</p>
+            </div>
+            <div className="recall-study-session-strip" aria-label="Study review flow">
+              <div className="recall-study-session-strip-copy">
+                <span className="recall-study-session-strip-kicker">Review flow</span>
+                <span className="recall-study-session-strip-summary">{studySessionSummary}</span>
+              </div>
+              <div className="recall-study-session-progress" role="list" aria-label="Study review steps">
+                <span
+                  className={
+                    studySessionActiveStep === 'queue'
+                      ? 'recall-study-session-step recall-study-session-step-active'
+                      : 'recall-study-session-step'
+                  }
+                  role="listitem"
+                >
+                  Queue
+                </span>
+                <span
+                  className={
+                    studySessionActiveStep === 'recall'
+                      ? 'recall-study-session-step recall-study-session-step-active'
+                      : 'recall-study-session-step'
+                  }
+                  role="listitem"
+                >
+                  Recall
+                </span>
+                <span
+                  className={
+                    studySessionActiveStep === 'rate'
+                      ? 'recall-study-session-step recall-study-session-step-active'
+                      : 'recall-study-session-step'
+                  }
+                  role="listitem"
+                >
+                  Rate
+                </span>
+              </div>
             </div>
           </div>
 
@@ -4901,6 +9441,20 @@ export function RecallWorkspace({
           : selectedSourceReady
             ? 'Capture the next highlight from Reader when you want to turn another passage into an editable local note.'
             : 'Once a source is selected, saved note anchors, note text, and promotion tools stay together in this workspace.'
+    const emptyStateActionLead =
+      documentsStatus === 'error'
+        ? 'Retry once the local library reconnects, then reopen the saved anchor here.'
+        : selectedSourceReady
+          ? showingNoteSearch
+            ? 'Clear or refine the search when you want the next matching note to take over the main workbench.'
+            : 'Capture the next highlight in Reader and it will reopen here with the anchored passage and editable note text.'
+          : 'Pick a saved source first so its note stream and detail work stay together.'
+    const emptyStateFollowOn =
+      documentsStatus === 'error'
+        ? 'Source reopen, note search, and promotions all return as soon as the local library is available again.'
+        : selectedSourceReady
+          ? 'Once a note is open, edit it here, reopen the surrounding passage, and only promote it after the note feels stable.'
+          : 'After a source is selected, search, anchored reopen, and note editing stay together in one calmer workspace.'
 
     return (
       <div className="recall-note-empty-stage stack-gap">
@@ -4926,22 +9480,43 @@ export function RecallWorkspace({
           ) : null}
         </div>
 
-        <div className="recall-note-empty-steps" role="list" aria-label="How notes work">
-          <div className="empty-state-step recall-note-empty-step" role="listitem">
-            <strong>1. Browse one saved source</strong>
-            <span>Keep the note stream on the left and reopen the specific anchor only when it deserves the main detail stage.</span>
-          </div>
-          <div className="empty-state-step recall-note-empty-step" role="listitem">
-            <strong>2. Capture from Reader</strong>
-            <span>Use Add note in Reader to save a local highlight that lands back here with its anchored passage intact.</span>
-          </div>
-          <div className="empty-state-step recall-note-empty-step" role="listitem">
-            <strong>3. Promote later, not first</strong>
-            <span>Push a stable note into Graph or Study only after the anchor and note text are clear enough to keep.</span>
-          </div>
+        <div className="reader-meta-row recall-note-empty-meta" role="list" aria-label="Notes workspace status">
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {selectedNotesCountLabel}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {showingNoteSearch ? 'Search active' : selectedSourceReady ? 'Ready for next note' : 'Choose a source'}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {documentsStatus === 'error'
+              ? 'Reconnect local library'
+              : selectedSourceReady
+                ? 'Reader handoff nearby'
+                : 'Local-first notes'}
+          </span>
         </div>
 
-        <p className="small-note recall-note-empty-stage-note">{emptyStateFooter}</p>
+        <div className="recall-note-empty-guidance-grid">
+          <div className="recall-detail-panel recall-note-empty-guidance-card stack-gap">
+            <div className="section-header section-header-compact">
+              <h3>Ready for next note</h3>
+              <p>{emptyStateActionLead}</p>
+            </div>
+            <span className="recall-note-empty-guidance-meta">
+              {showingNoteSearch
+                ? 'Search stays scoped to this source until you clear it.'
+                : 'Reader capture keeps the anchored passage tied to this workspace.'}
+            </span>
+          </div>
+
+          <div className="recall-detail-panel recall-note-empty-guidance-card recall-note-empty-guidance-card-quiet stack-gap">
+            <div className="section-header section-header-compact">
+              <h3>When a note is open</h3>
+              <p>{emptyStateFollowOn}</p>
+            </div>
+            <span className="recall-note-empty-guidance-meta">{emptyStateFooter}</span>
+          </div>
+        </div>
       </div>
     )
   }
@@ -4951,6 +9526,12 @@ export function RecallWorkspace({
       return null
     }
 
+    const noteSentenceLabel = formatSentenceSpanLabel(
+      activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
+      activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
+    )
+    const noteDocumentTitle = getNoteDocumentTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)
+
     return (
       <div className="recall-note-detail recall-note-detail-layout">
         <div className="recall-note-detail-main stack-gap">
@@ -4959,48 +9540,51 @@ export function RecallWorkspace({
               Updated {dateFormatter.format(new Date(activeNote.updated_at))}
             </span>
             <span className="status-chip reader-meta-chip" role="listitem">
-              {formatSentenceSpanLabel(
-                activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
-                activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
-              )}
+              {noteSentenceLabel}
             </span>
             <span className="status-chip reader-meta-chip" role="listitem">
               Export ready
             </span>
           </div>
-          <p className="small-note recall-note-detail-intro">Included in exports and merge previews.</p>
 
-          <div className="recall-note-preview recall-note-preview-stage">
+          <div className="recall-detail-panel recall-note-workbench-card stack-gap">
             <div className="section-header section-header-compact">
-              <h3>Highlighted passage</h3>
-              <p>Keep the original anchor visible while you edit the saved note and decide what should happen next.</p>
+              <h3>Note workbench</h3>
+              <p>Keep the anchor and editable note together here before you branch into Reader, Graph, or Study.</p>
             </div>
-            <p>{activeNote.anchor.anchor_text}</p>
-            <span>{activeNote.anchor.excerpt_text}</span>
-          </div>
 
-          <div className="recall-detail-panel recall-note-editor-card stack-gap">
-            <div className="section-header section-header-compact">
-              <h3>Note text</h3>
-              <p>Add context, a reminder, or the follow-up question that should stay attached to this anchor.</p>
-            </div>
-            <label className="field">
-              <span className="visually-hidden">Note text</span>
-              <textarea
-                placeholder="Add context, a reminder, or a follow-up question"
-                value={noteDraftBody}
-                onChange={(event) => setNoteDraftBody(event.target.value)}
-              />
-            </label>
+            <div className="recall-note-workbench-grid">
+              <div className="recall-note-preview recall-note-preview-stage recall-note-workbench-preview">
+                <div className="section-header section-header-compact">
+                  <h3>Highlighted passage</h3>
+                  <p>Use the saved anchor and nearby excerpt as the grounded reference for the note you keep here.</p>
+                </div>
+                <p>{activeNote.anchor.anchor_text}</p>
+                <span>{activeNote.anchor.excerpt_text}</span>
+              </div>
 
-            <div className="inline-actions recall-note-detail-actions">
-              <button
-                disabled={noteBusyKey === `save:${activeNote.id}`}
-                type="button"
-                onClick={handleSaveNoteChanges}
-              >
-                {noteBusyKey === `save:${activeNote.id}` ? 'Saving…' : 'Save changes'}
-              </button>
+              <div className="recall-note-workbench-editor stack-gap">
+                <label className="field recall-note-workbench-field">
+                  <span>Note text</span>
+                  <textarea
+                    placeholder="Add context, a reminder, or a follow-up question"
+                    value={noteDraftBody}
+                    onChange={(event) => setNoteDraftBody(event.target.value)}
+                  />
+                </label>
+
+                <p className="small-note recall-note-workbench-note">Included in exports and merge previews.</p>
+
+                <div className="inline-actions recall-note-detail-actions">
+                  <button
+                    disabled={noteBusyKey === `save:${activeNote.id}`}
+                    type="button"
+                    onClick={handleSaveNoteChanges}
+                  >
+                    {noteBusyKey === `save:${activeNote.id}` ? 'Saving…' : 'Save changes'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -5008,21 +9592,18 @@ export function RecallWorkspace({
         <aside className="recall-note-detail-dock stack-gap">
           <div className="recall-detail-panel recall-note-dock-card stack-gap">
             <div className="section-header section-header-compact">
-              <h3>Keep this grounded</h3>
-              <p>Reopen the source or jump back into Reader when you need the surrounding passage, not a second panel stack.</p>
+              <h3>Source handoff</h3>
+              <p>Reopen the source or Reader when you need surrounding passage, then keep promotion as the separate next step.</p>
             </div>
             <div className="reader-meta-row recall-note-detail-meta" role="list" aria-label="Note source summary">
               <span className="status-chip reader-meta-chip" role="listitem">
-                {getNoteDocumentTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)}
+                {noteDocumentTitle}
               </span>
               <span className="status-chip reader-meta-chip" role="listitem">
-                {formatSentenceSpanLabel(
-                  activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
-                  activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
-                )}
+                {noteSentenceLabel}
               </span>
             </div>
-            <div className="recall-actions recall-actions-inline">
+            <div className="recall-actions recall-actions-inline recall-note-dock-actions">
               <button
                 className="ghost-button"
                 type="button"
@@ -5035,6 +9616,14 @@ export function RecallWorkspace({
                   Open in Reader
                 </button>
               ) : null}
+              <button
+                className="ghost-button recall-note-delete-button"
+                disabled={noteBusyKey === `delete:${activeNote.id}`}
+                type="button"
+                onClick={handleDeleteNote}
+              >
+                {noteBusyKey === `delete:${activeNote.id}` ? 'Deleting…' : 'Delete note'}
+              </button>
             </div>
           </div>
 
@@ -5137,23 +9726,6 @@ export function RecallWorkspace({
                 </div>
               </div>
             ) : null}
-          </div>
-
-          <div className="recall-detail-panel recall-note-utility-card stack-gap">
-            <div className="section-header section-header-compact">
-              <h3>Manage note</h3>
-              <p>Delete the note if the anchor no longer helps, or keep it here as a local-first handoff into other work.</p>
-            </div>
-            <div className="inline-actions recall-note-utility-actions">
-              <button
-                className="ghost-button recall-note-delete-button"
-                disabled={noteBusyKey === `delete:${activeNote.id}`}
-                type="button"
-                onClick={handleDeleteNote}
-              >
-                {noteBusyKey === `delete:${activeNote.id}` ? 'Deleting…' : 'Delete note'}
-              </button>
-            </div>
           </div>
         </aside>
       </div>
@@ -5326,8 +9898,8 @@ export function RecallWorkspace({
     const notesWorkspaceSummary = activeNote
       ? 'Keep one saved anchor editable here while the broader note stream stays nearby.'
       : selectedNotesDocumentTitle
-        ? 'Browse one source, reopen its passage in Reader, and only promote the note after it feels stable.'
-        : 'Choose one source, search its saved highlights, and work from a calmer note detail stage instead of a blank center panel.'
+        ? 'Keep one source and its note stream together so the next saved note can take over the main workbench.'
+        : 'Choose one source, search its saved highlights, and let the next note take over a calmer main workbench.'
     const notesWorkspaceBadge =
       documentsStatus === 'error'
         ? 'Notes unavailable'
@@ -5336,6 +9908,16 @@ export function RecallWorkspace({
           : selectedNotesDocumentTitle
             ? 'Selected source'
             : 'Notes workspace'
+    const notesBrowseSummary =
+      documentsStatus === 'error'
+        ? 'Reconnect the local library to reopen source-linked notes here.'
+        : activeNote
+          ? getNoteRowPreview(activeNote)
+          : selectedNotesDocumentTitle
+            ? showingNoteSearch
+              ? `${selectedNotesCountLabel} in ${selectedNotesDocumentTitle}. Clear the query to return to the full saved-note stream.`
+              : `${selectedNotesCountLabel} for ${selectedNotesDocumentTitle}. Open one anchored note when it deserves the main workbench.`
+            : 'Pick a saved source to keep its local note stream nearby.'
 
     return (
       <div className="recall-notes-workspace stack-gap">
@@ -5385,7 +9967,30 @@ export function RecallWorkspace({
             <div className="toolbar recall-notes-browser-toolbar">
               <div className="section-header section-header-compact">
                 <h3>Browse notes</h3>
-                <p>Keep the saved stream visible, then open one anchored note into the main detail stage only when it matters.</p>
+                <p>Keep one source stream visible, then let the main workbench take over when a saved note needs editing.</p>
+              </div>
+            </div>
+            <div className="recall-notes-browser-glance">
+              <div className="reader-stage-kicker-row">
+                <span className="status-chip recall-notes-stage-badge">
+                  {activeNote ? 'Active note' : selectedNotesDocumentTitle ? 'Selected source' : 'Choose a source'}
+                </span>
+                <span className="recall-notes-stage-note">{selectedNotesCountLabel}</span>
+              </div>
+              <strong>{activeNote?.anchor.anchor_text ?? selectedNotesDocumentTitle ?? 'Pick a saved source'}</strong>
+              <p>{notesBrowseSummary}</p>
+              <div className="reader-meta-row recall-notes-browser-glance-meta" role="list" aria-label="Notes browse summary">
+                <span className="status-chip reader-meta-chip" role="listitem">
+                  {showingNoteSearch ? 'Search active' : 'Stream visible'}
+                </span>
+                {activeNote ? (
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {formatSentenceSpanLabel(
+                      activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
+                      activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
+                    )}
+                  </span>
+                ) : null}
               </div>
             </div>
             {renderNotesBrowseContent({
@@ -5400,8 +10005,8 @@ export function RecallWorkspace({
                 <h2>Note detail</h2>
                 <p>
                   {activeNote
-                    ? 'Edit one note in full, then branch into Reader, Graph, or Study only when the anchor is ready.'
-                    : 'Choose a saved note to open its anchored passage, editable note text, and next-step tools in one place.'}
+                    ? 'Edit one note in a stronger workbench, then branch into Reader, Graph, or Study only when the anchor is ready.'
+                    : 'Keep the selected source summary and next note handoff together here until one saved note takes over the workbench.'}
                 </p>
               </div>
             </div>
@@ -5569,41 +10174,250 @@ export function RecallWorkspace({
             <div className="recall-library-landing-layout">
               <div className="recall-library-canvas stack-gap">
                 <div className="recall-home-workspace stack-gap">
-                  <div className="recall-home-toolbar priority-surface-stage-shell">
-                    <div className="recall-home-toolbar-copy">
-                      <div className="section-header section-header-compact recall-home-toolbar-heading">
-                        <div className="recall-home-toolbar-heading-copy">
-                          <h2>{homeInlineHeading}</h2>
-                          <p className="recall-home-toolbar-summary">
+                  {showHomeControlSeam ? (
+                    <div
+                      className={
+                        homeOrganizerVisible
+                          ? 'recall-home-toolbar recall-home-control-seam recall-home-control-seam-tree-reset recall-home-control-seam-tag-tree-reset recall-home-control-seam-minimal-entry-reset recall-home-control-seam-organizer-control-reset recall-home-control-seam-organizer-owned-reset recall-home-control-seam-unified-workbench-reset recall-home-control-seam-results-sheet-reset priority-surface-support-rail priority-surface-support-rail-quiet'
+                          : 'recall-home-toolbar recall-home-control-seam recall-home-control-seam-tree-reset recall-home-control-seam-tag-tree-reset recall-home-control-seam-minimal-entry-reset recall-home-control-seam-organizer-control-reset recall-home-control-seam-organizer-owned-reset recall-home-control-seam-organizer-hidden-reset recall-home-control-seam-unified-workbench-reset recall-home-control-seam-results-sheet-reset priority-surface-support-rail priority-surface-support-rail-quiet'
+                      }
+                      aria-label="Home control seam"
+                    >
+                      <div className="recall-home-toolbar-copy recall-home-control-copy recall-home-control-copy-organizer-owned-reset recall-home-control-copy-unified-workbench-reset">
+                        <div className="recall-home-control-heading-row recall-home-control-heading-row-organizer-owned-reset recall-home-control-heading-row-unified-workbench-reset">
+                          <span className="eyebrow recall-home-control-kicker-unified-workbench-reset">
+                            {homeControlSeamEyebrow}
+                          </span>
+                          <strong>{homeControlSeamHeading}</strong>
+                        </div>
+                        <div className="recall-home-control-heading-inline recall-home-control-heading-inline-minimal-entry-reset recall-home-control-heading-inline-organizer-owned-reset recall-home-control-heading-inline-unified-workbench-reset">
+                          <span className="recall-home-toolbar-summary recall-home-control-summary">
                             {!documentsLoading && documentsStatus !== 'error' && documents.length > 0
-                              ? homeInlineSummary
+                              ? homeControlSeamGuide
                               : homeSidebarStatusCopy ?? homeInlineSummary}
-                          </p>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="recall-home-toolbar-utility recall-home-control-actions recall-home-control-actions-minimal-entry-reset recall-home-control-actions-organizer-owned-reset recall-home-control-actions-unified-workbench-reset">
+                        <div
+                          className="recall-home-toolbar-metrics recall-home-control-metrics recall-home-control-metrics-organizer-owned-reset recall-home-control-metrics-unified-workbench-reset"
+                          role="list"
+                          aria-label="Home snapshot"
+                        >
+                          <span className="status-chip reader-meta-chip" role="listitem">
+                            {homeControlSeamLeadStatus}
+                          </span>
+                          <span className="status-chip reader-meta-chip" role="listitem">
+                            {homeControlSeamSecondaryStatus}
+                          </span>
                         </div>
                       </div>
                     </div>
+                  ) : null}
 
-                    <div className="recall-home-toolbar-utility">
-                      {!libraryFilterActive && homeWorkspaceSectionCounts.length > 0 ? (
-                        <div className="recall-home-toolbar-metrics" role="list" aria-label="Home snapshot">
-                          <span className="status-chip reader-meta-chip" role="listitem">
-                            {homeSavedSourceLabel}
-                          </span>
-                          <span className="status-chip reader-meta-chip" role="listitem">
-                            {graphNodeCountLabel}
-                          </span>
-                          <span className="status-chip reader-meta-chip" role="listitem">
-                            {studyCountLabel}
-                          </span>
+                  {showHomeCompactControls ? (
+                    <div
+                      className="recall-home-compact-control-deck recall-home-compact-control-deck-organizer-control-reset priority-surface-support-rail priority-surface-support-rail-quiet"
+                      role="group"
+                      aria-label={homeCompactControlsHeading}
+                    >
+                      <label className="field recall-inline-field recall-home-compact-control-search recall-home-compact-control-search-organizer-control-reset">
+                        <span className="visually-hidden">Search saved sources</span>
+                        <input
+                          aria-label="Search saved sources"
+                          type="search"
+                          placeholder="Search saved sources"
+                          value={libraryFilterQuery}
+                          onChange={(event) =>
+                            updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <div className="recall-home-compact-control-actions recall-home-compact-control-actions-organizer-control-reset recall-home-compact-control-actions-stage467-reset">
+                        <div className="recall-home-organizer-control-groups-stage467-reset">
+                          <div
+                            className="recall-home-organizer-control-pillbox-stage467-reset"
+                            role="group"
+                            aria-label="Organizer lens"
+                          >
+                            <button
+                              aria-pressed={homeOrganizerLens === 'collections'}
+                              className={
+                                homeOrganizerLens === 'collections'
+                                  ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                  : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                              }
+                              type="button"
+                              onClick={() => setHomeOrganizerLens('collections')}
+                            >
+                              Collections
+                            </button>
+                            <button
+                              aria-pressed={homeOrganizerLens === 'recent'}
+                              className={
+                                homeOrganizerLens === 'recent'
+                                  ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                  : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                              }
+                              type="button"
+                              onClick={() => setHomeOrganizerLens('recent')}
+                            >
+                              Recent
+                            </button>
+                          </div>
+                          <div
+                            className="recall-home-organizer-sort-toggle recall-home-organizer-sort-toggle-organizer-control-reset"
+                            role="group"
+                            aria-label="Sort saved sources"
+                          >
+                            <button
+                              aria-pressed={homeSortMode === 'updated'}
+                              className={
+                                homeSortMode === 'updated'
+                                  ? 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-active-organizer-control-reset'
+                                  : 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset'
+                              }
+                              type="button"
+                              onClick={() => setHomeSortMode('updated')}
+                            >
+                              Updated
+                            </button>
+                            <button
+                              aria-pressed={homeSortMode === 'created'}
+                              className={
+                                homeSortMode === 'created'
+                                  ? 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-active-organizer-control-reset'
+                                  : 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset'
+                              }
+                              type="button"
+                              onClick={() => setHomeSortMode('created')}
+                            >
+                              Created
+                            </button>
+                            <button
+                              aria-pressed={homeSortMode === 'title'}
+                              className={
+                                homeSortMode === 'title'
+                                  ? 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-active-organizer-control-reset'
+                                  : 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset'
+                              }
+                              type="button"
+                              onClick={() => setHomeSortMode('title')}
+                            >
+                              A-Z
+                            </button>
+                            <button
+                              aria-pressed={homeSortMode === 'manual'}
+                              className={
+                                homeSortMode === 'manual'
+                                  ? 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-active-organizer-control-reset'
+                                  : 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset'
+                              }
+                              type="button"
+                              onClick={() => setHomeSortMode('manual')}
+                            >
+                              Manual
+                            </button>
+                          </div>
+                          <div
+                            className="recall-home-organizer-control-pillbox-stage467-reset"
+                            role="group"
+                            aria-label="Sort direction"
+                          >
+                            <button
+                              aria-pressed={homeSortDirection === 'desc'}
+                              className={
+                                homeSortDirection === 'desc'
+                                  ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                  : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                              }
+                              disabled={homeManualModeActive}
+                              type="button"
+                              onClick={() => setHomeSortDirection('desc')}
+                            >
+                              {homeSortMode === 'manual' ? 'Custom order' : homeSortMode === 'title' ? 'Descending' : 'Newest'}
+                            </button>
+                            <button
+                              aria-pressed={homeSortDirection === 'asc'}
+                              className={
+                                homeSortDirection === 'asc'
+                                  ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                  : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                              }
+                              disabled={homeManualModeActive}
+                              type="button"
+                              onClick={() => setHomeSortDirection('asc')}
+                            >
+                              {homeSortMode === 'manual' ? 'Locked' : homeSortMode === 'title' ? 'Ascending' : 'Oldest'}
+                            </button>
+                          </div>
+                          <div
+                            className="recall-home-organizer-control-pillbox-stage467-reset"
+                            role="group"
+                            aria-label="View saved sources"
+                          >
+                            <button
+                              aria-pressed={homeViewMode === 'board'}
+                              className={
+                                homeViewMode === 'board'
+                                  ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                  : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                              }
+                              type="button"
+                              onClick={() => setHomeViewMode('board')}
+                            >
+                              Board
+                            </button>
+                            <button
+                              aria-pressed={homeViewMode === 'list'}
+                              className={
+                                homeViewMode === 'list'
+                                  ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                  : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                              }
+                              type="button"
+                              onClick={() => setHomeViewMode('list')}
+                            >
+                              List
+                            </button>
+                          </div>
                         </div>
-                      ) : null}
-                      {!libraryFilterActive && documentsStatus !== 'error' ? (
-                        <p className="recall-home-toolbar-note">
-                          Keep <strong>New</strong> and shell <strong>Search</strong> primary, then use the library lane below when you want a source-only pass.
-                        </p>
-                      ) : null}
+                        <div className="recall-home-browse-strip-tools recall-home-browse-strip-control-row-organizer-control-reset">
+                          {renderHomeCreateCollectionButton()}
+                          {!libraryFilterActive ? (
+                            <button
+                              aria-label={homeBrowsePreviewToggleLabel}
+                              className="ghost-button recall-home-browse-strip-tool"
+                              type="button"
+                              onClick={() => setHomeBrowsePreviewsCollapsed((current) => !current)}
+                            >
+                              {homeBrowsePreviewToggleShortLabel}
+                            </button>
+                          ) : (
+                            <button
+                              className="ghost-button recall-home-browse-strip-tool"
+                              type="button"
+                              onClick={() => updateLibraryState((current) => ({ ...current, filterQuery: '' }))}
+                            >
+                              Clear search
+                            </button>
+                          )}
+                          {!homeOrganizerVisible ? (
+                            <button
+                              aria-label={homeOrganizerToggleLabel}
+                              className="ghost-button recall-home-browse-strip-tool"
+                              type="button"
+                              onClick={() => setHomeOrganizerVisible(true)}
+                            >
+                              Show organizer
+                            </button>
+                          ) : null}
+                        </div>
+                        {renderHomeCollectionManagementPanel()}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
 
                   {documentsLoading ? (
                     <div className="recall-library-inline-state" role="status">
@@ -5629,147 +10443,670 @@ export function RecallWorkspace({
                     </div>
                   ) : null}
                   {!documentsLoading && documentsStatus !== 'error' && visibleDocuments.length > 0 ? (
-                    libraryFilterActive ? (
-                      <section className="recall-home-library-card recall-home-library-card-wide stack-gap" aria-label="Matching saved sources">
-                        <div className="section-header section-header-compact recall-home-library-card-header">
-                          <div className="recall-home-library-stage-heading">
-                            <div className="recall-library-section-heading-row">
-                              <h3>Matching sources</h3>
-                              <span className="recall-library-section-count">
-                                {formatCountLabel(visibleDocuments.length, 'source', 'sources')}
-                              </span>
-                            </div>
-                            <p>Open the source you want, then clear the filter when you want the grouped library flow back.</p>
-                          </div>
-                          {showInlineHomeSearch ? (
-                            <label className="field recall-inline-field recall-home-library-stage-search">
-                              <span className="visually-hidden">Search saved sources</span>
-                              <input
-                                aria-label="Search saved sources"
-                                type="search"
-                                placeholder="Search saved sources"
-                                value={libraryFilterQuery}
-                                onChange={(event) =>
-                                  updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
-                                }
-                              />
-                            </label>
-                          ) : null}
-                        </div>
-                        <div className="recall-library-list recall-home-library-list" role="list">
-                          {visibleDocuments.map((document) => renderLibrarySourceRow(document))}
-                        </div>
-                      </section>
-                    ) : (
-                      <>
-                        {homeLeadDocument || homeStageLibrarySection ? (
-                          <div className="recall-home-stage-shell priority-surface-stage-shell">
-                            {homeLeadDocument ? (
-                              <section className="recall-home-continue-panel recall-home-continue-stage stack-gap" aria-label={homeWorkspaceContinueHeading}>
-                                <div className="section-header section-header-compact recall-home-panel-header">
-                                  <div>
-                                    <h3>{homeWorkspaceContinueHeading}</h3>
-                                    <p>{homeWorkspaceContinueSummary}</p>
-                                  </div>
-                                </div>
-                                {renderHomeContinueCard(homeLeadDocument)}
-                                {homeContinueDocuments.length > 0 ? (
-                                  <div className="recall-home-continue-list" role="list" aria-label="Nearby sources">
-                                    {homeContinueDocuments.map((document) => renderHomeContinueRow(document))}
-                                  </div>
-                                ) : null}
-                              </section>
-                            ) : null}
-
-                            <aside
-                              className="recall-home-library-stage stack-gap priority-surface-support-rail priority-surface-support-rail-quiet"
-                              aria-label="Saved library"
+                    <div
+                      className={
+                        homeOrganizerVisible
+                          ? 'recall-home-browser-layout recall-home-browser-layout-parity-reset recall-home-browser-layout-organizer-header-reset recall-home-browser-layout-resizable-stage491-reset recall-home-browser-workspace-parity-reset recall-home-browser-workspace-tree-reset recall-home-browser-workspace-organizer-control-reset recall-home-browser-workspace-board-first-reset recall-home-browser-workspace-organizer-owned-reset recall-home-browser-workspace-unified-workbench-reset'
+                          : 'recall-home-browser-layout recall-home-browser-layout-parity-reset recall-home-browser-layout-organizer-header-reset recall-home-browser-layout-resizable-stage491-reset recall-home-browser-workspace-parity-reset recall-home-browser-workspace-tree-reset recall-home-browser-workspace-organizer-control-reset recall-home-browser-workspace-board-first-reset recall-home-browser-workspace-organizer-owned-reset recall-home-browser-workspace-organizer-hidden-reset recall-home-browser-workspace-unified-workbench-reset'
+                      }
+                      style={homeBrowserLayoutStyle}
+                    >
+                      {homeOrganizerVisible ? (
+                      <aside
+                        aria-label="Home browse strip"
+                        className="recall-home-browse-strip recall-home-browse-strip-organizer-control-reset recall-home-browse-strip-resizable-stage491-reset"
+                        style={homeOrganizerRailStyle}
+                      >
+                        <div className="recall-home-browse-strip-shell recall-home-browse-strip-shell-tag-tree-reset recall-home-browse-strip-shell-board-first-reset recall-home-browse-strip-shell-organizer-owned-reset recall-home-browse-strip-shell-unified-workbench-reset recall-home-browse-strip-shell-organizer-deck-reset recall-home-browse-strip-shell-organizer-header-reset priority-surface-support-rail priority-surface-support-rail-quiet">
+                          <div className="recall-home-browse-strip-top recall-home-browse-strip-top-minimal-entry-reset recall-home-browse-strip-top-header-compression-reset recall-home-browse-strip-top-organizer-owned-reset recall-home-browse-strip-top-unified-workbench-reset recall-home-browse-strip-top-organizer-deck-reset recall-home-browse-strip-top-organizer-header-reset">
+                            <div
+                              className="recall-home-browse-strip-header recall-home-browse-strip-header-header-compression-reset recall-home-browse-strip-header-organizer-owned-reset recall-home-browse-strip-header-unified-workbench-reset recall-home-browse-strip-header-organizer-deck-reset"
+                              aria-label="Home browse glance"
                             >
-                              <div className="section-header section-header-compact recall-home-library-stage-header">
-                                <div className="recall-home-library-stage-heading">
-                                  <div className="recall-library-section-heading-row">
-                                    <h3>Saved library</h3>
-                                    {homeStageLibrarySection ? (
-                                      <span className="recall-library-section-count">
-                                        {formatCountLabel(homeStageLibrarySection.documents.length, 'source', 'sources')}
+                              <div className="recall-home-browse-strip-heading-inline recall-home-browse-strip-heading-inline-header-compression-reset recall-home-browse-strip-heading-inline-unified-workbench-reset">
+                                <strong>{homeBrowseStripHeading}</strong>
+                                <span className="status-chip reader-meta-chip">{homeBrowseStripStatus}</span>
+                              </div>
+                            </div>
+                            {homeBrowseStripGuide ? (
+                              <p className="recall-home-browse-strip-note recall-home-browse-strip-note-header-compression-reset recall-home-browse-strip-note-organizer-owned-reset recall-home-browse-strip-note-unified-workbench-reset recall-home-browse-strip-note-organizer-deck-reset">
+                                {homeBrowseStripGuide}
+                              </p>
+                            ) : null}
+                            {showInlineHomeSearch ? (
+                              <label className="field recall-inline-field recall-home-library-stage-search recall-home-browse-strip-search recall-home-browse-strip-search-header-compression-reset recall-home-browse-strip-search-organizer-owned-reset recall-home-browse-strip-search-organizer-deck-reset">
+                                <span className="visually-hidden">Search saved sources</span>
+                                <input
+                                  aria-label="Search saved sources"
+                                  type="search"
+                                  placeholder="Search saved sources"
+                                  value={libraryFilterQuery}
+                                  onChange={(event) =>
+                                    updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                                  }
+                                />
+                              </label>
+                            ) : null}
+                            <div
+                              className="recall-home-browse-strip-control-deck recall-home-browse-strip-control-deck-organizer-control-reset recall-home-browse-strip-control-deck-board-first-reset recall-home-browse-strip-control-deck-unified-workbench-reset recall-home-browse-strip-control-deck-organizer-deck-reset recall-home-browse-strip-control-deck-organizer-header-reset recall-home-browse-strip-control-deck-stage467-reset"
+                              role="group"
+                              aria-label="Organizer controls"
+                            >
+                              <div className="recall-home-organizer-control-groups-stage467-reset">
+                                <div
+                                  className="recall-home-organizer-control-pillbox-stage467-reset"
+                                  role="group"
+                                  aria-label="Organizer lens"
+                                >
+                                  <button
+                                    aria-pressed={homeOrganizerLens === 'collections'}
+                                    className={
+                                      homeOrganizerLens === 'collections'
+                                        ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                        : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                                    }
+                                    type="button"
+                                    onClick={() => setHomeOrganizerLens('collections')}
+                                  >
+                                    Collections
+                                  </button>
+                                  <button
+                                    aria-pressed={homeOrganizerLens === 'recent'}
+                                    className={
+                                      homeOrganizerLens === 'recent'
+                                        ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                        : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                                    }
+                                    type="button"
+                                    onClick={() => setHomeOrganizerLens('recent')}
+                                  >
+                                    Recent
+                                  </button>
+                                </div>
+                                <div
+                                  className="recall-home-organizer-sort-toggle recall-home-organizer-sort-toggle-organizer-control-reset recall-home-organizer-sort-toggle-organizer-deck-reset"
+                                  role="group"
+                                  aria-label="Sort saved sources"
+                                >
+                                  <button
+                                    aria-pressed={homeSortMode === 'updated'}
+                                    className={
+                                      homeSortMode === 'updated'
+                                        ? 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-organizer-deck-reset recall-home-organizer-sort-button-active-organizer-control-reset'
+                                        : 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-organizer-deck-reset'
+                                    }
+                                    type="button"
+                                    onClick={() => setHomeSortMode('updated')}
+                                  >
+                                    Updated
+                                  </button>
+                                  <button
+                                    aria-pressed={homeSortMode === 'created'}
+                                    className={
+                                      homeSortMode === 'created'
+                                        ? 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-organizer-deck-reset recall-home-organizer-sort-button-active-organizer-control-reset'
+                                        : 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-organizer-deck-reset'
+                                    }
+                                    type="button"
+                                    onClick={() => setHomeSortMode('created')}
+                                  >
+                                    Created
+                                  </button>
+                                  <button
+                                    aria-pressed={homeSortMode === 'title'}
+                                    className={
+                                      homeSortMode === 'title'
+                                        ? 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-organizer-deck-reset recall-home-organizer-sort-button-active-organizer-control-reset'
+                                        : 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-organizer-deck-reset'
+                                    }
+                                    type="button"
+                                    onClick={() => setHomeSortMode('title')}
+                                  >
+                                    A-Z
+                                  </button>
+                                  <button
+                                    aria-pressed={homeSortMode === 'manual'}
+                                    className={
+                                      homeSortMode === 'manual'
+                                        ? 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-organizer-deck-reset recall-home-organizer-sort-button-active-organizer-control-reset'
+                                        : 'ghost-button recall-home-organizer-sort-button recall-home-organizer-sort-button-organizer-control-reset recall-home-organizer-sort-button-organizer-deck-reset'
+                                    }
+                                    type="button"
+                                    onClick={() => setHomeSortMode('manual')}
+                                  >
+                                    Manual
+                                  </button>
+                                </div>
+                                <div
+                                  className="recall-home-organizer-control-pillbox-stage467-reset"
+                                  role="group"
+                                  aria-label="Sort direction"
+                                >
+                                  <button
+                                    aria-pressed={homeSortDirection === 'desc'}
+                                    className={
+                                      homeSortDirection === 'desc'
+                                        ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                        : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                                    }
+                                    disabled={homeManualModeActive}
+                                    type="button"
+                                    onClick={() => setHomeSortDirection('desc')}
+                                  >
+                                    {homeSortMode === 'manual' ? 'Custom order' : homeSortMode === 'title' ? 'Descending' : 'Newest'}
+                                  </button>
+                                  <button
+                                    aria-pressed={homeSortDirection === 'asc'}
+                                    className={
+                                      homeSortDirection === 'asc'
+                                        ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                        : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                                    }
+                                    disabled={homeManualModeActive}
+                                    type="button"
+                                    onClick={() => setHomeSortDirection('asc')}
+                                  >
+                                    {homeSortMode === 'manual' ? 'Locked' : homeSortMode === 'title' ? 'Ascending' : 'Oldest'}
+                                  </button>
+                                </div>
+                                <div
+                                  className="recall-home-organizer-control-pillbox-stage467-reset"
+                                  role="group"
+                                  aria-label="View saved sources"
+                                >
+                                  <button
+                                    aria-pressed={homeViewMode === 'board'}
+                                    className={
+                                      homeViewMode === 'board'
+                                        ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                        : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                                    }
+                                    type="button"
+                                    onClick={() => setHomeViewMode('board')}
+                                  >
+                                    Board
+                                  </button>
+                                  <button
+                                    aria-pressed={homeViewMode === 'list'}
+                                    className={
+                                      homeViewMode === 'list'
+                                        ? 'ghost-button recall-home-organizer-control-pill-stage467-reset recall-home-organizer-control-pill-active-stage467-reset'
+                                        : 'ghost-button recall-home-organizer-control-pill-stage467-reset'
+                                    }
+                                    type="button"
+                                    onClick={() => setHomeViewMode('list')}
+                                  >
+                                    List
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="recall-home-browse-strip-tools recall-home-browse-strip-control-row-organizer-control-reset">
+                                {renderHomeCreateCollectionButton()}
+                                {!libraryFilterActive ? (
+                                  <button
+                                    aria-label={homeBrowsePreviewToggleLabel}
+                                    className="ghost-button recall-home-browse-strip-tool"
+                                    type="button"
+                                    onClick={() => setHomeBrowsePreviewsCollapsed((current) => !current)}
+                                  >
+                                    {homeBrowsePreviewToggleShortLabel}
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="ghost-button recall-home-browse-strip-tool"
+                                    type="button"
+                                    onClick={() => updateLibraryState((current) => ({ ...current, filterQuery: '' }))}
+                                  >
+                                    Clear search
+                                  </button>
+                                )}
+                                <button
+                                  aria-label={homeOrganizerToggleLabel}
+                                  className="ghost-button recall-home-browse-strip-tool"
+                                  type="button"
+                                  onClick={() => setHomeOrganizerVisible(false)}
+                                >
+                                  Hide organizer
+                                </button>
+                              </div>
+                              {renderHomeCollectionManagementPanel()}
+                            </div>
+                          </div>
+                          {!libraryFilterActive && homeBrowseSectionEntries.length > 0 ? (
+                            <div
+                              className="recall-home-browse-groups recall-home-browse-groups-tag-tree-reset recall-home-browse-groups-header-compression-reset recall-home-browse-groups-row-flatten-reset recall-home-browse-groups-organizer-deck-reset recall-home-browse-groups-tree-branch-reset"
+                              role="list"
+                              aria-label="Saved source groups"
+                            >
+                              <div
+                                className={
+                                  !homeSelectedBrowseSection
+                                    ? 'recall-home-browse-group recall-home-browse-group-active recall-home-browse-group-row-flatten-reset recall-home-browse-group-active-continuity-reset recall-home-browse-group-active-highlight-deflation-reset recall-home-browse-group-active-readout-softening-reset recall-home-browse-group-active-grouping-deflation-reset recall-home-browse-group-active-summary-preview-join-reset recall-home-browse-group-active-bridge-hint-retirement-reset recall-home-browse-group-active-tree-branch-reset recall-home-browse-overview-stage479-reset'
+                                    : 'recall-home-browse-group recall-home-browse-group-row-flatten-reset recall-home-browse-overview-stage479-reset'
+                                }
+                                role="listitem"
+                              >
+                                <button
+                                  aria-pressed={!homeSelectedBrowseSection}
+                                  className={
+                                    !homeSelectedBrowseSection
+                                      ? 'recall-home-browse-group-button recall-home-browse-group-button-active recall-home-browse-group-button-row-flatten-reset recall-home-browse-group-button-active-continuity-reset recall-home-browse-group-button-active-highlight-deflation-reset recall-home-browse-group-button-active-readout-softening-reset recall-home-browse-group-button-active-grouping-deflation-reset recall-home-browse-group-button-active-summary-preview-join-reset recall-home-browse-group-button-active-bridge-hint-retirement-reset recall-home-browse-group-button-active-tree-branch-reset recall-home-browse-overview-button-stage479-reset'
+                                      : 'recall-home-browse-group-button recall-home-browse-group-button-row-flatten-reset recall-home-browse-overview-button-stage479-reset'
+                                  }
+                                  type="button"
+                                  onClick={handleHomeOverviewOrganizerClick}
+                                >
+                                  <span className="recall-home-browse-group-topline recall-home-browse-group-topline-row-flatten-reset">
+                                    <span className="recall-home-browse-group-title-cluster recall-home-browse-group-title-cluster-row-flatten-reset">
+                                      <strong>{homeOverviewRowLabel}</strong>
+                                      {!homeSelectedBrowseSection ? (
+                                        <span
+                                          aria-label={formatCountLabel(visibleDocuments.length, 'source', 'sources')}
+                                          className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-active-highlight-deflation-reset recall-home-browse-group-count-chip-active-readout-softening-reset"
+                                        >
+                                          {visibleDocuments.length}
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                    {homeSelectedBrowseSection ? (
+                                      <span
+                                        aria-label={formatCountLabel(visibleDocuments.length, 'source', 'sources')}
+                                        className="recall-home-browse-group-count-chip"
+                                      >
+                                        {visibleDocuments.length}
                                       </span>
                                     ) : null}
-                                  </div>
-                                  <p>
-                                    {homeStageLibrarySection
-                                      ? `${homeStageLibrarySection.label} now starts inside the main workspace so you can keep browsing without dropping into a detached archive tail.`
-                                      : 'Keep the wider saved-source library nearby while one source stays primary.'}
-                                  </p>
-                                </div>
-                                {showInlineHomeSearch ? (
-                                  <label className="field recall-inline-field recall-home-library-stage-search">
-                                    <span className="visually-hidden">Search saved sources</span>
-                                    <input
-                                      aria-label="Search saved sources"
-                                      type="search"
-                                      placeholder="Search saved sources"
-                                      value={libraryFilterQuery}
-                                      onChange={(event) =>
-                                        updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
-                                      }
-                                    />
-                                  </label>
-                                ) : null}
+                                  </span>
+                                  <span className="recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset">
+                                    {homeOverviewRowSummary}
+                                  </span>
+                                </button>
                               </div>
-                              {!libraryFilterActive && homeWorkspaceSectionCounts.length > 0 ? (
-                                <div className="recall-home-library-stage-metrics" role="list" aria-label="Home snapshot">
-                                  {homeWorkspaceSectionCounts.map((section) => (
-                                    <span className="status-chip reader-meta-chip" key={section.key} role="listitem">
-                                      {section.label} · {section.count}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : null}
-                              {homeStageLibrarySection ? (
-                                <div className="recall-home-library-stage-source">
-                                  <strong>{homeStageLibrarySection.label}</strong>
-                                  <span>Keep moving through the denser saved-source flow while the lead source stays closer at hand.</span>
-                                </div>
-                              ) : null}
-                              {homeStageLibraryDocuments.length > 0 ? (
-                                <div className="recall-home-library-stage-list" role="list">
-                                  {homeStageLibraryDocuments.map((document) => renderHomeLibraryStageRow(document))}
-                                </div>
-                              ) : null}
-                              {homeRemainingLibrarySections.length > 0 ? (
-                                <p className="recall-home-library-stage-note">
-                                  Then continue through the fuller saved-source lanes below when you want a broader pass across the workspace.
-                                </p>
-                              ) : null}
-                            </aside>
-                          </div>
-                        ) : null}
+                              {homeBrowseSectionEntries.map((section) => {
+                                const browseGroupActive = section.key === homeSelectedBrowseSection?.key
+                                const browseGroupSelected = homeOrganizerSelectionKeys.includes(
+                                  buildHomeSectionSelectionKey(section.key),
+                                )
+                                const browseGroupDragging =
+                                  homeOrganizerDragSession?.kind === 'section' &&
+                                  homeOrganizerDragSession.sectionKey === section.key
+                                const browseGroupDropTarget =
+                                  homeOrganizerDropTarget?.kind === 'section' &&
+                                  homeOrganizerDropTarget.sectionKey === section.key
+                                const browseGroupIntegratesDetailWithPreviews =
+                                  browseGroupActive && !homeBrowsePreviewsCollapsed && section.previewDocuments.length > 0
+                                const browseGroupDetailUsesSourceTone =
+                                  !browseGroupActive || (homeBrowsePreviewsCollapsed && Boolean(section.previewLeadDocument))
+                                const browseGroupDetail = browseGroupActive
+                                  ? homeBrowsePreviewsCollapsed && section.previewLeadDocument
+                                    ? section.previewLeadDocument.title
+                                    : section.description
+                                  : section.previewLeadDocument?.title ?? section.description
+                                const browseGroupButtonDetail = browseGroupIntegratesDetailWithPreviews
+                                  ? null
+                                  : browseGroupDetail
 
-                        {homeRemainingLibrarySections.length > 0 ? (
-                          <section className="recall-home-library-stream stack-gap priority-surface-stage-shell" aria-label="Saved library lanes">
-                            <div className="section-header section-header-compact recall-home-library-stream-header">
-                              <div>
-                                <h3>Continue through the library</h3>
-                                <p>
-                                  The lower library is now a continuation of the active workspace, not a separate archive wall.
-                                </p>
-                              </div>
-                              <div className="recall-home-library-stream-meta" role="list" aria-label="Library flow status">
-                                <span className="status-chip reader-meta-chip" role="listitem">
-                                  {homeSavedSourceLabel}
-                                </span>
-                                <span className="status-chip reader-meta-chip" role="listitem">
-                                  Shell Search stays global
-                                </span>
-                              </div>
+                                return (
+                                  <div
+                                    className={
+                                      [
+                                        browseGroupActive
+                                          ? 'recall-home-browse-group recall-home-browse-group-active recall-home-browse-group-row-flatten-reset recall-home-browse-group-active-continuity-reset recall-home-browse-group-active-highlight-deflation-reset recall-home-browse-group-active-readout-softening-reset recall-home-browse-group-active-grouping-deflation-reset recall-home-browse-group-active-summary-preview-join-reset recall-home-browse-group-active-bridge-hint-retirement-reset recall-home-browse-group-active-tree-branch-reset'
+                                          : 'recall-home-browse-group recall-home-browse-group-row-flatten-reset',
+                                        browseGroupSelected ? 'recall-home-browse-group-selected-stage483-reset' : '',
+                                        browseGroupDragging ? 'recall-home-organizer-dragging-stage487-reset' : '',
+                                        browseGroupDropTarget ? 'recall-home-organizer-drop-target-stage487-reset recall-home-organizer-drop-target-row-stage487-reset' : '',
+                                      ]
+                                        .filter(Boolean)
+                                        .join(' ')
+                                    }
+                                    key={section.key}
+                                    role="listitem"
+                                    onDragOver={(event) => handleHomeOrganizerSectionDragOver(section.key, event)}
+                                    onDrop={(event) => handleHomeOrganizerSectionDrop(section.key, event)}
+                                  >
+                                    <button
+                                      aria-pressed={browseGroupActive}
+                                      className={
+                                        [
+                                          browseGroupActive
+                                            ? 'recall-home-browse-group-button recall-home-browse-group-button-active recall-home-browse-group-button-row-flatten-reset recall-home-browse-group-button-active-continuity-reset recall-home-browse-group-button-active-highlight-deflation-reset recall-home-browse-group-button-active-readout-softening-reset recall-home-browse-group-button-active-grouping-deflation-reset recall-home-browse-group-button-active-summary-preview-join-reset recall-home-browse-group-button-active-bridge-hint-retirement-reset recall-home-browse-group-button-active-tree-branch-reset'
+                                            : 'recall-home-browse-group-button recall-home-browse-group-button-row-flatten-reset',
+                                          browseGroupSelected ? 'recall-home-browse-group-button-selected-stage483-reset' : '',
+                                        ]
+                                          .filter(Boolean)
+                                          .join(' ')
+                                      }
+                                      type="button"
+                                      onClick={(event) => handleHomeOrganizerSectionClick(section.key, event)}
+                                    >
+                                      <span className="recall-home-browse-group-topline recall-home-browse-group-topline-row-flatten-reset">
+                                        <span className="recall-home-browse-group-title-cluster recall-home-browse-group-title-cluster-row-flatten-reset">
+                                          <strong>{section.label}</strong>
+                                          {isHomeCustomCollectionSection(section.key) ? (
+                                            <span className="status-chip status-muted recall-home-browse-group-kind-stage495-reset">
+                                              Custom
+                                            </span>
+                                          ) : null}
+                                          {isHomeUntaggedSection(section.key) ? (
+                                            <span className="status-chip status-muted recall-home-browse-group-kind-stage495-reset">
+                                              Untagged
+                                            </span>
+                                          ) : null}
+                                          {browseGroupActive ? (
+                                            <span
+                                              aria-label={formatCountLabel(section.count, 'source', 'sources')}
+                                              className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-active-highlight-deflation-reset recall-home-browse-group-count-chip-active-readout-softening-reset"
+                                            >
+                                              {section.count}
+                                            </span>
+                                          ) : null}
+                                        </span>
+                                        {!browseGroupActive ? (
+                                          <span
+                                            aria-label={formatCountLabel(section.count, 'source', 'sources')}
+                                            className="recall-home-browse-group-count-chip"
+                                          >
+                                            {section.count}
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                      {browseGroupButtonDetail ? (
+                                        <span
+                                          className={
+                                            browseGroupDetailUsesSourceTone
+                                              ? 'recall-home-browse-group-source recall-home-browse-group-source-row-flatten-reset'
+                                              : 'recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset'
+                                          }
+                                        >
+                                          {browseGroupButtonDetail}
+                                        </span>
+                                      ) : null}
+                                    </button>
+                                    {homeManualModeActive ? (
+                                      <div className="recall-home-organizer-workbench-controls-stage487-reset">
+                                        <button
+                                          aria-label={`Drag ${section.label}`}
+                                          className="ghost-button recall-home-organizer-drag-handle-stage487-reset"
+                                          draggable
+                                          type="button"
+                                          onClick={(event) => event.preventDefault()}
+                                          onDragEnd={handleHomeOrganizerDragEnd}
+                                          onDragStart={(event) => handleHomeOrganizerSectionDragStart(section.key, event)}
+                                        >
+                                          Drag
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                    {!homeBrowsePreviewsCollapsed &&
+                                    browseGroupActive &&
+                                    section.previewDocuments.length > 0 ? (
+                                      <div
+                                        className="recall-home-browse-group-children recall-home-browse-group-children-row-flatten-reset recall-home-browse-group-children-active-continuity-reset recall-home-browse-group-children-highlight-deflation-reset recall-home-browse-group-children-readout-softening-reset recall-home-browse-group-children-grouping-deflation-reset recall-home-browse-group-children-summary-preview-join-reset recall-home-browse-group-children-bridge-hint-retirement-reset recall-home-browse-group-children-tree-branch-reset"
+                                        role="list"
+                                        aria-label={`${section.label} sources`}
+                                      >
+                                        {section.previewDocuments.map((document, index) =>
+                                          renderHomeBrowseGroupChild(
+                                            section.key,
+                                            section.label,
+                                            document,
+                                            homeOrganizerActiveDocumentId
+                                              ? document.id === homeOrganizerActiveDocumentId
+                                              : index === 0,
+                                          ),
+                                        )}
+                                        {section.count > section.previewDocuments.length ? (
+                                          <div className="recall-home-browse-group-footer recall-home-browse-group-footer-tree-branch-reset">
+                                            <button
+                                              className="ghost-button"
+                                              type="button"
+                                              onClick={() =>
+                                                setExpandedHomeBrowseBranchKeys((current) => ({
+                                                  ...current,
+                                                  [section.key]: !current[section.key],
+                                                }))
+                                              }
+                                            >
+                                              {section.branchExpanded
+                                                ? `Show fewer ${section.label.toLowerCase()} sources`
+                                                : `Show all ${section.count} ${section.label.toLowerCase()} sources`}
+                                            </button>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                )
+                              })}
+                              {homeOrganizerSelectionKeys.length > 0 ? (
+                                <div
+                                  className="recall-home-organizer-selection-bar recall-home-organizer-selection-bar-stage483-reset recall-home-organizer-selection-bar-stage487-reset"
+                                  role="group"
+                                  aria-label="Organizer selection bar"
+                                >
+                                  <div className="recall-home-organizer-selection-copy-stage483-reset">
+                                    <strong>{formatCountLabel(homeOrganizerSelectionKeys.length, 'item', 'items')} selected</strong>
+                                    <span>{homeOrganizerSelectionSummary}</span>
+                                  </div>
+                                  <div className="recall-home-organizer-selection-actions-stage483-reset recall-home-organizer-selection-actions-stage487-reset">
+                                    {homeSingleOrganizerSelection ? (
+                                      <button className="ghost-button" type="button" onClick={handleHomeSingleSelectionPrimaryAction}>
+                                        {homeSingleOrganizerSelection.kind === 'section' ? 'Show in board' : 'Open source'}
+                                      </button>
+                                    ) : null}
+                                    {homeSelectedOrganizerDocumentIds.length > 0 ? (
+                                      <button
+                                        className="ghost-button"
+                                        type="button"
+                                        onClick={() =>
+                                          openHomeCollectionDraft('create', {
+                                            seedDocumentIds: homeSelectedOrganizerDocumentIds,
+                                          })
+                                        }
+                                      >
+                                        {homeCreateCollectionButtonLabel}
+                                      </button>
+                                    ) : null}
+                                    {homeCanAssignSelectedSourcesToCollections ? (
+                                      <button
+                                        className="ghost-button"
+                                        type="button"
+                                        onClick={() =>
+                                          setHomeCollectionAssignmentPanelOpen((current) => !current)
+                                        }
+                                      >
+                                        {homeCollectionAssignmentPanelOpen ? 'Hide collections' : 'Add to collections'}
+                                      </button>
+                                    ) : null}
+                                    {homeOrganizerSelectionMoveDescriptor && homeManualModeActive ? (
+                                      <>
+                                        <button className="ghost-button" type="button" onClick={() => handleHomeSelectionMove('backward')}>
+                                          {homeOrganizerSelectionKeys.length > 1 ? 'Move earlier' : 'Move up'}
+                                        </button>
+                                        <button className="ghost-button" type="button" onClick={() => handleHomeSelectionMove('forward')}>
+                                          {homeOrganizerSelectionKeys.length > 1 ? 'Move later' : 'Move down'}
+                                        </button>
+                                      </>
+                                    ) : null}
+                                    <button className="ghost-button" type="button" onClick={clearHomeOrganizerSelection}>
+                                      Clear
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
-                            <div className="recall-home-library-stream-grid">
-                              {homeRemainingLibrarySections.map((section) => renderHomeLibrarySection(section, { stream: true }))}
+                          ) : null}
+                        </div>
+                        <div
+                          aria-label="Resize Home organizer"
+                          aria-orientation="vertical"
+                          className="recall-home-browse-strip-resize-handle-stage491-reset"
+                          role="separator"
+                          tabIndex={0}
+                          onDoubleClick={handleResetHomeOrganizerRailWidth}
+                          onKeyDown={handleHomeOrganizerRailResizeKeyDown}
+                          onPointerDown={handleStartHomeOrganizerRailResize}
+                        >
+                          <span className="recall-home-browse-strip-resize-grip-stage491-reset" aria-hidden="true" />
+                        </div>
+                      </aside>
+                      ) : null}
+
+                      <div
+                        className={
+                          homeOrganizerVisible
+                            ? 'recall-home-browser-stage recall-home-browser-stage-parity-reset recall-home-browser-stage-tree-reset recall-home-browser-stage-organizer-control-reset recall-home-browser-stage-board-first-reset recall-home-browser-stage-results-sheet-reset'
+                            : 'recall-home-browser-stage recall-home-browser-stage-parity-reset recall-home-browser-stage-tree-reset recall-home-browser-stage-organizer-control-reset recall-home-browser-stage-board-first-reset recall-home-browser-stage-organizer-hidden-reset recall-home-browser-stage-results-sheet-reset'
+                        }
+                      >
+                        {showHomeReopenCluster || homeSelectedBrowseSection || showHomeBoardOverview || libraryFilterActive ? (
+                        <section
+                          className={
+                                homeOrganizerVisible
+                                ? 'recall-home-stage-shell recall-home-primary-flow recall-home-primary-flow-density-reset recall-home-primary-flow-tree-reset recall-home-primary-flow-filtered-card-reset recall-home-primary-flow-board-lift-reset recall-home-primary-flow-source-context-reset recall-home-primary-flow-minimal-entry-reset recall-home-primary-flow-organizer-control-reset recall-home-primary-flow-board-first-reset recall-home-primary-flow-organizer-owned-reset recall-home-primary-flow-unified-workbench-reset recall-home-primary-flow-board-dominant-reset recall-home-primary-flow-results-sheet-reset recall-home-primary-flow-direct-start-reset priority-surface-stage-shell'
+                                : 'recall-home-stage-shell recall-home-primary-flow recall-home-primary-flow-density-reset recall-home-primary-flow-tree-reset recall-home-primary-flow-filtered-card-reset recall-home-primary-flow-board-lift-reset recall-home-primary-flow-source-context-reset recall-home-primary-flow-minimal-entry-reset recall-home-primary-flow-organizer-control-reset recall-home-primary-flow-board-first-reset recall-home-primary-flow-organizer-owned-reset recall-home-primary-flow-organizer-hidden-reset recall-home-primary-flow-unified-workbench-reset recall-home-primary-flow-board-dominant-reset recall-home-primary-flow-results-sheet-reset recall-home-primary-flow-direct-start-reset priority-surface-stage-shell'
+                          }
+                          aria-label="Primary saved source flow"
+                        >
+                            <div
+                              className={
+                                homeOrganizerVisible
+                                  ? 'recall-home-primary-flow-grid recall-home-primary-flow-grid-density-reset recall-home-primary-flow-grid-tree-reset recall-home-primary-flow-grid-board-reset recall-home-primary-flow-grid-fill-reset recall-home-primary-flow-grid-card-density-reset recall-home-primary-flow-grid-continuous-board-reset recall-home-primary-flow-grid-library-sheet-reset recall-home-primary-flow-grid-organizer-control-reset recall-home-primary-flow-grid-board-first-reset recall-home-primary-flow-grid-board-fusion-reset recall-home-primary-flow-grid-organizer-owned-reset recall-home-primary-flow-grid-unified-workbench-reset recall-home-primary-flow-grid-board-top-reset recall-home-primary-flow-grid-results-sheet-reset'
+                                  : 'recall-home-primary-flow-grid recall-home-primary-flow-grid-density-reset recall-home-primary-flow-grid-tree-reset recall-home-primary-flow-grid-board-reset recall-home-primary-flow-grid-fill-reset recall-home-primary-flow-grid-card-density-reset recall-home-primary-flow-grid-continuous-board-reset recall-home-primary-flow-grid-library-sheet-reset recall-home-primary-flow-grid-organizer-control-reset recall-home-primary-flow-grid-board-first-reset recall-home-primary-flow-grid-board-fusion-reset recall-home-primary-flow-grid-organizer-owned-reset recall-home-primary-flow-grid-organizer-hidden-reset recall-home-primary-flow-grid-unified-workbench-reset recall-home-primary-flow-grid-board-top-reset recall-home-primary-flow-grid-results-sheet-reset'
+                              }
+                            >
+                              {libraryFilterActive ? (
+                                <section
+                                  className="recall-home-library-card recall-home-library-card-wide recall-home-library-card-filtered recall-home-library-results-board-first-reset recall-home-library-results-board-fusion-reset recall-home-library-results-unified-workbench-reset recall-home-library-results-direct-board-reset recall-home-library-results-board-dominant-reset recall-home-library-results-results-sheet-reset recall-home-library-results-direct-start-reset stack-gap priority-surface-stage-shell"
+                                  aria-label="Matching saved sources"
+                                >
+                                  <div className="recall-home-primary-board-direct-layout recall-home-primary-board-direct-layout-results-reset recall-home-primary-board-direct-layout-inline-reopen-reset">
+                                    <div className="recall-home-primary-board-direct-main recall-home-primary-board-direct-main-results-reset recall-home-primary-board-direct-main-inline-reopen-reset stack-gap">
+                                      <div className="section-header section-header-compact recall-home-library-card-header recall-home-library-card-header-direct-board-reset recall-home-library-card-header-board-dominant-reset recall-home-library-card-header-direct-start-reset">
+                                        <div className="recall-home-library-stage-heading">
+                                          <div className="recall-library-section-heading-row">
+                                            <h3>Matches</h3>
+                                            <span className="recall-library-section-count">
+                                              {formatCountLabel(visibleDocuments.length, 'source', 'sources')}
+                                            </span>
+                                          </div>
+                                          <p>Open a result, or clear search in the organizer.</p>
+                                        </div>
+                                      </div>
+                                      {!homeOrganizerVisible && showHomeReopenCluster ? renderHomeReopenCluster() : null}
+                                      <div
+                                        className={
+                                          homeViewMode === 'list'
+                                            ? 'recall-library-list recall-home-library-list recall-home-library-results-list-board-first-reset recall-home-library-results-list-direct-board-reset recall-home-library-results-list-results-sheet-reset recall-home-library-results-list-list-view-stage467-reset'
+                                            : 'recall-library-list recall-home-library-list recall-home-library-results-list-board-first-reset recall-home-library-results-list-direct-board-reset recall-home-library-results-list-results-sheet-reset'
+                                        }
+                                        role="list"
+                                      >
+                                        {visibleDocuments.map((document) => renderLibrarySourceRow(document, { viewMode: homeViewMode }))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </section>
+                              ) : homeSelectedBrowseSection ? (
+                                <section
+                                  className={
+                                    homeOrganizerVisible
+                                      ? 'recall-home-library-stage recall-home-selected-group-stage recall-home-selected-group-stage-primary recall-home-selected-group-stage-board-fill recall-home-selected-group-stage-card-density-reset recall-home-selected-group-stage-continuous-coverage-reset recall-home-selected-group-stage-library-sheet-reset recall-home-selected-group-stage-organizer-control-reset recall-home-selected-group-stage-board-first-reset recall-home-selected-group-stage-board-fusion-reset recall-home-selected-group-stage-organizer-owned-reset recall-home-selected-group-stage-unified-workbench-reset recall-home-selected-group-stage-board-top-reset recall-home-selected-group-stage-direct-board-reset recall-home-selected-group-stage-board-dominant-reset recall-home-selected-group-stage-results-sheet-reset recall-home-selected-group-stage-tree-branch-reset recall-home-selected-group-stage-direct-start-reset recall-home-stage-lane stack-gap priority-surface-stage-shell'
+                                      : 'recall-home-library-stage recall-home-selected-group-stage recall-home-selected-group-stage-primary recall-home-selected-group-stage-board-fill recall-home-selected-group-stage-card-density-reset recall-home-selected-group-stage-continuous-coverage-reset recall-home-selected-group-stage-library-sheet-reset recall-home-selected-group-stage-organizer-control-reset recall-home-selected-group-stage-board-first-reset recall-home-selected-group-stage-board-fusion-reset recall-home-selected-group-stage-organizer-owned-reset recall-home-selected-group-stage-organizer-hidden-reset recall-home-selected-group-stage-unified-workbench-reset recall-home-selected-group-stage-board-top-reset recall-home-selected-group-stage-direct-board-reset recall-home-selected-group-stage-board-dominant-reset recall-home-selected-group-stage-results-sheet-reset recall-home-selected-group-stage-direct-start-reset recall-home-stage-lane stack-gap priority-surface-stage-shell'
+                                  }
+                                  aria-label="Saved library"
+                                >
+                                  <div className="recall-home-primary-board-direct-layout recall-home-primary-board-direct-layout-selected-reset recall-home-primary-board-direct-layout-inline-reopen-reset">
+                                    <div className="recall-home-primary-board-direct-main recall-home-primary-board-direct-main-selected-reset recall-home-primary-board-direct-main-inline-reopen-reset stack-gap">
+                                      <div className="recall-home-stage-lane-header recall-home-stage-lane-header-board-top-reset recall-home-stage-lane-header-direct-board-reset recall-home-stage-lane-header-board-dominant-reset recall-home-stage-lane-header-results-sheet-reset recall-home-stage-lane-header-tree-branch-reset recall-home-stage-lane-header-direct-start-reset">
+                                        <div className="recall-home-library-stage-source">
+                                          <h3>{homeSelectedGroupHeading}</h3>
+                                          <span>{homeSelectedGroupSummary}</span>
+                                        </div>
+                                        <span className="recall-library-section-count">
+                                          {formatCountLabel(homeSelectedBrowseSection.documents.length, 'source', 'sources')}
+                                        </span>
+                                      </div>
+                                      {!homeOrganizerVisible && showHomeReopenCluster ? renderHomeReopenCluster() : null}
+                                      {visibleHomeSelectedSectionDocuments.length > 0 ? (
+                                        <div
+                                          className={
+                                            homeViewMode === 'list'
+                                              ? 'recall-home-library-stage-list recall-home-library-stage-list-tree-reset recall-home-library-stage-list-board-fill recall-home-library-stage-list-card-density-reset recall-home-library-stage-list-continuous-coverage-reset recall-home-library-stage-list-library-sheet-reset recall-home-library-stage-list-unified-workbench-reset recall-home-library-stage-list-board-top-reset recall-home-library-stage-list-direct-board-reset recall-home-library-stage-list-results-sheet-reset recall-home-library-stage-list-tree-branch-reset recall-home-library-stage-list-list-view-stage467-reset'
+                                              : 'recall-home-library-stage-list recall-home-library-stage-list-tree-reset recall-home-library-stage-list-board-fill recall-home-library-stage-list-card-density-reset recall-home-library-stage-list-continuous-coverage-reset recall-home-library-stage-list-library-sheet-reset recall-home-library-stage-list-unified-workbench-reset recall-home-library-stage-list-board-top-reset recall-home-library-stage-list-direct-board-reset recall-home-library-stage-list-results-sheet-reset recall-home-library-stage-list-tree-branch-reset'
+                                          }
+                                          role="list"
+                                        >
+                                          {visibleHomeSelectedSectionDocuments.map((document) =>
+                                            renderHomeLibraryStageRow(document, { viewMode: homeViewMode }),
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <p className="recall-home-stage-lane-note">
+                                          {homeSelectedGroupEmptyNote}
+                                        </p>
+                                      )}
+                                      {homeSelectedBrowseSection &&
+                                      homeSelectedSectionDocuments.length > homeSelectedSectionDisplayLimit ? (
+                                        <div className="recall-library-section-footer recall-home-library-stage-footer-continuous-reset recall-home-library-stage-footer-library-sheet-reset recall-home-library-stage-footer-unified-workbench-reset">
+                                          <button
+                                            className="ghost-button"
+                                            type="button"
+                                            onClick={() =>
+                                              setExpandedLibrarySectionKeys((current) => ({
+                                                ...current,
+                                                [homeSelectedBrowseSection.key]: !current[homeSelectedBrowseSection.key],
+                                              }))
+                                            }
+                                          >
+                                            {expandedLibrarySectionKeys[homeSelectedBrowseSection.key]
+                                              ? `Show fewer ${homeSelectedBrowseSection.label.toLowerCase()} sources`
+                                              : `Show all ${homeSelectedSectionDocuments.length} ${homeSelectedBrowseSection.label.toLowerCase()} sources`}
+                                          </button>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </section>
+                              ) : showHomeBoardOverview ? (
+                                <section
+                                  className="recall-home-library-stream recall-home-library-stream-parity-reset recall-home-library-stream-overview-stage479-reset stack-gap priority-surface-stage-shell"
+                                  aria-label="Saved library overview"
+                                >
+                                  <div className="section-header section-header-compact recall-home-library-stream-header recall-home-library-stream-header-overview-stage479-reset">
+                                    <div>
+                                      <h3>{homeOverviewRowLabel}</h3>
+                                      <p>{homeOrganizerRailSummary}</p>
+                                    </div>
+                                    <div className="recall-home-library-stream-meta" role="list" aria-label="Library overview status">
+                                      <span className="status-chip reader-meta-chip" role="listitem">
+                                        {homeSavedSourceLabel}
+                                      </span>
+                                      <span className="status-chip reader-meta-chip" role="listitem">
+                                        {homeWorkingSetStatus}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  {!homeOrganizerVisible && showHomeReopenCluster ? renderHomeReopenCluster() : null}
+                                  <div
+                                    className={
+                                      homeViewMode === 'list'
+                                        ? 'recall-home-library-stream-grid recall-home-library-stream-grid-tree-reset recall-home-library-stream-grid-overview-stage479-reset recall-home-library-stream-grid-list-view-stage479-reset'
+                                        : 'recall-home-library-stream-grid recall-home-library-stream-grid-tree-reset recall-home-library-stream-grid-overview-stage479-reset'
+                                    }
+                                  >
+                                    {homeWorkspaceLibrarySections.map((section) =>
+                                      renderHomeLibrarySection(section, { stream: true, viewMode: homeViewMode }),
+                                    )}
+                                  </div>
+                                </section>
+                              ) : null}
                             </div>
                           </section>
                         ) : null}
-                      </>
-                    )
+                      </div>
+                    </div>
                   ) : null}
                 </div>
               </div>

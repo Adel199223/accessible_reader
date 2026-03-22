@@ -1,5 +1,9 @@
 export type AppSection = 'recall' | 'reader'
 export type RecallSection = 'library' | 'graph' | 'study' | 'notes'
+export type RecallHomeOrganizerLens = 'collections' | 'recent'
+export type RecallHomeViewMode = 'board' | 'list'
+export type RecallLibrarySortDirection = 'asc' | 'desc'
+export type RecallLibrarySortMode = 'updated' | 'created' | 'title' | 'manual'
 export type RecallStudyFilter = 'all' | 'new' | 'due' | 'scheduled'
 export type SourceWorkspaceTab = 'overview' | 'reader' | 'notes' | 'graph' | 'study'
 export type SourceWorkspaceMode = 'browse' | 'focused'
@@ -62,10 +66,17 @@ export interface RecallWorkspaceContinuityState {
     study: boolean
   }
   graph: {
+    focusTrailNodeIds: string[]
+    pathSelectedNodeIds: string[]
     selectedNodeId: string | null
   }
   library: {
     filterQuery: string
+    homeOrganizerLens: RecallHomeOrganizerLens
+    homeOrganizerVisible: boolean
+    homeSortDirection: RecallLibrarySortDirection
+    homeSortMode: RecallLibrarySortMode
+    homeViewMode: RecallHomeViewMode
     selectedDocumentId: string | null
   }
   notes: {
@@ -95,16 +106,23 @@ export interface AppRoute {
 
 export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuityState = {
   browseDrawers: {
-    graph: true,
+    graph: false,
     library: true,
     notes: true,
     study: false,
   },
   graph: {
+    focusTrailNodeIds: [],
+    pathSelectedNodeIds: [],
     selectedNodeId: null,
   },
   library: {
     filterQuery: '',
+    homeOrganizerLens: 'collections',
+    homeOrganizerVisible: true,
+    homeSortDirection: 'desc',
+    homeSortMode: 'updated',
+    homeViewMode: 'board',
     selectedDocumentId: null,
   },
   notes: {
@@ -128,7 +146,7 @@ export function shouldOpenRecallBrowseDrawerByDefault(section: RecallSection, ha
   if (hasFocusedTarget) {
     return false
   }
-  return section !== 'study'
+  return section === 'library' || section === 'notes'
 }
 
 

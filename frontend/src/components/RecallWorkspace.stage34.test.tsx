@@ -302,10 +302,18 @@ function makeContinuityState(section: RecallSection): RecallWorkspaceContinuityS
       [section]: false,
     },
     graph: {
+      focusTrailNodeIds: ['node-knowledge-graphs'],
+      pathSelectedNodeIds: [],
       selectedNodeId: 'node-knowledge-graphs',
     },
     library: {
+      ...structuredClone(defaultRecallWorkspaceContinuityState.library),
       filterQuery: '',
+      homeOrganizerLens: 'collections',
+      homeOrganizerVisible: true,
+      homeSortDirection: 'desc',
+      homeSortMode: 'updated',
+      homeViewMode: 'board',
       selectedDocumentId: 'doc-search',
     },
     notes: {

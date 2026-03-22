@@ -1004,6 +1004,7 @@ export function ReaderWorkspace({
   const selectedReaderNoteSaveDisabled = !activeReaderNote || noteBusyKey === `save:${activeReaderNote.id}`
   const currentSentenceLabel = `Sentence ${flatSentences.length === 0 ? 0 : speech.currentSentenceIndex + 1} of ${flatSentences.length}`
   const readerTitleId = 'reader-document-title'
+  const readerOriginalParityMode = hasActiveDocument && activeMode === 'original'
   const transportAction =
     speech.isSpeaking && !speech.isPaused
       ? {
@@ -1032,18 +1033,24 @@ export function ReaderWorkspace({
   const readerStageSummary = noteCaptureActive
     ? 'Pick one sentence in the text to start a saved highlight, then extend it inside the same block if needed.'
     : routeAnchorRange
-      ? `Anchored evidence stays visible in ${readerViewLabel} while the dock keeps nearby notes and sources close.`
-      : 'Document text stays primary while view controls, notes, and source switching settle into a calmer dock.'
+      ? `Anchored evidence stays visible in ${readerViewLabel} while the dock keeps nearby notes and sources attached.`
+      : readerOriginalParityMode
+        ? 'Keep the original article in the lead while notes and source switching stay attached in the dock.'
+        : 'Document text stays primary while view controls, notes, and source switching settle into a calmer dock.'
   const readerDockSummary = selectedDocument
     ? canAnnotateCurrentView
       ? 'Keep note work, nearby sources, and Reader handoffs close without taking over the reading lane.'
-      : 'This mode stays focused on reading; switch to Reflowed whenever you want to capture or reopen anchored notes in place.'
+      : readerOriginalParityMode
+        ? 'Notes, source switching, and reopen cues stay attached here while the original article keeps the reading lead.'
+        : 'This mode stays focused on reading; switch to Reflowed whenever you want to capture or reopen anchored notes in place.'
     : 'Saved sources and note work stay nearby here while the reading lane stays ready for the next document.'
   const readerStageGlanceNote = noteCaptureActive
     ? 'Capture stays in the dock so the text column does not split into separate work cards.'
     : routeAnchorRange
       ? 'Anchored evidence stays in view while the dock keeps source and notes close without becoming a second page.'
-      : 'Use shell Search or New to change sources; keep notes and library work tucked into the dock.'
+      : readerOriginalParityMode
+        ? 'Use shell Search or New to change sources; keep the dock nearby when you need notes or source switching.'
+        : 'Use shell Search or New to change sources; keep notes and library work tucked into the dock.'
   const showReaderGenerationAction = (activeMode === 'simplified' || activeMode === 'summary') && !view
   const libraryMetricLabel = documentsLoading
     ? 'Loading Home…'
@@ -1343,9 +1350,13 @@ export function ReaderWorkspace({
       <div className="reader-shell-grid reader-shell-grid-reader-milestone">
         <main className="main-panel reader-reading-column">
           {selectedDocument ? (
-            <section className="card reader-card reader-reading-stage priority-surface-stage-shell">
-              <div className="reader-stage-shell">
-                <div className="reader-stage-context">
+            <section
+              className={`card reader-card reader-reading-stage priority-surface-stage-shell${
+                readerOriginalParityMode ? ' reader-reading-stage-original-parity' : ''
+              }`}
+            >
+              <div className={`reader-stage-shell${readerOriginalParityMode ? ' reader-stage-shell-original-parity' : ''}`}>
+                <div className={`reader-stage-context${readerOriginalParityMode ? ' reader-stage-context-original-parity' : ''}`}>
                   <div className="reader-stage-kicker-row">
                     <span className="status-chip reader-stage-kicker">{readerStageKickerLabel}</span>
                     <span className="reader-stage-kicker-note">{readerStageKickerNote}</span>
@@ -1355,7 +1366,7 @@ export function ReaderWorkspace({
                     <p className="reader-stage-summary">{readerStageSummary}</p>
                   </div>
                 </div>
-                <div className="reader-stage-utility">
+                <div className={`reader-stage-utility${readerOriginalParityMode ? ' reader-stage-utility-original-parity' : ''}`}>
                   <button
                     aria-controls="settings-drawer"
                     aria-expanded={settingsOpen}
@@ -1398,8 +1409,12 @@ export function ReaderWorkspace({
                 </div>
               </div>
 
-              <div className="reader-stage-control-ribbon">
-                <div className="reader-stage-mode-strip">
+              <div
+                className={`reader-stage-control-ribbon${
+                  readerOriginalParityMode ? ' reader-stage-control-ribbon-original-parity' : ''
+                }`}
+              >
+                <div className={`reader-stage-mode-strip${readerOriginalParityMode ? ' reader-stage-mode-strip-original-parity' : ''}`}>
                   <span className="reader-stage-strip-label">View</span>
                   <div className="recall-stage-tabs recall-stage-tabs-compact" aria-label="Reader views" role="tablist">
                     {viewModeOptions.map((option) => (
@@ -1417,8 +1432,16 @@ export function ReaderWorkspace({
                   </div>
                 </div>
 
-                <div className="reader-stage-transport-strip">
-                  <div className="reader-stage-transport-head">
+                <div
+                  className={`reader-stage-transport-strip${
+                    readerOriginalParityMode ? ' reader-stage-transport-strip-original-parity' : ''
+                  }`}
+                >
+                  <div
+                    className={`reader-stage-transport-head${
+                      readerOriginalParityMode ? ' reader-stage-transport-head-original-parity' : ''
+                    }`}
+                  >
                     <span className="reader-stage-strip-label">Read aloud</span>
                     <span className="reader-stage-strip-note">{currentSentenceLabel}</span>
                   </div>
@@ -1491,8 +1514,14 @@ export function ReaderWorkspace({
                 </div>
               </div>
 
-              <div className="reader-stage-glance-bar">
-                <div className="reader-meta-row reader-stage-glance-meta" role="list" aria-label="Reader metadata">
+              <div className={`reader-stage-glance-bar${readerOriginalParityMode ? ' reader-stage-glance-bar-original-parity' : ''}`}>
+                <div
+                  className={`reader-meta-row reader-stage-glance-meta${
+                    readerOriginalParityMode ? ' reader-stage-glance-meta-original-parity' : ''
+                  }`}
+                  role="list"
+                  aria-label="Reader metadata"
+                >
                   {readerStageMetadata.map((item) => (
                     <span key={item} className="status-chip reader-meta-chip" role="listitem">
                       {item}
@@ -1501,8 +1530,16 @@ export function ReaderWorkspace({
                 </div>
                 <p className="reader-stage-glance-note">{readerStageGlanceNote}</p>
               </div>
-              <div className="reader-reading-deck-layout">
-                <div className="reader-document-shell reader-reading-lane">
+              <div
+                className={`reader-reading-deck-layout${
+                  readerOriginalParityMode ? ' reader-reading-deck-layout-original-parity' : ''
+                }`}
+              >
+                <div
+                  className={`reader-document-shell reader-reading-lane${
+                    readerOriginalParityMode ? ' reader-document-shell-original-parity' : ''
+                  }`}
+                >
                   {viewLoading ? <p className="placeholder">Loading view…</p> : null}
                   {selectedDocument && !view && !viewLoading && showReaderGenerationAction ? (
                     <p className="placeholder placeholder-inline">
@@ -1512,7 +1549,7 @@ export function ReaderWorkspace({
                     </p>
                   ) : null}
                   {view ? (
-                    <div className="reader-article-shell">
+                    <div className={`reader-article-shell${readerOriginalParityMode ? ' reader-article-shell-original-parity' : ''}`}>
                       <ReaderSurface
                         labelledBy={readerTitleId}
                         blocks={renderBlocks}
@@ -1527,9 +1564,17 @@ export function ReaderWorkspace({
                   ) : null}
                 </div>
 
-                <section className="card reader-support-dock stack-gap priority-surface-support-rail priority-surface-support-rail-quiet">
+                <section
+                  className={`card reader-support-dock stack-gap priority-surface-support-rail priority-surface-support-rail-quiet${
+                    readerOriginalParityMode ? ' reader-support-dock-original-parity' : ''
+                  }`}
+                >
                   <div className="reader-support-dock-header">
-                    <div className="section-header section-header-compact reader-support-dock-copy">
+                    <div
+                      className={`section-header section-header-compact reader-support-dock-copy${
+                        readerOriginalParityMode ? ' reader-support-dock-copy-original-parity' : ''
+                      }`}
+                    >
                       <h2>Reader dock</h2>
                       <p>{readerDockSummary}</p>
                     </div>
@@ -1566,22 +1611,40 @@ export function ReaderWorkspace({
                   </div>
 
                   {readerContextTab === 'source' ? (
-                    <div className="reader-support-pane reader-support-pane-source stack-gap">
-                      <div className="reader-support-glance">
+                    <div
+                      className={`reader-support-pane reader-support-pane-source stack-gap${
+                        readerOriginalParityMode ? ' reader-support-pane-source-original-parity' : ''
+                      }`}
+                    >
+                      <div
+                        className={`reader-support-glance${
+                          readerOriginalParityMode ? ' reader-support-glance-original-parity' : ''
+                        }`}
+                      >
                         {selectedDocument ? (
                           <>
-                            <div className="reader-support-glance-copy">
+                            <div
+                              className={`reader-support-glance-copy${
+                                readerOriginalParityMode ? ' reader-support-glance-copy-original-parity' : ''
+                              }`}
+                            >
                               <strong>Active source</strong>
                               <p className="reader-support-glance-title">{selectedDocument.title}</p>
                               <p>{selectedDocument.file_name ?? 'Saved locally in Recall.'}</p>
                             </div>
                             <p className="small-note reader-support-glance-note">
-                              Use shell Search or New when you want another source; the dock keeps nearby reopen options visible here.
+                              {readerOriginalParityMode
+                                ? 'Use shell Search or New when you want another source; the dock keeps nearby reopen options close.'
+                                : 'Use shell Search or New when you want another source; the dock keeps nearby reopen options visible here.'}
                             </p>
                           </>
                         ) : (
                           <>
-                            <div className="reader-support-glance-copy">
+                            <div
+                              className={`reader-support-glance-copy${
+                                readerOriginalParityMode ? ' reader-support-glance-copy-original-parity' : ''
+                              }`}
+                            >
                               <strong>Ready for the next source</strong>
                               <p className="reader-support-glance-title">Bring one source into focus</p>
                               <p>Use the shell Search or New actions to open another document without leaving Recall.</p>
@@ -1622,7 +1685,11 @@ export function ReaderWorkspace({
                       </p>
                     </div>
                   ) : (
-                    <section className="reader-support-pane reader-support-pane-notes stack-gap reader-notes-panel">
+                    <section
+                      className={`reader-support-pane reader-support-pane-notes stack-gap reader-notes-panel${
+                        readerOriginalParityMode ? ' reader-support-pane-notes-original-parity' : ''
+                      }`}
+                    >
               <div className="toolbar">
                 <div className="section-header section-header-compact">
                   <h3>Notes</h3>

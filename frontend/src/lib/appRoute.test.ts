@@ -1,6 +1,11 @@
 import { expect, test } from 'vitest'
 
-import { buildAppHref, parseAppRoute, shouldOpenRecallBrowseDrawerByDefault } from './appRoute'
+import {
+  buildAppHref,
+  defaultRecallWorkspaceContinuityState,
+  parseAppRoute,
+  shouldOpenRecallBrowseDrawerByDefault,
+} from './appRoute'
 
 test('parseAppRoute reads reader anchor params and defaults sentenceEnd to sentenceStart', () => {
   const route = parseAppRoute({
@@ -46,10 +51,27 @@ test('buildAppHref writes non-library recall sections into the URL and keeps Hom
   expect(buildAppHref('recall', null, { recallSection: 'library' })).toBe('/recall')
 })
 
-test('Study browse defaults to the collapsed drawer while other Recall sections stay expanded', () => {
+test('Study and Graph browse default to collapsed drawers while Home and Notes stay expanded', () => {
   expect(shouldOpenRecallBrowseDrawerByDefault('study')).toBe(false)
   expect(shouldOpenRecallBrowseDrawerByDefault('library')).toBe(true)
-  expect(shouldOpenRecallBrowseDrawerByDefault('graph')).toBe(true)
+  expect(shouldOpenRecallBrowseDrawerByDefault('graph')).toBe(false)
   expect(shouldOpenRecallBrowseDrawerByDefault('notes')).toBe(true)
   expect(shouldOpenRecallBrowseDrawerByDefault('study', true)).toBe(false)
+})
+
+test('defaultRecallWorkspaceContinuityState keeps Home organizer sorting defaults stable', () => {
+  expect(defaultRecallWorkspaceContinuityState.graph).toMatchObject({
+    focusTrailNodeIds: [],
+    pathSelectedNodeIds: [],
+    selectedNodeId: null,
+  })
+  expect(defaultRecallWorkspaceContinuityState.library).toMatchObject({
+    filterQuery: '',
+    homeOrganizerLens: 'collections',
+    homeOrganizerVisible: true,
+    homeSortDirection: 'desc',
+    homeSortMode: 'updated',
+    homeViewMode: 'board',
+    selectedDocumentId: null,
+  })
 })
