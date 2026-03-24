@@ -1,6 +1,6 @@
 # Recall Workspace
 
-Local-first Recall workspace for Windows 11. This repository lives in WSL and targets Microsoft Edge on Windows for the main browser companion and read-aloud experience. Reader is an integrated Recall section, not a separate sibling app.
+Browser-first local-first Recall workspace for Windows 11. This repository lives in WSL, serves the main Recall experience through the local browser app, and supports a real Microsoft Edge browser companion for context handoff and note-aware flows. Reader is an integrated Recall section, not a separate sibling app.
 
 ## Read First
 
@@ -14,7 +14,9 @@ Local-first Recall workspace for Windows 11. This repository lives in WSL and ta
 
 - `agent.md` is the short Codex runbook for this repo.
 - `docs/assistant/INDEX.md` is the lightweight assistant routing map.
-- `docs/assistant/templates/CODEX_PROJECT_BOOTSTRAP_PROMPT.md` stays on-demand only for explicit harness/bootstrap prompt work.
+- `docs/assistant/HARNESS_PROFILE.json` is the repo-local profile input for the profile-driven harness.
+- `docs/assistant/runtime/BOOTSTRAP_STATE.json` is the current resolved harness state preview.
+- `docs/assistant/templates/` is the vendored reusable source of truth for harness maintenance.
 
 This project is optimized for:
 
@@ -22,6 +24,7 @@ This project is optimized for:
 - dyslexia-friendly reading defaults inside the integrated Reader
 - ADHD-considerate chunking and focus modes
 - browser-native read aloud in Microsoft Edge
+- a real Edge browser companion for local context lookup and handoff
 - local parsing, storage, and reflow
 - snapshot-based public article webpage import
 - AI only for explicit `Simplify` and `Summary` actions
@@ -36,6 +39,7 @@ This project is optimized for:
 
 - `frontend/` - React app
 - `backend/` - FastAPI API, parsers, storage, AI transforms
+- `extension/` - Edge browser companion
 - `docs/` - roadmap, anchor, and milestone plans
 
 ## Local Development
@@ -60,6 +64,17 @@ npm run dev
 
 Frontend defaults to `http://127.0.0.1:5173` and proxies API requests to `http://127.0.0.1:8000`.
 
+### Extension (WSL)
+
+```bash
+cd extension
+npm install
+npm test -- --run
+npm run build
+```
+
+The extension is a supported browser companion surface. Keep it context-only unless the user explicitly reopens current-tab import or wider capture scope.
+
 ### Open The App From Windows
 
 ```powershell
@@ -83,10 +98,11 @@ Optional smoke overrides:
 
 - Recall library with local search, graph review, study cards, and notes
 - Reader route for paste text, local files, and public article imports
+- Edge browser companion for localhost-backed browser context and handoff
 - `Original`, `Reflowed`, `Simplified`, and `Summary` views inside Reader
 - Sentence-highlighted browser read aloud and source-linked notes
 - Local TTS is intentionally deferred and should remain a future roadmap item
 
 ## Templates
 
-- `docs/assistant/templates/CODEX_PROJECT_BOOTSTRAP_PROMPT.md` is included as a reusable harness/bootstrap template for future Codex documentation bootstraps when explicitly requested.
+- `docs/assistant/templates/CODEX_PROJECT_BOOTSTRAP_PROMPT.md` remains an on-demand reusable bootstrap template.

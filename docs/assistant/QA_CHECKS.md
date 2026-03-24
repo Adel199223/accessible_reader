@@ -1,0 +1,19 @@
+# QA Checks
+
+## Harness
+
+- `python3 tooling/check_harness_profile.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json`
+- `python3 tooling/preview_harness_sync.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json --write-state docs/assistant/runtime/BOOTSTRAP_STATE.json`
+
+## Product Validation
+
+- frontend: `npm run lint`, `npm run build`, `npm test -- --run`
+- backend: `.venv/bin/python -m pytest`
+- backend smoke: `.venv/bin/python -c "from app.main import app; print(app.title)"`
+- extension: `npm test -- --run`, `npm run build`
+
+## Browser Validation
+
+- Windows Edge is the browser truth source
+- use the repo-owned launcher for the live app
+- use the unpacked extension flow when extension behavior is in scope

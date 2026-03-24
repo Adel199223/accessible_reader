@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-03-24T21:24:46.923752Z",
+  "bootstrap_version": "2026.03-profile-driven-phase1",
+  "profile_fingerprint": "4e637a2021ca",
+  "resolved": {
+    "project": "accessible_reader",
+    "archetype": "web_app",
+    "mode": "full",
+    "modules": [
+      "base_docs",
+      "beginner_support",
+      "browser_bridge",
+      "build_identity",
+      "capability_discovery",
+      "diagnostics",
+      "evaluation",
+      "host_integration",
+      "issue_memory",
+      "local_env_overlay",
+      "openai_docs_mcp",
+      "qa_checks",
+      "release_management",
+      "roadmap_governance",
+      "session_resume"
+    ],
+    "starter_files": [
+      "scripts/dev.ps1",
+      "scripts/build.ps1",
+      "scripts/test.ps1"
+    ],
+    "notes": [
+      "codespaces can be useful here if the profile enables it",
+      "This phase 2B profile reflects a browser-first Recall workspace with a supported Edge browser companion extension.",
+      "The app is operated through a WSL-hosted toolchain, but real browser validation stays Windows Edge-first.",
+      "AI remains opt-in only for Simplify and Summary, and the extension stays context-only rather than current-tab import."
+    ]
+  }
+}

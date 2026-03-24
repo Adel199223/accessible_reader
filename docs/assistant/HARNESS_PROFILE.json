@@ -1,0 +1,39 @@
+{
+  "$schema": "./schemas/HARNESS_PROFILE.schema.json",
+  "schema_version": 1,
+  "project": {
+    "name": "accessible_reader",
+    "description": "Browser-first local-first Recall workspace for Windows 11 with a primary web UI, a real Microsoft Edge browser companion extension, a WSL-hosted toolchain, and opt-in AI only for Simplify and Summary."
+  },
+  "operator": {
+    "experience_level": "beginner",
+    "preferred_tone": "plain_english",
+    "needs_safe_commands": true
+  },
+  "stack": {
+    "primary_language": "typescript",
+    "framework": "react_vite",
+    "surfaces": [
+      "web",
+      "browser_extension"
+    ],
+    "target_os": [
+      "windows",
+      "wsl"
+    ]
+  },
+  "bootstrap": {
+    "archetype": "web_app",
+    "mode": "full",
+    "enabled_modules": [],
+    "disabled_modules": [],
+    "uses_openai": true,
+    "needs_codespaces": false,
+    "has_browser_bridge": true,
+    "notes": [
+      "This phase 2B profile reflects a browser-first Recall workspace with a supported Edge browser companion extension.",
+      "The app is operated through a WSL-hosted toolchain, but real browser validation stays Windows Edge-first.",
+      "AI remains opt-in only for Simplify and Summary, and the extension stays context-only rather than current-tab import."
+    ]
+  }
+}

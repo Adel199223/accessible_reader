@@ -1,0 +1,32 @@
+# Safe Commands
+
+Use these exact commands first when you need low-risk setup or validation.
+
+## Harness
+
+```powershell
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/check_harness_profile.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json'
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/preview_harness_sync.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json --write-state docs/assistant/runtime/BOOTSTRAP_STATE.json'
+```
+
+## Frontend
+
+```powershell
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'
+```
+
+## Backend
+
+```powershell
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -c "from app.main import app; print(app.title)"'
+```
+
+## Extension
+
+```powershell
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/extension && npm test -- --run'
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/extension && npm run build'
+```

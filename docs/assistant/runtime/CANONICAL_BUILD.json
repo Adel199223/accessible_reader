@@ -1,0 +1,8 @@
+{
+  "canonical_worktree_path": "/home/fa507/dev/accessible_reader",
+  "canonical_branch": "main",
+  "approved_base_branch": "main",
+  "approved_base_head_floor": "c3c1dd8",
+  "canonical_head_floor": "c3c1dd8",
+  "allow_noncanonical_by_flag": true
+}

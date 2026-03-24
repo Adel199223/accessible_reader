@@ -6,12 +6,14 @@
     "docs/ROADMAP.md",
     "docs/ROADMAP_ANCHOR.md",
     "docs/ux/recall_benchmark_matrix.md",
-    "docs/exec_plans/active/2026-03-23_stage521_home_selected_group_title_wrap_and_row_height_continuity_deflation_reset_after_stage520.md"
+    "docs/exec_plans/active/2026-03-24_stage532_post_stage531_reader_dock_tray_demotion_and_glance_note_retirement_audit.md"
   ],
   "bridges": [
     "agent.md",
     "docs/assistant/INDEX.md",
-    "docs/assistant/APP_KNOWLEDGE.md"
+    "docs/assistant/APP_KNOWLEDGE.md",
+    "docs/assistant/BROWSER_BRIDGE.md",
+    "docs/assistant/workflows/SESSION_RESUME.md"
   ],
   "workflows": [
     {
@@ -23,7 +25,7 @@
         "docs/ROADMAP.md",
         "docs/ROADMAP_ANCHOR.md",
         "docs/ux/recall_benchmark_matrix.md",
-        "docs/exec_plans/active/2026-03-23_stage521_home_selected_group_title_wrap_and_row_height_continuity_deflation_reset_after_stage520.md"
+        "docs/exec_plans/active/2026-03-24_stage532_post_stage531_reader_dock_tray_demotion_and_glance_note_retirement_audit.md"
       ],
       "validation_commands": [
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'",
@@ -31,6 +33,22 @@
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -c \"from app.main import app; print(app.title)\"'"
+      ]
+    },
+    {
+      "id": "session_resume",
+      "doc": "docs/assistant/workflows/SESSION_RESUME.md",
+      "scope": "Resume the active roadmap and current checkpoint without guessing.",
+      "primary_files": [
+        "BUILD_BRIEF.md",
+        "docs/ROADMAP.md",
+        "docs/ROADMAP_ANCHOR.md",
+        "docs/assistant/workflows/SESSION_RESUME.md",
+        "agent.md",
+        "docs/assistant/INDEX.md"
+      ],
+      "validation_commands": [
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 - <<\"PY\"\nimport json\nfrom pathlib import Path\njson.loads(Path(\"docs/assistant/manifest.json\").read_text())\nprint(\"manifest ok\")\nPY'"
       ]
     },
     {
@@ -48,19 +66,41 @@
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'"
       ]
+    },
+    {
+      "id": "project_harness_sync",
+      "doc": "docs/assistant/workflows/PROJECT_HARNESS_SYNC_WORKFLOW.md",
+      "scope": "Apply the vendored profile-driven harness to repo-local assistant docs.",
+      "primary_files": [
+        "docs/assistant/HARNESS_PROFILE.json",
+        "docs/assistant/runtime/BOOTSTRAP_STATE.json",
+        "docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json",
+        "docs/assistant/templates/BOOTSTRAP_TEMPLATE_MAP.json",
+        "docs/assistant/workflows/PROJECT_HARNESS_SYNC_WORKFLOW.md"
+      ],
+      "validation_commands": [
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/check_harness_profile.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/preview_harness_sync.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json --write-state docs/assistant/runtime/BOOTSTRAP_STATE.json'"
+      ]
     }
   ],
   "global_commands": {
     "repo_status": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git status --short --branch'",
     "frontend_dev": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run dev -- --host 127.0.0.1'",
     "backend_dev": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000'",
-    "backend_pytest": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'"
+    "backend_pytest": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'",
+    "harness_profile_check": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/check_harness_profile.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json'",
+    "harness_preview": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/preview_harness_sync.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json --write-state docs/assistant/runtime/BOOTSTRAP_STATE.json'"
   },
   "contracts": {
-    "template_read_policy": "Read docs/assistant/templates/* only when the user explicitly asks for harness/bootstrap prompt creation, cross-project Codex scaffolding, or a follow-up delta/refinement prompt.",
+    "template_read_policy": "Read docs/assistant/templates/* only when the user explicitly asks for harness/bootstrap prompt creation, explicit project harness sync or audit work, cross-project Codex scaffolding, or a follow-up delta/refinement prompt.",
     "delta_refinement_prompt_policy": "When the user explicitly asks for a follow-up delta/refinement prompt based on later prototype or live-review learnings, use docs/assistant/templates/CODEX_DELTA_REFINEMENT_PROMPT.md and keep the pass inspect-first: keep good work, correct weak work, add only the meaningful delta.",
+    "session_resume_entry": "Use docs/assistant/workflows/SESSION_RESUME.md when the user asks where to resume or wants the next roadmap restart point.",
+    "project_harness_sync_policy": "Use docs/assistant/workflows/PROJECT_HARNESS_SYNC_WORKFLOW.md when the user explicitly asks to implement, sync, audit, or check the project harness.",
+    "harness_profile_policy": "Treat docs/assistant/HARNESS_PROFILE.json and docs/assistant/runtime/BOOTSTRAP_STATE.json as repo-local harness inputs and preview outputs.",
     "wsl_toolchain_home": "Run git, npm, pytest, and uvicorn from WSL against /home/fa507/dev/accessible_reader.",
     "browser_target": "Validate browser behavior in Windows Edge on Windows 11.",
+    "browser_bridge_scope": "The browser app is the primary surface and the Edge extension is a supported context-only companion surface backed by the localhost Recall API.",
     "local_first_default": "Keep parsing, storage, search, settings, progress, and deterministic reflow local-first.",
     "web_import_scope": "Public webpage import is limited to article-style pages, fetched once, stored locally as snapshots, and never live-synced on reopen.",
     "speech_path": "Browser-native speechSynthesis is the shipped read-aloud path for v1.",
