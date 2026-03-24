@@ -60,6 +60,25 @@ npm run dev
 
 Frontend defaults to `http://127.0.0.1:5173` and proxies API requests to `http://127.0.0.1:8000`.
 
+### Open The App From Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\open_recall_app.ps1
+```
+
+The launcher is the default repo workflow for opening the app on this machine:
+
+- it reuses the backend only when both `/api/health` and `/recall` are healthy
+- it builds `frontend/dist` first when the backend-served Recall shell is missing
+- it opens the backend-served app in Microsoft Edge through the repo-owned Playwright path instead of shell browser commands
+
+Optional smoke overrides:
+
+- `RECALL_OPEN_APP_URL`
+- `RECALL_OPEN_APP_HEADLESS=1`
+- `RECALL_OPEN_APP_EXIT_AFTER_LOAD=1`
+- `RECALL_OPEN_APP_PLAYWRIGHT_HARNESS`
+
 ## Current Scope
 
 - Recall library with local search, graph review, study cards, and notes

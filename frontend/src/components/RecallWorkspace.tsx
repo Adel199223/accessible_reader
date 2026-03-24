@@ -48,6 +48,14 @@ import type {
   RecallWorkspaceContinuityState,
   RecallWorkspaceFocusRequest,
 } from '../lib/appRoute'
+import {
+  buildGraphVisibilityMetrics,
+  expandGraphFilterMatches,
+  filterGraphReferenceVisibility,
+  matchesGraphFilterQuery,
+  parseGraphFilterQuery,
+  type GraphFilterNodeContext,
+} from '../lib/graphViewFilters'
 import type {
   KnowledgeEdgeRecord,
   KnowledgeGraphSnapshot,
@@ -138,6 +146,36 @@ function formatGraphSourceTypeLabel(sourceType: GraphSourceTypeBucket) {
 
 function formatGraphColorGroupModeLabel(mode: GraphColorGroupMode) {
   return mode === 'source' ? 'Source groups' : 'Node groups'
+}
+
+function buildGraphDocumentSourceTerms(document: RecallDocumentRecord) {
+  const terms = new Set<string>([
+    document.title,
+    document.source_type,
+    classifyGraphSourceType(document.source_type),
+    formatGraphSourceTypeLabel(classifyGraphSourceType(document.source_type)),
+  ])
+
+  if (document.file_name) {
+    terms.add(document.file_name)
+  }
+  if (document.source_locator) {
+    terms.add(document.source_locator)
+    try {
+      const url = new URL(document.source_locator)
+      if (url.hostname) {
+        terms.add(url.hostname)
+        terms.add(url.hostname.replace(/^www\./i, ''))
+      }
+      if (url.pathname && url.pathname !== '/') {
+        terms.add(url.pathname.replace(/^\/+/, ''))
+      }
+    } catch {
+      // Ignore invalid source locators and keep the rest of the local terms.
+    }
+  }
+
+  return Array.from(terms).filter((term) => term.trim().length > 0)
 }
 
 function clampGraphSettingsDrawerWidth(width: number) {
@@ -295,19 +333,6 @@ function getDocumentSourcePreview(document: RecallDocumentRecord) {
   return document.source_locator || document.file_name || 'Local paste'
 }
 
-function getLibrarySortModeLabel(sortMode: RecallLibrarySortMode) {
-  if (sortMode === 'manual') {
-    return 'Manual order'
-  }
-  if (sortMode === 'created') {
-    return 'Created order'
-  }
-  if (sortMode === 'title') {
-    return 'A-Z order'
-  }
-  return 'Updated order'
-}
-
 function getLibrarySortModeShortLabel(sortMode: RecallLibrarySortMode) {
   if (sortMode === 'manual') {
     return 'Manual'
@@ -319,16 +344,6 @@ function getLibrarySortModeShortLabel(sortMode: RecallLibrarySortMode) {
     return 'A-Z'
   }
   return 'Updated'
-}
-
-function getLibrarySortDirectionLabel(sortMode: RecallLibrarySortMode, sortDirection: RecallLibrarySortDirection) {
-  if (sortMode === 'manual') {
-    return 'Custom order'
-  }
-  if (sortMode === 'title') {
-    return sortDirection === 'asc' ? 'A-Z' : 'Z-A'
-  }
-  return sortDirection === 'desc' ? 'Newest first' : 'Oldest first'
 }
 
 function getLibrarySortDirectionShortLabel(sortMode: RecallLibrarySortMode, sortDirection: RecallLibrarySortDirection) {
@@ -359,6 +374,50 @@ function getHomeDocumentTimestampLabel(document: RecallDocumentRecord, sortMode:
     return `Created ${formatter.format(new Date(document.created_at))}`
   }
   return `Updated ${formatter.format(new Date(document.updated_at))}`
+}
+
+function getHomeDocumentTimestampCompactLabel(
+  document: RecallDocumentRecord,
+  sortMode: RecallLibrarySortMode,
+  formatter: Intl.DateTimeFormat,
+) {
+  return formatter.format(new Date(sortMode === 'created' ? document.created_at : document.updated_at))
+}
+
+function formatHomeDocumentSourceTypeEyebrow(sourceType: string) {
+  const normalized = sourceType.trim().toLowerCase()
+  if (normalized === 'paste') {
+    return 'Paste'
+  }
+  if (normalized === 'web') {
+    return 'Web'
+  }
+  if (normalized === 'txt' || normalized === 'pdf' || normalized === 'docx' || normalized === 'html') {
+    return normalized.toUpperCase()
+  }
+  if (normalized === 'md' || normalized === 'markdown') {
+    return 'Markdown'
+  }
+  return formatGraphNodeTypeLabel(sourceType)
+}
+
+function shouldShowHomeLibraryStageSourcePreview(document: RecallDocumentRecord, sourcePreview: string) {
+  const normalizedPreview = sourcePreview.trim().toLowerCase()
+  const normalizedTitle = document.title.trim().toLowerCase()
+
+  if (!normalizedPreview) {
+    return false
+  }
+  if (document.source_type === 'paste' && normalizedPreview === 'local paste') {
+    return false
+  }
+  if (normalizedPreview === normalizedTitle) {
+    return false
+  }
+  if (normalizedTitle.includes(normalizedPreview) || normalizedPreview.includes(normalizedTitle)) {
+    return false
+  }
+  return true
 }
 
 function sortRecallDocumentsForHome(
@@ -633,7 +692,10 @@ interface GraphViewPresetSnapshot {
   filterQuery: string
   hoverFocusEnabled: boolean
   nodeTypeFilters: string[]
+  showLeafNodes: boolean
   showNodeCounts: boolean
+  showReferenceNodes: boolean
+  showUnconnectedNodes: boolean
   sourceTypeFilters: GraphSourceTypeBucket[]
   spacingMode: GraphSpacingMode
   timelineEnabled: boolean
@@ -791,7 +853,10 @@ function normalizeGraphPresetSnapshot(
     filterQuery: snapshot.filterQuery.trim(),
     hoverFocusEnabled: snapshot.hoverFocusEnabled,
     nodeTypeFilters: [...snapshot.nodeTypeFilters].sort((left, right) => left.localeCompare(right)),
+    showLeafNodes: snapshot.showLeafNodes,
     showNodeCounts: snapshot.showNodeCounts,
+    showReferenceNodes: snapshot.showReferenceNodes,
+    showUnconnectedNodes: snapshot.showUnconnectedNodes,
     sourceTypeFilters: [...snapshot.sourceTypeFilters].sort((left, right) => left.localeCompare(right)),
     spacingMode: snapshot.spacingMode,
     timelineEnabled: snapshot.timelineEnabled && timelineStepCount > 0,
@@ -814,7 +879,10 @@ function buildGraphBuiltInPresetSnapshot(
       filterQuery: '',
       hoverFocusEnabled: false,
       nodeTypeFilters: [],
+      showLeafNodes: true,
       showNodeCounts: true,
+      showReferenceNodes: true,
+      showUnconnectedNodes: true,
       sourceTypeFilters: [],
       spacingMode: 'spread',
       timelineEnabled: false,
@@ -828,7 +896,10 @@ function buildGraphBuiltInPresetSnapshot(
       filterQuery: '',
       hoverFocusEnabled: true,
       nodeTypeFilters: [],
+      showLeafNodes: true,
       showNodeCounts: false,
+      showReferenceNodes: true,
+      showUnconnectedNodes: true,
       sourceTypeFilters: [],
       spacingMode: 'compact',
       timelineEnabled: timelineStepCount > 0,
@@ -841,7 +912,10 @@ function buildGraphBuiltInPresetSnapshot(
     filterQuery: '',
     hoverFocusEnabled: true,
     nodeTypeFilters: [],
+    showLeafNodes: true,
     showNodeCounts: true,
+    showReferenceNodes: true,
+    showUnconnectedNodes: true,
     sourceTypeFilters: [],
     spacingMode: 'balanced',
     timelineEnabled: false,
@@ -861,7 +935,10 @@ function areGraphPresetSnapshotsEqual(
     left.connectionDepth === right.connectionDepth &&
     left.filterQuery === right.filterQuery &&
     left.hoverFocusEnabled === right.hoverFocusEnabled &&
+    left.showLeafNodes === right.showLeafNodes &&
     left.showNodeCounts === right.showNodeCounts &&
+    left.showReferenceNodes === right.showReferenceNodes &&
+    left.showUnconnectedNodes === right.showUnconnectedNodes &&
     left.spacingMode === right.spacingMode &&
     left.timelineEnabled === right.timelineEnabled &&
     left.timelineIndex === right.timelineIndex &&
@@ -899,10 +976,13 @@ function buildGraphPresetSummary(snapshot: GraphViewPresetSnapshot) {
     snapshot.colorGroupMode === 'source' ? 'Source groups' : 'Node groups',
   ]
   if (snapshot.filterQuery) {
-    items.push('Text filter')
+    items.push('Filter query')
   }
   if (snapshot.nodeTypeFilters.length || snapshot.sourceTypeFilters.length) {
     items.push('Content filters')
+  }
+  if (!snapshot.showUnconnectedNodes || !snapshot.showLeafNodes || !snapshot.showReferenceNodes) {
+    items.push('Visibility rules')
   }
   return items.join(' · ')
 }
@@ -1452,6 +1532,9 @@ export function RecallWorkspace({
   const [graphConnectionDepth, setGraphConnectionDepth] = useState<GraphConnectionDepth>(2)
   const [graphSpacingMode, setGraphSpacingMode] = useState<GraphSpacingMode>('balanced')
   const [graphHoverFocusEnabled, setGraphHoverFocusEnabled] = useState(true)
+  const [graphShowUnconnectedNodes, setGraphShowUnconnectedNodes] = useState(true)
+  const [graphShowLeafNodes, setGraphShowLeafNodes] = useState(true)
+  const [graphShowReferenceNodes, setGraphShowReferenceNodes] = useState(true)
   const [graphShowNodeCounts, setGraphShowNodeCounts] = useState(true)
   const [graphTimelineEnabled, setGraphTimelineEnabled] = useState(false)
   const [graphTimelineIndex, setGraphTimelineIndex] = useState(0)
@@ -1774,6 +1857,23 @@ export function RecallWorkspace({
   const activeStudyCard = studyCards.find((card) => card.id === activeCardId) ?? studyCards[0] ?? null
   const documentById = useMemo(() => new Map(documents.map((document) => [document.id, document])), [documents])
   const documentTitleById = useMemo(() => new Map(documents.map((document) => [document.id, document.title])), [documents])
+  const homeCustomCollectionNamesByDocumentId = useMemo(() => {
+    const collectionNamesByDocumentId = new Map<string, Set<string>>()
+    for (const collection of homeCustomCollections) {
+      const trimmedCollectionName = collection.name.trim()
+      if (!trimmedCollectionName) {
+        continue
+      }
+      for (const documentId of collection.documentIds) {
+        const names = collectionNamesByDocumentId.get(documentId) ?? new Set<string>()
+        names.add(trimmedCollectionName)
+        collectionNamesByDocumentId.set(documentId, names)
+      }
+    }
+    return new Map(
+      Array.from(collectionNamesByDocumentId.entries()).map(([documentId, names]) => [documentId, Array.from(names)]),
+    )
+  }, [homeCustomCollections])
   const filteredVisibleDocuments = useMemo(() => {
     const normalized = deferredLibraryFilter.trim().toLowerCase()
     if (!normalized) {
@@ -2166,7 +2266,10 @@ export function RecallWorkspace({
           filterQuery: graphFilterQuery,
           hoverFocusEnabled: graphHoverFocusEnabled,
           nodeTypeFilters: graphNodeTypeFilters,
+          showLeafNodes: graphShowLeafNodes,
           showNodeCounts: graphShowNodeCounts,
+          showReferenceNodes: graphShowReferenceNodes,
+          showUnconnectedNodes: graphShowUnconnectedNodes,
           sourceTypeFilters: graphSourceTypeFilters,
           spacingMode: graphSpacingMode,
           timelineEnabled: graphTimelineEnabled,
@@ -2180,7 +2283,10 @@ export function RecallWorkspace({
       graphFilterQuery,
       graphHoverFocusEnabled,
       graphNodeTypeFilters,
+      graphShowLeafNodes,
       graphShowNodeCounts,
+      graphShowReferenceNodes,
+      graphShowUnconnectedNodes,
       graphSourceTypeFilters,
       graphSpacingMode,
       graphTimelineEnabled,
@@ -2265,19 +2371,155 @@ export function RecallWorkspace({
       return true
     })
   }, [graphNodeMetaById, graphNodeTypeFilters, graphSourceTypeFilters, graphSnapshot?.nodes, graphTimelineStep])
+  const graphFilterQueryModel = useMemo(() => parseGraphFilterQuery(deferredGraphFilter), [deferredGraphFilter])
+  const graphFilterActive = deferredGraphFilter.trim().length > 0
+  const graphNodeQueryContextById = useMemo(
+    () =>
+      new Map(
+        (graphSnapshot?.nodes ?? []).map((node) => {
+          const sourceTerms = new Set<string>()
+          const tagTerms = new Set<string>()
+
+          for (const documentId of node.source_document_ids) {
+            const document = documentById.get(documentId)
+            if (!document) {
+              continue
+            }
+            for (const term of buildGraphDocumentSourceTerms(document)) {
+              sourceTerms.add(term)
+            }
+            for (const collectionName of homeCustomCollectionNamesByDocumentId.get(documentId) ?? []) {
+              tagTerms.add(collectionName)
+            }
+          }
+
+          return [
+            node.id,
+            {
+              aliases: node.aliases,
+              description: node.description ?? null,
+              label: node.label,
+              nodeType: node.node_type,
+              sourceTerms: Array.from(sourceTerms),
+              tagTerms: Array.from(tagTerms),
+            } satisfies GraphFilterNodeContext,
+          ]
+        }),
+      ),
+    [documentById, graphSnapshot?.nodes, homeCustomCollectionNamesByDocumentId],
+  )
+  const graphNodesMatchingQuery = useMemo(() => {
+    if (!graphFilterActive) {
+      return graphNodesMatchingViewFilters
+    }
+    return graphNodesMatchingViewFilters.filter((node) =>
+      matchesGraphFilterQuery(
+        graphFilterQueryModel,
+        graphNodeQueryContextById.get(node.id) ?? {
+          aliases: node.aliases,
+          description: node.description ?? null,
+          label: node.label,
+          nodeType: node.node_type,
+          sourceTerms: [],
+          tagTerms: [],
+        },
+      ),
+    )
+  }, [graphFilterActive, graphFilterQueryModel, graphNodeQueryContextById, graphNodesMatchingViewFilters])
+  const graphNodesMatchingQueryCount = graphNodesMatchingQuery.length
+  const graphNodesMatchingViewFilterIds = useMemo(
+    () => graphNodesMatchingViewFilters.map((node) => node.id),
+    [graphNodesMatchingViewFilters],
+  )
+  const graphEdgesMatchingViewFilters = useMemo(() => {
+    const visibleNodeIds = new Set(graphNodesMatchingViewFilterIds)
+    return (graphSnapshot?.edges ?? []).filter(
+      (edge) => visibleNodeIds.has(edge.source_id) && visibleNodeIds.has(edge.target_id),
+    )
+  }, [graphNodesMatchingViewFilterIds, graphSnapshot?.edges])
+  const graphVisibleNodeIdsAfterQuery = useMemo(() => {
+    if (!graphFilterActive) {
+      return new Set(graphNodesMatchingViewFilterIds)
+    }
+    return expandGraphFilterMatches(
+      graphNodesMatchingViewFilterIds,
+      graphEdgesMatchingViewFilters,
+      graphNodesMatchingQuery.map((node) => node.id),
+      graphConnectionDepth,
+    )
+  }, [
+    graphConnectionDepth,
+    graphEdgesMatchingViewFilters,
+    graphFilterActive,
+    graphNodesMatchingQuery,
+    graphNodesMatchingViewFilterIds,
+  ])
+  const graphNodesAfterQuery = useMemo(
+    () => graphNodesMatchingViewFilters.filter((node) => graphVisibleNodeIdsAfterQuery.has(node.id)),
+    [graphNodesMatchingViewFilters, graphVisibleNodeIdsAfterQuery],
+  )
+  const graphEdgesAfterQuery = useMemo(
+    () =>
+      graphEdgesMatchingViewFilters.filter(
+        (edge) => graphVisibleNodeIdsAfterQuery.has(edge.source_id) && graphVisibleNodeIdsAfterQuery.has(edge.target_id),
+      ),
+    [graphEdgesMatchingViewFilters, graphVisibleNodeIdsAfterQuery],
+  )
+  const graphReferenceVisibility = useMemo(
+    () =>
+      filterGraphReferenceVisibility(
+        graphNodesAfterQuery.map((node) => node.id),
+        graphEdgesAfterQuery,
+        graphShowReferenceNodes,
+      ),
+    [graphEdgesAfterQuery, graphNodesAfterQuery, graphShowReferenceNodes],
+  )
+  const graphNodesAfterReferenceVisibility = useMemo(
+    () => graphNodesAfterQuery.filter((node) => graphReferenceVisibility.visibleNodeIds.has(node.id)),
+    [graphNodesAfterQuery, graphReferenceVisibility],
+  )
+  const graphEdgesAfterReferenceVisibility = graphReferenceVisibility.edges
+  const graphLeafMetrics = useMemo(
+    () => buildGraphVisibilityMetrics(graphNodesAfterReferenceVisibility.map((node) => node.id), graphEdgesAfterReferenceVisibility),
+    [graphEdgesAfterReferenceVisibility, graphNodesAfterReferenceVisibility],
+  )
+  const graphNodesAfterLeafVisibility = useMemo(
+    () =>
+      graphShowLeafNodes
+        ? graphNodesAfterReferenceVisibility
+        : graphNodesAfterReferenceVisibility.filter((node) => !graphLeafMetrics.get(node.id)?.isLeaf),
+    [graphLeafMetrics, graphNodesAfterReferenceVisibility, graphShowLeafNodes],
+  )
+  const graphEdgesAfterLeafVisibility = useMemo(() => {
+    const visibleNodeIds = new Set(graphNodesAfterLeafVisibility.map((node) => node.id))
+    return graphEdgesAfterReferenceVisibility.filter(
+      (edge) => visibleNodeIds.has(edge.source_id) && visibleNodeIds.has(edge.target_id),
+    )
+  }, [graphEdgesAfterReferenceVisibility, graphNodesAfterLeafVisibility])
+  const graphUnconnectedMetrics = useMemo(
+    () => buildGraphVisibilityMetrics(graphNodesAfterLeafVisibility.map((node) => node.id), graphEdgesAfterLeafVisibility),
+    [graphEdgesAfterLeafVisibility, graphNodesAfterLeafVisibility],
+  )
   const filteredGraphNodes = useMemo(() => {
-    const normalized = deferredGraphFilter.trim().toLowerCase()
-    const nodes = graphNodesMatchingViewFilters
-    const filtered = !normalized
-      ? nodes
-      : nodes.filter((node) =>
-          [node.label, node.node_type, node.description ?? '', node.aliases.join(' ')]
-            .join(' ')
-            .toLowerCase()
-            .includes(normalized),
-        )
-    return sortGraphNodesForBrowse(filtered, selectedNodeId, activeSourceDocumentId)
-  }, [activeSourceDocumentId, deferredGraphFilter, graphNodesMatchingViewFilters, selectedNodeId])
+    const nodes = graphShowUnconnectedNodes
+      ? graphNodesAfterLeafVisibility
+      : graphNodesAfterLeafVisibility.filter((node) => !graphUnconnectedMetrics.get(node.id)?.isUnconnected)
+    return sortGraphNodesForBrowse(nodes, selectedNodeId, activeSourceDocumentId)
+  }, [
+    activeSourceDocumentId,
+    graphNodesAfterLeafVisibility,
+    graphShowUnconnectedNodes,
+    graphUnconnectedMetrics,
+    selectedNodeId,
+  ])
+  const filteredGraphNodeIds = useMemo(() => new Set(filteredGraphNodes.map((node) => node.id)), [filteredGraphNodes])
+  const filteredGraphEdges = useMemo(
+    () =>
+      graphEdgesAfterLeafVisibility.filter(
+        (edge) => filteredGraphNodeIds.has(edge.source_id) && filteredGraphNodeIds.has(edge.target_id),
+      ),
+    [filteredGraphNodeIds, graphEdgesAfterLeafVisibility],
+  )
   const graphSearchMatches = useMemo(() => {
     const normalized = deferredGraphSearch.trim().toLowerCase()
     if (!normalized) {
@@ -2299,7 +2541,7 @@ export function RecallWorkspace({
     () =>
       buildGraphCanvasLayout(
         filteredGraphNodes,
-        graphSnapshot?.edges ?? [],
+        filteredGraphEdges,
         selectedNodeId,
         activeSourceDocumentId,
         graphSearchCurrentNode?.id ?? null,
@@ -2310,10 +2552,10 @@ export function RecallWorkspace({
       ),
     [
       activeSourceDocumentId,
+      filteredGraphEdges,
       filteredGraphNodes,
       graphConnectionDepth,
       graphSearchCurrentNode?.id,
-      graphSnapshot?.edges,
       graphSpacingMode,
       selectedNodeId,
     ],
@@ -2338,7 +2580,6 @@ export function RecallWorkspace({
     () => graphCanvasLayout.nodes.map(({ node }) => node.id).join('|'),
     [graphCanvasLayout.nodes],
   )
-  const graphFilterActive = deferredGraphFilter.trim().length > 0
   const graphQuickPickNodes = useMemo(
     () => graphCanvasNodes.map(({ node }) => node).slice(0, graphFilterActive ? 7 : 4),
     [graphCanvasNodes, graphFilterActive],
@@ -3319,18 +3560,13 @@ export function RecallWorkspace({
   const homeViewModeLabel = homeViewMode === 'list' ? 'List' : 'Board'
   const homeViewModePhrase = homeViewMode === 'list' ? 'list view' : 'board view'
   const homeOverviewRowLabel = homeOrganizerLens === 'collections' ? 'All collections' : 'All recent groups'
-  const homeOverviewRowSummary =
-    homeOrganizerLens === 'collections'
-      ? homeCustomCollections.length > 0
-        ? `Keep the grouped ${homeViewModePhrase} on the right until you drill into one custom collection or the untagged lane.`
-        : `Keep the grouped ${homeViewModePhrase} on the right until you drill into one collection.`
-      : `Keep the grouped ${homeViewModePhrase} on the right until you drill into one recent branch.`
+  const homeOverviewGroupCountLabel = formatCountLabel(homeWorkspaceLibrarySections.length, 'group', 'groups')
   const showHomeBoardOverview =
     !libraryFilterActive && !homeSelectedBrowseSection && homeWorkspaceLibrarySections.length > 0
   const homeSelectedGroupSummary = homeSelectedBrowseSection
     ? homeSelectedSectionDocuments.length > 0
       ? homeOrganizerVisible
-        ? `${homeSelectedBrowseSection.description} Direct source picks stay attached while the ${homeViewModePhrase} opens on the right.`
+        ? `${homeSelectedBrowseSection.description} Direct picks stay attached nearby.`
         : `${homeSelectedBrowseSection.label} still drives the ${homeViewModePhrase} while the organizer is hidden.`
       : isHomeCustomCollectionSection(homeSelectedBrowseSection.key)
         ? 'No sources are in this custom collection yet. Add them from any organizer branch.'
@@ -3346,11 +3582,10 @@ export function RecallWorkspace({
         ? 'Every saved source already belongs to a custom collection.'
         : 'Pinned reopen picks already cover this group, so switch groups when you want a broader pass.'
   const homeManualModeActive = homeSortMode === 'manual'
-  const homeSortModeLabel = getLibrarySortModeLabel(homeSortMode)
   const homeSortModeShortLabel = getLibrarySortModeShortLabel(homeSortMode)
-  const homeSortDirectionLabel = getLibrarySortDirectionLabel(homeSortMode, homeSortDirection)
   const homeSortDirectionShortLabel = getLibrarySortDirectionShortLabel(homeSortMode, homeSortDirection)
   const homeOrganizerToggleLabel = homeOrganizerVisible ? 'Hide organizer' : 'Show organizer'
+  const homeOrganizerToggleCompactLabel = homeOrganizerVisible ? 'Hide rail' : 'Show rail'
   const showHomeCompactControls =
     documentsStatus !== 'loading' && documentsStatus !== 'error' && documents.length > 0 && (!homeOrganizerVisible || visibleDocuments.length === 0)
   const showHomeControlSeam =
@@ -3379,36 +3614,29 @@ export function RecallWorkspace({
     ? `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'match' : 'matches'}`
     : homeSavedSourceLabel
   const homeWorkingSetStatus = `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel} · ${homeViewModeLabel}`
+  const homeOverviewRowStateLabel = homeSelectedBrowseSection ? 'Reset' : 'Overview'
+  const homeOverviewRowSummary = homeSelectedBrowseSection
+    ? `Reset to grouped ${homeViewModePhrase}.`
+    : `${homeOverviewGroupCountLabel} · ${homeWorkingSetStatus}`
+  const homeOverviewBoardEyebrow = `${homeOrganizerLensLabel} overview`
+  const homeOverviewBoardSummary = homeOrganizerVisible
+    ? `Grouped ${homeViewModePhrase} stays open until you pick a branch from the organizer.`
+    : `Grouped ${homeViewModePhrase} stays open while the organizer is hidden.`
   const homeControlSeamSecondaryStatus =
     libraryFilterActive || homeOrganizerVisible ? `${homeOrganizerLensLabel} · ${homeWorkingSetStatus}` : 'Organizer hidden'
   const homeBrowseStripHeading = libraryFilterActive ? 'Matching sources' : homeOrganizerLensLabel
   const homeBrowseStripStatus = libraryFilterActive
-    ? `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'match' : 'matches'}`
+    ? formatCountLabel(visibleDocuments.length, 'match', 'matches')
     : homeSelectedBrowseSection
-      ? `${homeSelectedBrowseSection.label} · ${homeSelectedBrowseSection.documents.length}`
-      : `${homeOverviewRowLabel} · ${visibleDocuments.length}`
+      ? formatCountLabel(homeSelectedBrowseSection.documents.length, 'source', 'sources')
+      : homeSavedSourceLabel
   const homeBrowseStripGuide = libraryFilterActive
-    ? 'Search, lens, sort, and view stay here.'
+    ? `Matches open · ${homeWorkingSetStatus}`
     : homeSelectedBrowseSection
-      ? homeManualModeActive
-        ? 'Switch lenses, search, create collections, keep manual order active, change view, collapse, switch groups, reorder items, or open sources directly from the active branch here.'
-        : 'Switch lenses, search, create collections, sort, change view, collapse, switch groups, or open sources directly from the active branch here.'
-      : homeManualModeActive
-        ? 'Switch lenses, search, create collections, keep manual order active, change view, stay in the grouped overview, or drill into one branch here.'
-        : 'Switch lenses, search, create collections, sort, change view, stay in the grouped overview, or drill into one branch here.'
-  const homeOrganizerRailSummary = libraryFilterActive
-    ? homeManualModeActive
-      ? `${visibleDocuments.length} matches stay in manual order on ${homeViewModePhrase}.`
-      : `${visibleDocuments.length} matches in ${homeSortModeLabel.toLowerCase()} with ${homeSortDirectionLabel.toLowerCase()} on ${homeViewModePhrase}.`
-    : homeSelectedBrowseSection
-      ? homeManualModeActive
-        ? `${homeSelectedBrowseSection.label} is driving the ${homeViewModePhrase} in ${homeOrganizerLensLabel.toLowerCase()} while manual order keeps branch rows in place.`
-        : `${homeSelectedBrowseSection.label} is driving the ${homeViewModePhrase} in ${homeOrganizerLensLabel.toLowerCase()} with ${homeSortModeLabel.toLowerCase()} and ${homeSortDirectionLabel.toLowerCase()}, and the active branch now carries direct source rows.`
-      : homeManualModeActive
-        ? `The organizer keeps the grouped library visible in ${homeOrganizerLensLabel.toLowerCase()} while manual order stays in control on the right.`
-        : `The organizer keeps the grouped library visible in ${homeOrganizerLensLabel.toLowerCase()} with ${homeSortModeLabel.toLowerCase()} and ${homeSortDirectionLabel.toLowerCase()} while the overview stays on the right.`
+      ? `${homeSelectedBrowseSection.label} open · ${homeWorkingSetStatus}`
+      : `Overview open · ${homeOverviewGroupCountLabel} · ${homeWorkingSetStatus}`
   const homeBrowsePreviewToggleLabel = homeBrowsePreviewsCollapsed ? 'Expand all' : 'Collapse all'
-  const homeBrowsePreviewToggleShortLabel = homeBrowsePreviewToggleLabel
+  const homeBrowsePreviewToggleCompactLabel = homeBrowsePreviewsCollapsed ? 'Expand' : 'Collapse'
   const homeBrowserLayoutStyle = homeOrganizerVisible
     ? ({
         '--recall-home-organizer-width': `${homeOrganizerRailWidth}px`,
@@ -3483,6 +3711,7 @@ export function RecallWorkspace({
     .join(' · ')
   const homeCreateCollectionButtonLabel =
     homeSelectedOrganizerDocumentCount > 0 ? 'New collection from selection' : 'New collection'
+  const homeCreateCollectionButtonCompactLabel = 'New'
   const homeCanCreateCustomCollection = documentsStatus !== 'loading' && documentsStatus !== 'error' && visibleDocuments.length > 0
   const homeCanAssignSelectedSourcesToCollections =
     documentsStatus !== 'loading' &&
@@ -4339,6 +4568,9 @@ export function RecallWorkspace({
     setGraphConnectionDepth(normalizedSnapshot.connectionDepth)
     setGraphSpacingMode(normalizedSnapshot.spacingMode)
     setGraphHoverFocusEnabled(normalizedSnapshot.hoverFocusEnabled)
+    setGraphShowUnconnectedNodes(normalizedSnapshot.showUnconnectedNodes)
+    setGraphShowLeafNodes(normalizedSnapshot.showLeafNodes)
+    setGraphShowReferenceNodes(normalizedSnapshot.showReferenceNodes)
     setGraphShowNodeCounts(normalizedSnapshot.showNodeCounts)
     setGraphNodeTypeFilters(normalizedSnapshot.nodeTypeFilters)
     setGraphSourceTypeFilters(normalizedSnapshot.sourceTypeFilters)
@@ -4438,6 +4670,18 @@ export function RecallWorkspace({
 
   const handleToggleGraphHoverFocus = useCallback(() => {
     setGraphHoverFocusEnabled((current) => !current)
+  }, [])
+
+  const handleToggleGraphShowUnconnectedNodes = useCallback(() => {
+    setGraphShowUnconnectedNodes((current) => !current)
+  }, [])
+
+  const handleToggleGraphShowLeafNodes = useCallback(() => {
+    setGraphShowLeafNodes((current) => !current)
+  }, [])
+
+  const handleToggleGraphShowReferenceNodes = useCallback(() => {
+    setGraphShowReferenceNodes((current) => !current)
   }, [])
 
   const handleToggleGraphShowNodeCounts = useCallback(() => {
@@ -4602,6 +4846,9 @@ export function RecallWorkspace({
     setGraphConnectionDepth(2)
     setGraphSpacingMode('balanced')
     setGraphHoverFocusEnabled(true)
+    setGraphShowUnconnectedNodes(true)
+    setGraphShowLeafNodes(true)
+    setGraphShowReferenceNodes(true)
     setGraphShowNodeCounts(true)
     setGraphTimelineEnabled(false)
     setGraphTimelineIndex(0)
@@ -5035,6 +5282,8 @@ export function RecallWorkspace({
             ? libraryLandingIntroCopy
             : `${homeSavedSourceLabel}.`
   const graphContentFilterActive = graphNodeTypeFilters.length > 0 || graphSourceTypeFilters.length > 0
+  const graphVisibilityFilterActive =
+    !graphShowUnconnectedNodes || !graphShowLeafNodes || !graphShowReferenceNodes
   const graphTimelineActive = Boolean(graphTimelineStep)
   const graphActiveBuiltInPreset =
     graphPresetBaseline?.kind === 'builtin'
@@ -5044,12 +5293,12 @@ export function RecallWorkspace({
   const graphActivePresetDescription = graphActiveSavedPreset
     ? graphPresetDirty
       ? `${graphActiveSavedPreset.name} is active with unsaved view changes. Update it or save a new preset when this view should stick.`
-      : `${graphActiveSavedPreset.name} captures the current graph filters, timeline, groups, and appearance choices.`
+      : `${graphActiveSavedPreset.name} captures the current graph filters, visibility rules, timeline, groups, and appearance choices.`
     : graphActiveBuiltInPreset
       ? graphPresetDirty
         ? `${graphActiveBuiltInPreset.description} Local view changes are layered on top of this starter preset.`
         : graphActiveBuiltInPreset.description
-      : 'Mixed settings from timeline, content filters, or manual view changes.'
+      : 'Mixed settings from visibility, timeline, content filters, or manual view changes.'
   const graphPresetStatusLabel = graphActiveSavedPreset
     ? graphPresetDirty
       ? 'Saved view modified'
@@ -5076,12 +5325,23 @@ export function RecallWorkspace({
         ? `You are editing ${graphActiveBuiltInPreset.label}. Save this as a new view or reset back to defaults.`
         : `${graphActiveBuiltInPreset.label} is the current starter preset.`
       : 'This is a custom graph view. Save it as a new preset when it becomes useful.'
+  const graphVisibilitySummary = [
+    graphShowUnconnectedNodes ? null : 'Unconnected hidden',
+    graphShowLeafNodes ? null : 'Leaf nodes hidden',
+    graphShowReferenceNodes ? null : 'Reference content hidden',
+  ]
+    .filter(Boolean)
+    .join(' · ')
   const graphQuickPickSectionLabel =
-    graphTimelineActive || graphContentFilterActive || graphFilterActive ? 'Filtered nodes' : 'Visible nodes'
+    graphTimelineActive || graphContentFilterActive || graphFilterActive || graphVisibilityFilterActive
+      ? 'Filtered nodes'
+      : 'Visible nodes'
   const graphQuickPickSectionNote = graphTimelineActive
     ? `${filteredGraphNodes.length} visible through ${graphTimelineStep?.label ?? 'timeline'}`
-    : graphContentFilterActive || graphFilterActive
-      ? `${filteredGraphNodes.length} matching ${filteredGraphNodes.length === 1 ? 'node' : 'nodes'}`
+    : graphFilterActive
+      ? `${graphNodesMatchingQueryCount} matching ${graphNodesMatchingQueryCount === 1 ? 'node' : 'nodes'} · ${filteredGraphNodes.length} visible`
+      : graphContentFilterActive || graphVisibilityFilterActive
+        ? `${filteredGraphNodes.length} visible ${filteredGraphNodes.length === 1 ? 'node' : 'nodes'}`
       : null
   const graphColorGroupModeLabel = formatGraphColorGroupModeLabel(graphColorGroupMode)
   const graphColorGroupSummary =
@@ -5106,8 +5366,10 @@ export function RecallWorkspace({
       ? graphTimelineStatusLabel
       : graphContentFilterActive
         ? graphContentFilterSummary
+        : graphVisibilityFilterActive
+          ? graphVisibilitySummary
         : graphFilterActive
-          ? 'Text filter active'
+          ? 'Filter query active'
           : graphPresetStatusLabel,
   ].filter(Boolean)
   const studyNewCountLabel = studyStatus === 'error' ? 'Study unavailable' : `${studyOverview?.new_count ?? 0} new`
@@ -5391,7 +5653,9 @@ export function RecallWorkspace({
 
     return (
       <button
-        className="ghost-button recall-home-browse-strip-tool recall-home-browse-strip-tool-stage495-reset"
+        aria-label={homeCreateCollectionButtonLabel}
+        className="ghost-button recall-home-browse-strip-tool recall-home-browse-strip-tool-stage495-reset recall-home-browse-strip-tool-stage502-reset recall-home-browse-strip-tool-stage504-reset"
+        title={homeCreateCollectionButtonLabel}
         type="button"
         onClick={() =>
           openHomeCollectionDraft('create', {
@@ -5399,7 +5663,7 @@ export function RecallWorkspace({
           })
         }
       >
-        {homeCreateCollectionButtonLabel}
+        {homeCreateCollectionButtonCompactLabel}
       </button>
     )
   }
@@ -6143,9 +6407,13 @@ export function RecallWorkspace({
     document: RecallDocumentRecord,
     active = false,
   ) {
-    const sortTimestamp = getHomeDocumentTimestampLabel(document, effectiveHomeAutomaticSortMode, homeDateFormatter)
-    const availableViewLabel = `${document.available_modes.length} ${document.available_modes.length === 1 ? 'view' : 'views'} ready`
-    const childMetaSummary = [getDocumentSourcePreview(document), sortTimestamp, availableViewLabel].join(' · ')
+    const compactSortTimestamp = homeDateFormatter.format(
+      new Date(effectiveHomeAutomaticSortMode === 'created' ? document.created_at : document.updated_at),
+    )
+    const compactAvailableViewLabel = formatCountLabel(document.available_modes.length, 'view', 'views')
+    const childMetaSummary = [getDocumentSourcePreview(document), compactSortTimestamp, compactAvailableViewLabel].join(
+      ' · ',
+    )
     const selectionKey = buildHomeDocumentSelectionKey(sectionKey, document.id)
     const selected = homeOrganizerSelectionKeys.includes(selectionKey)
     const dragging =
@@ -6158,8 +6426,8 @@ export function RecallWorkspace({
       homeOrganizerDropTarget.documentId === document.id
     const childClassName = [
       active
-        ? 'recall-home-browse-group-child recall-home-browse-group-child-active recall-home-browse-group-child-row-flatten-reset recall-home-browse-group-child-active-continuity-reset recall-home-browse-group-child-active-highlight-deflation-reset recall-home-browse-group-child-active-readout-softening-reset recall-home-browse-group-child-active-grouping-deflation-reset recall-home-browse-group-child-active-summary-preview-join-reset recall-home-browse-group-child-tree-branch-reset recall-home-browse-group-child-lean-branch-reset'
-        : 'recall-home-browse-group-child recall-home-browse-group-child-row-flatten-reset recall-home-browse-group-child-tree-branch-reset recall-home-browse-group-child-lean-branch-reset',
+        ? 'recall-home-browse-group-child recall-home-browse-group-child-active recall-home-browse-group-child-row-flatten-reset recall-home-browse-group-child-active-continuity-reset recall-home-browse-group-child-active-highlight-deflation-reset recall-home-browse-group-child-active-readout-softening-reset recall-home-browse-group-child-active-grouping-deflation-reset recall-home-browse-group-child-active-summary-preview-join-reset recall-home-browse-group-child-tree-branch-reset recall-home-browse-group-child-lean-branch-reset recall-home-browse-group-child-stage504-reset recall-home-browse-group-child-active-stage509-reset recall-home-browse-group-child-stage509-reset'
+        : 'recall-home-browse-group-child recall-home-browse-group-child-row-flatten-reset recall-home-browse-group-child-tree-branch-reset recall-home-browse-group-child-lean-branch-reset recall-home-browse-group-child-stage504-reset recall-home-browse-group-child-stage509-reset',
       selected ? 'recall-home-browse-group-child-selected-stage483-reset' : '',
       dragging ? 'recall-home-organizer-dragging-stage487-reset' : '',
       dropTarget ? 'recall-home-organizer-drop-target-stage487-reset' : '',
@@ -6171,8 +6439,8 @@ export function RecallWorkspace({
       <div
         className={
           dropTarget
-            ? 'recall-home-browse-group-child-row-stage483-reset recall-home-organizer-drop-target-row-stage487-reset'
-            : 'recall-home-browse-group-child-row-stage483-reset'
+            ? 'recall-home-browse-group-child-row-stage483-reset recall-home-browse-group-child-row-stage504-reset recall-home-browse-group-child-row-stage509-reset recall-home-organizer-drop-target-row-stage487-reset'
+            : 'recall-home-browse-group-child-row-stage483-reset recall-home-browse-group-child-row-stage504-reset recall-home-browse-group-child-row-stage509-reset'
         }
         key={`browse-group-child:${sectionKey}:${document.id}`}
         onDragOver={(event) => handleHomeOrganizerDocumentDragOver(sectionKey, document.id, event)}
@@ -6181,16 +6449,16 @@ export function RecallWorkspace({
         <button
           aria-label={`Open ${document.title} from organizer`}
           aria-pressed={selected}
-          className={childClassName}
-          type="button"
-          onClick={(event) => handleHomeOrganizerDocumentClick(sectionKey, document.id, event)}
-        >
-          <span aria-hidden="true" className="recall-home-browse-group-child-marker" />
-          <span className="recall-home-browse-group-child-copy recall-home-browse-group-child-copy-lean-branch-reset">
-            <span className="recall-home-browse-group-child-title recall-home-browse-group-child-title-lean-branch-reset">
+        className={childClassName}
+        type="button"
+        onClick={(event) => handleHomeOrganizerDocumentClick(sectionKey, document.id, event)}
+      >
+          <span aria-hidden="true" className="recall-home-browse-group-child-marker recall-home-browse-group-child-marker-stage504-reset recall-home-browse-group-child-marker-stage509-reset" />
+          <span className="recall-home-browse-group-child-copy recall-home-browse-group-child-copy-lean-branch-reset recall-home-browse-group-child-copy-stage504-reset recall-home-browse-group-child-copy-stage509-reset">
+            <span className="recall-home-browse-group-child-title recall-home-browse-group-child-title-lean-branch-reset recall-home-browse-group-child-title-stage504-reset recall-home-browse-group-child-title-stage509-reset">
               {document.title}
             </span>
-            <span className="recall-home-browse-group-child-meta recall-home-browse-group-child-meta-lean-branch-reset">
+            <span className="recall-home-browse-group-child-meta recall-home-browse-group-child-meta-lean-branch-reset recall-home-browse-group-child-meta-stage504-reset recall-home-browse-group-child-meta-stage509-reset">
               {childMetaSummary}
             </span>
           </span>
@@ -6215,30 +6483,38 @@ export function RecallWorkspace({
   }
 
   function renderHomeLibraryStageRow(document: RecallDocumentRecord, options?: { viewMode?: RecallHomeViewMode }) {
-    const sortTimestamp = getHomeDocumentTimestampLabel(document, effectiveHomeAutomaticSortMode, homeDateFormatter)
-    const availableViewLabel = `${document.available_modes.length} ${document.available_modes.length === 1 ? 'view' : 'views'} ready`
+    const sortTimestamp = getHomeDocumentTimestampCompactLabel(document, effectiveHomeAutomaticSortMode, homeDateFormatter)
+    const availableViewLabel = formatCountLabel(document.available_modes.length, 'view', 'views')
     const listView = options?.viewMode === 'list'
+    const sourcePreview = getDocumentSourcePreview(document)
+    const showSourcePreview = shouldShowHomeLibraryStageSourcePreview(document, sourcePreview)
+    const compactMetaLabel = `${sortTimestamp} - ${availableViewLabel}`
 
     return (
       <button
         aria-label={`Open ${document.title}`}
         className={
           listView
-            ? 'recall-home-library-stage-row recall-home-library-stage-row-source-context-reset recall-home-library-stage-row-board-top-reset recall-home-library-stage-row-results-sheet-reset recall-home-library-stage-row-list-view-stage467-reset'
-            : 'recall-home-library-stage-row recall-home-library-stage-row-source-context-reset recall-home-library-stage-row-board-top-reset recall-home-library-stage-row-results-sheet-reset'
+            ? 'recall-home-library-stage-row recall-home-library-stage-row-source-context-reset recall-home-library-stage-row-board-top-reset recall-home-library-stage-row-results-sheet-reset recall-home-library-stage-row-list-view-stage467-reset recall-home-library-stage-row-stage515-reset recall-home-library-stage-row-stage517-reset recall-home-library-stage-row-stage519-reset recall-home-library-stage-row-stage521-reset'
+            : 'recall-home-library-stage-row recall-home-library-stage-row-source-context-reset recall-home-library-stage-row-board-top-reset recall-home-library-stage-row-results-sheet-reset recall-home-library-stage-row-stage515-reset recall-home-library-stage-row-stage517-reset recall-home-library-stage-row-stage519-reset recall-home-library-stage-row-stage521-reset'
         }
         key={`stage:${document.id}`}
         type="button"
         onClick={() => focusSourceLibrary(document.id)}
       >
-        <span className="recall-home-library-stage-row-copy">
-          <span className="recall-library-row-overline">{document.source_type.toUpperCase()}</span>
-          <strong>{document.title}</strong>
-          <span>{getDocumentSourcePreview(document)}</span>
+        <span className="recall-home-library-stage-row-copy recall-home-library-stage-row-copy-stage515-reset recall-home-library-stage-row-copy-stage517-reset recall-home-library-stage-row-copy-stage521-reset">
+          <span className="recall-library-row-overline recall-home-library-stage-row-overline-stage515-reset">
+            {formatHomeDocumentSourceTypeEyebrow(document.source_type)}
+          </span>
+          <strong className="recall-home-library-stage-row-title-stage517-reset recall-home-library-stage-row-title-stage521-reset">
+            {document.title}
+          </strong>
+          {showSourcePreview ? (
+            <span className="recall-home-library-stage-row-detail-stage515-reset">{sourcePreview}</span>
+          ) : null}
         </span>
-        <span className="recall-home-library-stage-row-meta">
-          <span>{sortTimestamp}</span>
-          <span>{availableViewLabel}</span>
+        <span className="recall-home-library-stage-row-meta recall-home-library-stage-row-meta-stage515-reset recall-home-library-stage-row-meta-stage521-reset">
+          <span className="recall-home-library-stage-row-meta-compact-stage515-reset">{compactMetaLabel}</span>
         </span>
       </button>
     )
@@ -6264,16 +6540,35 @@ export function RecallWorkspace({
           isWideSection ? 'recall-home-library-card-wide' : '',
           isStreamSection ? 'recall-home-library-card-stream' : '',
           isStreamSection ? 'recall-home-library-card-overview-stage479-reset' : '',
+          isStreamSection ? 'recall-home-library-card-stage500-reset' : '',
         ]
           .filter(Boolean)
           .join(' ')}
         key={section.key}
       >
-        <div className="section-header section-header-compact recall-home-library-card-header">
+        <div
+          className={
+            isStreamSection
+              ? 'section-header section-header-compact recall-home-library-card-header recall-home-library-card-header-stage500-reset'
+              : 'section-header section-header-compact recall-home-library-card-header'
+          }
+        >
           <div>
-            <div className="recall-library-section-heading-row">
+            <div
+              className={
+                isStreamSection
+                  ? 'recall-library-section-heading-row recall-home-library-section-heading-row-stage500-reset'
+                  : 'recall-library-section-heading-row'
+              }
+            >
               <h3>{section.label}</h3>
-              <span className="recall-library-section-count">
+              <span
+                className={
+                  isStreamSection
+                    ? 'recall-library-section-count recall-home-library-section-count-stage500-reset'
+                    : 'recall-library-section-count'
+                }
+              >
                 {formatCountLabel(section.documents.length, 'source', 'sources')}
               </span>
             </div>
@@ -6283,8 +6578,8 @@ export function RecallWorkspace({
         <div
           className={
             viewMode === 'list'
-              ? 'recall-library-list recall-home-library-list recall-home-library-stage-list recall-home-library-stage-list-overview-stage479-reset recall-home-library-stage-list-list-view-stage467-reset'
-              : 'recall-library-list recall-home-library-list recall-home-library-stage-list recall-home-library-stage-list-overview-stage479-reset'
+              ? 'recall-library-list recall-home-library-list recall-home-library-stage-list recall-home-library-stage-list-overview-stage479-reset recall-home-library-stage-list-stage500-reset recall-home-library-stage-list-list-view-stage467-reset'
+              : 'recall-library-list recall-home-library-list recall-home-library-stage-list recall-home-library-stage-list-overview-stage479-reset recall-home-library-stage-list-stage500-reset'
           }
           role="list"
         >
@@ -7709,7 +8004,7 @@ export function RecallWorkspace({
           ? 'Search'
           : graphTimelineActive
             ? 'Timeline'
-            : graphContentFilterActive || graphFilterActive
+            : graphContentFilterActive || graphFilterActive || graphVisibilityFilterActive
               ? 'Filtered'
               : graphActivePresetLabel
     const graphFocusRailKicker = graphPathSelectionActive ? 'Path' : selectedGraphNode ? 'Focus' : graphFocusTrailNodes.length ? 'Path' : 'Graph'
@@ -7786,17 +8081,20 @@ export function RecallWorkspace({
       Boolean(selectedNodeId) ||
       graphTimelineEnabled ||
       graphContentFilterActive ||
+      graphVisibilityFilterActive ||
       graphColorGroupMode !== 'source' ||
       graphPathSelectionActive ||
       graphLayoutLocked ||
       graphViewportUserAdjusted ||
       Object.keys(graphManualNodePositions).length > 0
     const graphQuickPickSectionSummary = graphFilterActive
-      ? graphQuickPickSectionNote ?? 'Text filter keeps matching nodes in view.'
+      ? graphQuickPickSectionNote ?? 'Filter query keeps matching nodes and nearby context in view.'
       : graphTimelineActive
         ? `Step through ${graphTimelineStep?.label ?? 'saved-source history'}.`
-        : graphContentFilterActive
+      : graphContentFilterActive
           ? `${graphContentFilterSummary} kept in view.`
+        : graphVisibilityFilterActive
+          ? `${graphVisibilitySummary || 'Visibility rules'} kept in view.`
       : graphSearchActive
         ? 'Search keeps matching nodes in view.'
         : 'Jump to visible nodes.'
@@ -7835,8 +8133,10 @@ export function RecallWorkspace({
               ? 'Layout locked'
               : graphContentFilterActive
                 ? graphContentFilterSummary || 'Content filters active'
+                : graphVisibilityFilterActive
+                  ? graphVisibilitySummary || 'Visibility rules active'
                 : graphFilterActive
-                  ? 'Text filter active'
+                  ? 'Filter query active'
                   : graphColorGroupMode !== 'source'
                     ? graphColorGroupModeLabel
                   : graphPresetStatusLabel
@@ -7943,7 +8243,7 @@ export function RecallWorkspace({
           ) : null}
           {!graphLoading && graphStatus !== 'error' && (graphSnapshot?.nodes.length ?? 0) > 0 && !filteredGraphNodes.length ? (
             <div className="recall-library-inline-state">
-              <p>No nodes match that filter. Try another label, type, or alias.</p>
+              <p>No nodes match that filter query. Try another tag, source, name, or search term.</p>
             </div>
           ) : null}
 
@@ -8098,7 +8398,7 @@ export function RecallWorkspace({
                         <div className="recall-graph-sidebar-saved-presets">
                           <div className="recall-graph-sidebar-section-head">
                             <strong>Saved views</strong>
-                            <span>Reuse named combinations of filters, timeline, groups, and appearance changes.</span>
+                            <span>Reuse named combinations of queries, visibility, timeline, groups, and appearance changes.</span>
                           </div>
                           {graphSavedPresets.length ? (
                             <div className="recall-graph-sidebar-preset-list" role="list" aria-label="Saved graph presets">
@@ -8191,24 +8491,78 @@ export function RecallWorkspace({
                       </section>
                       <section className="recall-graph-sidebar-section recall-graph-sidebar-section-filter-reset">
                         <div className="recall-graph-sidebar-section-head">
-                          <strong>Text filter</strong>
-                          <span>Narrow visible labels and aliases without changing title search.</span>
+                          <strong>Filter query</strong>
+                          <span>Use bounded `tag:`, `source:`, `name:`, and `search:` terms without changing title search.</span>
                         </div>
                         <label className="field recall-inline-field recall-graph-sidebar-filter">
                           <span className="recall-graph-browser-node-peek-kicker">Filter query</span>
                           <input
                             aria-label="Filter graph"
                             type="search"
-                            placeholder="Filter visible labels or aliases"
+                            placeholder="source:127.0.0.1 OR name:Stage 10 node"
                             value={graphFilterQuery}
                             onChange={(event) => setGraphFilterQuery(event.target.value)}
                           />
                           <span className="recall-graph-sidebar-filter-note">
                             {graphFilterActive
-                              ? `${filteredGraphNodes.length} visible ${filteredGraphNodes.length === 1 ? 'node' : 'nodes'}`
-                              : 'Works alongside presets, timeline, and content filters.'}
+                              ? `${graphNodesMatchingQueryCount} matching ${graphNodesMatchingQueryCount === 1 ? 'node' : 'nodes'} with ${filteredGraphNodes.length} visible after context and visibility rules.`
+                              : 'Supports `-` negation plus `OR`, and works alongside presets, timeline, and content filters.'}
+                          </span>
+                          <span className="recall-graph-sidebar-filter-note">
+                            `tag:` uses current custom collection labels when local organizer metadata is available.
                           </span>
                         </label>
+                      </section>
+                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-visibility-reset">
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Visibility</strong>
+                          <span>
+                            {graphVisibilityFilterActive
+                              ? graphVisibilitySummary
+                              : 'Keep or hide unconnected cards, leaf references, and inferred reference-style graph content.'}
+                          </span>
+                        </div>
+                        <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph visibility controls">
+                          <button
+                            aria-pressed={graphShowUnconnectedNodes}
+                            className={
+                              graphShowUnconnectedNodes
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={handleToggleGraphShowUnconnectedNodes}
+                          >
+                            Unconnected
+                          </button>
+                          <button
+                            aria-pressed={graphShowLeafNodes}
+                            className={
+                              graphShowLeafNodes
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={handleToggleGraphShowLeafNodes}
+                          >
+                            Leaf nodes
+                          </button>
+                          <button
+                            aria-pressed={graphShowReferenceNodes}
+                            className={
+                              graphShowReferenceNodes
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={handleToggleGraphShowReferenceNodes}
+                          >
+                            Reference content
+                          </button>
+                        </div>
+                        <span className="recall-graph-sidebar-filter-note">
+                          Reference content uses the current inferred-edge model as the local fallback for Recall-style auto references.
+                        </span>
                       </section>
                       <section className="recall-graph-sidebar-section recall-graph-sidebar-section-timeline-reset">
                         <div className="recall-graph-sidebar-section-head">
@@ -8353,7 +8707,7 @@ export function RecallWorkspace({
                       <section className="recall-graph-sidebar-section recall-graph-sidebar-section-depth-reset">
                         <div className="recall-graph-sidebar-section-head">
                           <strong>View</strong>
-                          <span>Control how much connected context stays visible around the current graph focus.</span>
+                          <span>Control how much connected context stays visible around the current graph focus or active filter query.</span>
                         </div>
                         <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-depth-reset" role="group" aria-label="Graph connection depth">
                           {([1, 2, 3] as const).map((depth) => (
@@ -10392,7 +10746,7 @@ export function RecallWorkspace({
                               type="button"
                               onClick={() => setHomeBrowsePreviewsCollapsed((current) => !current)}
                             >
-                              {homeBrowsePreviewToggleShortLabel}
+                              {homeBrowsePreviewToggleCompactLabel}
                             </button>
                           ) : (
                             <button
@@ -10457,44 +10811,50 @@ export function RecallWorkspace({
                         className="recall-home-browse-strip recall-home-browse-strip-organizer-control-reset recall-home-browse-strip-resizable-stage491-reset"
                         style={homeOrganizerRailStyle}
                       >
-                        <div className="recall-home-browse-strip-shell recall-home-browse-strip-shell-tag-tree-reset recall-home-browse-strip-shell-board-first-reset recall-home-browse-strip-shell-organizer-owned-reset recall-home-browse-strip-shell-unified-workbench-reset recall-home-browse-strip-shell-organizer-deck-reset recall-home-browse-strip-shell-organizer-header-reset priority-surface-support-rail priority-surface-support-rail-quiet">
-                          <div className="recall-home-browse-strip-top recall-home-browse-strip-top-minimal-entry-reset recall-home-browse-strip-top-header-compression-reset recall-home-browse-strip-top-organizer-owned-reset recall-home-browse-strip-top-unified-workbench-reset recall-home-browse-strip-top-organizer-deck-reset recall-home-browse-strip-top-organizer-header-reset">
-                            <div
-                              className="recall-home-browse-strip-header recall-home-browse-strip-header-header-compression-reset recall-home-browse-strip-header-organizer-owned-reset recall-home-browse-strip-header-unified-workbench-reset recall-home-browse-strip-header-organizer-deck-reset"
-                              aria-label="Home browse glance"
-                            >
-                              <div className="recall-home-browse-strip-heading-inline recall-home-browse-strip-heading-inline-header-compression-reset recall-home-browse-strip-heading-inline-unified-workbench-reset">
-                                <strong>{homeBrowseStripHeading}</strong>
-                                <span className="status-chip reader-meta-chip">{homeBrowseStripStatus}</span>
+                        <div className="recall-home-browse-strip-shell recall-home-browse-strip-shell-tag-tree-reset recall-home-browse-strip-shell-board-first-reset recall-home-browse-strip-shell-organizer-owned-reset recall-home-browse-strip-shell-unified-workbench-reset recall-home-browse-strip-shell-organizer-deck-reset recall-home-browse-strip-shell-organizer-header-reset recall-home-browse-strip-shell-stage502-reset priority-surface-support-rail priority-surface-support-rail-quiet">
+                          <div className="recall-home-browse-strip-top recall-home-browse-strip-top-minimal-entry-reset recall-home-browse-strip-top-header-compression-reset recall-home-browse-strip-top-organizer-owned-reset recall-home-browse-strip-top-unified-workbench-reset recall-home-browse-strip-top-organizer-deck-reset recall-home-browse-strip-top-organizer-header-reset recall-home-browse-strip-top-stage502-reset">
+                            <div className="recall-home-browse-strip-copy-stage502-reset">
+                              <div
+                                className="recall-home-browse-strip-header recall-home-browse-strip-header-header-compression-reset recall-home-browse-strip-header-organizer-owned-reset recall-home-browse-strip-header-unified-workbench-reset recall-home-browse-strip-header-organizer-deck-reset recall-home-browse-strip-header-stage502-reset"
+                                aria-label="Home browse glance"
+                              >
+                                <div className="recall-home-browse-strip-heading-inline recall-home-browse-strip-heading-inline-header-compression-reset recall-home-browse-strip-heading-inline-unified-workbench-reset recall-home-browse-strip-heading-inline-stage502-reset">
+                                  <strong>{homeBrowseStripHeading}</strong>
+                                  <span className="status-chip reader-meta-chip recall-home-browse-strip-status-stage502-reset">
+                                    {homeBrowseStripStatus}
+                                  </span>
+                                </div>
                               </div>
+                              {homeBrowseStripGuide ? (
+                                <p className="recall-home-browse-strip-note recall-home-browse-strip-note-header-compression-reset recall-home-browse-strip-note-organizer-owned-reset recall-home-browse-strip-note-unified-workbench-reset recall-home-browse-strip-note-organizer-deck-reset recall-home-browse-strip-note-stage502-reset">
+                                  {homeBrowseStripGuide}
+                                </p>
+                              ) : null}
                             </div>
-                            {homeBrowseStripGuide ? (
-                              <p className="recall-home-browse-strip-note recall-home-browse-strip-note-header-compression-reset recall-home-browse-strip-note-organizer-owned-reset recall-home-browse-strip-note-unified-workbench-reset recall-home-browse-strip-note-organizer-deck-reset">
-                                {homeBrowseStripGuide}
-                              </p>
-                            ) : null}
-                            {showInlineHomeSearch ? (
-                              <label className="field recall-inline-field recall-home-library-stage-search recall-home-browse-strip-search recall-home-browse-strip-search-header-compression-reset recall-home-browse-strip-search-organizer-owned-reset recall-home-browse-strip-search-organizer-deck-reset">
-                                <span className="visually-hidden">Search saved sources</span>
-                                <input
-                                  aria-label="Search saved sources"
-                                  type="search"
-                                  placeholder="Search saved sources"
-                                  value={libraryFilterQuery}
-                                  onChange={(event) =>
-                                    updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
-                                  }
-                                />
-                              </label>
-                            ) : null}
+                            <div className="recall-home-browse-strip-utility-stage502-reset">
+                              {showInlineHomeSearch ? (
+                                <label className="field recall-inline-field recall-home-library-stage-search recall-home-browse-strip-search recall-home-browse-strip-search-header-compression-reset recall-home-browse-strip-search-organizer-owned-reset recall-home-browse-strip-search-organizer-deck-reset recall-home-browse-strip-search-stage502-reset">
+                                  <span className="visually-hidden">Search saved sources</span>
+                                  <input
+                                    aria-label="Search saved sources"
+                                    type="search"
+                                    placeholder="Search saved sources"
+                                    value={libraryFilterQuery}
+                                    onChange={(event) =>
+                                      updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                                    }
+                                  />
+                                </label>
+                              ) : null}
+                            </div>
                             <div
-                              className="recall-home-browse-strip-control-deck recall-home-browse-strip-control-deck-organizer-control-reset recall-home-browse-strip-control-deck-board-first-reset recall-home-browse-strip-control-deck-unified-workbench-reset recall-home-browse-strip-control-deck-organizer-deck-reset recall-home-browse-strip-control-deck-organizer-header-reset recall-home-browse-strip-control-deck-stage467-reset"
+                              className="recall-home-browse-strip-control-deck recall-home-browse-strip-control-deck-organizer-control-reset recall-home-browse-strip-control-deck-board-first-reset recall-home-browse-strip-control-deck-unified-workbench-reset recall-home-browse-strip-control-deck-organizer-deck-reset recall-home-browse-strip-control-deck-organizer-header-reset recall-home-browse-strip-control-deck-stage467-reset recall-home-browse-strip-control-deck-stage502-reset recall-home-browse-strip-control-deck-stage504-reset"
                               role="group"
                               aria-label="Organizer controls"
                             >
-                              <div className="recall-home-organizer-control-groups-stage467-reset">
+                              <div className="recall-home-organizer-control-groups-stage467-reset recall-home-organizer-control-groups-stage502-reset recall-home-organizer-control-groups-stage504-reset">
                                 <div
-                                  className="recall-home-organizer-control-pillbox-stage467-reset"
+                                  className="recall-home-organizer-control-pillbox-stage467-reset recall-home-organizer-control-group-stage502-reset"
                                   role="group"
                                   aria-label="Organizer lens"
                                 >
@@ -10524,7 +10884,7 @@ export function RecallWorkspace({
                                   </button>
                                 </div>
                                 <div
-                                  className="recall-home-organizer-sort-toggle recall-home-organizer-sort-toggle-organizer-control-reset recall-home-organizer-sort-toggle-organizer-deck-reset"
+                                  className="recall-home-organizer-sort-toggle recall-home-organizer-sort-toggle-organizer-control-reset recall-home-organizer-sort-toggle-organizer-deck-reset recall-home-organizer-control-group-stage502-reset recall-home-organizer-sort-toggle-stage502-reset"
                                   role="group"
                                   aria-label="Sort saved sources"
                                 >
@@ -10578,7 +10938,7 @@ export function RecallWorkspace({
                                   </button>
                                 </div>
                                 <div
-                                  className="recall-home-organizer-control-pillbox-stage467-reset"
+                                  className="recall-home-organizer-control-pillbox-stage467-reset recall-home-organizer-control-group-stage502-reset"
                                   role="group"
                                   aria-label="Sort direction"
                                 >
@@ -10610,7 +10970,7 @@ export function RecallWorkspace({
                                   </button>
                                 </div>
                                 <div
-                                  className="recall-home-organizer-control-pillbox-stage467-reset"
+                                  className="recall-home-organizer-control-pillbox-stage467-reset recall-home-organizer-control-group-stage502-reset"
                                   role="group"
                                   aria-label="View saved sources"
                                 >
@@ -10639,50 +10999,58 @@ export function RecallWorkspace({
                                     List
                                   </button>
                                 </div>
-                              </div>
-                              <div className="recall-home-browse-strip-tools recall-home-browse-strip-control-row-organizer-control-reset">
-                                {renderHomeCreateCollectionButton()}
-                                {!libraryFilterActive ? (
-                                  <button
-                                    aria-label={homeBrowsePreviewToggleLabel}
-                                    className="ghost-button recall-home-browse-strip-tool"
-                                    type="button"
-                                    onClick={() => setHomeBrowsePreviewsCollapsed((current) => !current)}
-                                  >
-                                    {homeBrowsePreviewToggleShortLabel}
-                                  </button>
-                                ) : (
-                                  <button
-                                    className="ghost-button recall-home-browse-strip-tool"
-                                    type="button"
-                                    onClick={() => updateLibraryState((current) => ({ ...current, filterQuery: '' }))}
-                                  >
-                                    Clear search
-                                  </button>
-                                )}
-                                <button
-                                  aria-label={homeOrganizerToggleLabel}
-                                  className="ghost-button recall-home-browse-strip-tool"
-                                  type="button"
-                                  onClick={() => setHomeOrganizerVisible(false)}
+                                <div
+                                  className="recall-home-browse-strip-tools recall-home-browse-strip-control-row-organizer-control-reset recall-home-browse-strip-tools-stage502-reset recall-home-browse-strip-tools-stage504-reset recall-home-organizer-control-group-stage502-reset"
+                                  role="group"
+                                  aria-label="Organizer utilities"
                                 >
-                                  Hide organizer
-                                </button>
+                                  {renderHomeCreateCollectionButton()}
+                                  {!libraryFilterActive ? (
+                                    <button
+                                      aria-label={homeBrowsePreviewToggleLabel}
+                                      className="ghost-button recall-home-browse-strip-tool recall-home-browse-strip-tool-stage502-reset recall-home-browse-strip-tool-stage504-reset"
+                                      title={homeBrowsePreviewToggleLabel}
+                                      type="button"
+                                      onClick={() => setHomeBrowsePreviewsCollapsed((current) => !current)}
+                                    >
+                                      {homeBrowsePreviewToggleCompactLabel}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      aria-label="Clear search"
+                                      className="ghost-button recall-home-browse-strip-tool recall-home-browse-strip-tool-stage502-reset recall-home-browse-strip-tool-stage504-reset"
+                                      title="Clear search"
+                                      type="button"
+                                      onClick={() => updateLibraryState((current) => ({ ...current, filterQuery: '' }))}
+                                    >
+                                      Clear
+                                    </button>
+                                  )}
+                                  <button
+                                    aria-label={homeOrganizerToggleLabel}
+                                    className="ghost-button recall-home-browse-strip-tool recall-home-browse-strip-tool-stage502-reset recall-home-browse-strip-tool-stage504-reset"
+                                    title={homeOrganizerToggleLabel}
+                                    type="button"
+                                    onClick={() => setHomeOrganizerVisible(false)}
+                                  >
+                                    {homeOrganizerToggleCompactLabel}
+                                  </button>
+                                </div>
                               </div>
                               {renderHomeCollectionManagementPanel()}
                             </div>
                           </div>
                           {!libraryFilterActive && homeBrowseSectionEntries.length > 0 ? (
                             <div
-                              className="recall-home-browse-groups recall-home-browse-groups-tag-tree-reset recall-home-browse-groups-header-compression-reset recall-home-browse-groups-row-flatten-reset recall-home-browse-groups-organizer-deck-reset recall-home-browse-groups-tree-branch-reset"
+                              className="recall-home-browse-groups recall-home-browse-groups-tag-tree-reset recall-home-browse-groups-header-compression-reset recall-home-browse-groups-row-flatten-reset recall-home-browse-groups-organizer-deck-reset recall-home-browse-groups-tree-branch-reset recall-home-browse-groups-stage504-reset recall-home-browse-groups-stage507-reset"
                               role="list"
                               aria-label="Saved source groups"
                             >
                               <div
                                 className={
                                   !homeSelectedBrowseSection
-                                    ? 'recall-home-browse-group recall-home-browse-group-active recall-home-browse-group-row-flatten-reset recall-home-browse-group-active-continuity-reset recall-home-browse-group-active-highlight-deflation-reset recall-home-browse-group-active-readout-softening-reset recall-home-browse-group-active-grouping-deflation-reset recall-home-browse-group-active-summary-preview-join-reset recall-home-browse-group-active-bridge-hint-retirement-reset recall-home-browse-group-active-tree-branch-reset recall-home-browse-overview-stage479-reset'
-                                    : 'recall-home-browse-group recall-home-browse-group-row-flatten-reset recall-home-browse-overview-stage479-reset'
+                                    ? 'recall-home-browse-group recall-home-browse-group-active recall-home-browse-group-row-flatten-reset recall-home-browse-group-active-continuity-reset recall-home-browse-group-active-highlight-deflation-reset recall-home-browse-group-active-readout-softening-reset recall-home-browse-group-active-grouping-deflation-reset recall-home-browse-group-active-summary-preview-join-reset recall-home-browse-group-active-bridge-hint-retirement-reset recall-home-browse-group-active-tree-branch-reset recall-home-browse-group-active-stage507-reset recall-home-browse-overview-stage479-reset recall-home-browse-overview-stage500-reset recall-home-browse-group-stage504-reset recall-home-browse-group-stage507-reset'
+                                    : 'recall-home-browse-group recall-home-browse-group-row-flatten-reset recall-home-browse-overview-stage479-reset recall-home-browse-overview-stage500-reset recall-home-browse-group-stage504-reset recall-home-browse-group-stage507-reset'
                                 }
                                 role="listitem"
                               >
@@ -10690,19 +11058,22 @@ export function RecallWorkspace({
                                   aria-pressed={!homeSelectedBrowseSection}
                                   className={
                                     !homeSelectedBrowseSection
-                                      ? 'recall-home-browse-group-button recall-home-browse-group-button-active recall-home-browse-group-button-row-flatten-reset recall-home-browse-group-button-active-continuity-reset recall-home-browse-group-button-active-highlight-deflation-reset recall-home-browse-group-button-active-readout-softening-reset recall-home-browse-group-button-active-grouping-deflation-reset recall-home-browse-group-button-active-summary-preview-join-reset recall-home-browse-group-button-active-bridge-hint-retirement-reset recall-home-browse-group-button-active-tree-branch-reset recall-home-browse-overview-button-stage479-reset'
-                                      : 'recall-home-browse-group-button recall-home-browse-group-button-row-flatten-reset recall-home-browse-overview-button-stage479-reset'
+                                      ? 'recall-home-browse-group-button recall-home-browse-group-button-active recall-home-browse-group-button-row-flatten-reset recall-home-browse-group-button-active-continuity-reset recall-home-browse-group-button-active-highlight-deflation-reset recall-home-browse-group-button-active-readout-softening-reset recall-home-browse-group-button-active-grouping-deflation-reset recall-home-browse-group-button-active-summary-preview-join-reset recall-home-browse-group-button-active-bridge-hint-retirement-reset recall-home-browse-group-button-active-tree-branch-reset recall-home-browse-group-button-active-stage507-reset recall-home-browse-overview-button-stage479-reset recall-home-browse-overview-button-stage500-reset recall-home-browse-group-button-stage504-reset recall-home-browse-group-button-stage507-reset'
+                                      : 'recall-home-browse-group-button recall-home-browse-group-button-row-flatten-reset recall-home-browse-overview-button-stage479-reset recall-home-browse-overview-button-stage500-reset recall-home-browse-group-button-stage504-reset recall-home-browse-group-button-stage507-reset'
                                   }
                                   type="button"
                                   onClick={handleHomeOverviewOrganizerClick}
                                 >
-                                  <span className="recall-home-browse-group-topline recall-home-browse-group-topline-row-flatten-reset">
-                                    <span className="recall-home-browse-group-title-cluster recall-home-browse-group-title-cluster-row-flatten-reset">
+                                  <span className="recall-home-browse-group-topline recall-home-browse-group-topline-row-flatten-reset recall-home-browse-group-topline-stage507-reset">
+                                    <span className="recall-home-browse-group-title-cluster recall-home-browse-group-title-cluster-row-flatten-reset recall-home-browse-group-title-cluster-stage507-reset">
                                       <strong>{homeOverviewRowLabel}</strong>
+                                      <span className="status-chip status-muted recall-home-browse-overview-badge-stage500-reset recall-home-browse-overview-badge-stage507-reset">
+                                        {homeOverviewRowStateLabel}
+                                      </span>
                                       {!homeSelectedBrowseSection ? (
                                         <span
                                           aria-label={formatCountLabel(visibleDocuments.length, 'source', 'sources')}
-                                          className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-active-highlight-deflation-reset recall-home-browse-group-count-chip-active-readout-softening-reset"
+                                          className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-active-highlight-deflation-reset recall-home-browse-group-count-chip-active-readout-softening-reset recall-home-browse-group-count-chip-stage507-reset"
                                         >
                                           {visibleDocuments.length}
                                         </span>
@@ -10711,13 +11082,13 @@ export function RecallWorkspace({
                                     {homeSelectedBrowseSection ? (
                                       <span
                                         aria-label={formatCountLabel(visibleDocuments.length, 'source', 'sources')}
-                                        className="recall-home-browse-group-count-chip"
+                                        className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-stage507-reset"
                                       >
                                         {visibleDocuments.length}
                                       </span>
                                     ) : null}
                                   </span>
-                                  <span className="recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset">
+                                  <span className="recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset recall-home-browse-overview-note-stage500-reset recall-home-browse-overview-note-stage507-reset recall-home-browse-group-note-stage504-reset recall-home-browse-group-note-stage507-reset">
                                     {homeOverviewRowSummary}
                                   </span>
                                 </button>
@@ -10751,9 +11122,9 @@ export function RecallWorkspace({
                                     className={
                                       [
                                         browseGroupActive
-                                          ? 'recall-home-browse-group recall-home-browse-group-active recall-home-browse-group-row-flatten-reset recall-home-browse-group-active-continuity-reset recall-home-browse-group-active-highlight-deflation-reset recall-home-browse-group-active-readout-softening-reset recall-home-browse-group-active-grouping-deflation-reset recall-home-browse-group-active-summary-preview-join-reset recall-home-browse-group-active-bridge-hint-retirement-reset recall-home-browse-group-active-tree-branch-reset'
-                                          : 'recall-home-browse-group recall-home-browse-group-row-flatten-reset',
-                                        browseGroupSelected ? 'recall-home-browse-group-selected-stage483-reset' : '',
+                                          ? 'recall-home-browse-group recall-home-browse-group-active recall-home-browse-group-row-flatten-reset recall-home-browse-group-active-continuity-reset recall-home-browse-group-active-highlight-deflation-reset recall-home-browse-group-active-readout-softening-reset recall-home-browse-group-active-grouping-deflation-reset recall-home-browse-group-active-summary-preview-join-reset recall-home-browse-group-active-bridge-hint-retirement-reset recall-home-browse-group-active-tree-branch-reset recall-home-browse-group-active-stage507-reset recall-home-browse-group-stage504-reset recall-home-browse-group-stage507-reset'
+                                          : 'recall-home-browse-group recall-home-browse-group-row-flatten-reset recall-home-browse-group-stage504-reset recall-home-browse-group-stage507-reset',
+                                        browseGroupSelected ? 'recall-home-browse-group-selected-stage483-reset recall-home-browse-group-selected-stage507-reset' : '',
                                         browseGroupDragging ? 'recall-home-organizer-dragging-stage487-reset' : '',
                                         browseGroupDropTarget ? 'recall-home-organizer-drop-target-stage487-reset recall-home-organizer-drop-target-row-stage487-reset' : '',
                                       ]
@@ -10770,9 +11141,11 @@ export function RecallWorkspace({
                                       className={
                                         [
                                           browseGroupActive
-                                            ? 'recall-home-browse-group-button recall-home-browse-group-button-active recall-home-browse-group-button-row-flatten-reset recall-home-browse-group-button-active-continuity-reset recall-home-browse-group-button-active-highlight-deflation-reset recall-home-browse-group-button-active-readout-softening-reset recall-home-browse-group-button-active-grouping-deflation-reset recall-home-browse-group-button-active-summary-preview-join-reset recall-home-browse-group-button-active-bridge-hint-retirement-reset recall-home-browse-group-button-active-tree-branch-reset'
-                                            : 'recall-home-browse-group-button recall-home-browse-group-button-row-flatten-reset',
-                                          browseGroupSelected ? 'recall-home-browse-group-button-selected-stage483-reset' : '',
+                                            ? 'recall-home-browse-group-button recall-home-browse-group-button-active recall-home-browse-group-button-row-flatten-reset recall-home-browse-group-button-active-continuity-reset recall-home-browse-group-button-active-highlight-deflation-reset recall-home-browse-group-button-active-readout-softening-reset recall-home-browse-group-button-active-grouping-deflation-reset recall-home-browse-group-button-active-summary-preview-join-reset recall-home-browse-group-button-active-bridge-hint-retirement-reset recall-home-browse-group-button-active-tree-branch-reset recall-home-browse-group-button-active-stage507-reset recall-home-browse-group-button-stage504-reset recall-home-browse-group-button-stage507-reset'
+                                            : 'recall-home-browse-group-button recall-home-browse-group-button-row-flatten-reset recall-home-browse-group-button-stage504-reset recall-home-browse-group-button-stage507-reset',
+                                          browseGroupSelected
+                                            ? 'recall-home-browse-group-button-selected-stage483-reset recall-home-browse-group-button-selected-stage507-reset'
+                                            : '',
                                         ]
                                           .filter(Boolean)
                                           .join(' ')
@@ -10780,23 +11153,23 @@ export function RecallWorkspace({
                                       type="button"
                                       onClick={(event) => handleHomeOrganizerSectionClick(section.key, event)}
                                     >
-                                      <span className="recall-home-browse-group-topline recall-home-browse-group-topline-row-flatten-reset">
-                                        <span className="recall-home-browse-group-title-cluster recall-home-browse-group-title-cluster-row-flatten-reset">
+                                      <span className="recall-home-browse-group-topline recall-home-browse-group-topline-row-flatten-reset recall-home-browse-group-topline-stage507-reset">
+                                        <span className="recall-home-browse-group-title-cluster recall-home-browse-group-title-cluster-row-flatten-reset recall-home-browse-group-title-cluster-stage507-reset">
                                           <strong>{section.label}</strong>
                                           {isHomeCustomCollectionSection(section.key) ? (
-                                            <span className="status-chip status-muted recall-home-browse-group-kind-stage495-reset">
+                                            <span className="status-chip status-muted recall-home-browse-group-kind-stage495-reset recall-home-browse-group-kind-stage507-reset">
                                               Custom
                                             </span>
                                           ) : null}
                                           {isHomeUntaggedSection(section.key) ? (
-                                            <span className="status-chip status-muted recall-home-browse-group-kind-stage495-reset">
+                                            <span className="status-chip status-muted recall-home-browse-group-kind-stage495-reset recall-home-browse-group-kind-stage507-reset">
                                               Untagged
                                             </span>
                                           ) : null}
                                           {browseGroupActive ? (
                                             <span
                                               aria-label={formatCountLabel(section.count, 'source', 'sources')}
-                                              className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-active-highlight-deflation-reset recall-home-browse-group-count-chip-active-readout-softening-reset"
+                                              className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-active-highlight-deflation-reset recall-home-browse-group-count-chip-active-readout-softening-reset recall-home-browse-group-count-chip-stage507-reset"
                                             >
                                               {section.count}
                                             </span>
@@ -10805,7 +11178,7 @@ export function RecallWorkspace({
                                         {!browseGroupActive ? (
                                           <span
                                             aria-label={formatCountLabel(section.count, 'source', 'sources')}
-                                            className="recall-home-browse-group-count-chip"
+                                            className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-stage507-reset"
                                           >
                                             {section.count}
                                           </span>
@@ -10815,8 +11188,8 @@ export function RecallWorkspace({
                                         <span
                                           className={
                                             browseGroupDetailUsesSourceTone
-                                              ? 'recall-home-browse-group-source recall-home-browse-group-source-row-flatten-reset'
-                                              : 'recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset'
+                                              ? 'recall-home-browse-group-source recall-home-browse-group-source-row-flatten-reset recall-home-browse-group-source-stage504-reset recall-home-browse-group-source-stage507-reset'
+                                              : 'recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset recall-home-browse-group-note-stage504-reset recall-home-browse-group-note-stage507-reset'
                                           }
                                         >
                                           {browseGroupButtonDetail}
@@ -10842,7 +11215,7 @@ export function RecallWorkspace({
                                     browseGroupActive &&
                                     section.previewDocuments.length > 0 ? (
                                       <div
-                                        className="recall-home-browse-group-children recall-home-browse-group-children-row-flatten-reset recall-home-browse-group-children-active-continuity-reset recall-home-browse-group-children-highlight-deflation-reset recall-home-browse-group-children-readout-softening-reset recall-home-browse-group-children-grouping-deflation-reset recall-home-browse-group-children-summary-preview-join-reset recall-home-browse-group-children-bridge-hint-retirement-reset recall-home-browse-group-children-tree-branch-reset"
+                                        className="recall-home-browse-group-children recall-home-browse-group-children-row-flatten-reset recall-home-browse-group-children-active-continuity-reset recall-home-browse-group-children-highlight-deflation-reset recall-home-browse-group-children-readout-softening-reset recall-home-browse-group-children-grouping-deflation-reset recall-home-browse-group-children-summary-preview-join-reset recall-home-browse-group-children-bridge-hint-retirement-reset recall-home-browse-group-children-tree-branch-reset recall-home-browse-group-children-stage504-reset recall-home-browse-group-children-stage509-reset"
                                         role="list"
                                         aria-label={`${section.label} sources`}
                                       >
@@ -10857,9 +11230,9 @@ export function RecallWorkspace({
                                           ),
                                         )}
                                         {section.count > section.previewDocuments.length ? (
-                                          <div className="recall-home-browse-group-footer recall-home-browse-group-footer-tree-branch-reset">
+                                          <div className="recall-home-browse-group-footer recall-home-browse-group-footer-tree-branch-reset recall-home-browse-group-footer-stage504-reset recall-home-browse-group-footer-stage509-reset">
                                             <button
-                                              className="ghost-button"
+                                              className="ghost-button recall-home-browse-group-footer-button-stage509-reset"
                                               type="button"
                                               onClick={() =>
                                                 setExpandedHomeBrowseBranchKeys((current) => ({
@@ -11012,19 +11385,21 @@ export function RecallWorkspace({
                                 <section
                                   className={
                                     homeOrganizerVisible
-                                      ? 'recall-home-library-stage recall-home-selected-group-stage recall-home-selected-group-stage-primary recall-home-selected-group-stage-board-fill recall-home-selected-group-stage-card-density-reset recall-home-selected-group-stage-continuous-coverage-reset recall-home-selected-group-stage-library-sheet-reset recall-home-selected-group-stage-organizer-control-reset recall-home-selected-group-stage-board-first-reset recall-home-selected-group-stage-board-fusion-reset recall-home-selected-group-stage-organizer-owned-reset recall-home-selected-group-stage-unified-workbench-reset recall-home-selected-group-stage-board-top-reset recall-home-selected-group-stage-direct-board-reset recall-home-selected-group-stage-board-dominant-reset recall-home-selected-group-stage-results-sheet-reset recall-home-selected-group-stage-tree-branch-reset recall-home-selected-group-stage-direct-start-reset recall-home-stage-lane stack-gap priority-surface-stage-shell'
-                                      : 'recall-home-library-stage recall-home-selected-group-stage recall-home-selected-group-stage-primary recall-home-selected-group-stage-board-fill recall-home-selected-group-stage-card-density-reset recall-home-selected-group-stage-continuous-coverage-reset recall-home-selected-group-stage-library-sheet-reset recall-home-selected-group-stage-organizer-control-reset recall-home-selected-group-stage-board-first-reset recall-home-selected-group-stage-board-fusion-reset recall-home-selected-group-stage-organizer-owned-reset recall-home-selected-group-stage-organizer-hidden-reset recall-home-selected-group-stage-unified-workbench-reset recall-home-selected-group-stage-board-top-reset recall-home-selected-group-stage-direct-board-reset recall-home-selected-group-stage-board-dominant-reset recall-home-selected-group-stage-results-sheet-reset recall-home-selected-group-stage-direct-start-reset recall-home-stage-lane stack-gap priority-surface-stage-shell'
+                                      ? 'recall-home-library-stage recall-home-selected-group-stage recall-home-selected-group-stage-primary recall-home-selected-group-stage-board-fill recall-home-selected-group-stage-card-density-reset recall-home-selected-group-stage-continuous-coverage-reset recall-home-selected-group-stage-library-sheet-reset recall-home-selected-group-stage-organizer-control-reset recall-home-selected-group-stage-board-first-reset recall-home-selected-group-stage-board-fusion-reset recall-home-selected-group-stage-organizer-owned-reset recall-home-selected-group-stage-unified-workbench-reset recall-home-selected-group-stage-board-top-reset recall-home-selected-group-stage-direct-board-reset recall-home-selected-group-stage-board-dominant-reset recall-home-selected-group-stage-results-sheet-reset recall-home-selected-group-stage-tree-branch-reset recall-home-selected-group-stage-direct-start-reset recall-home-selected-group-stage-stage511-reset recall-home-selected-group-stage-stage513-reset recall-home-selected-group-stage-stage515-reset recall-home-selected-group-stage-stage517-reset recall-home-selected-group-stage-stage519-reset recall-home-selected-group-stage-stage521-reset recall-home-stage-lane stack-gap priority-surface-stage-shell'
+                                      : 'recall-home-library-stage recall-home-selected-group-stage recall-home-selected-group-stage-primary recall-home-selected-group-stage-board-fill recall-home-selected-group-stage-card-density-reset recall-home-selected-group-stage-continuous-coverage-reset recall-home-selected-group-stage-library-sheet-reset recall-home-selected-group-stage-organizer-control-reset recall-home-selected-group-stage-board-first-reset recall-home-selected-group-stage-board-fusion-reset recall-home-selected-group-stage-organizer-owned-reset recall-home-selected-group-stage-organizer-hidden-reset recall-home-selected-group-stage-unified-workbench-reset recall-home-selected-group-stage-board-top-reset recall-home-selected-group-stage-direct-board-reset recall-home-selected-group-stage-board-dominant-reset recall-home-selected-group-stage-results-sheet-reset recall-home-selected-group-stage-direct-start-reset recall-home-selected-group-stage-stage511-reset recall-home-selected-group-stage-stage513-reset recall-home-selected-group-stage-stage515-reset recall-home-selected-group-stage-stage517-reset recall-home-selected-group-stage-stage519-reset recall-home-selected-group-stage-stage521-reset recall-home-stage-lane stack-gap priority-surface-stage-shell'
                                   }
                                   aria-label="Saved library"
                                 >
                                   <div className="recall-home-primary-board-direct-layout recall-home-primary-board-direct-layout-selected-reset recall-home-primary-board-direct-layout-inline-reopen-reset">
-                                    <div className="recall-home-primary-board-direct-main recall-home-primary-board-direct-main-selected-reset recall-home-primary-board-direct-main-inline-reopen-reset stack-gap">
-                                      <div className="recall-home-stage-lane-header recall-home-stage-lane-header-board-top-reset recall-home-stage-lane-header-direct-board-reset recall-home-stage-lane-header-board-dominant-reset recall-home-stage-lane-header-results-sheet-reset recall-home-stage-lane-header-tree-branch-reset recall-home-stage-lane-header-direct-start-reset">
-                                        <div className="recall-home-library-stage-source">
+                                    <div className="recall-home-primary-board-direct-main recall-home-primary-board-direct-main-selected-reset recall-home-primary-board-direct-main-inline-reopen-reset recall-home-primary-board-direct-main-stage511-reset stack-gap">
+                                      <div className="recall-home-stage-lane-header recall-home-stage-lane-header-board-top-reset recall-home-stage-lane-header-direct-board-reset recall-home-stage-lane-header-board-dominant-reset recall-home-stage-lane-header-results-sheet-reset recall-home-stage-lane-header-tree-branch-reset recall-home-stage-lane-header-direct-start-reset recall-home-stage-lane-header-stage513-reset">
+                                        <div className="recall-home-library-stage-source recall-home-library-stage-source-stage513-reset">
                                           <h3>{homeSelectedGroupHeading}</h3>
-                                          <span>{homeSelectedGroupSummary}</span>
+                                          <span className="recall-home-library-stage-source-summary-stage513-reset">
+                                            {homeSelectedGroupSummary}
+                                          </span>
                                         </div>
-                                        <span className="recall-library-section-count">
+                                        <span className="recall-library-section-count recall-home-library-section-count-stage513-reset">
                                           {formatCountLabel(homeSelectedBrowseSection.documents.length, 'source', 'sources')}
                                         </span>
                                       </div>
@@ -11033,8 +11408,8 @@ export function RecallWorkspace({
                                         <div
                                           className={
                                             homeViewMode === 'list'
-                                              ? 'recall-home-library-stage-list recall-home-library-stage-list-tree-reset recall-home-library-stage-list-board-fill recall-home-library-stage-list-card-density-reset recall-home-library-stage-list-continuous-coverage-reset recall-home-library-stage-list-library-sheet-reset recall-home-library-stage-list-unified-workbench-reset recall-home-library-stage-list-board-top-reset recall-home-library-stage-list-direct-board-reset recall-home-library-stage-list-results-sheet-reset recall-home-library-stage-list-tree-branch-reset recall-home-library-stage-list-list-view-stage467-reset'
-                                              : 'recall-home-library-stage-list recall-home-library-stage-list-tree-reset recall-home-library-stage-list-board-fill recall-home-library-stage-list-card-density-reset recall-home-library-stage-list-continuous-coverage-reset recall-home-library-stage-list-library-sheet-reset recall-home-library-stage-list-unified-workbench-reset recall-home-library-stage-list-board-top-reset recall-home-library-stage-list-direct-board-reset recall-home-library-stage-list-results-sheet-reset recall-home-library-stage-list-tree-branch-reset'
+                                              ? 'recall-home-library-stage-list recall-home-library-stage-list-tree-reset recall-home-library-stage-list-board-fill recall-home-library-stage-list-card-density-reset recall-home-library-stage-list-continuous-coverage-reset recall-home-library-stage-list-library-sheet-reset recall-home-library-stage-list-unified-workbench-reset recall-home-library-stage-list-board-top-reset recall-home-library-stage-list-direct-board-reset recall-home-library-stage-list-results-sheet-reset recall-home-library-stage-list-tree-branch-reset recall-home-library-stage-list-stage511-reset recall-home-library-stage-list-stage519-reset recall-home-library-stage-list-stage521-reset recall-home-library-stage-list-list-view-stage467-reset'
+                                              : 'recall-home-library-stage-list recall-home-library-stage-list-tree-reset recall-home-library-stage-list-board-fill recall-home-library-stage-list-card-density-reset recall-home-library-stage-list-continuous-coverage-reset recall-home-library-stage-list-library-sheet-reset recall-home-library-stage-list-unified-workbench-reset recall-home-library-stage-list-board-top-reset recall-home-library-stage-list-direct-board-reset recall-home-library-stage-list-results-sheet-reset recall-home-library-stage-list-tree-branch-reset recall-home-library-stage-list-stage511-reset recall-home-library-stage-list-stage519-reset recall-home-library-stage-list-stage521-reset'
                                           }
                                           role="list"
                                         >
@@ -11049,9 +11424,9 @@ export function RecallWorkspace({
                                       )}
                                       {homeSelectedBrowseSection &&
                                       homeSelectedSectionDocuments.length > homeSelectedSectionDisplayLimit ? (
-                                        <div className="recall-library-section-footer recall-home-library-stage-footer-continuous-reset recall-home-library-stage-footer-library-sheet-reset recall-home-library-stage-footer-unified-workbench-reset">
+                                        <div className="recall-library-section-footer recall-home-library-stage-footer-continuous-reset recall-home-library-stage-footer-library-sheet-reset recall-home-library-stage-footer-unified-workbench-reset recall-home-library-stage-footer-stage511-reset">
                                           <button
-                                            className="ghost-button"
+                                            className="ghost-button recall-home-library-stage-footer-button-stage511-reset"
                                             type="button"
                                             onClick={() =>
                                               setExpandedLibrarySectionKeys((current) => ({
@@ -11071,29 +11446,41 @@ export function RecallWorkspace({
                                 </section>
                               ) : showHomeBoardOverview ? (
                                 <section
-                                  className="recall-home-library-stream recall-home-library-stream-parity-reset recall-home-library-stream-overview-stage479-reset stack-gap priority-surface-stage-shell"
+                                  className="recall-home-library-stream recall-home-library-stream-parity-reset recall-home-library-stream-overview-stage479-reset recall-home-library-stream-overview-stage500-reset stack-gap priority-surface-stage-shell"
                                   aria-label="Saved library overview"
                                 >
-                                  <div className="section-header section-header-compact recall-home-library-stream-header recall-home-library-stream-header-overview-stage479-reset">
-                                    <div>
-                                      <h3>{homeOverviewRowLabel}</h3>
-                                      <p>{homeOrganizerRailSummary}</p>
+                                  <div className="section-header section-header-compact recall-home-library-stream-header recall-home-library-stream-header-overview-stage479-reset recall-home-library-stream-header-stage500-reset">
+                                    <div className="recall-home-library-stream-heading-stage500-reset">
+                                      <span className="recall-home-library-stream-kicker-stage500-reset">
+                                        {homeOverviewBoardEyebrow}
+                                      </span>
+                                      <div className="recall-library-section-heading-row recall-home-library-stream-title-row-stage500-reset">
+                                        <h3>{homeOverviewRowLabel}</h3>
+                                      </div>
+                                      <p>{homeOverviewBoardSummary}</p>
                                     </div>
-                                    <div className="recall-home-library-stream-meta" role="list" aria-label="Library overview status">
-                                      <span className="status-chip reader-meta-chip" role="listitem">
-                                        {homeSavedSourceLabel}
-                                      </span>
-                                      <span className="status-chip reader-meta-chip" role="listitem">
-                                        {homeWorkingSetStatus}
-                                      </span>
+                                    <div
+                                      className="recall-home-library-stream-meta recall-home-library-stream-meta-stage500-reset"
+                                      role="list"
+                                      aria-label="Library overview status"
+                                    >
+                                      {[homeSavedSourceLabel, homeOverviewGroupCountLabel, homeWorkingSetStatus].map((item) => (
+                                        <span
+                                          className="recall-home-library-stream-status-stage500-reset"
+                                          role="listitem"
+                                          key={item}
+                                        >
+                                          {item}
+                                        </span>
+                                      ))}
                                     </div>
                                   </div>
                                   {!homeOrganizerVisible && showHomeReopenCluster ? renderHomeReopenCluster() : null}
                                   <div
                                     className={
                                       homeViewMode === 'list'
-                                        ? 'recall-home-library-stream-grid recall-home-library-stream-grid-tree-reset recall-home-library-stream-grid-overview-stage479-reset recall-home-library-stream-grid-list-view-stage479-reset'
-                                        : 'recall-home-library-stream-grid recall-home-library-stream-grid-tree-reset recall-home-library-stream-grid-overview-stage479-reset'
+                                        ? 'recall-home-library-stream-grid recall-home-library-stream-grid-tree-reset recall-home-library-stream-grid-overview-stage479-reset recall-home-library-stream-grid-stage500-reset recall-home-library-stream-grid-list-view-stage479-reset'
+                                        : 'recall-home-library-stream-grid recall-home-library-stream-grid-tree-reset recall-home-library-stream-grid-overview-stage479-reset recall-home-library-stream-grid-stage500-reset'
                                     }
                                   >
                                     {homeWorkspaceLibrarySections.map((section) =>

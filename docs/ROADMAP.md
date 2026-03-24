@@ -148,6 +148,9 @@ Keep this repository as one local-first workspace.
 - The March 23, 2026 Stage 521 Home selected-group title-wrap and row-height continuity deflation implementation is complete locally:
   - wide desktop `Home` now keeps longer selected-group titles calmer and steadies the first visible board-row rhythm so the `Captures` run reads more evenly instead of stepping through a jagged title edge
   - the Stage 521 validation pass kept organizer drill-in, board/list switching, search, sort, manual ordering, drag-drop, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- The March 24, 2026 Stage 498-521 backlog closeout is the new clean-`main` publish baseline:
+  - the Stage 498/499 Graph pair, the Stage 500-521 Home checkpoint set, and the Stage 506 launcher correction now ship together on `main`
+  - the next honest roadmap move remains the pre-staged Stage 522 live `Home` audit from the Stage 521 baseline
 - Current active queue: run the pre-staged Stage 522 `Home` live audit around selected-group title-wrap and row-height continuity while `Graph` and original-only `Reader` remain refreshed parity baselines and `Notes` plus `Study` remain regression baselines.
 - Current mode: post-Stage-521 implementation and pre-Stage-522 audit. Keep Reader generated-content work explicitly out of scope unless the user explicitly reprioritizes it.
 - Current Reader restriction: do not change `Reflowed`, `Simplified`, or `Summary` workflows, transform logic, generated placeholders, generated-view controls, or mode-routing unless the user explicitly reprioritizes generated-content work.

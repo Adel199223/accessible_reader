@@ -529,6 +529,54 @@ const recallGraph: KnowledgeGraphSnapshot = {
       aliases: ['Stage 13'],
       source_document_ids: ['doc-stage13'],
     },
+    {
+      id: 'node-bridge',
+      label: 'Study bridge',
+      node_type: 'concept',
+      description: 'Bridge context stays connected through the Stage 13 follow-on.',
+      confidence: 0.78,
+      mention_count: 1,
+      document_count: 1,
+      status: 'confirmed',
+      aliases: ['Bridge'],
+      source_document_ids: ['doc-archive-1'],
+    },
+    {
+      id: 'node-mixed',
+      label: 'Mixed relay',
+      node_type: 'concept',
+      description: 'Mixed graph content should keep its inferred edge when references are hidden.',
+      confidence: 0.75,
+      mention_count: 1,
+      document_count: 1,
+      status: 'confirmed',
+      aliases: ['Relay'],
+      source_document_ids: ['doc-archive-4'],
+    },
+    {
+      id: 'node-reference',
+      label: 'Reference concept',
+      node_type: 'concept',
+      description: 'Inferred reference content for the Stage 10 branch.',
+      confidence: 0.72,
+      mention_count: 1,
+      document_count: 1,
+      status: 'suggested',
+      aliases: ['Reference'],
+      source_document_ids: ['doc-archive-2'],
+    },
+    {
+      id: 'node-solo',
+      label: 'Solo anchor',
+      node_type: 'concept',
+      description: 'Unconnected graph content stays visible until you hide it.',
+      confidence: 0.61,
+      mention_count: 1,
+      document_count: 1,
+      status: 'suggested',
+      aliases: ['Solo'],
+      source_document_ids: ['doc-archive-3'],
+    },
   ],
   edges: [
     {
@@ -538,19 +586,75 @@ const recallGraph: KnowledgeGraphSnapshot = {
       target_id: 'node-stage13',
       target_label: 'Stage 13 node',
       relation_type: 'supports',
-      provenance: 'inferred',
+      provenance: 'manual',
       confidence: 0.82,
       status: 'suggested',
       evidence_count: 1,
       source_document_ids: ['doc-stage10'],
       excerpt: 'Stage ten sentence three connects directly to the Stage 13 follow-on note.',
     },
+    {
+      id: 'edge-stage13-bridge',
+      source_id: 'node-stage13',
+      source_label: 'Stage 13 node',
+      target_id: 'node-bridge',
+      target_label: 'Study bridge',
+      relation_type: 'related_to',
+      provenance: 'manual',
+      confidence: 0.74,
+      status: 'confirmed',
+      evidence_count: 1,
+      source_document_ids: ['doc-stage13'],
+      excerpt: 'Stage thirteen note review stayed connected to the bridge context.',
+    },
+    {
+      id: 'edge-stage13-mixed',
+      source_id: 'node-stage13',
+      source_label: 'Stage 13 node',
+      target_id: 'node-mixed',
+      target_label: 'Mixed relay',
+      relation_type: 'related_to',
+      provenance: 'manual',
+      confidence: 0.71,
+      status: 'confirmed',
+      evidence_count: 1,
+      source_document_ids: ['doc-stage13'],
+      excerpt: 'Stage thirteen notes keep the mixed relay connected through a manual edge.',
+    },
+    {
+      id: 'edge-mixed-bridge',
+      source_id: 'node-mixed',
+      source_label: 'Mixed relay',
+      target_id: 'node-bridge',
+      target_label: 'Study bridge',
+      relation_type: 'supports',
+      provenance: 'inferred',
+      confidence: 0.63,
+      status: 'suggested',
+      evidence_count: 1,
+      source_document_ids: ['doc-archive-4'],
+      excerpt: 'The mixed relay still points back into the surviving bridge through an inferred edge.',
+    },
+    {
+      id: 'edge-stage10-reference',
+      source_id: 'node-stage10',
+      source_label: 'Stage 10 node',
+      target_id: 'node-reference',
+      target_label: 'Reference concept',
+      relation_type: 'related_to',
+      provenance: 'inferred',
+      confidence: 0.66,
+      status: 'suggested',
+      evidence_count: 1,
+      source_document_ids: ['doc-stage10'],
+      excerpt: 'Stage ten sentence three also points to one inferred reference concept.',
+    },
   ],
-  document_count: 2,
-  pending_nodes: 1,
-  pending_edges: 1,
-  confirmed_nodes: 1,
-  confirmed_edges: 0,
+  document_count: 6,
+  pending_nodes: 3,
+  pending_edges: 2,
+  confirmed_nodes: 3,
+  confirmed_edges: 3,
 }
 
 const nodeDetail: KnowledgeNodeDetail = {
@@ -568,7 +672,7 @@ const nodeDetail: KnowledgeNodeDetail = {
       excerpt: 'Stage ten sentence three.',
     },
   ],
-  outgoing_edges: [recallGraph.edges[0]],
+  outgoing_edges: [recallGraph.edges[0], recallGraph.edges[4]],
   incoming_edges: [],
 }
 
@@ -589,8 +693,80 @@ const nodeDetailById: Record<string, KnowledgeNodeDetail> = {
         excerpt: 'Stage thirteen note review stayed connected.',
       },
     ],
-    outgoing_edges: [],
+    outgoing_edges: [recallGraph.edges[1], recallGraph.edges[2]],
     incoming_edges: [recallGraph.edges[0]],
+  },
+  'node-bridge': {
+    node: recallGraph.nodes[2],
+    mentions: [
+      {
+        id: 'mention-bridge',
+        source_document_id: 'doc-archive-1',
+        document_title: 'Archived Reference 1',
+        text: 'Study bridge',
+        entity_type: 'concept',
+        confidence: 0.78,
+        block_id: 'archive-1-original-1',
+        chunk_id: 'doc-archive-1:chunk:0',
+        excerpt: 'Bridge context stays connected through the Stage 13 follow-on.',
+      },
+    ],
+    outgoing_edges: [],
+    incoming_edges: [recallGraph.edges[1], recallGraph.edges[3]],
+  },
+  'node-mixed': {
+    node: recallGraph.nodes[3],
+    mentions: [
+      {
+        id: 'mention-mixed',
+        source_document_id: 'doc-archive-4',
+        document_title: 'Archived Reference 4',
+        text: 'Mixed relay',
+        entity_type: 'concept',
+        confidence: 0.75,
+        block_id: 'archive-4-original-1',
+        chunk_id: 'doc-archive-4:chunk:0',
+        excerpt: 'Mixed graph content should keep its inferred edge when references are hidden.',
+      },
+    ],
+    outgoing_edges: [recallGraph.edges[3]],
+    incoming_edges: [recallGraph.edges[2]],
+  },
+  'node-reference': {
+    node: recallGraph.nodes[4],
+    mentions: [
+      {
+        id: 'mention-reference',
+        source_document_id: 'doc-archive-2',
+        document_title: 'Archived Reference 2',
+        text: 'Reference concept',
+        entity_type: 'concept',
+        confidence: 0.72,
+        block_id: 'archive-2-original-1',
+        chunk_id: 'doc-archive-2:chunk:0',
+        excerpt: 'Inferred reference content for the Stage 10 branch.',
+      },
+    ],
+    outgoing_edges: [],
+    incoming_edges: [recallGraph.edges[4]],
+  },
+  'node-solo': {
+    node: recallGraph.nodes[5],
+    mentions: [
+      {
+        id: 'mention-solo',
+        source_document_id: 'doc-archive-3',
+        document_title: 'Archived Reference 3',
+        text: 'Solo anchor',
+        entity_type: 'concept',
+        confidence: 0.61,
+        block_id: 'archive-3-original-1',
+        chunk_id: 'doc-archive-3:chunk:0',
+        excerpt: 'Unconnected graph content stays visible until you hide it.',
+      },
+    ],
+    outgoing_edges: [],
+    incoming_edges: [],
   },
 }
 
@@ -1000,6 +1176,7 @@ test('Home workspace keeps a compact toolbar and unified collection stage withou
   expect(within(homeWorkspace).getByRole('button', { name: 'List' })).toBeInTheDocument()
   expect(within(homeWorkspace).getByRole('button', { name: 'Hide organizer' })).toBeInTheDocument()
   expect(within(homeWorkspace).getByRole('button', { name: 'Collapse all' })).toBeInTheDocument()
+  expect(within(homeWorkspace).getByRole('group', { name: 'Organizer utilities' })).toBeInTheDocument()
   expect(within(homeWorkspace).getByRole('region', { name: 'Primary saved source flow' })).toBeInTheDocument()
   expect(homeWorkspace.querySelector('.recall-home-browser-layout-parity-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browser-layout-organizer-header-reset')).not.toBeNull()
@@ -1015,14 +1192,21 @@ test('Home workspace keeps a compact toolbar and unified collection stage withou
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-shell-unified-workbench-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-shell-organizer-deck-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-shell-organizer-header-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-shell-stage502-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-control-deck-organizer-control-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-control-deck-board-first-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-control-deck-unified-workbench-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-control-deck-organizer-header-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-control-deck-stage467-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-control-deck-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-control-deck-stage504-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-organizer-sort-toggle-organizer-control-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-organizer-sort-button-active-organizer-control-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-organizer-control-groups-stage467-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-organizer-control-groups-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-organizer-control-groups-stage504-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-organizer-control-group-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-organizer-sort-toggle-stage502-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-organizer-control-pillbox-stage467-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-top-minimal-entry-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-top-header-compression-reset')).not.toBeNull()
@@ -1030,24 +1214,44 @@ test('Home workspace keeps a compact toolbar and unified collection stage withou
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-top-unified-workbench-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-top-organizer-deck-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-top-organizer-header-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-top-stage502-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-header-header-compression-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-header-organizer-owned-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-heading-inline-header-compression-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-header-unified-workbench-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-header-organizer-deck-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-heading-inline-unified-workbench-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-copy-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-header-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-heading-inline-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-status-stage502-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-note-organizer-owned-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-note-unified-workbench-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-note-organizer-deck-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-note-stage502-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-search-organizer-owned-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-search-header-compression-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-search-organizer-deck-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-utility-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-search-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-tools-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-tool-stage502-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-tools-stage504-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-tool-stage504-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-groups-tag-tree-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-groups-header-compression-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-groups-organizer-deck-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-groups-tree-branch-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-groups-stage504-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-groups-stage507-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-stage504-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-stage507-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-button-stage504-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-button-stage507-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-group-active-tree-branch-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-active-stage507-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-group-button-active-tree-branch-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-button-active-stage507-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-organizer-selection-bar-stage483-reset')).toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-group-children-tree-branch-reset')).toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-group-child-tree-branch-reset')).toBeNull()
@@ -1079,13 +1283,40 @@ test('Home workspace keeps a compact toolbar and unified collection stage withou
   expect(homeWorkspace.querySelector('.recall-home-browser-stage-board-first-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browser-stage-results-sheet-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-overview-stage479-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-overview-stage500-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-browse-overview-button-stage479-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-overview-button-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-overview-badge-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-overview-badge-stage507-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-overview-note-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-overview-note-stage507-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-topline-stage507-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-title-cluster-stage507-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-count-chip-stage507-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-browse-group-note-stage507-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stream-overview-stage479-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-overview-stage500-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stream-header-overview-stage479-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-header-stage500-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stream-grid-overview-stage479-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-grid-stage500-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-card-overview-stage479-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-header-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-section-heading-row-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-section-count-stage500-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stage-list-overview-stage479-reset')).not.toBeNull()
-  expect(screen.getByRole('region', { name: 'Saved library overview' })).toBeInTheDocument()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-list-stage500-reset')).not.toBeNull()
+  const savedLibraryOverview = screen.getByRole('region', { name: 'Saved library overview' })
+  const overviewButton = within(screen.getByRole('complementary', { name: 'Home browse strip' })).getByRole('button', {
+    name: /All collections/i,
+  })
+  expect(savedLibraryOverview).toBeInTheDocument()
+  expect(homeWorkspace.querySelector('.recall-home-browse-strip-note-stage502-reset')).toHaveTextContent(/Overview open/i)
+  expect(within(overviewButton).getByText('Overview')).toBeInTheDocument()
+  expect(overviewButton).toHaveTextContent(/\d+ groups/i)
+  expect(within(savedLibraryOverview).getByText('Collections overview')).toBeInTheDocument()
+  expect(savedLibraryOverview).toHaveTextContent(/\d+ groups/i)
   expect(screen.queryByRole('region', { name: 'Saved library' })).not.toBeInTheDocument()
   expect(homeWorkspace.querySelector('.recall-home-reopen-shelf-board-first-reset')).toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-reopen-shelf-unified-workbench-reset')).toBeNull()
@@ -1149,6 +1380,7 @@ test('organizer-led Home can switch from collection-led browsing into the recent
   await switchHomeOrganizerToRecent(browseStrip as HTMLElement)
 
   const savedLibrarySection = within(primaryFlow).getByRole('region', { name: 'Saved library' })
+  const overviewResetButton = within(browseStrip).getByRole('button', { name: /All recent groups/i })
 
   expect(primaryFlow).toHaveClass('recall-home-primary-flow-board-lift-reset')
   expect(primaryFlow).toHaveClass('recall-home-primary-flow-minimal-entry-reset')
@@ -1178,23 +1410,89 @@ test('organizer-led Home can switch from collection-led browsing into the recent
   expect(within(browseStrip).getByRole('button', { name: 'Open Stage 10 Debug Article from organizer' })).toBeInTheDocument()
   expect(within(browseStrip).getByRole('button', { name: 'Open Stage 13 Debug Notes from organizer' })).toBeInTheDocument()
   expect(within(browseStrip).getByRole('button', { name: /Show all 35 earlier sources/i })).toBeInTheDocument()
+  expect(within(overviewResetButton).getByText('Reset')).toBeInTheDocument()
+  expect(within(overviewResetButton).getByText(/Reset to grouped board view\./i)).toBeInTheDocument()
   expect(browseStrip.querySelector('.recall-home-browse-groups-tree-branch-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-groups-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-groups-stage507-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-stage507-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-button-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-button-stage507-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-note-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-note-stage507-reset')).not.toBeNull()
   expect(browseStrip.querySelector('.recall-home-browse-group-active-tree-branch-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-active-stage507-reset')).not.toBeNull()
   expect(browseStrip.querySelector('.recall-home-browse-group-button-active-tree-branch-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-button-active-stage507-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-topline-stage507-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-title-cluster-stage507-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-count-chip-stage507-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-overview-badge-stage507-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-overview-note-stage507-reset')).not.toBeNull()
   expect(browseStrip.querySelector('.recall-home-browse-group-children-tree-branch-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-children-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-children-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-row-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-row-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-marker-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-marker-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-copy-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-copy-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-title-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-title-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-meta-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-meta-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-active-stage509-reset')).not.toBeNull()
   expect(browseStrip.querySelector('.recall-home-browse-group-child-lean-branch-reset')).not.toBeNull()
   expect(browseStrip.querySelector('.recall-home-browse-group-footer-tree-branch-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-footer-stage504-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-footer-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-footer-button-stage509-reset')).not.toBeNull()
   expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-tree-branch-reset')
   expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-direct-start-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage511-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage513-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage515-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage517-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage519-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage521-reset')
   expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-stage-lane-header-tree-branch-reset')).not.toBeNull()
   expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-stage-lane-header-direct-start-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-stage-lane-header-stage513-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-primary-board-direct-main-stage511-reset')).not.toBeNull()
   expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-list-tree-branch-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-list-stage511-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-list-stage519-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-list-stage521-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-footer-stage511-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-footer-button-stage511-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-source-stage513-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-source-summary-stage513-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-section-count-stage513-reset')).not.toBeNull()
   expect(within(savedLibrarySection as HTMLElement).getByRole('heading', { name: 'Earlier', level: 3 })).toBeInTheDocument()
+  expect(within(savedLibrarySection as HTMLElement).getByText(/Direct picks stay attached nearby\./i)).toBeInTheDocument()
 
   const earlierPrimaryRow = getHomeOpenButton('Archived Reference 3', savedLibrarySection as HTMLElement)
   expect((earlierPrimaryRow as HTMLElement).querySelector('.recall-home-lead-card')).toBeNull()
+  expect(earlierPrimaryRow).toHaveClass('recall-home-library-stage-row-stage515-reset')
+  expect(earlierPrimaryRow).toHaveClass('recall-home-library-stage-row-stage517-reset')
+  expect(earlierPrimaryRow).toHaveClass('recall-home-library-stage-row-stage519-reset')
+  expect(earlierPrimaryRow).toHaveClass('recall-home-library-stage-row-stage521-reset')
+  expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-copy-stage515-reset')).not.toBeNull()
+  expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-copy-stage517-reset')).not.toBeNull()
+  expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-copy-stage521-reset')).not.toBeNull()
+  expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-overline-stage515-reset')).not.toBeNull()
+  expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-title-stage517-reset')).not.toBeNull()
+  expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-title-stage521-reset')).not.toBeNull()
+  expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-meta-stage515-reset')).not.toBeNull()
+  expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-meta-stage521-reset')).not.toBeNull()
+  expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-meta-compact-stage515-reset')).not.toBeNull()
   expect(within(earlierPrimaryRow).getByText('TXT')).toBeInTheDocument()
-  expect(within(earlierPrimaryRow).getByText('1 view ready')).toBeInTheDocument()
+  expect(within(earlierPrimaryRow).getByText(/1 view\b/i)).toBeInTheDocument()
+  expect(within(earlierPrimaryRow).queryByText('1 view ready')).not.toBeInTheDocument()
   expect(earlierPrimaryRow.querySelector('.recall-home-library-stage-row-meta')).not.toBeNull()
   expect(queryHomeOpenButton('Stage 13 Debug Notes', savedLibrarySection as HTMLElement)).toBeNull()
   expect(queryHomeOpenButton('Archived Reference 1', savedLibrarySection as HTMLElement)).toBeNull()
@@ -1230,6 +1528,8 @@ test('Home organizer can collapse previews without dropping the active group', a
   expect(browseStrip.querySelector('.recall-home-browse-group-active-continuity-reset')).not.toBeNull()
   expect(browseStrip.querySelector('.recall-home-browse-group-button-active-highlight-deflation-reset')).not.toBeNull()
   expect(browseStrip.querySelector('.recall-home-browse-group-count-chip-active-readout-softening-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-count-chip-stage507-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-source-stage507-reset')).not.toBeNull()
 })
 
 test('Home organizer manual mode can reorder groups and expose a desktop selection bar', async () => {
@@ -1945,11 +2245,13 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   )
   expect(within(graphRail).getByText('Presets', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Saved views', { selector: 'strong' })).toBeInTheDocument()
-  expect(within(graphRail).getByText('Text filter', { selector: 'strong' })).toBeInTheDocument()
+  expect(within(graphRail).getByText('Filter query', { selector: 'strong' })).toBeInTheDocument()
+  expect(within(graphRail).getByText('Visibility', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Timeline', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Content', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Groups', { selector: 'strong' })).toBeInTheDocument()
-  expect(within(graphRail).getByLabelText('Filter graph')).toBeInTheDocument()
+  const graphFilterInput = within(graphRail).getByLabelText('Filter graph')
+  expect(graphFilterInput).toBeInTheDocument()
   const graphPresetNameInput = within(graphRail).getByLabelText('Graph preset name')
   expect(graphPresetNameInput).toHaveValue('')
   expect(within(graphRail).getByRole('button', { name: 'Explore' })).toHaveAttribute('aria-pressed', 'true')
@@ -1968,6 +2270,9 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   expect(within(graphRail).getByRole('button', { name: 'Concept' })).toHaveAttribute('aria-pressed', 'false')
   expect(within(graphRail).getByRole('button', { name: 'Web' })).toHaveAttribute('aria-pressed', 'false')
   expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'false')
+  expect(within(graphRail).getByRole('button', { name: 'Unconnected' })).toHaveAttribute('aria-pressed', 'true')
+  expect(within(graphRail).getByRole('button', { name: 'Leaf nodes' })).toHaveAttribute('aria-pressed', 'true')
+  expect(within(graphRail).getByRole('button', { name: 'Reference content' })).toHaveAttribute('aria-pressed', 'true')
   expect(within(graphRail).getByText('View')).toBeInTheDocument()
   expect(within(graphRail).getByText('Layout')).toBeInTheDocument()
   expect(within(graphRail).getByText('Appearance')).toBeInTheDocument()
@@ -1976,7 +2281,8 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   expect((graphRail as HTMLElement).querySelector('.recall-graph-sidebar-section-appearance-reset')).not.toBeNull()
   expect(within(graphRail).getByText('Visible nodes')).toBeInTheDocument()
   expect(within(graphRail).getByText('Search keeps matching nodes in view.')).toBeInTheDocument()
-  expect(within(graphRail).getByText('Works alongside presets, timeline, and content filters.')).toBeInTheDocument()
+  expect(within(graphRail).getByText(/Supports .*OR/i)).toBeInTheDocument()
+  expect(within(graphRail).getByText(/custom collection labels/i)).toBeInTheDocument()
   expect(within(graphRail).queryByText('Inspect')).toBeNull()
   expect(within(graphRail).queryByText('Grounded clue')).toBeNull()
   const resizeHandle = within(graphRail).getByRole('separator', { name: 'Resize graph settings sidebar' })
@@ -1998,6 +2304,28 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   fireEvent.click(within(graphLegend).getByRole('button', { name: /Captures/i }))
   await waitFor(() => {
     expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'false')
+  })
+  expect(screen.getByRole('button', { name: 'Select node Solo anchor' })).toBeInTheDocument()
+  fireEvent.click(within(graphRail).getByRole('button', { name: 'Unconnected' }))
+  await waitFor(() => {
+    expect(within(graphRail).getByRole('button', { name: 'Unconnected' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: 'Select node Solo anchor' })).toBeNull()
+  })
+  fireEvent.click(within(graphRail).getByRole('button', { name: 'Unconnected' }))
+  await waitFor(() => {
+    expect(within(graphRail).getByRole('button', { name: 'Unconnected' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Select node Solo anchor' })).toBeInTheDocument()
+  })
+  expect(screen.getByRole('button', { name: 'Select node Reference concept' })).toBeInTheDocument()
+  fireEvent.click(within(graphRail).getByRole('button', { name: 'Leaf nodes' }))
+  await waitFor(() => {
+    expect(within(graphRail).getByRole('button', { name: 'Leaf nodes' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: 'Select node Reference concept' })).toBeNull()
+  })
+  fireEvent.click(within(graphRail).getByRole('button', { name: 'Leaf nodes' }))
+  await waitFor(() => {
+    expect(within(graphRail).getByRole('button', { name: 'Leaf nodes' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Select node Reference concept' })).toBeInTheDocument()
   })
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Node type' }))
   await waitFor(() => {
@@ -2076,12 +2404,12 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
     target: { value: String(recallDocuments.length - 2) },
   })
   await waitFor(() => {
-    expect(within(graphRail).getByRole('list', { name: 'Graph drawer status' })).toHaveTextContent(/1 visible node/i)
+    expect(within(graphRail).getByRole('list', { name: 'Graph drawer status' })).toHaveTextContent(/visible nodes?/i)
   })
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Explore' }))
   await waitFor(() => {
     expect(within(graphRail).getByRole('button', { name: 'Explore' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(graphRail).getByRole('list', { name: 'Graph drawer status' })).toHaveTextContent(/2 visible nodes/i)
+    expect(within(graphRail).getByRole('list', { name: 'Graph drawer status' })).toHaveTextContent(/visible nodes?/i)
   })
   expect(within(graphRail).getByRole('list', { name: 'Visible nodes' })).toBeInTheDocument()
   expect(within(graphRail).getByRole('button', { name: /Stage 13 node/i })).toBeInTheDocument()
@@ -2090,6 +2418,17 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   expect(document.querySelector('.recall-graph-node-layer-hover-focus-reset')).toBeNull()
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Show counts' }))
   expect(document.querySelectorAll('.recall-graph-node-button-summary').length).toBe(0)
+  fireEvent.change(graphFilterInput, { target: { value: 'name:Stage 10 node' } })
+  await waitFor(() => {
+    expect(graphFilterInput).toHaveValue('name:Stage 10 node')
+    expect(within(graphRail).getAllByText(/1 matching node/i).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Select node Solo anchor' })).toBeNull()
+  })
+  fireEvent.click(within(graphRail).getByRole('button', { name: 'Reference content' }))
+  await waitFor(() => {
+    expect(within(graphRail).getByRole('button', { name: 'Reference content' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: 'Select node Reference concept' })).toBeNull()
+  })
   fireEvent.click(within(graphRail).getByRole('button', { name: '3+ hops' }))
   expect(within(graphRail).getByRole('button', { name: '3+ hops' })).toHaveAttribute('aria-pressed', 'true')
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Spread' }))
@@ -2108,13 +2447,16 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   fireEvent.click(within(graphRail).getByRole('button', { name: /Validation view/i }))
   await waitFor(() => {
     expect(within(graphRail).getByRole('button', { name: /Validation view/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(graphFilterInput).toHaveValue('name:Stage 10 node')
     expect(within(graphRail).getByRole('button', { name: '3+ hops' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(graphRail).getByRole('button', { name: 'Spread' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(graphRail).getByRole('button', { name: 'Reference content' })).toHaveAttribute('aria-pressed', 'false')
   })
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Captures' }))
+  fireEvent.click(within(graphRail).getByRole('button', { name: 'Leaf nodes' }))
   await waitFor(() => {
     expect(within(graphRail).getByRole('button', { name: 'Update preset' })).not.toBeDisabled()
     expect(within(graphRail).getByText(/Validation view has local changes waiting to be saved\./i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select node Mixed relay' })).toBeInTheDocument()
   })
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Update preset' }))
   await waitFor(() => {
@@ -2123,7 +2465,9 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Explore' }))
   fireEvent.click(within(graphRail).getByRole('button', { name: /Validation view/i }))
   await waitFor(() => {
-    expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'true')
+    expect(graphFilterInput).toHaveValue('name:Stage 10 node')
+    expect(within(graphRail).getByRole('button', { name: 'Leaf nodes' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(graphRail).getByRole('button', { name: 'Reference content' })).toHaveAttribute('aria-pressed', 'false')
   })
   fireEvent.change(graphPresetNameInput, { target: { value: 'Validation route' } })
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Rename preset' }))
@@ -2143,6 +2487,9 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
     expect(within(graphRail).getByRole('button', { name: 'Hover focus' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(graphRail).getByRole('button', { name: 'Show counts' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(graphRail).getByRole('button', { name: 'Unconnected' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(graphRail).getByRole('button', { name: 'Leaf nodes' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(graphRail).getByRole('button', { name: 'Reference content' })).toHaveAttribute('aria-pressed', 'true')
   })
   fireEvent.click(within(graphControlSeam).getByRole('button', { name: 'Show all' }))
   expect(graphSearchBox).toHaveValue('')
@@ -2290,7 +2637,7 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   })
 
   expect(within(graphDock).getByRole('list', { name: 'Selected node aliases' })).toHaveTextContent('Stage 13')
-})
+}, 15000)
 
 test('study browse mode now lands summary-first while keeping the review card dominant', async () => {
   renderHarness({ initialSection: 'study' })

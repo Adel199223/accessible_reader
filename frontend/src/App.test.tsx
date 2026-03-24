@@ -930,6 +930,7 @@ test('app lands on Recall by default and normalizes the URL to /recall', async (
   expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'false')
   expect(screen.getByRole('button', { name: 'Hide organizer' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Collapse all' })).toBeInTheDocument()
+  expect(screen.getByRole('group', { name: 'Organizer utilities' })).toBeInTheDocument()
   expect(document.querySelector('.recall-home-browser-workspace-parity-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browser-layout-organizer-header-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browser-workspace-organizer-control-reset')).not.toBeNull()
@@ -969,29 +970,57 @@ test('app lands on Recall by default and normalizes the URL to /recall', async (
   expect(document.querySelector('.recall-home-browse-strip-shell-unified-workbench-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-shell-organizer-deck-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-shell-organizer-header-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-shell-stage502-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-top-organizer-owned-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-top-unified-workbench-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-top-organizer-deck-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-top-organizer-header-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-top-stage502-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-header-organizer-owned-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-header-unified-workbench-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-header-organizer-deck-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-heading-inline-unified-workbench-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-copy-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-header-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-heading-inline-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-status-stage502-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-search-organizer-owned-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-search-organizer-deck-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-note-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-utility-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-search-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-tools-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-tool-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-tools-stage504-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-tool-stage504-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-control-deck-unified-workbench-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-control-deck-organizer-deck-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-strip-control-deck-organizer-header-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-control-deck-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-strip-control-deck-stage504-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-organizer-sort-toggle-organizer-control-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-organizer-sort-toggle-organizer-deck-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-organizer-sort-toggle-stage502-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-organizer-sort-button-organizer-deck-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-organizer-control-groups-stage467-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-organizer-control-groups-stage502-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-organizer-control-groups-stage504-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-organizer-control-group-stage502-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-organizer-control-pillbox-stage467-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-groups-organizer-deck-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-groups-tree-branch-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-groups-row-flatten-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-groups-stage504-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-groups-stage507-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-stage504-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-stage507-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-button-stage504-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-button-stage507-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-note-stage504-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-note-stage507-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-row-flatten-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-active-continuity-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-active-stage507-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-active-readout-softening-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-active-grouping-deflation-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-active-summary-preview-join-reset')).not.toBeNull()
@@ -1006,12 +1035,16 @@ test('app lands on Recall by default and normalizes the URL to /recall', async (
   expect(document.querySelector('.recall-home-browse-group-button-active-summary-preview-join-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-button-active-bridge-hint-retirement-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-button-active-tree-branch-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-button-active-stage507-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-button-active-summary-note-integration-reset')).toBeNull()
   expect(document.querySelector('.recall-home-browse-group-preview-branch-summary-note-integration-reset')).toBeNull()
   expect(document.querySelector('.recall-home-browse-group-preview-bridge-note-summary-note-integration-reset')).toBeNull()
   expect(document.querySelector('.recall-home-browse-group-count-chip')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-count-chip-active-highlight-deflation-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-count-chip-active-readout-softening-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-count-chip-stage507-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-topline-stage507-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-group-title-cluster-stage507-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-group-children-grouping-deflation-reset')).toBeNull()
   expect(document.querySelector('.recall-home-browse-group-children-summary-preview-join-reset')).toBeNull()
   expect(document.querySelector('.recall-home-browse-group-children-bridge-hint-retirement-reset')).toBeNull()
@@ -1024,7 +1057,13 @@ test('app lands on Recall by default and normalizes the URL to /recall', async (
   expect(document.querySelector('.recall-home-browser-stage-board-first-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browser-stage-results-sheet-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-overview-stage479-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-overview-stage500-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-browse-overview-button-stage479-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-overview-button-stage500-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-overview-badge-stage500-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-overview-badge-stage507-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-overview-note-stage500-reset')).not.toBeNull()
+  expect(document.querySelector('.recall-home-browse-overview-note-stage507-reset')).not.toBeNull()
   expect(document.querySelector('.recall-home-reopen-shelf-board-first-reset')).toBeNull()
   expect(document.querySelector('.recall-home-reopen-shelf-board-fusion-reset')).toBeNull()
   expect(document.querySelector('.recall-home-reopen-shelf-organizer-owned-reset')).toBeNull()
@@ -1085,11 +1124,31 @@ test('Recall home manual organizer mode exposes drag handles and batch move acti
   })
 
   const browseStrip = screen.getByRole('complementary', { name: 'Home browse strip' })
+  const savedLibrarySection = screen.getByRole('region', { name: 'Saved library' })
   const sourceTargetRow = screen
     .getByRole('button', { name: 'Open Reader stays here from organizer' })
     .closest('.recall-home-browse-group-child-row-stage483-reset')
 
   expect(sourceTargetRow).not.toBeNull()
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage511-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage513-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage515-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage517-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage519-reset')
+  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage521-reset')
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-primary-board-direct-main-stage511-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-stage-lane-header-stage513-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-source-stage513-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-source-summary-stage513-reset')).not.toBeNull()
+  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-section-count-stage513-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-children-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-row-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-marker-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-copy-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-title-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-meta-stage509-reset')).not.toBeNull()
+  expect(browseStrip.querySelector('.recall-home-browse-group-child-active-stage509-reset')).not.toBeNull()
 
   const sourceDragData = createMockDataTransfer()
   fireEvent.dragStart(screen.getByRole('button', { name: 'Drag Search target only in Captures' }), {
@@ -1422,7 +1481,8 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   )
   expect(within(graphRail).getByText('Presets', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Saved views', { selector: 'strong' })).toBeInTheDocument()
-  expect(within(graphRail).getByText('Text filter', { selector: 'strong' })).toBeInTheDocument()
+  expect(within(graphRail).getByText('Filter query', { selector: 'strong' })).toBeInTheDocument()
+  expect(within(graphRail).getByText('Visibility', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Timeline', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Content', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Groups', { selector: 'strong' })).toBeInTheDocument()
@@ -1440,6 +1500,9 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   expect(within(graphRail).getByRole('button', { name: 'Node type' })).toHaveAttribute('aria-pressed', 'false')
   expect(within(graphRail).getByRole('button', { name: 'Concept' })).toHaveAttribute('aria-pressed', 'false')
   expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'false')
+  expect(within(graphRail).getByRole('button', { name: 'Unconnected' })).toHaveAttribute('aria-pressed', 'true')
+  expect(within(graphRail).getByRole('button', { name: 'Leaf nodes' })).toHaveAttribute('aria-pressed', 'true')
+  expect(within(graphRail).getByRole('button', { name: 'Reference content' })).toHaveAttribute('aria-pressed', 'true')
   expect(within(graphRail).getByText('View')).toBeInTheDocument()
   expect(within(graphRail).getByText('Layout')).toBeInTheDocument()
   expect(within(graphRail).getByText('Appearance')).toBeInTheDocument()
@@ -1448,7 +1511,7 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   expect((graphRail as HTMLElement).querySelector('.recall-graph-sidebar-section-appearance-reset')).not.toBeNull()
   expect(within(graphRail).getByText('Visible nodes')).toBeInTheDocument()
   expect(within(graphRail).getByText(/Jump to visible nodes\.|Search keeps matching nodes in view\./)).toBeInTheDocument()
-  expect(within(graphRail).getByText('Works alongside presets, timeline, and content filters.')).toBeInTheDocument()
+  expect(within(graphRail).getByText(/Supports .*OR/i)).toBeInTheDocument()
   expect(within(graphRail).queryByText('Inspect')).toBeNull()
   expect(within(graphRail).queryByText('Grounded clue')).toBeNull()
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Connections' }))
@@ -1475,6 +1538,9 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
     expect(within(graphRail).getByRole('button', { name: 'Explore' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(graphRail).getByRole('button', { name: '2 hops' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(graphRail).getByRole('button', { name: 'Balanced' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(graphRail).getByRole('button', { name: 'Unconnected' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(graphRail).getByRole('button', { name: 'Leaf nodes' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(graphRail).getByRole('button', { name: 'Reference content' })).toHaveAttribute('aria-pressed', 'true')
   })
   const resizeHandle = within(graphRail).getByRole('separator', { name: 'Resize graph settings sidebar' })
   expect(graphRail).toHaveStyle({ width: '244px' })
@@ -2133,22 +2199,24 @@ test('Recall notes can promote manual graph nodes and study cards', async () => 
   fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Promote to Graph' })).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Promote to Graph' }))
+  const promotionCard = screen.getByRole('heading', { name: 'Promote note', level: 3 }).closest('.recall-note-promotion-card')
 
-  await waitFor(() => {
-    expect(screen.getByRole('textbox', { name: 'Graph label' })).toBeInTheDocument()
-  })
+  expect(promotionCard).not.toBeNull()
 
-  fireEvent.change(screen.getByRole('textbox', { name: 'Graph label' }), {
+  fireEvent.click(within(promotionCard as HTMLElement).getByRole('tab', { name: 'Promote to Graph' }))
+
+  const graphLabelInput = await within(promotionCard as HTMLElement).findByRole('textbox', { name: 'Graph label' })
+
+  fireEvent.change(graphLabelInput, {
     target: { value: 'Search Concept' },
   })
-  fireEvent.change(screen.getByRole('textbox', { name: 'Graph description' }), {
+  fireEvent.change(within(promotionCard as HTMLElement).getByRole('textbox', { name: 'Graph description' }), {
     target: { value: 'Manual graph note.' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Promote node' }))
+  fireEvent.click(within(promotionCard as HTMLElement).getByRole('button', { name: 'Promote node' }))
 
   await waitFor(() => {
     expect(promoteRecallNoteToGraphNodeMock).toHaveBeenCalledWith('note-search-1', {
@@ -2165,18 +2233,27 @@ test('Recall notes can promote manual graph nodes and study cards', async () => 
   fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Create Study Card' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Promote note', level: 3 })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Create Study Card' }))
-  fireEvent.change(screen.getByRole('textbox', { name: 'Study prompt' }), {
+  const studyPromotionCard = screen
+    .getByRole('heading', { name: 'Promote note', level: 3 })
+    .closest('.recall-note-promotion-card')
+
+  expect(studyPromotionCard).not.toBeNull()
+
+  fireEvent.click(within(studyPromotionCard as HTMLElement).getByRole('tab', { name: 'Create Study Card' }))
+
+  const studyPromptInput = await within(studyPromotionCard as HTMLElement).findByRole('textbox', { name: 'Study prompt' })
+
+  fireEvent.change(studyPromptInput, {
     target: { value: 'What should you remember from the search note?' },
   })
-  fireEvent.change(screen.getByRole('textbox', { name: 'Study answer' }), {
+  fireEvent.change(within(studyPromotionCard as HTMLElement).getByRole('textbox', { name: 'Study answer' }), {
     target: { value: 'Search Concept' },
   })
   fetchRecallStudyCardsMock.mockImplementationOnce(async () => structuredClone(baseStudyCards))
-  fireEvent.click(screen.getByRole('button', { name: 'Create card' }))
+  fireEvent.click(within(studyPromotionCard as HTMLElement).getByRole('button', { name: 'Create card' }))
 
   await waitFor(() => {
     expect(promoteRecallNoteToStudyCardMock).toHaveBeenCalledWith('note-search-1', {
