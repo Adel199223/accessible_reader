@@ -3,10 +3,10 @@
 Use this folder as a lightweight routing layer. Do not treat it as the canonical source of product truth.
 
 ## Current Checkpoint
-- Active checkpoint doc: `docs/exec_plans/active/2026-03-22_stage497_repo_closeout_and_cleanup_after_stage496.md`
-- Resume shortcut: `resume for Stage 497 repo closeout`
-- Current benchmark note: the March 22, 2026 Stage 496 Home audit remains the latest product checkpoint, and Stage 497 is the active branch-closeout plan that publishes the full Stage 369-496 backlog cleanly.
-- Workflow reset: keep no new Recall-parity slice open during the closeout; create the two required commits, rerun the Stage 495/496 validation ladder, promote the branch to `main`, and prune stale branch refs before any new product milestone begins.
+- Active checkpoint doc: `docs/exec_plans/active/2026-03-23_stage521_home_selected_group_title_wrap_and_row_height_continuity_deflation_reset_after_stage520.md`
+- Resume shortcut: `resume after Stage 521 Home selected-group title-wrap and row-height continuity deflation reset`
+- Current benchmark note: the March 22, 2026 Stage 497 repo closeout remains the latest pushed clean `main` checkpoint, the March 22, 2026 Stage 498/499 Graph pair plus the local Stage 500/501, Stage 502/503, the completed Stage 505 Home audit, the Stage 506 launcher blocker correction, the completed Stage 508 Home audit, the Stage 509 Home implementation checkpoint, the completed Stage 510 Home audit, the Stage 511 Home implementation checkpoint, the completed Stage 512 Home audit, the Stage 513 Home implementation checkpoint, the completed Stage 514 Home audit, the completed Stage 515 Home implementation checkpoint, the completed Stage 516 Home audit, the completed Stage 517 Home implementation checkpoint, the completed Stage 518 Home audit, the completed Stage 519 Home implementation checkpoint, the completed Stage 520 Home audit, and the completed Stage 521 Home implementation checkpoint are complete, and the next honest roadmap move is the pre-staged Stage 522 live audit from the Stage 521 baseline.
+- Workflow reset: treat Stage 521 as the latest completed Home implementation checkpoint, then run the pre-staged Stage 522 audit while keeping `Graph` and original-only `Reader` in regression mode.
 - Regression-only rule: `Notes` and `Study` stay parked as refreshed baselines, and `Reader` stays original-only and cosmetic-only unless the user explicitly unlocks generated-content work.
 
 ## Start Here

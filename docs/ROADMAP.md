@@ -81,15 +81,78 @@ Keep this repository as one local-first workspace.
 - The March 22, 2026 Stage 491/492 Home resizable organizer rail reset then reopened `Home` for one broader organizer-rail ergonomics correction and closed that slice again.
 - The March 22, 2026 Stage 493/494 Graph card drawer and connection-follow reset then reopened `Graph` for one broader selected-card drawer correction and closed that slice again.
 - The March 22, 2026 Stage 495/496 Home custom collection management reset then reopened `Home` for one broader organizer-owned collection-management correction and closed that slice again.
-- The March 22, 2026 Stage 497 repo closeout is now active:
-  - commit the full pending Stage 369-496 backlog in exactly two commits
-  - rerun the last green Stage 495/496 validation ladder before promoting the branch
-  - promote `codex/stage8-closeout-doc-sync` to `main`, prune the feature branch, and verify clean local/remote state
-- Current active queue: no new Recall-parity slice is open during the closeout; Stage 496 remains the latest product checkpoint, `Graph`, `Home`, and original-only `Reader` remain refreshed parity baselines, and `Graph` is still the likeliest next broad parity target after the cleanup lands.
-- Current mode: Stage 497 repo closeout and publish cleanup after Stage 496. Keep desktop-first benchmark discipline, and keep Reader generated-content work explicitly out of scope unless the user explicitly reprioritizes it.
+- The March 22, 2026 Stage 497 repo closeout is complete:
+  - the full pending Stage 369-496 backlog was committed in the required two-commit split
+  - the last green Stage 495/496 validation ladder was rerun during closeout
+  - the branch was promoted to clean `main`, the feature branch was pruned, and local/remote Git state was verified clean
+- The March 22, 2026 Stage 498/499 Graph filter-query and visibility-controls pair is complete:
+  - wide desktop `Graph` now supports bounded Recall-like filter queries, explicit unconnected/leaf/reference visibility controls, and saved-view continuity for those controls
+  - the Stage 499 audit confirmed that the settings sidebar now behaves more like a real graph-management control center while `Home` and original-only `Reader` stayed stable
+- The March 22, 2026 Stage 500/501 Home organizer-overview and grouped-board pair is complete:
+  - wide desktop `Home` now gives the organizer a clearer `OVERVIEW` / `RESET` state and a calmer grouped-overview board above the fold
+  - the Stage 501 audit confirmed that `Home` is materially closer to Recall's current organizer-owned overview direction while `Graph` and original-only `Reader` stayed stable
+- The March 22, 2026 Stage 502/503 Home organizer header-and-control-stack pair is complete:
+  - wide desktop `Home` now uses a tighter organizer utility header, a shorter helper line, and a denser upper control deck while preserving collection management, search, sorting, manual ordering, resize, and hide/show behavior
+  - the Stage 503 audit confirmed that the organizer top stack now reads materially closer to Recall's leaner utility rail while `Graph` and original-only `Reader` stayed stable
+- The March 22, 2026 Stage 504 Home organizer utility-button flattening and branch-list density deflation implementation is complete locally:
+  - wide desktop `Home` now folds `New`, collapse or clear, and hide into the same compact organizer control surface while the active branch list reads flatter and denser beneath it
+  - the Stage 504 validation pass kept collection management, search, sort, view, manual ordering, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- The March 23, 2026 Stage 505 Home organizer utility-button and branch-list audit is complete:
+  - wide desktop `Home` now holds a flatter integrated organizer utility cluster and a denser selected-branch list that read materially closer to Recall's current organizer rail
+  - the Stage 505 audit confirmed that the utility actions now feel attached to the organizer controls and that the `Captures` branch stays continuous while `Graph` and original-only `Reader` remain stable
+- The March 23, 2026 Stage 506 reliable local app opener blocker correction is complete:
+  - the repo now owns one Windows launcher path at `scripts/open_recall_app.ps1` that starts or reuses the backend, rebuilds the served shell when needed, and opens Microsoft Edge through the repo-owned Playwright path
+  - this was a tooling correction only; the active product queue returns immediately to the post-Stage-505 `Home` baseline
+- The March 23, 2026 Stage 507 Home organizer group-row and count-badge deflation implementation is complete locally:
+  - wide desktop `Home` now treats the overview/reset row, top-level organizer groups, and count readouts as a flatter continuous organizer list with lighter badge treatment and softer row chrome
+  - the Stage 507 validation pass kept overview/reset continuity, custom collections, explicit `Untagged`, search, sort, board/list, manual ordering, drag-drop, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- The March 23, 2026 Stage 508 Home organizer group-row and count-badge audit is complete:
+  - wide desktop `Home` now holds a flatter overview/reset row, calmer top-level organizer groups, and lighter count readouts that read materially closer to Recall's current organizer rail
+  - the Stage 508 audit confirmed that the top-level row language no longer leads the remaining mismatch while `Graph` and original-only `Reader` stayed stable
+- The March 23, 2026 Stage 509 Home organizer child-row metadata and branch-footer deflation implementation is complete locally:
+  - wide desktop `Home` now treats active-branch child rows and the `Show all` footer as lighter attached continuation beneath the selected organizer group instead of a metadata-heavier list ending in a pill-like control
+  - the Stage 509 validation pass kept overview/reset continuity, branch drill-in, search, sort, board/list, manual ordering, drag-drop, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- The March 23, 2026 Stage 510 Home organizer child-row metadata and branch-footer audit is complete:
+  - wide desktop `Home` now holds a lighter active-branch continuation where child-row metadata stays legible without reading like separate mini-panels and the organizer-side footer reads as attached continuation instead of a detached chip
+  - the Stage 510 audit confirmed that this calmer organizer-branch rhythm holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable
+- The March 23, 2026 Stage 511 Home selected-group board-footer and lower-sheet continuation deflation implementation is complete locally:
+  - wide desktop `Home` now treats the right-side selected-group board footer as attached results-sheet continuation instead of a detached pill action, while the lower board edge reads calmer and more continuous
+  - the Stage 511 validation pass kept organizer drill-in, board/list switching, search, sort, manual ordering, drag-drop, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- The March 23, 2026 Stage 512 Home selected-group board-footer and lower-sheet audit is complete:
+  - wide desktop `Home` now holds a calmer selected-group board ending where the lower `Show all` stop reads like attached continuation and the board edge no longer breaks the results-sheet rhythm
+  - the Stage 512 audit confirmed that this calmer board ending holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable
+- The March 23, 2026 Stage 513 Home selected-group header summary and count-seam deflation implementation is complete locally:
+  - wide desktop `Home` now starts the selected-group board faster because the summary copy is leaner and the top-right count reads more like part of the same heading seam
+  - the Stage 513 validation pass kept organizer drill-in, board/list switching, search, sort, manual ordering, drag-drop, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- The March 23, 2026 Stage 514 Home selected-group header summary and count-seam audit is complete:
+  - wide desktop `Home` now holds a calmer selected-group board header where the summary bridge starts faster and the top-right count reads like a quieter seam-end label instead of a detached badge
+  - the Stage 514 audit confirmed that this lighter header rhythm holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable
+- The March 23, 2026 Stage 515 Home selected-group card eyebrow and metadata density deflation implementation is complete locally:
+  - wide desktop `Home` now treats the first visible selected-group cards as lighter grouped board entries because the eyebrow no longer leads the card, redundant source-preview copy falls away, and the metadata collapses into one calmer compact line
+  - the Stage 515 validation pass kept organizer drill-in, board/list switching, search, sort, manual ordering, drag-drop, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- The March 23, 2026 Stage 516 Home selected-group card eyebrow and metadata audit is complete:
+  - wide desktop `Home` now holds a lighter first visible selected-group card where the source-type eyebrow stays quiet and the date-plus-view readout behaves like one compact seam instead of a mini metadata stack
+  - the Stage 516 audit confirmed that this lighter card treatment holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable
+- The March 23, 2026 Stage 517 Home selected-group card title emphasis and shell continuity deflation implementation is complete locally:
+  - wide desktop `Home` now treats the selected-group cards as calmer attached board continuation because the title reads less like a boxed mini heading and the shell is lighter against the surrounding results sheet
+  - the Stage 517 validation pass kept organizer drill-in, board/list switching, search, sort, manual ordering, drag-drop, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- The March 23, 2026 Stage 518 Home selected-group card title and shell audit is complete:
+  - wide desktop `Home` now holds calmer selected-group cards where the shell feels less boxed and the title reads more like one attached board row instead of a boxed mini heading panel
+  - the Stage 518 audit confirmed that this lighter title-and-shell treatment holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable
+- The March 23, 2026 Stage 519 Home selected-group card gutter and board-grid continuity deflation implementation is complete locally:
+  - wide desktop `Home` now reduces gutter weight between adjacent selected-group cards and softens the board grid so the selected-group field reads more like one continuous results sheet instead of a tiled card wall
+  - the Stage 519 validation pass kept organizer drill-in, board/list switching, search, sort, manual ordering, drag-drop, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- The March 23, 2026 Stage 520 Home selected-group gutter and board-grid audit is complete:
+  - wide desktop `Home` now holds a calmer selected-group board where adjacent cards hand off with less dead space and the visible `Captures` run reads more like one continuous results sheet instead of separate tiles
+  - the Stage 520 audit confirmed that this softer gutter plus calmer board-grid treatment holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable
+- The March 23, 2026 Stage 521 Home selected-group title-wrap and row-height continuity deflation implementation is complete locally:
+  - wide desktop `Home` now keeps longer selected-group titles calmer and steadies the first visible board-row rhythm so the `Captures` run reads more evenly instead of stepping through a jagged title edge
+  - the Stage 521 validation pass kept organizer drill-in, board/list switching, search, sort, manual ordering, drag-drop, resize, and hide/show behavior intact while `Graph` and original-only `Reader` remained the regression surfaces for the next audit
+- Current active queue: run the pre-staged Stage 522 `Home` live audit around selected-group title-wrap and row-height continuity while `Graph` and original-only `Reader` remain refreshed parity baselines and `Notes` plus `Study` remain regression baselines.
+- Current mode: post-Stage-521 implementation and pre-Stage-522 audit. Keep Reader generated-content work explicitly out of scope unless the user explicitly reprioritizes it.
 - Current Reader restriction: do not change `Reflowed`, `Simplified`, or `Summary` workflows, transform logic, generated placeholders, generated-view controls, or mode-routing unless the user explicitly reprioritizes generated-content work.
 
-## Status As Of 2026-03-22
+## Status As Of 2026-03-23
 
 - The March 18, 2026 Stage 355/356 milestone is complete:
   - wide desktop `Graph` now uses a canvas-first composition with a lighter utility strip and a docked evidence flow instead of the old standing right-card layout
@@ -138,7 +201,61 @@ Keep this repository as one local-first workspace.
   - no new redesign slice is open until the user explicitly reprioritizes another surface or a direct regression forces a detour
 - The March 19, 2026 Stage 380 Recall-parity audit is complete:
   - the active benchmark track is now `Graph`, `Home`, and original-only `Reader`
+- The March 22, 2026 Stage 497 repo closeout is complete:
+  - the Stage 369-496 backlog now lives on clean `main` after the required two-commit closeout, validation rerun, branch promotion, and prune pass
+  - the next product slice should start from `main`, not from the retired feature branch
+- The March 22, 2026 Stage 498/499 Graph filter-query and visibility-controls pair is complete:
+  - the broader Graph filtering/customization gap now centers on a bounded local filter-query model, explicit visibility controls, and saved-view continuity rather than more canvas-chrome trimming
+  - the Stage 499 audit confirmed that `Graph` is materially closer to Recall's current settings-led customization direction, while `Home` and original-only `Reader` stayed stable
+- The March 22, 2026 Stage 500/501 Home organizer-overview and grouped-board pair is complete:
+  - the next broad Home gap is no longer the overview/reset row or grouped overview board; it is the organizer header/control stack, where the top intro copy and utility deck still read heavier than Recall's leaner left rail
+  - `Graph` and original-only `Reader` stay regression surfaces while `Notes` and `Study` remain parked
   - Reader generated-content work is explicitly locked out in this track: no `Reflowed`, `Simplified`, or `Summary` workflow changes, no generated-view UX work, and no transform or mode-routing changes
+- The March 22, 2026 Stage 502/503 Home organizer header-and-control-stack pair is complete:
+  - wide desktop `Home` now reads more like Recall's leaner organizer utility rail because the upper stack collapses into a shorter heading/status line, a briefer helper note, a tighter tools row, and a denser control deck
+  - the Stage 503 audit confirmed that this tighter upper stack survives the selected-branch handoff, while `Graph` and original-only `Reader` stayed stable and generated-content `Reader` work remained out of scope
+- The March 23, 2026 Stage 505 Home organizer utility-button and branch-list audit is complete:
+  - wide desktop `Home` now reads more like Recall's current organizer rail because the utility actions stay attached to the organizer control surface and the selected branch reads flatter and denser during drill-in
+  - the Stage 505 audit confirmed that this calmer utility cluster and branch density hold together in `Captures`, while `Graph` and original-only `Reader` stayed stable and generated-content `Reader` work remained out of scope
+- The March 23, 2026 Stage 506 reliable local app opener blocker correction is complete:
+  - `scripts/open_recall_app.ps1` now acts as the canonical repo command for opening the backend-served app from Windows, and `scripts/playwright/open_recall_in_edge.mjs` owns the real Edge launch path
+  - this correction does not change product scope; it removes launcher friction and then returns the roadmap to the Stage 505 `Home` audit baseline
+- The March 23, 2026 Stage 507 Home organizer group-row and count-badge deflation implementation is complete locally:
+  - wide desktop `Home` now reads more like Recall's leanest organizer rail because the overview/reset row, top-level branch rows, and count readouts sit in a flatter continuous list with lighter count treatment
+  - the Stage 507 validation pass confirmed that overview/reset continuity, custom collections, explicit `Untagged`, search/sort/view controls, manual ordering, drag-drop, resize, and hide/show all remain intact while `Graph` and original-only `Reader` stay stable ahead of the Stage 508 audit
+- The March 23, 2026 Stage 508 Home organizer group-row and count-badge audit is complete:
+  - wide desktop `Home` now reads more like Recall's leanest organizer rail because the overview/reset row, top-level branch rows, and count readouts hold together as one continuous organizer list instead of mini-panels with chip-like counts
+  - the Stage 508 audit confirmed that this calmer top-level rail language holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable and generated-content `Reader` work remained out of scope
+- The March 23, 2026 Stage 509 Home organizer child-row metadata and branch-footer deflation implementation is complete locally:
+  - wide desktop `Home` now reads more like Recall's leanest attached branch lists because active child rows carry lighter metadata and the `Show all` footer reads more like attached continuation than a detached button
+  - the Stage 509 validation pass confirmed that child-row scan order, active-branch continuity, expansion/collapse, manual ordering, drag-drop, resize, and hide/show all remain intact while `Graph` and original-only `Reader` stay stable ahead of the Stage 510 audit
+- The March 23, 2026 Stage 510 Home organizer child-row metadata and branch-footer audit is complete:
+  - wide desktop `Home` now reads more like Recall's leanest organizer continuation because active child rows stay lighter and the organizer-side branch footer no longer reads like a detached pill button
+  - the Stage 510 audit confirmed that this calmer branch rhythm holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable, and the next honest Home gap has shifted into the right-side selected-group board footer
+- The March 23, 2026 Stage 511 Home selected-group board-footer and lower-sheet continuation deflation implementation is complete locally:
+  - wide desktop `Home` now reads more like Recall's calmer selected-group board endings because the right-side `Show all` stop behaves like attached continuation and the lower board edge no longer ends in a detached chip
+  - the Stage 511 validation pass confirmed that the selected-group board stays dominant, explicit expansion remains intact, and `Graph` plus original-only `Reader` stay stable ahead of the Stage 512 audit
+- The March 23, 2026 Stage 512 Home selected-group board-footer and lower-sheet audit is complete:
+  - wide desktop `Home` now reads more like Recall's calmer selected-group board endings because the right-side footer stays attached to the sheet and the lower edge no longer breaks the card field into a detached action stop
+  - the Stage 512 audit confirmed that this calmer lower-sheet continuation holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable, and the next honest Home gap has shifted into the selected-group header summary and count seam
+- The March 23, 2026 Stage 513 Home selected-group header summary and count-seam deflation implementation is complete locally:
+  - wide desktop `Home` now reads more like Recall's calmer selected-group board header because the summary copy is shorter, wraps less heavily, and the top-right count feels more attached to the header cluster
+  - the Stage 513 validation pass confirmed that the selected-group board still starts cleanly above the card field while `Graph` and original-only `Reader` stay stable ahead of the Stage 514 audit
+- The March 23, 2026 Stage 514 Home selected-group header summary and count-seam audit is complete:
+  - wide desktop `Home` now reads more like Recall's calmer selected-group board header because the summary bridge no longer behaves like a mini body block and the top-right count reads like a quieter seam-end label
+  - the Stage 514 audit confirmed that this calmer header seam holds in live `Captures` drill-in while `Graph` and original-only `Reader` stayed stable, and the next honest Home gap has shifted into selected-group card eyebrow and metadata density
+- The March 23, 2026 Stage 515 Home selected-group card eyebrow and metadata density deflation implementation is complete locally:
+  - wide desktop `Home` now reads more like Recall's lighter grouped board cards because the first-row eyebrow is quieter, redundant source-preview copy drops away, and the date-plus-view line no longer stacks into a mini metadata panel
+  - the Stage 515 validation pass confirmed that the selected-group board still stays dominant above the fold while `Graph` and original-only `Reader` stay stable ahead of the Stage 516 audit
+- The March 23, 2026 Stage 516 Home selected-group card eyebrow and metadata audit is complete:
+  - wide desktop `Home` now reads more like Recall's lighter grouped board cards because the first-row eyebrow stays quiet, the date-plus-view line holds as one compact seam, and the board still scans clearly in live `Captures` drill-in
+  - the Stage 516 audit confirmed that the remaining Home mismatch has moved out of eyebrow/meta density and into selected-group card title plus shell emphasis while `Graph` and original-only `Reader` stayed stable
+- The March 23, 2026 Stage 517 Home selected-group card title emphasis and shell continuity deflation implementation is complete locally:
+  - wide desktop `Home` now reads more like Recall's calmer grouped board cards because the first visible selected-group row uses a lighter shell and the title behaves more like part of one continuous card seam instead of a boxed mini heading
+  - the Stage 517 validation pass confirmed that the selected-group board still stays dominant above the fold while `Graph` and original-only `Reader` stay stable ahead of the Stage 518 audit
+- The March 23, 2026 Stage 518 Home selected-group card title and shell audit is complete:
+  - wide desktop `Home` now reads more like Recall's calmer grouped board cards because the first visible selected-group row feels less boxed, the title behaves more like row content, and the board still scans cleanly in live `Captures` drill-in
+  - the Stage 518 audit confirmed that the remaining Home mismatch has shifted out of title/shell emphasis and into selected-group card gutter plus board-grid continuity while `Graph` and original-only `Reader` stayed stable
 - The March 19, 2026 Stage 381/382 Graph Recall-parity reset is complete:
   - wide desktop `Graph` now uses a slimmer control seam, a lighter browse strip, a more dominant canvas shell, and one attached inspect tray instead of the older banner-plus-standing-rail composition
   - the Stage 382 audit confirmed that `Graph` is materially closer to the current Recall direction, `Home` is the next likely parity target, and original-only `Reader` stayed visually stable behind the Graph pass
