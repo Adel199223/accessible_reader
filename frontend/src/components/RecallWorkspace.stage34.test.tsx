@@ -348,6 +348,7 @@ function renderHarness(initialSection: RecallSection, initialContinuityState?: R
           continuityState={continuityState}
           onContinuityStateChange={setContinuityState}
           onOpenReader={onOpenReader}
+          onOpenSearch={() => undefined}
           onRequestNewSource={() => undefined}
           onSectionChange={setSection}
           onShellContextChange={() => undefined}

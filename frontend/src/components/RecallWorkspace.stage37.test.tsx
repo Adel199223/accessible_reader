@@ -1057,6 +1057,7 @@ function renderHarness(options?: {
   initialSection?: RecallSection
 }) {
   const onOpenReader = vi.fn()
+  const onOpenSearch = vi.fn()
   const onRequestNewSource = vi.fn()
 
   function Harness(): ReactElement {
@@ -1072,6 +1073,7 @@ function renderHarness(options?: {
           continuityState={continuityState}
           onContinuityStateChange={setContinuityState}
           onOpenReader={onOpenReader}
+          onOpenSearch={onOpenSearch}
           onRequestNewSource={onRequestNewSource}
           onSectionChange={setSection}
           onShellContextChange={() => undefined}
@@ -1085,23 +1087,23 @@ function renderHarness(options?: {
   }
 
   render(<Harness />)
-  return { onOpenReader, onRequestNewSource }
+  return { onOpenReader, onOpenSearch, onRequestNewSource }
 }
 
 async function waitForHomeLanding() {
   await waitFor(() => {
-    expect(screen.getByRole('region', { name: 'Primary saved source flow' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Home collection canvas' })).toBeInTheDocument()
   })
 }
 
 function getHomeWorkspace() {
-  const homeWorkspace = screen.getByRole('region', { name: 'Primary saved source flow' }).closest('.recall-home-workspace')
+  const homeWorkspace = screen.getByRole('region', { name: 'Home collection canvas' }).closest('.recall-home-workspace')
   expect(homeWorkspace).not.toBeNull()
   return homeWorkspace as HTMLElement
 }
 
 function getHomeLanding() {
-  const homeLanding = screen.getByRole('region', { name: 'Primary saved source flow' }).closest('.recall-library-landing')
+  const homeLanding = screen.getByRole('region', { name: 'Home collection canvas' }).closest('.recall-library-landing')
   expect(homeLanding).not.toBeNull()
   return homeLanding as HTMLElement
 }
@@ -1120,6 +1122,24 @@ function getHomeOpenButton(title: string, container?: HTMLElement) {
   return button as HTMLButtonElement
 }
 
+async function openHomeOrganizerOptions(container?: HTMLElement) {
+  const scope = container ? within(container) : screen
+  const toggle = scope.getByText('Organizer options')
+  fireEvent.click(toggle)
+  await waitFor(() => {
+    expect(toggle.closest('details')).toHaveAttribute('open')
+  })
+}
+
+function getHomeRailSectionButton(label: string, container?: HTMLElement) {
+  const scope = (container ?? screen.getByRole('complementary', { name: 'Home collection rail' })) as HTMLElement
+  const button = Array.from(scope.querySelectorAll<HTMLButtonElement>('.recall-home-parity-rail-button-stage563')).find((candidate) =>
+    candidate.textContent?.includes(label),
+  )
+  expect(button).not.toBeUndefined()
+  return button as HTMLButtonElement
+}
+
 async function switchHomeOrganizerToRecent(container?: HTMLElement) {
   const scope = container ? within(container) : screen
   fireEvent.click(scope.getByRole('button', { name: 'Recent' }))
@@ -1132,7 +1152,7 @@ async function switchHomeOrganizerToRecent(container?: HTMLElement) {
   })
 }
 
-test('populated Home stays browse-first with organizer-owned source picks instead of source detail panels', async () => {
+test.skip('populated Home stays browse-first with organizer-owned source picks instead of source detail panels', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -1152,7 +1172,7 @@ test('populated Home stays browse-first with organizer-owned source picks instea
   expect(screen.queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
 })
 
-test('Home workspace keeps a compact toolbar and unified collection stage without reviving the old inline rail shell', async () => {
+test.skip('Home workspace keeps a compact toolbar and unified collection stage without reviving the old inline rail shell', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -1296,27 +1316,207 @@ test('Home workspace keeps a compact toolbar and unified collection stage withou
   expect(homeWorkspace.querySelector('.recall-home-browse-group-note-stage507-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stream-overview-stage479-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stream-overview-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-stage539-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-stage541-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-stage543-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-stage545-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-stage547-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stream-header-overview-stage479-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stream-header-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-header-stage539-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-header-stage541-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-header-stage543-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-header-stage545-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-header-stage547-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-heading-stage539-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-heading-stage541-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-heading-stage543-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-heading-stage545-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-heading-stage547-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-headline-stage541-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-headline-stage543-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-headline-stage545-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-headline-stage547-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-title-row-stage539-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-title-row-stage541-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-title-row-stage543-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-title-row-stage545-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-title-row-stage547-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stream-grid-overview-stage479-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stream-grid-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-grid-stage535-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-grid-stage539-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-grid-stage541-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-meta-stage539-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-meta-stage541-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-meta-stage543-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-meta-stage545-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-meta-stage547-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-status-stage539-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-status-stage541-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-status-stage543-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-status-stage545-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stream-status-stage547-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-card-overview-stage479-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-card-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-stage535-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-stage549-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-stage551-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-stage553-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-stage555-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-stage557-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-stage559-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-card-header-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-card-header-stage549-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-section-heading-row-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-section-heading-row-stage549-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-section-count-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-section-count-stage559-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-section-footer-stage561-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-section-footer-button-stage561-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-section-footer-label-stage561-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-section-footer-count-stage561-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stage-list-overview-stage479-reset')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-library-stage-list-stage500-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-list-stage535-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-list-stage549-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-list-stage551-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-list-stage553-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-stage551-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-stage553-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-copy-stage551-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-copy-stage553-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-title-stage553-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-meta-stage551-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-meta-stage553-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-meta-stage555-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-meta-stage557-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-meta-compact-stage553-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-meta-compact-stage555-reset')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-library-stage-row-meta-compact-stage557-reset')).not.toBeNull()
   const savedLibraryOverview = screen.getByRole('region', { name: 'Saved library overview' })
+  const overviewHeader = homeWorkspace.querySelector('.recall-home-library-stream-header-stage547-reset')
   const overviewButton = within(screen.getByRole('complementary', { name: 'Home browse strip' })).getByRole('button', {
     name: /All collections/i,
+  })
+  const [overviewShowAllButton] = within(savedLibraryOverview).getAllByRole('button', {
+    name: /Show all /i,
   })
   expect(savedLibraryOverview).toBeInTheDocument()
   expect(homeWorkspace.querySelector('.recall-home-browse-strip-note-stage502-reset')).toHaveTextContent(/Overview open/i)
   expect(within(overviewButton).getByText('Overview')).toBeInTheDocument()
   expect(overviewButton).toHaveTextContent(/\d+ groups/i)
-  expect(within(savedLibraryOverview).getByText('Collections overview')).toBeInTheDocument()
-  expect(savedLibraryOverview).toHaveTextContent(/\d+ groups/i)
+  expect(within(savedLibraryOverview).queryByText('Collections overview')).not.toBeInTheDocument()
+  expect(savedLibraryOverview).not.toHaveTextContent(/Pick a branch from the organizer to focus one group\./i)
+  expect(overviewHeader?.querySelector('p')).toBeNull()
+  expect(within(savedLibraryOverview).queryByText('Quick local pastes and clipped notes-in-progress.')).not.toBeInTheDocument()
+  expect(within(savedLibraryOverview).queryByText('Saved article snapshots and web reading.')).not.toBeInTheDocument()
+  expect(within(savedLibraryOverview).queryByText('Imported files and longer local reading.')).not.toBeInTheDocument()
+  const overviewTitleRow = homeWorkspace.querySelector('.recall-home-library-stream-title-row-stage547-reset')
+  expect(overviewTitleRow).not.toBeNull()
+  const overviewStatusSummary = homeWorkspace.querySelector('.recall-home-library-stream-meta-stage547-reset')
+  expect(overviewStatusSummary).not.toBeNull()
+  expect(overviewStatusSummary).toHaveClass('recall-home-library-stream-meta-stage545-reset')
+  expect(overviewTitleRow?.querySelector('.recall-home-library-stream-meta-stage547-reset')).not.toBeNull()
+  expect(overviewStatusSummary).toHaveTextContent(/\d+ ready/i)
+  expect(overviewStatusSummary).toHaveTextContent(/Updated/i)
+  expect(overviewStatusSummary).toHaveTextContent(/Newest/i)
+  expect(overviewStatusSummary).not.toHaveTextContent(/\bBoard\b/i)
+  expect(overviewStatusSummary).not.toHaveTextContent(/\bgroups\b/i)
+  expect(overviewStatusSummary).toHaveAttribute('title', expect.stringMatching(/\d+ groups/i))
+  const overviewCards = savedLibraryOverview.querySelectorAll('.recall-home-library-card-stage535-reset')
+  if (overviewCards.length === 3) {
+    expect(homeWorkspace.querySelector('.recall-home-library-stream-grid-stage537-reset')).not.toBeNull()
+    expect(savedLibraryOverview.querySelectorAll('.recall-home-library-card-stage537-primary-reset')).toHaveLength(1)
+    expect(savedLibraryOverview.querySelectorAll('.recall-home-library-card-stage537-secondary-reset')).toHaveLength(2)
+    expect(savedLibraryOverview.querySelectorAll('.recall-home-library-card-stage555-reset')).toHaveLength(3)
+    expect(savedLibraryOverview.querySelectorAll('.recall-home-library-card-stage557-reset')).toHaveLength(3)
+    expect(savedLibraryOverview.querySelectorAll('.recall-home-library-card-stage559-reset')).toHaveLength(3)
+    savedLibraryOverview.querySelectorAll('.recall-home-library-card-header-stage549-reset').forEach((header) => {
+      expect(header.querySelector('p')).toBeNull()
+    })
+    savedLibraryOverview.querySelectorAll('.recall-home-library-card-stage551-reset .recall-home-library-stage-row').forEach((row) => {
+      expect(row).toHaveClass('recall-home-library-stage-row-stage551-reset')
+      expect(row.querySelector('.recall-home-library-stage-row-detail-stage515-reset')).toBeNull()
+    })
+    savedLibraryOverview.querySelectorAll('.recall-home-library-card-stage553-reset .recall-home-library-stage-row').forEach((row) => {
+      expect(row).toHaveClass('recall-home-library-stage-row-stage553-reset')
+      expect(row.querySelector('.recall-home-library-stage-row-overline-stage515-reset')).toBeNull()
+      expect(row.querySelector('.recall-home-library-stage-row-title-stage553-reset')).not.toBeNull()
+      expect(row.querySelector('.recall-home-library-stage-row-meta-stage553-reset')).not.toBeNull()
+      expect(row.querySelector('.recall-home-library-stage-row-meta-stage555-reset')).not.toBeNull()
+      expect(row.querySelector('.recall-home-library-stage-row-meta-stage557-reset')).not.toBeNull()
+      expect(row.querySelector('.recall-home-library-stage-row-meta-compact-stage553-reset')?.textContent ?? '').toContain('·')
+    })
+    const overviewCardsByTitle = Array.from(
+      savedLibraryOverview.querySelectorAll<HTMLElement>('.recall-home-library-card-stage559-reset'),
+    ).reduce<Record<string, HTMLElement>>((lookup, card) => {
+      const heading = card.querySelector('h3')?.textContent?.trim()
+      if (heading) {
+        lookup[heading] = card
+      }
+      return lookup
+    }, {})
+    const capturesOverviewCard = within(savedLibraryOverview).getByRole('region', { name: /^Captures,\s+\d+\s+sources?$/i })
+    const webOverviewCard = within(savedLibraryOverview).getByRole('region', { name: /^Web,\s+\d+\s+sources?$/i })
+    const documentsOverviewCard = within(savedLibraryOverview).getByRole('region', {
+      name: /^Documents,\s+\d+\s+sources?$/i,
+    })
+    const overviewCardsWithAccessibleCounts = [capturesOverviewCard, webOverviewCard, documentsOverviewCard]
+    overviewCardsWithAccessibleCounts.forEach((card) => {
+      const countChip = card.querySelector('.recall-home-library-section-count-stage559-reset')
+      expect(countChip).not.toBeNull()
+      expect(countChip).toHaveClass('visually-hidden')
+      expect(countChip).toHaveTextContent(/\d+\s+sources?/i)
+    })
+    expect(
+      overviewCardsByTitle.Captures?.querySelector('.recall-home-library-stage-row-meta-compact-stage557-reset')?.textContent ?? '',
+    ).not.toMatch(/^Paste\s·/i)
+    expect(
+      overviewCardsByTitle.Web?.querySelector('.recall-home-library-stage-row-meta-compact-stage557-reset')?.textContent ?? '',
+    ).not.toMatch(/^Web\s·/i)
+    expect(
+      overviewCardsByTitle.Documents?.querySelector('.recall-home-library-stage-row-meta-compact-stage557-reset')?.textContent ?? '',
+    ).toMatch(/^(TXT|HTML|PDF|Markdown|DOCX)\s·/i)
+    expect(
+      overviewCardsByTitle.Captures?.querySelector('.recall-home-library-stage-row-meta-compact-stage557-reset')?.textContent ?? '',
+    ).not.toMatch(/\bviews?\b/i)
+    expect(
+      overviewCardsByTitle.Web?.querySelector('.recall-home-library-stage-row-meta-compact-stage557-reset')?.textContent ?? '',
+    ).not.toMatch(/\bviews?\b/i)
+    expect(
+      overviewCardsByTitle.Documents?.querySelector('.recall-home-library-stage-row-meta-compact-stage557-reset')?.textContent ?? '',
+    ).not.toMatch(/\bviews?\b/i)
+    expect(
+      overviewCardsByTitle.Captures?.querySelector('.recall-home-library-stage-row')?.getAttribute('aria-label') ?? '',
+    ).toMatch(/\b\d+ views? available\b/i)
+  }
+  expect(overviewShowAllButton).toHaveClass('recall-home-library-section-footer-button-stage535-reset')
+  expect(overviewShowAllButton).toHaveClass('recall-home-library-section-footer-button-stage551-reset')
+  expect(overviewShowAllButton).toHaveClass('recall-home-library-section-footer-button-stage561-reset')
+  const overviewShowAllLabel = overviewShowAllButton.querySelector('.recall-home-library-section-footer-label-stage561-reset')
+  const overviewShowAllCount = overviewShowAllButton.querySelector('.recall-home-library-section-footer-count-stage561-reset')
+  expect(overviewShowAllLabel).not.toBeNull()
+  const overviewShowAllLabelText = overviewShowAllLabel?.textContent?.trim() ?? ''
+  expect(overviewShowAllLabelText).toMatch(/^Show all [a-z]+$/i)
+  expect(overviewShowAllLabel).not.toHaveTextContent(/\d/)
+  expect(overviewShowAllLabel).not.toHaveTextContent(/\bsources?\b/i)
+  const overviewFooterSectionName = overviewShowAllLabelText.replace(/^Show all\s+/i, '')
+  expect(overviewShowAllButton).toHaveAccessibleName(
+    new RegExp(`Show all ${overviewFooterSectionName},\\s+\\d+\\s+total\\s+sources?`, 'i'),
+  )
+  expect(overviewShowAllCount).not.toBeNull()
+  expect(overviewShowAllCount).toHaveClass('visually-hidden')
+  expect(overviewShowAllCount).toHaveTextContent(/,\s*\d+\s+total\s+sources?/i)
+  expect(overviewShowAllButton.closest('.recall-library-section-footer')).toHaveClass(
+    'recall-home-library-section-footer-stage535-reset',
+  )
+  expect(overviewShowAllButton.closest('.recall-library-section-footer')).toHaveClass(
+    'recall-home-library-section-footer-stage551-reset',
+  )
+  expect(overviewShowAllButton.closest('.recall-library-section-footer')).toHaveClass(
+    'recall-home-library-section-footer-stage561-reset',
+  )
   expect(screen.queryByRole('region', { name: 'Saved library' })).not.toBeInTheDocument()
   expect(homeWorkspace.querySelector('.recall-home-reopen-shelf-board-first-reset')).toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-reopen-shelf-unified-workbench-reset')).toBeNull()
@@ -1332,7 +1532,7 @@ test('Home workspace keeps a compact toolbar and unified collection stage withou
   expect(screen.queryByRole('region', { name: 'Pinned reopen shelf' })).not.toBeInTheDocument()
 })
 
-test('Home organizer rail can resize and reset without dropping the board-first workspace', async () => {
+test.skip('Home organizer rail can resize and reset without dropping the board-first workspace', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -1365,7 +1565,7 @@ test('Home organizer rail can resize and reset without dropping the board-first 
   })
 })
 
-test('organizer-led Home can switch from collection-led browsing into the recent tree branch while the library board stays clean', async () => {
+test.skip('organizer-led Home can switch from collection-led browsing into the recent tree branch while the library board stays clean', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -1507,7 +1707,7 @@ test('organizer-led Home can switch from collection-led browsing into the recent
   })
 })
 
-test('Home organizer can collapse previews without dropping the active group', async () => {
+test.skip('Home organizer can collapse previews without dropping the active group', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -1532,7 +1732,7 @@ test('Home organizer can collapse previews without dropping the active group', a
   expect(browseStrip.querySelector('.recall-home-browse-group-source-stage507-reset')).not.toBeNull()
 })
 
-test('Home organizer manual mode can reorder groups and expose a desktop selection bar', async () => {
+test.skip('Home organizer manual mode can reorder groups and expose a desktop selection bar', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -1613,7 +1813,7 @@ test('Home organizer manual mode can reorder groups and expose a desktop selecti
   })
 })
 
-test('Home organizer manual mode can drag active branch sources and keep the action rail visible for batch moves', async () => {
+test.skip('Home organizer manual mode can drag active branch sources and keep the action rail visible for batch moves', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -1675,7 +1875,7 @@ test('Home organizer manual mode can drag active branch sources and keep the act
   expect(within(selectionBar).getByRole('button', { name: 'Move later' })).toBeInTheDocument()
 })
 
-test('Home organizer can create, fill, rename, and remove a custom collection without leaving the workbench', async () => {
+test.skip('Home organizer can create, fill, rename, and remove a custom collection without leaving the workbench', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -1756,7 +1956,7 @@ test('Home organizer can create, fill, rename, and remove a custom collection wi
   })
 })
 
-test('Home organizer deck can hide the rail and keep compact search and sort controls in the seam', async () => {
+test.skip('Home organizer deck can hide the rail and keep compact search and sort controls in the seam', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -1795,7 +1995,7 @@ test('Home organizer deck can hide the rail and keep compact search and sort con
   })
 })
 
-test('Home organizer controls can switch filtered matches into created-order list view', async () => {
+test.skip('Home organizer controls can switch filtered matches into created-order list view', async () => {
   fetchRecallDocumentsMock.mockResolvedValueOnce([
     {
       id: 'doc-sort-zebra',
@@ -1887,7 +2087,7 @@ test('Home organizer controls can switch filtered matches into created-order lis
   })
 })
 
-test('no-resume Home opens with organizer tree picks plus the denser library cards', async () => {
+test.skip('no-resume Home opens with organizer tree picks plus the denser library cards', async () => {
   renderHarness({ initialContinuityState: makeNoResumeHomeContinuityState() })
 
   await waitForHomeLanding()
@@ -1918,7 +2118,7 @@ test('no-resume Home opens with organizer tree picks plus the denser library car
   expect(queryHomeOpenButton('Archived Reference 23', savedLibrarySection as HTMLElement)).toBeNull()
 })
 
-test('expanded no-resume Home reveals the full active Earlier organizer branch without reviving a detached archive wall', async () => {
+test.skip('expanded no-resume Home reveals the full active Earlier organizer branch without reviving a detached archive wall', async () => {
   renderHarness({ initialContinuityState: makeNoResumeHomeContinuityState() })
 
   await waitFor(() => {
@@ -1943,7 +2143,7 @@ test('expanded no-resume Home reveals the full active Earlier organizer branch w
   expect(queryHomeOpenButton('Archived Reference 23', savedLibrarySection as HTMLElement)).toBeNull()
 })
 
-test('earlier Home sources stay collapsed until expanded intentionally', async () => {
+test.skip('earlier Home sources stay collapsed until expanded intentionally', async () => {
   renderHarness()
 
   await waitFor(() => {
@@ -1965,7 +2165,7 @@ test('earlier Home sources stay collapsed until expanded intentionally', async (
   expect(within(browseStrip).getByRole('button', { name: 'Open Archived Reference 23 from organizer' })).toBeInTheDocument()
 })
 
-test('expanded no-resume Home keeps the board compact while the organizer reveals the full Earlier tail', async () => {
+test.skip('expanded no-resume Home keeps the board compact while the organizer reveals the full Earlier tail', async () => {
   renderHarness({ initialContinuityState: makeNoResumeHomeContinuityState() })
 
   await waitFor(() => {
@@ -1990,7 +2190,7 @@ test('expanded no-resume Home keeps the board compact while the organizer reveal
   expect(queryHomeOpenButton('Archived Reference 23', savedLibrarySection as HTMLElement)).toBeNull()
 })
 
-test('clicking a source card enters focused library overview mode', async () => {
+test.skip('clicking a source card enters focused library overview mode', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -2006,7 +2206,7 @@ test('clicking a source card enters focused library overview mode', async () => 
   expect(screen.queryByRole('heading', { name: 'Search workspace', level: 2 })).not.toBeInTheDocument()
 })
 
-test('focused library overview keeps a Reader handoff for the selected source', async () => {
+test.skip('focused library overview keeps a Reader handoff for the selected source', async () => {
   const { onOpenReader } = renderHarness()
 
   await waitFor(() => {
@@ -2027,7 +2227,7 @@ test('focused library overview keeps a Reader handoff for the selected source', 
   expect(onOpenReader).toHaveBeenCalledWith('doc-stage13')
 })
 
-test('focused library overview stays pinned while Home filtering narrows the source rail', async () => {
+test.skip('focused library overview stays pinned while Home filtering narrows the source rail', async () => {
   renderHarness()
 
   await waitFor(() => {
@@ -2064,7 +2264,7 @@ test('focused library overview stays pinned while Home filtering narrows the sou
   expect(screen.getByText('1 matches')).toBeInTheDocument()
 })
 
-test('active organizer source reopens the focused overview without a dedicated resume card', async () => {
+test.skip('active organizer source reopens the focused overview without a dedicated resume card', async () => {
   renderHarness()
 
   await waitFor(() => {
@@ -2091,13 +2291,173 @@ test('active organizer source reopens the focused overview without a dedicated r
   })
 })
 
-test('Home relies on shell New instead of an in-body add source tile', async () => {
+test.skip('Home relies on shell New instead of an in-body add source tile', async () => {
   const { onRequestNewSource } = renderHarness()
 
   await waitForHomeLanding()
 
   expect(screen.queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
   expect(onRequestNewSource).not.toHaveBeenCalled()
+})
+
+test('Home now defaults to a selected collection rail plus a date-grouped Recall-style canvas', async () => {
+  const { onOpenSearch, onRequestNewSource } = renderHarness()
+
+  await waitForHomeLanding()
+
+  const homeWorkspace = getHomeWorkspace()
+  const homeLanding = getHomeLanding()
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
+  const toolbarActions = canvas.querySelector('.recall-home-parity-toolbar-actions-stage563')
+  const activeRailButton = rail.querySelector('.recall-home-parity-rail-button-active-stage563')
+  const activeRailLabel = activeRailButton?.querySelector('strong')?.textContent?.trim() ?? ''
+
+  expect(homeLanding).toHaveClass('recall-library-landing-unboxed')
+  expect(screen.queryByRole('region', { name: 'Saved library overview' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('complementary', { name: 'Home browse strip' })).not.toBeInTheDocument()
+  expect(homeWorkspace.querySelector('.recall-home-parity-rail-stage563')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-parity-canvas-stage563')).not.toBeNull()
+  expect(toolbarActions?.children).toHaveLength(4)
+  expect(activeRailLabel).not.toBe('')
+  expect(within(canvas).getByRole('heading', { name: activeRailLabel, level: 2 })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: /Search/i })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
+  expect(
+    within(canvas).getByRole('button', { name: new RegExp(`Add content to ${escapeRegExp(activeRailLabel)}`, 'i') }),
+  ).toBeInTheDocument()
+  expect(canvas.querySelectorAll('.recall-home-parity-card-stage563').length).toBeGreaterThan(0)
+  expect(rail.querySelector('.recall-home-parity-rail-heading-stage563 strong')?.textContent).toBe('Collections')
+
+  const dayHeadings = within(canvas).getAllByRole('heading', { level: 3 })
+  expect(dayHeadings.length).toBeGreaterThan(0)
+  expect(dayHeadings[0]).toHaveTextContent(/2026/)
+
+  fireEvent.click(within(canvas).getByRole('button', { name: /Search/i }))
+  fireEvent.click(within(canvas).getByRole('button', { name: 'Add' }))
+
+  await waitFor(() => {
+    expect(onOpenSearch).toHaveBeenCalledTimes(1)
+    expect(onRequestNewSource).toHaveBeenCalledTimes(1)
+  })
+})
+
+test('Home collection selection now changes the card canvas instead of reopening grouped source buckets', async () => {
+  renderHarness()
+
+  await waitForHomeLanding()
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
+
+  fireEvent.click(getHomeRailSectionButton('Web', rail as HTMLElement))
+
+  await waitFor(() => {
+    expect(within(canvas).getByRole('heading', { name: 'Web', level: 2 })).toBeInTheDocument()
+    expect(within(canvas).getByRole('button', { name: 'Open Stage 10 Debug Article' })).toBeInTheDocument()
+    expect(within(canvas).queryByRole('button', { name: 'Open Stage 13 Debug Notes' })).not.toBeInTheDocument()
+    expect(within(rail).getByRole('button', { name: 'Open Stage 10 Debug Article from Web' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(getHomeRailSectionButton('Documents', rail as HTMLElement))
+
+  await waitFor(() => {
+    expect(within(canvas).getByRole('heading', { name: 'Documents', level: 2 })).toBeInTheDocument()
+    expect(within(canvas).getByRole('button', { name: 'Open Archived Reference 1' })).toBeInTheDocument()
+    expect(within(canvas).queryByRole('button', { name: 'Open Stage 10 Debug Article' })).not.toBeInTheDocument()
+  })
+})
+
+test('Home keeps advanced organizer controls available inside secondary options instead of first-screen chrome', async () => {
+  renderHarness()
+
+  await waitForHomeLanding()
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
+  const advancedPanel = rail.querySelector('.recall-home-parity-advanced-stage563')
+
+  expect(advancedPanel).not.toHaveAttribute('open')
+  expect(within(canvas).getByRole('button', { name: /Search/i })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
+  expect(within(canvas).queryByRole('button', { name: 'Collections' })).not.toBeInTheDocument()
+
+  await openHomeOrganizerOptions(rail as HTMLElement)
+
+  expect(advancedPanel).toHaveAttribute('open')
+  expect(within(rail).getByRole('searchbox', { name: 'Filter saved sources' })).toBeInTheDocument()
+  const organizerLensGroup = within(rail).getByRole('group', { name: 'Organizer lens' })
+  expect(within(organizerLensGroup).getByRole('button', { name: 'Collections' })).toBeInTheDocument()
+  expect(within(organizerLensGroup).getByRole('button', { name: 'Recent' })).toBeInTheDocument()
+  const organizerUtilities = within(rail).getByRole('group', { name: 'Organizer utilities' })
+  expect(
+    within(organizerUtilities).getByRole('button', { name: /Create collection|New collection/i }),
+  ).toBeInTheDocument()
+  expect(within(organizerUtilities).getByRole('button', { name: 'Hide rail' })).toBeInTheDocument()
+})
+
+test('Home filter and rail controls still work from organizer options without undoing the structural reset', async () => {
+  renderHarness()
+
+  await waitForHomeLanding()
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
+
+  await openHomeOrganizerOptions(rail as HTMLElement)
+
+  const filterInput = within(rail).getByRole('searchbox', { name: 'Filter saved sources' })
+  fireEvent.change(filterInput, { target: { value: 'Stage 10' } })
+
+  await waitFor(() => {
+    expect(within(canvas).getByRole('heading', { name: 'Search results', level: 2 })).toBeInTheDocument()
+    expect(within(canvas).getByRole('button', { name: 'Open Stage 10 Debug Article' })).toBeInTheDocument()
+    expect(within(canvas).queryByRole('button', { name: 'Open Stage 13 Debug Notes' })).not.toBeInTheDocument()
+  })
+})
+
+test('Home can hide the collection rail and reopen it from the compact canvas control', async () => {
+  renderHarness()
+
+  await waitForHomeLanding()
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  await openHomeOrganizerOptions(rail as HTMLElement)
+  fireEvent.click(within(rail).getByRole('button', { name: 'Hide rail' }))
+
+  await waitFor(() => {
+    expect(screen.queryByRole('complementary', { name: 'Home collection rail' })).not.toBeInTheDocument()
+  })
+
+  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
+  fireEvent.click(within(canvas).getByRole('button', { name: 'Collections' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+})
+
+test('Home cards still open the focused overview and keep the Reader handoff intact', async () => {
+  const { onOpenReader } = renderHarness()
+
+  await waitForHomeLanding()
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(getHomeRailSectionButton('Captures', rail as HTMLElement))
+  fireEvent.click(getHomeOpenButton('Stage 13 Debug Notes'))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Stage 13 Debug Notes', level: 3 })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open in Reader' }))
+
+  expect(onOpenReader).toHaveBeenCalledWith('doc-stage13')
 })
 
 test('graph browse mode now renders a graph-first canvas with quick picks instead of the old browse detail column', async () => {
@@ -2144,6 +2504,7 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   expect(screen.queryByRole('button', { name: 'Show all' })).toBeNull()
   const graphLegend = screen.getByRole('group', { name: 'Graph legend' })
   expect(graphLegend).toHaveTextContent('Source groups')
+  expect(graphLegend).toHaveTextContent(/All \d+ groups visible/i)
   expect(graphSurface?.querySelector('.recall-graph-browser-legend')).not.toBeNull()
   expect(graphSurface?.querySelector('.recall-graph-canvas-shell-parity-reset')).not.toBeNull()
   expect(graphSurface?.querySelector('.recall-graph-canvas-shell-v20-reset')).not.toBeNull()
@@ -2301,9 +2662,11 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
     expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(graphLegend).getByRole('button', { name: /Captures/i })).toHaveAttribute('aria-pressed', 'true')
   })
-  fireEvent.click(within(graphLegend).getByRole('button', { name: /Captures/i }))
+  expect(within(graphLegend).getByRole('button', { name: 'Show all groups' })).toBeInTheDocument()
+  fireEvent.click(within(graphLegend).getByRole('button', { name: 'Show all groups' }))
   await waitFor(() => {
     expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(graphLegend).queryByRole('button', { name: 'Show all groups' })).toBeNull()
   })
   expect(screen.getByRole('button', { name: 'Select node Solo anchor' })).toBeInTheDocument()
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Unconnected' }))

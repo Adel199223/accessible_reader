@@ -537,13 +537,17 @@ export function ReaderWorkspace({
             {
               label: notes.length === 1 ? '1 saved note' : `${notes.length} saved notes`,
             },
-            {
-              label: currentModeOption?.label ? `${currentModeOption.label} view` : 'Reader view',
-              tone: 'muted' as const,
-            },
+            ...(activeMode === 'original'
+              ? []
+              : [
+                  {
+                    label: currentModeOption?.label ? `${currentModeOption.label} view` : 'Reader view',
+                    tone: 'muted' as const,
+                  },
+                ]),
           ]
         : [],
-    [currentModeOption?.label, notes.length, selectedDocument],
+    [activeMode, currentModeOption?.label, notes.length, selectedDocument],
   )
 
   useEffect(() => {
@@ -1035,13 +1039,13 @@ export function ReaderWorkspace({
     : routeAnchorRange
       ? `Anchored evidence stays visible in ${readerViewLabel} while the dock keeps nearby notes and sources attached.`
       : readerOriginalParityMode
-        ? 'Keep the original article in the lead while notes and source switching stay attached in the dock.'
+        ? 'Original text stays primary while notes and source switching stay docked.'
         : 'Document text stays primary while view controls, notes, and source switching settle into a calmer dock.'
   const readerDockSummary = selectedDocument
     ? canAnnotateCurrentView
       ? 'Keep note work, nearby sources, and Reader handoffs close without taking over the reading lane.'
       : readerOriginalParityMode
-        ? 'Notes, source switching, and reopen cues stay attached here while the original article keeps the reading lead.'
+        ? 'Keep notes and source switching attached here while the article keeps the lead.'
         : 'This mode stays focused on reading; switch to Reflowed whenever you want to capture or reopen anchored notes in place.'
     : 'Saved sources and note work stay nearby here while the reading lane stays ready for the next document.'
   const readerStageGlanceNote = noteCaptureActive
@@ -1049,8 +1053,9 @@ export function ReaderWorkspace({
     : routeAnchorRange
       ? 'Anchored evidence stays in view while the dock keeps source and notes close without becoming a second page.'
       : readerOriginalParityMode
-        ? 'Use shell Search or New to change sources; keep the dock nearby when you need notes or source switching.'
+        ? 'Search or New changes source; notes stay close in the dock.'
         : 'Use shell Search or New to change sources; keep notes and library work tucked into the dock.'
+  const showReaderStageGlanceNote = noteCaptureActive || Boolean(routeAnchorRange) || !readerOriginalParityMode
   const showReaderGenerationAction = (activeMode === 'simplified' || activeMode === 'summary') && !view
   const libraryMetricLabel = documentsLoading
     ? 'Loading Home…'
@@ -1112,18 +1117,33 @@ export function ReaderWorkspace({
   const readerDockMetadata = selectedDocument
     ? [
         readerDockSourceLabel,
-        currentContextNoteLabel,
         currentContextReadinessLabel,
+        ...(readerOriginalParityMode ? [] : [currentContextNoteLabel]),
       ]
     : []
+  const readerSupportGlanceMetaLine = selectedDocument
+    ? [readerDockSourceLabel, currentContextNoteLabel].filter(Boolean).join(' · ')
+    : null
+  const readerSupportGlanceNote = selectedDocument
+    ? selectedDocument.file_name ?? 'Saved locally in Recall.'
+    : 'Use the shell Search or New actions to open another document without leaving Recall.'
+  const readerSupportGlanceFootnote = selectedDocument
+    ? readerOriginalParityMode
+      ? 'Search or New opens another source; nearby reopens stay attached below.'
+      : 'Use shell Search or New when you want another source; the dock keeps nearby reopen options visible here.'
+    : null
   const notesPanelSummary = selectedDocument
     ? notesLoading
       ? 'Loading saved notes for the active source.'
       : notesStatus === 'error'
         ? 'Saved notes are temporarily unavailable for this source.'
         : activeReaderNote
-          ? `Working note: ${activeReaderNote.anchor.anchor_text}`
-          : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} for ${selectedDocument.title}.`
+          ? readerOriginalParityMode
+            ? 'Saved notes stay attached here while the article keeps the lead.'
+            : `Working note: ${activeReaderNote.anchor.anchor_text}`
+          : readerOriginalParityMode
+            ? `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} stay nearby for this source.`
+            : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} for ${selectedDocument.title}.`
     : 'Open a source to keep saved highlights close by.'
   const shellContext = useMemo<WorkspaceDockContext | null>(() => {
     if (!selectedDocument) {
@@ -1293,7 +1313,7 @@ export function ReaderWorkspace({
     onShellSourceWorkspaceChange({
       activeTab: 'reader',
       counts: sourceWorkspaceCounts,
-      description: 'Keep one source primary while notes, graph, and study stay docked nearby.',
+      description: 'Keep one source primary while nearby work stays docked.',
       document: {
         availableModes: selectedDocument.available_modes,
         fileName: selectedDocument.file_name ?? null,
@@ -1514,7 +1534,15 @@ export function ReaderWorkspace({
                 </div>
               </div>
 
-              <div className={`reader-stage-glance-bar${readerOriginalParityMode ? ' reader-stage-glance-bar-original-parity' : ''}`}>
+              <div
+                className={`reader-stage-glance-bar${
+                  readerOriginalParityMode ? ' reader-stage-glance-bar-original-parity' : ''
+                }${
+                  readerOriginalParityMode && !showReaderStageGlanceNote
+                    ? ' reader-stage-glance-bar-original-parity-note-hidden'
+                    : ''
+                }`}
+              >
                 <div
                   className={`reader-meta-row reader-stage-glance-meta${
                     readerOriginalParityMode ? ' reader-stage-glance-meta-original-parity' : ''
@@ -1528,7 +1556,7 @@ export function ReaderWorkspace({
                     </span>
                   ))}
                 </div>
-                <p className="reader-stage-glance-note">{readerStageGlanceNote}</p>
+                {showReaderStageGlanceNote ? <p className="reader-stage-glance-note">{readerStageGlanceNote}</p> : null}
               </div>
               <div
                 className={`reader-reading-deck-layout${
@@ -1630,13 +1658,14 @@ export function ReaderWorkspace({
                             >
                               <strong>Active source</strong>
                               <p className="reader-support-glance-title">{selectedDocument.title}</p>
-                              <p>{selectedDocument.file_name ?? 'Saved locally in Recall.'}</p>
                             </div>
-                            <p className="small-note reader-support-glance-note">
-                              {readerOriginalParityMode
-                                ? 'Use shell Search or New when you want another source; the dock keeps nearby reopen options close.'
-                                : 'Use shell Search or New when you want another source; the dock keeps nearby reopen options visible here.'}
-                            </p>
+                            {readerSupportGlanceMetaLine ? (
+                              <p className="reader-support-glance-meta-line">{readerSupportGlanceMetaLine}</p>
+                            ) : null}
+                            <p className="small-note reader-support-glance-note">{readerSupportGlanceNote}</p>
+                            {readerSupportGlanceFootnote ? (
+                              <p className="small-note reader-support-glance-footnote">{readerSupportGlanceFootnote}</p>
+                            ) : null}
                           </>
                         ) : (
                           <>
@@ -1647,8 +1676,8 @@ export function ReaderWorkspace({
                             >
                               <strong>Ready for the next source</strong>
                               <p className="reader-support-glance-title">Bring one source into focus</p>
-                              <p>Use the shell Search or New actions to open another document without leaving Recall.</p>
                             </div>
+                            <p className="small-note reader-support-glance-note">{readerSupportGlanceNote}</p>
                           </>
                         )}
                       </div>
@@ -1680,8 +1709,12 @@ export function ReaderWorkspace({
                       />
                       <p className="sidebar-footnote">
                         {health?.openai_configured
-                          ? 'Simplify and Summary stay available as optional Recall transforms.'
-                          : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
+                          ? readerOriginalParityMode
+                            ? 'Optional Simplify and Summary transforms stay available when you want them.'
+                            : 'Simplify and Summary stay available as optional Recall transforms.'
+                          : readerOriginalParityMode
+                            ? 'Optional Simplify and Summary transforms need OPENAI_API_KEY.'
+                            : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
                       </p>
                     </div>
                   ) : (

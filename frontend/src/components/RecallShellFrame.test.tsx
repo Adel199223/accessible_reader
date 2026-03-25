@@ -44,6 +44,7 @@ const sourceWorkspace: SourceWorkspaceFrameState = {
 function renderShell(overrides?: {
   activeSection?: WorkspaceSection
   currentContext?: WorkspaceDockContext | null
+  layoutMode?: 'default' | 'home' | 'reader'
   recentItems?: Array<{
     badge: string
     key: string
@@ -71,6 +72,7 @@ function renderShell(overrides?: {
         eyebrow: 'Recall',
         title: 'Recall',
       }}
+      layoutMode={overrides?.layoutMode}
       onActivateTarget={() => undefined}
       onSelectSection={onSelectSection}
       recentItems={
@@ -118,6 +120,18 @@ test('RecallShellFrame keeps the utility dock for non-library browse sections', 
 
   expect(screen.getByRole('heading', { name: 'Current context', level: 2 })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Recent work', level: 2 })).toBeInTheDocument()
+})
+
+test('RecallShellFrame home mode hides the shared topbar so Home can own its compact Recall-like chrome', () => {
+  renderShell({
+    activeSection: 'library',
+    layoutMode: 'home',
+  })
+
+  expect(screen.queryByRole('button', { name: 'Search' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Recall', level: 1 })).not.toBeInTheDocument()
+  expect(screen.getByRole('tablist', { name: 'Workspace sections' })).toBeInTheDocument()
 })
 
 test('RecallShellFrame hides the utility dock and shows the compact source strip in focused mode', () => {

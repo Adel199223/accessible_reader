@@ -12,7 +12,7 @@ interface RecallShellFrameProps {
   currentContext: WorkspaceDockContext | null
   headerActions?: ReactNode
   hero: WorkspaceHeroProps
-  layoutMode?: 'default' | 'reader'
+  layoutMode?: 'default' | 'home' | 'reader'
   onActivateTarget: (target: WorkspaceDockTarget) => void
   onSelectSection: (section: WorkspaceSection) => void
   onToggleSupportChrome?: () => void
@@ -96,6 +96,8 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
   const activeSectionLabel = workspaceSections.find((section) => section.value === activeSection)?.label ?? 'Recall'
   const showUtilityPanel = layoutMode === 'default' && !sourceFocused && activeSection === 'notes'
   const shellTitle = layoutMode === 'reader' ? 'Reader' : 'Recall'
+  const homeMode = layoutMode === 'home'
+  const hideTopbar = homeMode
   const showTopbarEyebrow = layoutMode === 'reader'
   const shellEyebrow = layoutMode === 'reader' ? 'Reader workspace' : null
   const showSectionChip = layoutMode === 'reader' || (!sourceFocused && activeSection !== 'library')
@@ -106,6 +108,7 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
       className={[
         'recall-shell-frame',
         layoutMode === 'reader' ? 'recall-shell-frame-reader' : 'recall-shell-frame-default',
+        homeMode ? 'recall-shell-frame-home' : '',
         sourceFocused ? 'recall-shell-frame-source-focused' : '',
       ]
         .filter(Boolean)
@@ -145,16 +148,18 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
       </aside>
 
       <main className="workspace-shell-main">
-        <header className={quietTopbar ? 'workspace-topbar workspace-topbar-quiet' : 'workspace-topbar'}>
-          <div className="workspace-topbar-copy">
-            {showTopbarEyebrow && shellEyebrow ? <p className="workspace-topbar-eyebrow">{shellEyebrow}</p> : null}
-            <div className="workspace-topbar-heading-row">
-              <h1>{shellTitle}</h1>
-              {showSectionChip ? <span className="workspace-topbar-section-chip">{activeSectionLabel}</span> : null}
+        {!hideTopbar ? (
+          <header className={quietTopbar ? 'workspace-topbar workspace-topbar-quiet' : 'workspace-topbar'}>
+            <div className="workspace-topbar-copy">
+              {showTopbarEyebrow && shellEyebrow ? <p className="workspace-topbar-eyebrow">{shellEyebrow}</p> : null}
+              <div className="workspace-topbar-heading-row">
+                <h1>{shellTitle}</h1>
+                {showSectionChip ? <span className="workspace-topbar-section-chip">{activeSectionLabel}</span> : null}
+              </div>
             </div>
-          </div>
-          {headerActions ? <div className="workspace-topbar-actions">{headerActions}</div> : null}
-        </header>
+            {headerActions ? <div className="workspace-topbar-actions">{headerActions}</div> : null}
+          </header>
+        ) : null}
 
         <div
           className={

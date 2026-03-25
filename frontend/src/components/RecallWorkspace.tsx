@@ -85,6 +85,7 @@ interface RecallWorkspaceProps {
   onShellContextChange: (context: WorkspaceDockContext | null) => void
   onSectionChange: (section: RecallSection) => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
+  onOpenSearch: () => void
   onRequestNewSource: () => void
   onShellSourceWorkspaceChange: (workspace: SourceWorkspaceFrameState | null) => void
   onOpenReader: (
@@ -418,6 +419,37 @@ function shouldShowHomeLibraryStageSourcePreview(document: RecallDocumentRecord,
     return false
   }
   return true
+}
+
+function getHomeDocumentSourceLabel(document: RecallDocumentRecord) {
+  if (document.source_locator) {
+    try {
+      const url = new URL(document.source_locator)
+      if (url.hostname) {
+        return url.hostname.replace(/^www\./i, '')
+      }
+    } catch {
+      // Fall back to the stored locator text.
+    }
+    return document.source_locator
+  }
+
+  if (document.file_name) {
+    return document.file_name
+  }
+
+  return document.source_type === 'paste' ? 'Local capture' : 'Local source'
+}
+
+function buildHomeCalendarDayKey(timestamp: string) {
+  const date = new Date(timestamp)
+  if (!Number.isFinite(date.getTime())) {
+    return 'unknown'
+  }
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function sortRecallDocumentsForHome(
@@ -1033,6 +1065,20 @@ function getHomeWorkspaceSectionDisplayLimit(sectionKey: LibraryBrowseSection['k
   return 4
 }
 
+function shouldKeepGroupedOverviewCompactMetaSourceType(
+  sectionKey: LibraryBrowseSection['key'],
+  sourceType: string,
+) {
+  const normalized = sourceType.trim().toLowerCase()
+  if (sectionKey === 'collection:web') {
+    return normalized !== 'web'
+  }
+  if (isCollectionCaptureSection(sectionKey)) {
+    return normalized !== 'paste'
+  }
+  return true
+}
+
 function getHomeBrowseBranchDisplayLimit(sectionKey: LibraryBrowseSection['key'], viewMode: RecallHomeViewMode) {
   const baseLimit = isRecentTodaySection(sectionKey)
     ? 4
@@ -1501,6 +1547,8 @@ export function RecallWorkspace({
   continuityState,
   focusRequest = null,
   onContinuityStateChange,
+  onOpenSearch,
+  onRequestNewSource,
   onShellContextChange,
   onOpenReader,
   onSectionChange,
@@ -1615,7 +1663,9 @@ export function RecallWorkspace({
   const [homeCollectionDraftState, setHomeCollectionDraftState] = useState<HomeCollectionDraftState | null>(null)
   const [homeCollectionDraftName, setHomeCollectionDraftName] = useState('')
   const [homeCollectionAssignmentPanelOpen, setHomeCollectionAssignmentPanelOpen] = useState(false)
+  const [homeStage563SortMenuOpen, setHomeStage563SortMenuOpen] = useState(false)
   const homeOrganizerRailResizeSessionRef = useRef<HomeOrganizerRailResizeSession | null>(null)
+  const homeStage563SortMenuRef = useRef<HTMLDivElement | null>(null)
   const [homeManualSectionOrderByLens, setHomeManualSectionOrderByLens] = useState<
     Record<RecallHomeOrganizerLens, LibraryBrowseSectionKey[]>
   >({
@@ -1828,6 +1878,32 @@ export function RecallWorkspace({
       }
     }
   }, [homeSortDirection, homeSortMode])
+
+  useEffect(() => {
+    if (!homeStage563SortMenuOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (homeStage563SortMenuRef.current?.contains(event.target as Node)) {
+        return
+      }
+      setHomeStage563SortMenuOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setHomeStage563SortMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [homeStage563SortMenuOpen])
 
   const effectiveHomeAutomaticSortMode =
     homeSortMode === 'manual' ? homeLastAutomaticSortRef.current.mode : homeSortMode
@@ -2059,10 +2135,10 @@ export function RecallWorkspace({
   }, [rawLibraryBrowseSections])
 
   useEffect(() => {
-    if (homeSelectedSectionKey && !rawLibraryBrowseSections.some((section) => section.key === homeSelectedSectionKey)) {
+    if (homeSelectedSectionKey && !orderedLibraryBrowseSections.some((section) => section.key === homeSelectedSectionKey)) {
       setHomeSelectedSectionKey(null)
     }
-  }, [homeSelectedSectionKey, rawLibraryBrowseSections])
+  }, [homeSelectedSectionKey, orderedLibraryBrowseSections])
 
   useEffect(() => {
     if (!homeOrganizerSelectionKeys.length) {
@@ -3450,16 +3526,16 @@ export function RecallWorkspace({
     libraryFilterActive,
   ])
   const homeSelectedBrowseSection = useMemo(() => {
-    if (libraryFilterActive || libraryBrowseSections.length === 0) {
+    if (orderedLibraryBrowseSections.length === 0) {
       return null
     }
 
     if (!homeSelectedSectionKey) {
-      return null
+      return orderedLibraryBrowseSections[0] ?? null
     }
 
-    return libraryBrowseSections.find((section) => section.key === homeSelectedSectionKey) ?? null
-  }, [homeSelectedSectionKey, libraryBrowseSections, libraryFilterActive])
+    return orderedLibraryBrowseSections.find((section) => section.key === homeSelectedSectionKey) ?? null
+  }, [homeSelectedSectionKey, orderedLibraryBrowseSections])
   const homeSelectedCustomCollection = useMemo(() => {
     const collectionId = homeSelectedBrowseSection ? getHomeCustomCollectionIdFromSectionKey(homeSelectedBrowseSection.key) : null
     if (!collectionId) {
@@ -3507,6 +3583,88 @@ export function RecallWorkspace({
     homeSelectedSectionDisplayLimit,
     homeSelectedSectionDocuments,
   ])
+  const homeUsesStructuralParityStage563 = section === 'library' && !showFocusedLibraryOverview
+  const homeCanvasDocuments = useMemo(() => {
+    if (libraryFilterActive) {
+      return visibleDocuments
+    }
+    if (!homeSelectedBrowseSection) {
+      return []
+    }
+    return homeSelectedBrowseSection.documents
+  }, [homeSelectedBrowseSection, libraryFilterActive, visibleDocuments])
+  const visibleHomeCanvasDocuments = useMemo(() => {
+    if (libraryFilterActive || !homeSelectedBrowseSection) {
+      return homeCanvasDocuments
+    }
+
+    return expandedLibrarySectionKeys[homeSelectedBrowseSection.key]
+      ? homeCanvasDocuments
+      : homeCanvasDocuments.slice(0, homeSelectedSectionDisplayLimit)
+  }, [
+    expandedLibrarySectionKeys,
+    homeCanvasDocuments,
+    homeSelectedBrowseSection,
+    homeSelectedSectionDisplayLimit,
+    libraryFilterActive,
+  ])
+  const homeDayHeadingFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(undefined, {
+        day: 'numeric',
+        month: 'short',
+        weekday: 'short',
+        year: 'numeric',
+      }),
+    [],
+  )
+  const homeCanvasDayGroups = useMemo(() => {
+    const groups = new Map<string, { documents: RecallDocumentRecord[]; label: string }>()
+
+    for (const document of visibleHomeCanvasDocuments) {
+      const key = buildHomeCalendarDayKey(document.updated_at)
+      const timestamp = new Date(document.updated_at)
+      const label = Number.isFinite(timestamp.getTime())
+        ? homeDayHeadingFormatter.format(timestamp)
+        : 'Unknown date'
+      const existing = groups.get(key)
+      if (existing) {
+        existing.documents.push(document)
+      } else {
+        groups.set(key, {
+          documents: [document],
+          label,
+        })
+      }
+    }
+
+    return Array.from(groups.entries())
+      .sort(([leftKey], [rightKey]) => rightKey.localeCompare(leftKey))
+      .map(([key, group]) => ({
+        documents: group.documents,
+        key,
+        label: group.label,
+      }))
+  }, [homeDayHeadingFormatter, visibleHomeCanvasDocuments])
+  const homeVisibleCanvasCountLabel = formatCountLabel(homeCanvasDocuments.length, 'source', 'sources')
+  const homeCanvasHeading = libraryFilterActive ? 'Search results' : homeSelectedBrowseSection?.label ?? 'Saved sources'
+  const homeCanvasSummary = libraryFilterActive
+    ? `${visibleDocuments.length} matches across your local workspace.`
+    : homeSelectedBrowseSection
+      ? `${homeVisibleCanvasCountLabel} in ${homeSelectedBrowseSection.label}.`
+      : `${documents.length} ready`
+  const homeCanvasEmptyNote =
+    documentsStatus === 'error'
+      ? 'Saved sources are unavailable until the local service reconnects.'
+      : libraryFilterActive
+        ? 'No saved sources match that filter yet.'
+        : homeSelectedBrowseSection
+          ? isHomeCustomCollectionSection(homeSelectedBrowseSection.key)
+            ? 'This collection is empty. Add or assign sources to start filling the board.'
+            : 'No sources are in this lane yet.'
+          : 'No saved sources are ready for Home yet.'
+  const homeCanvasDayLeadLabel = homeCanvasDayGroups[0]?.label ?? null
+  const showHomeStage563Canvas = homeUsesStructuralParityStage563 && Boolean(homeSelectedBrowseSection || libraryFilterActive)
   const showHomeReopenCluster = Boolean(homeLeadDocument || homeContinueDocuments.length > 0)
   const homeWorkspaceLeadLabel = resumeSourceDocument ? 'Continue where you left off' : 'Open next'
   const homeWorkspaceLeadSummary =
@@ -3531,7 +3689,7 @@ export function RecallWorkspace({
       : activeSourceDocumentId) ?? null
   const homeBrowseSectionEntries = useMemo(
     () =>
-      libraryBrowseSections.map((section) => {
+      orderedLibraryBrowseSections.map((section) => {
         const sectionActive = section.key === homeSelectedBrowseSection?.key
         const branchDisplayLimit = getHomeBrowseBranchDisplayLimit(section.key, homeViewMode)
         const branchExpanded = expandedHomeBrowseBranchKeys[section.key]
@@ -3553,7 +3711,13 @@ export function RecallWorkspace({
           previewDocuments,
         }
       }),
-    [expandedHomeBrowseBranchKeys, homeBrowsePreviewsCollapsed, homeSelectedBrowseSection?.key, homeViewMode, libraryBrowseSections],
+    [
+      expandedHomeBrowseBranchKeys,
+      homeBrowsePreviewsCollapsed,
+      homeSelectedBrowseSection?.key,
+      homeViewMode,
+      orderedLibraryBrowseSections,
+    ],
   )
   const homeSelectedGroupHeading = homeSelectedBrowseSection?.label ?? 'Selected group'
   const homeOrganizerLensLabel = getHomeOrganizerLensLabel(homeOrganizerLens)
@@ -3563,6 +3727,41 @@ export function RecallWorkspace({
   const homeOverviewGroupCountLabel = formatCountLabel(homeWorkspaceLibrarySections.length, 'group', 'groups')
   const showHomeBoardOverview =
     !libraryFilterActive && !homeSelectedBrowseSection && homeWorkspaceLibrarySections.length > 0
+  const homeOverviewUsesPrimaryLaneStage537 =
+    showHomeBoardOverview &&
+    homeOrganizerLens === 'collections' &&
+    homeViewMode === 'board' &&
+    homeWorkspaceLibrarySections.length === 3 &&
+    homeWorkspaceLibrarySections.every(
+      (section) =>
+        section.key === 'collection:web' ||
+        section.key === 'collection:documents' ||
+        isCollectionCaptureSection(section.key),
+    )
+  const homeOverviewUsesHeaderCompactionStage539 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesInlineStatusSeamStage541 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesStatusNarrowingStage543 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesInlineTitleStatusStage545 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesHelperNoteRetirementStage547 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesCardIntroRetirementStage549 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesRowDensityStage551 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesOverlineRetirementStage553 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesLighterRowMetaStage555 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesVisibleViewCountRetirementStage557 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesVisibleCountChipRetirementStage559 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOverviewUsesFooterCountRetirementStage561 =
+    showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
   const homeSelectedGroupSummary = homeSelectedBrowseSection
     ? homeSelectedSectionDocuments.length > 0
       ? homeOrganizerVisible
@@ -3584,6 +3783,7 @@ export function RecallWorkspace({
   const homeManualModeActive = homeSortMode === 'manual'
   const homeSortModeShortLabel = getLibrarySortModeShortLabel(homeSortMode)
   const homeSortDirectionShortLabel = getLibrarySortDirectionShortLabel(homeSortMode, homeSortDirection)
+  const homeSortMenuLabel = `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel}`
   const homeOrganizerToggleLabel = homeOrganizerVisible ? 'Hide organizer' : 'Show organizer'
   const homeOrganizerToggleCompactLabel = homeOrganizerVisible ? 'Hide rail' : 'Show rail'
   const showHomeCompactControls =
@@ -3620,8 +3820,73 @@ export function RecallWorkspace({
     : `${homeOverviewGroupCountLabel} · ${homeWorkingSetStatus}`
   const homeOverviewBoardEyebrow = `${homeOrganizerLensLabel} overview`
   const homeOverviewBoardSummary = homeOrganizerVisible
-    ? `Grouped ${homeViewModePhrase} stays open until you pick a branch from the organizer.`
-    : `Grouped ${homeViewModePhrase} stays open while the organizer is hidden.`
+    ? 'Pick a branch from the organizer to focus one group.'
+    : `The grouped ${homeViewModePhrase} stays open while the organizer is hidden.`
+  const homeOverviewBoardSummaryStage547 = homeOrganizerVisible
+    ? null
+    : `The grouped ${homeViewModePhrase} stays open while the organizer is hidden.`
+  const homeOverviewBoardLeadSummary = homeOverviewUsesHelperNoteRetirementStage547
+    ? homeOverviewBoardSummaryStage547
+    : homeOverviewBoardSummary
+  const homeOverviewStatusItems = [homeSavedSourceLabel, homeOverviewGroupCountLabel, homeWorkingSetStatus]
+  const homeOverviewStatusSummaryStage543 = `${homeSavedSourceLabel} · ${homeSortModeShortLabel} · ${homeSortDirectionShortLabel}`
+  const homeOverviewStatusAccessibleLabel = `${homeSavedSourceLabel}; ${homeOverviewGroupCountLabel}; ${homeWorkingSetStatus}`
+  const renderHomeOverviewStatusList = ({
+    useInlineStatusSeamStage541 = false,
+    useStatusNarrowingStage543 = false,
+    useInlineTitleStatusStage545 = false,
+  }: {
+    useInlineStatusSeamStage541?: boolean
+    useStatusNarrowingStage543?: boolean
+    useInlineTitleStatusStage545?: boolean
+  } = {}) => {
+    const useStage543StatusSummary = useStatusNarrowingStage543 && homeOverviewUsesStatusNarrowingStage543
+    const useStage545InlineTitleJoin =
+      useInlineTitleStatusStage545 && homeOverviewUsesInlineTitleStatusStage545
+    const visibleStatusItems = useStage543StatusSummary ? [homeOverviewStatusSummaryStage543] : homeOverviewStatusItems
+
+    return (
+    <div
+      className={[
+        'recall-home-library-stream-meta',
+        'recall-home-library-stream-meta-stage500-reset',
+        homeOverviewUsesHeaderCompactionStage539 ? 'recall-home-library-stream-meta-stage539-reset' : '',
+        useInlineStatusSeamStage541 && homeOverviewUsesInlineStatusSeamStage541
+          ? 'recall-home-library-stream-meta-stage541-reset'
+          : '',
+        useStage543StatusSummary ? 'recall-home-library-stream-meta-stage543-reset' : '',
+        useStage545InlineTitleJoin ? 'recall-home-library-stream-meta-stage545-reset' : '',
+        homeOverviewUsesHelperNoteRetirementStage547 ? 'recall-home-library-stream-meta-stage547-reset' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      role="list"
+      aria-label={`Library overview status: ${homeOverviewStatusAccessibleLabel}`}
+      title={useStage543StatusSummary ? homeOverviewStatusAccessibleLabel : undefined}
+    >
+      {visibleStatusItems.map((item, index) => (
+        <span
+          className={[
+            'recall-home-library-stream-status-stage500-reset',
+            homeOverviewUsesHeaderCompactionStage539 ? 'recall-home-library-stream-status-stage539-reset' : '',
+            useInlineStatusSeamStage541 && homeOverviewUsesInlineStatusSeamStage541
+              ? 'recall-home-library-stream-status-stage541-reset'
+              : '',
+            useStage543StatusSummary ? 'recall-home-library-stream-status-stage543-reset' : '',
+            useStage545InlineTitleJoin ? 'recall-home-library-stream-status-stage545-reset' : '',
+            homeOverviewUsesHelperNoteRetirementStage547 ? 'recall-home-library-stream-status-stage547-reset' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          role="listitem"
+          key={`${item}-${index}`}
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+    )
+  }
   const homeControlSeamSecondaryStatus =
     libraryFilterActive || homeOrganizerVisible ? `${homeOrganizerLensLabel} · ${homeWorkingSetStatus}` : 'Organizer hidden'
   const homeBrowseStripHeading = libraryFilterActive ? 'Matching sources' : homeOrganizerLensLabel
@@ -4724,6 +4989,14 @@ export function RecallWorkspace({
     )
   }, [])
 
+  const handleResetGraphLegendFilters = useCallback(() => {
+    if (graphColorGroupMode === 'source') {
+      setGraphSourceTypeFilters([])
+      return
+    }
+    setGraphNodeTypeFilters([])
+  }, [graphColorGroupMode])
+
   const handleSetGraphColorGroupMode = useCallback((mode: GraphColorGroupMode) => {
     setGraphColorGroupMode(mode)
   }, [])
@@ -5773,6 +6046,439 @@ export function RecallWorkspace({
     )
   }
 
+  function renderHomeStage563AddTile() {
+    return (
+      <button
+        aria-label={`Add content to ${homeCanvasHeading}`}
+        className="recall-home-parity-add-tile-stage563"
+        type="button"
+        onClick={onRequestNewSource}
+      >
+        <span className="recall-home-parity-add-tile-mark-stage563" aria-hidden="true">
+          +
+        </span>
+        <span className="recall-home-parity-add-tile-copy-stage563">
+          <strong>Add Content</strong>
+          <span>
+            {homeCanvasDayLeadLabel
+              ? `Start a new source in ${homeCanvasDayLeadLabel}.`
+              : 'Bring in a link, paste, or local file.'}
+          </span>
+        </span>
+      </button>
+    )
+  }
+
+  function renderHomeStage563Card(document: RecallDocumentRecord) {
+    const sourceTypeLabel = formatHomeDocumentSourceTypeEyebrow(document.source_type)
+    const sourceLabel = getHomeDocumentSourceLabel(document)
+    const updatedLabel = homeDateFormatter.format(new Date(document.updated_at))
+    const cardCollectionLabel = libraryFilterActive ? formatHomeDocumentSourceTypeEyebrow(document.source_type) : homeCanvasHeading
+
+    return (
+      <button
+        aria-label={`Open ${document.title}`}
+        className="recall-home-parity-card-stage563"
+        key={`home-parity-card:${document.id}`}
+        type="button"
+        onClick={() => focusSourceLibrary(document.id)}
+      >
+        <span
+          className="recall-home-parity-card-preview-stage563"
+          aria-hidden="true"
+          data-source-type={document.source_type.toLowerCase()}
+        >
+          <span className="recall-home-parity-card-preview-badge-stage563">{sourceTypeLabel}</span>
+        </span>
+        <span className="recall-home-parity-card-copy-stage563">
+          <strong>{document.title}</strong>
+          <span className="recall-home-parity-card-source-stage563">{sourceLabel}</span>
+          <span className="recall-home-parity-card-meta-stage563">{updatedLabel}</span>
+        </span>
+        <span className="recall-home-parity-card-chip-stage563">{cardCollectionLabel}</span>
+      </button>
+    )
+  }
+
+  function renderHomeStage563ListRow(document: RecallDocumentRecord) {
+    const sourceTypeLabel = formatHomeDocumentSourceTypeEyebrow(document.source_type)
+    const sourceLabel = getHomeDocumentSourceLabel(document)
+    const updatedLabel = homeDateFormatter.format(new Date(document.updated_at))
+
+    return (
+      <button
+        aria-label={`Open ${document.title}`}
+        className="recall-home-parity-list-row-stage563"
+        key={`home-parity-row:${document.id}`}
+        type="button"
+        onClick={() => focusSourceLibrary(document.id)}
+      >
+        <span className="recall-home-parity-list-row-main-stage563">
+          <strong>{document.title}</strong>
+          <span>{sourceLabel}</span>
+        </span>
+        <span className="recall-home-parity-list-row-meta-stage563">
+          <span>{sourceTypeLabel}</span>
+          <span>{updatedLabel}</span>
+        </span>
+      </button>
+    )
+  }
+
+  function renderHomeStage563SortMenu() {
+    return (
+      <div
+        className={
+          homeStage563SortMenuOpen
+            ? 'recall-home-parity-sort-menu-stage563 recall-home-parity-sort-menu-stage563-open'
+            : 'recall-home-parity-sort-menu-stage563'
+        }
+        ref={homeStage563SortMenuRef}
+      >
+        <button
+          aria-controls="home-stage563-sort-panel"
+          aria-expanded={homeStage563SortMenuOpen}
+          aria-haspopup="true"
+          aria-label={`Sort Home sources. Current ${homeSortMenuLabel}`}
+          className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-sort-trigger-stage563"
+          type="button"
+          onClick={() => setHomeStage563SortMenuOpen((current) => !current)}
+        >
+          <span>Sort</span>
+          <span aria-hidden="true" className="recall-home-parity-sort-caret-stage563">
+            v
+          </span>
+        </button>
+        <div
+          className="recall-home-parity-sort-panel-stage563"
+          hidden={!homeStage563SortMenuOpen}
+          id="home-stage563-sort-panel"
+          role="group"
+          aria-label="Sort Home sources"
+        >
+          <div className="recall-home-parity-sort-group-stage563" role="group" aria-label="Sort mode">
+            <button
+              aria-pressed={homeSortMode === 'updated'}
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                setHomeSortMode('updated')
+                setHomeStage563SortMenuOpen(false)
+              }}
+            >
+              Updated
+            </button>
+            <button
+              aria-pressed={homeSortMode === 'created'}
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                setHomeSortMode('created')
+                setHomeStage563SortMenuOpen(false)
+              }}
+            >
+              Created
+            </button>
+            <button
+              aria-pressed={homeSortMode === 'title'}
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                setHomeSortMode('title')
+                setHomeStage563SortMenuOpen(false)
+              }}
+            >
+              A-Z
+            </button>
+            <button
+              aria-pressed={homeSortMode === 'manual'}
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                setHomeSortMode('manual')
+                setHomeStage563SortMenuOpen(false)
+              }}
+            >
+              Manual
+            </button>
+          </div>
+          <div className="recall-home-parity-sort-group-stage563" role="group" aria-label="Sort direction">
+            <button
+              aria-pressed={homeSortDirection === 'desc'}
+              className="ghost-button"
+              disabled={homeManualModeActive}
+              type="button"
+              onClick={() => {
+                setHomeSortDirection('desc')
+                setHomeStage563SortMenuOpen(false)
+              }}
+            >
+              {homeSortMode === 'title' ? 'Descending' : 'Newest'}
+            </button>
+            <button
+              aria-pressed={homeSortDirection === 'asc'}
+              className="ghost-button"
+              disabled={homeManualModeActive}
+              type="button"
+              onClick={() => {
+                setHomeSortDirection('asc')
+                setHomeStage563SortMenuOpen(false)
+              }}
+            >
+              {homeSortMode === 'title' ? 'Ascending' : 'Oldest'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  function renderHomeStage563CollectionRail() {
+    return (
+      <aside
+        aria-label="Home collection rail"
+        className="recall-home-parity-rail-stage563 priority-surface-support-rail priority-surface-support-rail-quiet"
+        style={homeOrganizerRailStyle}
+      >
+        <div className="recall-home-parity-rail-header-stage563">
+          <div className="recall-home-parity-rail-heading-stage563">
+            <strong>{homeOrganizerLens === 'collections' ? 'Collections' : 'Recent'}</strong>
+            <span>{formatCountLabel(homeBrowseSectionEntries.length, 'group', 'groups')}</span>
+          </div>
+          <span className="recall-home-parity-rail-note-stage563">{homeCanvasSummary}</span>
+        </div>
+
+        <div className="recall-home-parity-rail-list-stage563" role="list">
+          {homeBrowseSectionEntries.map((section) => {
+            const active = section.key === homeSelectedBrowseSection?.key
+            return (
+              <div className="recall-home-parity-rail-item-stage563" key={section.key} role="listitem">
+                <button
+                  aria-pressed={active}
+                  className={active ? 'recall-home-parity-rail-button-stage563 recall-home-parity-rail-button-active-stage563' : 'recall-home-parity-rail-button-stage563'}
+                  type="button"
+                  onClick={(event) => handleHomeOrganizerSectionClick(section.key, event)}
+                >
+                  <span className="recall-home-parity-rail-button-copy-stage563">
+                    <strong>{section.label}</strong>
+                    <span>{active ? section.description : section.previewLeadDocument?.title ?? section.description}</span>
+                  </span>
+                  <span className="recall-home-parity-rail-count-stage563">{section.count}</span>
+                </button>
+                {active && section.previewLeadDocument ? (
+                  <button
+                    aria-label={`Open ${section.previewLeadDocument.title} from ${section.label}`}
+                    className="recall-home-parity-rail-preview-stage563"
+                    type="button"
+                    onClick={() => focusSourceLibrary(section.previewLeadDocument?.id ?? '')}
+                  >
+                    {section.previewLeadDocument.title}
+                  </button>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+
+        <details className="recall-home-parity-advanced-stage563">
+          <summary>Organizer options</summary>
+          <div className="recall-home-parity-advanced-body-stage563">
+            <label className="field recall-inline-field">
+              <span>Filter sources</span>
+              <input
+                aria-label="Filter saved sources"
+                type="search"
+                placeholder="Filter saved sources"
+                value={libraryFilterQuery}
+                onChange={(event) =>
+                  updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                }
+              />
+            </label>
+            <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer lens">
+              <button
+                aria-pressed={homeOrganizerLens === 'collections'}
+                className="ghost-button"
+                type="button"
+                onClick={() => setHomeOrganizerLens('collections')}
+              >
+                Collections
+              </button>
+              <button
+                aria-pressed={homeOrganizerLens === 'recent'}
+                className="ghost-button"
+                type="button"
+                onClick={() => setHomeOrganizerLens('recent')}
+              >
+                Recent
+              </button>
+            </div>
+            <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer utilities">
+              {homeCanCreateCustomCollection ? (
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() =>
+                    openHomeCollectionDraft('create', {
+                      seedDocumentIds: homeSelectedOrganizerDocumentIds,
+                    })
+                  }
+                >
+                  {homeSelectedOrganizerDocumentIds.length > 0 ? 'New collection' : 'Create collection'}
+                </button>
+              ) : null}
+              <button className="ghost-button" type="button" onClick={() => setHomeOrganizerVisible(false)}>
+                Hide rail
+              </button>
+            </div>
+            {renderHomeCollectionManagementPanel()}
+          </div>
+        </details>
+
+        {homeOrganizerSelectionKeys.length > 0 ? (
+          <div className="recall-home-organizer-selection-bar recall-home-organizer-selection-bar-stage483-reset recall-home-organizer-selection-bar-stage487-reset" role="group" aria-label="Organizer selection bar">
+            <div className="recall-home-organizer-selection-copy-stage483-reset">
+              <strong>{formatCountLabel(homeOrganizerSelectionKeys.length, 'item', 'items')} selected</strong>
+              <span>{homeOrganizerSelectionSummary}</span>
+            </div>
+            <div className="recall-home-organizer-selection-actions-stage483-reset recall-home-organizer-selection-actions-stage487-reset">
+              {homeSingleOrganizerSelection ? (
+                <button className="ghost-button" type="button" onClick={handleHomeSingleSelectionPrimaryAction}>
+                  {homeSingleOrganizerSelection.kind === 'section' ? 'Show in board' : 'Open source'}
+                </button>
+              ) : null}
+              {homeCanAssignSelectedSourcesToCollections ? (
+                <button className="ghost-button" type="button" onClick={() => setHomeCollectionAssignmentPanelOpen((current) => !current)}>
+                  {homeCollectionAssignmentPanelOpen ? 'Hide collections' : 'Add to collections'}
+                </button>
+              ) : null}
+              {homeOrganizerSelectionMoveDescriptor && homeManualModeActive ? (
+                <>
+                  <button className="ghost-button" type="button" onClick={() => handleHomeSelectionMove('backward')}>
+                    Move earlier
+                  </button>
+                  <button className="ghost-button" type="button" onClick={() => handleHomeSelectionMove('forward')}>
+                    Move later
+                  </button>
+                </>
+              ) : null}
+              <button className="ghost-button" type="button" onClick={clearHomeOrganizerSelection}>
+                Clear
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div
+          aria-label="Resize Home organizer"
+          aria-orientation="vertical"
+          className="recall-home-browse-strip-resize-handle-stage491-reset"
+          role="separator"
+          tabIndex={0}
+          onDoubleClick={handleResetHomeOrganizerRailWidth}
+          onKeyDown={handleHomeOrganizerRailResizeKeyDown}
+          onPointerDown={handleStartHomeOrganizerRailResize}
+        >
+          <span className="recall-home-browse-strip-resize-grip-stage491-reset" aria-hidden="true" />
+        </div>
+      </aside>
+    )
+  }
+
+  function renderHomeStage563Canvas() {
+    return (
+      <section className="recall-home-parity-canvas-stage563 priority-surface-stage-shell" aria-label="Home collection canvas">
+        <div className="recall-home-parity-toolbar-stage563">
+          <div className="recall-home-parity-toolbar-copy-stage563">
+            <div className="recall-home-parity-toolbar-heading-stage563">
+              <h2>{homeCanvasHeading}</h2>
+              <span>{homeCanvasSummary}</span>
+            </div>
+          </div>
+          <div className="recall-home-parity-toolbar-actions-stage563" aria-label="Home workspace controls">
+            {!homeOrganizerVisible ? (
+              <button
+                className="ghost-button recall-home-parity-toolbar-button-stage563"
+                type="button"
+                onClick={() => setHomeOrganizerVisible(true)}
+              >
+                Collections
+              </button>
+            ) : null}
+            <button className="ghost-button recall-home-parity-toolbar-button-stage563" type="button" onClick={onOpenSearch}>
+              Search
+              <span className="shell-nav-hint">Ctrl+K</span>
+            </button>
+            <button className="recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-primary-stage563" type="button" onClick={onRequestNewSource}>
+              Add
+            </button>
+            <button
+              aria-pressed={homeViewMode === 'list'}
+              className="ghost-button recall-home-parity-toolbar-button-stage563"
+              type="button"
+              onClick={() => setHomeViewMode(homeViewMode === 'list' ? 'board' : 'list')}
+            >
+              List
+            </button>
+            {renderHomeStage563SortMenu()}
+          </div>
+        </div>
+
+        {homeCanvasDayGroups.length > 0 ? (
+          <div className="recall-home-parity-day-groups-stage563">
+            {homeCanvasDayGroups.map((group, index) => (
+              <section className="recall-home-parity-day-group-stage563" key={group.key} aria-label={`${group.label} sources`}>
+                <div className="recall-home-parity-day-group-header-stage563">
+                  <h3>{group.label}</h3>
+                  <span>{formatCountLabel(group.documents.length, 'source', 'sources')}</span>
+                </div>
+                {homeViewMode === 'list' ? (
+                  <div className="recall-home-parity-list-stage563" role="list">
+                    {index === 0 ? renderHomeStage563AddTile() : null}
+                    {group.documents.map((document) => renderHomeStage563ListRow(document))}
+                  </div>
+                ) : (
+                  <div className="recall-home-parity-grid-stage563" role="list">
+                    {index === 0 ? renderHomeStage563AddTile() : null}
+                    {group.documents.map((document) => renderHomeStage563Card(document))}
+                  </div>
+                )}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="recall-library-inline-state recall-home-parity-empty-stage563">
+            <p>{homeCanvasEmptyNote}</p>
+            <button className="ghost-button" type="button" onClick={onRequestNewSource}>
+              Add content
+            </button>
+          </div>
+        )}
+
+        {!libraryFilterActive &&
+        homeSelectedBrowseSection &&
+        homeCanvasDocuments.length > visibleHomeCanvasDocuments.length ? (
+          <div className="recall-home-parity-footer-stage563">
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() =>
+                setExpandedLibrarySectionKeys((current) => ({
+                  ...current,
+                  [homeSelectedBrowseSection.key]: !current[homeSelectedBrowseSection.key],
+                }))
+              }
+            >
+              {expandedLibrarySectionKeys[homeSelectedBrowseSection.key]
+                ? `Show fewer ${homeSelectedBrowseSection.label.toLowerCase()} sources`
+                : `Show all ${homeCanvasDocuments.length} ${homeSelectedBrowseSection.label.toLowerCase()} sources`}
+            </button>
+          </div>
+        ) : null}
+      </section>
+    )
+  }
+
   const handleHomeOrganizerDragEnd = useCallback(() => {
     setHomeOrganizerDragSession(null)
     setHomeOrganizerDropTarget(null)
@@ -6482,39 +7188,122 @@ export function RecallWorkspace({
     )
   }
 
-  function renderHomeLibraryStageRow(document: RecallDocumentRecord, options?: { viewMode?: RecallHomeViewMode }) {
+  function renderHomeLibraryStageRow(
+    document: RecallDocumentRecord,
+    options?: {
+      hideSourcePreview?: boolean
+      metadataSeamStage555?: boolean
+      metadataSeamStage557?: boolean
+      rowCompressionStage553?: boolean
+      rowDensityStage551?: boolean
+      sectionKey?: LibraryBrowseSection['key']
+      viewMode?: RecallHomeViewMode
+    },
+  ) {
     const sortTimestamp = getHomeDocumentTimestampCompactLabel(document, effectiveHomeAutomaticSortMode, homeDateFormatter)
     const availableViewLabel = formatCountLabel(document.available_modes.length, 'view', 'views')
     const listView = options?.viewMode === 'list'
+    const sectionKey = options?.sectionKey
+    const useRowDensityStage551 = options?.rowDensityStage551 ?? false
+    const useRowCompressionStage553 = options?.rowCompressionStage553 ?? false
+    const useLighterRowMetaStage555 = options?.metadataSeamStage555 ?? false
+    const useVisibleViewCountRetirementStage557 = options?.metadataSeamStage557 ?? false
     const sourcePreview = getDocumentSourcePreview(document)
-    const showSourcePreview = shouldShowHomeLibraryStageSourcePreview(document, sourcePreview)
-    const compactMetaLabel = `${sortTimestamp} - ${availableViewLabel}`
+    const sourceTypeLabel = formatHomeDocumentSourceTypeEyebrow(document.source_type)
+    const showSourcePreview = !options?.hideSourcePreview && shouldShowHomeLibraryStageSourcePreview(document, sourcePreview)
+    const compactMetaParts = [
+      useLighterRowMetaStage555 && sectionKey
+        ? shouldKeepGroupedOverviewCompactMetaSourceType(sectionKey, document.source_type)
+          ? sourceTypeLabel
+          : null
+        : sourceTypeLabel,
+      sortTimestamp,
+      useVisibleViewCountRetirementStage557 ? null : availableViewLabel,
+    ].filter(Boolean)
+    const compactMetaLabel = useRowCompressionStage553
+      ? compactMetaParts.join(' · ')
+      : `${sortTimestamp} - ${availableViewLabel}`
+    const rowAriaLabel = `Open ${document.title}${useRowCompressionStage553 ? ` (${sourceTypeLabel})` : ''}${useVisibleViewCountRetirementStage557 ? `, ${availableViewLabel} available` : ''}`
 
     return (
       <button
-        aria-label={`Open ${document.title}`}
-        className={
-          listView
-            ? 'recall-home-library-stage-row recall-home-library-stage-row-source-context-reset recall-home-library-stage-row-board-top-reset recall-home-library-stage-row-results-sheet-reset recall-home-library-stage-row-list-view-stage467-reset recall-home-library-stage-row-stage515-reset recall-home-library-stage-row-stage517-reset recall-home-library-stage-row-stage519-reset recall-home-library-stage-row-stage521-reset'
-            : 'recall-home-library-stage-row recall-home-library-stage-row-source-context-reset recall-home-library-stage-row-board-top-reset recall-home-library-stage-row-results-sheet-reset recall-home-library-stage-row-stage515-reset recall-home-library-stage-row-stage517-reset recall-home-library-stage-row-stage519-reset recall-home-library-stage-row-stage521-reset'
-        }
+        aria-label={rowAriaLabel}
+        className={[
+          'recall-home-library-stage-row',
+          'recall-home-library-stage-row-source-context-reset',
+          'recall-home-library-stage-row-board-top-reset',
+          'recall-home-library-stage-row-results-sheet-reset',
+          listView ? 'recall-home-library-stage-row-list-view-stage467-reset' : '',
+          'recall-home-library-stage-row-stage515-reset',
+          'recall-home-library-stage-row-stage517-reset',
+          'recall-home-library-stage-row-stage519-reset',
+          'recall-home-library-stage-row-stage521-reset',
+          useRowDensityStage551 ? 'recall-home-library-stage-row-stage551-reset' : '',
+          useRowCompressionStage553 ? 'recall-home-library-stage-row-stage553-reset' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         key={`stage:${document.id}`}
         type="button"
         onClick={() => focusSourceLibrary(document.id)}
       >
-        <span className="recall-home-library-stage-row-copy recall-home-library-stage-row-copy-stage515-reset recall-home-library-stage-row-copy-stage517-reset recall-home-library-stage-row-copy-stage521-reset">
-          <span className="recall-library-row-overline recall-home-library-stage-row-overline-stage515-reset">
-            {formatHomeDocumentSourceTypeEyebrow(document.source_type)}
-          </span>
-          <strong className="recall-home-library-stage-row-title-stage517-reset recall-home-library-stage-row-title-stage521-reset">
+        <span
+          className={[
+            'recall-home-library-stage-row-copy',
+            'recall-home-library-stage-row-copy-stage515-reset',
+            'recall-home-library-stage-row-copy-stage517-reset',
+            'recall-home-library-stage-row-copy-stage521-reset',
+            useRowDensityStage551 ? 'recall-home-library-stage-row-copy-stage551-reset' : '',
+            useRowCompressionStage553 ? 'recall-home-library-stage-row-copy-stage553-reset' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          {!useRowCompressionStage553 ? (
+            <span className="recall-library-row-overline recall-home-library-stage-row-overline-stage515-reset">
+              {sourceTypeLabel}
+            </span>
+          ) : null}
+          <strong
+            className={[
+              'recall-home-library-stage-row-title-stage517-reset',
+              'recall-home-library-stage-row-title-stage521-reset',
+              useRowCompressionStage553 ? 'recall-home-library-stage-row-title-stage553-reset' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
             {document.title}
           </strong>
           {showSourcePreview ? (
             <span className="recall-home-library-stage-row-detail-stage515-reset">{sourcePreview}</span>
           ) : null}
         </span>
-        <span className="recall-home-library-stage-row-meta recall-home-library-stage-row-meta-stage515-reset recall-home-library-stage-row-meta-stage521-reset">
-          <span className="recall-home-library-stage-row-meta-compact-stage515-reset">{compactMetaLabel}</span>
+        <span
+          className={[
+            'recall-home-library-stage-row-meta',
+            'recall-home-library-stage-row-meta-stage515-reset',
+            'recall-home-library-stage-row-meta-stage521-reset',
+            useRowDensityStage551 ? 'recall-home-library-stage-row-meta-stage551-reset' : '',
+            useRowCompressionStage553 ? 'recall-home-library-stage-row-meta-stage553-reset' : '',
+            useLighterRowMetaStage555 ? 'recall-home-library-stage-row-meta-stage555-reset' : '',
+            useVisibleViewCountRetirementStage557 ? 'recall-home-library-stage-row-meta-stage557-reset' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <span
+            className={[
+              'recall-home-library-stage-row-meta-compact-stage515-reset',
+              useRowCompressionStage553 ? 'recall-home-library-stage-row-meta-compact-stage553-reset' : '',
+              useLighterRowMetaStage555 ? 'recall-home-library-stage-row-meta-compact-stage555-reset' : '',
+              useVisibleViewCountRetirementStage557 ? 'recall-home-library-stage-row-meta-compact-stage557-reset' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            {compactMetaLabel}
+          </span>
         </span>
       </button>
     )
@@ -6522,7 +7311,11 @@ export function RecallWorkspace({
 
   function renderHomeLibrarySection(
     section: LibraryBrowseSection,
-    options?: { stream?: boolean; viewMode?: RecallHomeViewMode },
+    options?: {
+      overviewLayoutRole?: 'primary' | 'secondary'
+      stream?: boolean
+      viewMode?: RecallHomeViewMode
+    },
   ) {
     const displayLimit = getHomeWorkspaceSectionDisplayLimit(section.key)
     const visibleSectionDocuments = expandedLibrarySectionKeys[section.key]
@@ -6530,65 +7323,143 @@ export function RecallWorkspace({
       : section.documents.slice(0, displayLimit)
     const isWideSection = section.key === 'recent:earlier'
     const isStreamSection = options?.stream ?? false
+    const overviewLayoutRole = options?.overviewLayoutRole
     const viewMode = options?.viewMode ?? 'board'
+    const useCardIntroRetirementStage549 = isStreamSection && homeOverviewUsesCardIntroRetirementStage549
+    const useRowDensityStage551 = isStreamSection && viewMode === 'board' && homeOverviewUsesRowDensityStage551
+    const useRowCompressionStage553 =
+      isStreamSection && viewMode === 'board' && homeOverviewUsesOverlineRetirementStage553
+    const useLighterRowMetaStage555 =
+      isStreamSection && viewMode === 'board' && homeOverviewUsesLighterRowMetaStage555
+    const useVisibleViewCountRetirementStage557 =
+      isStreamSection && viewMode === 'board' && homeOverviewUsesVisibleViewCountRetirementStage557
+    const useVisibleCountChipRetirementStage559 =
+      isStreamSection && viewMode === 'board' && homeOverviewUsesVisibleCountChipRetirementStage559
+    const useFooterCountRetirementStage561 =
+      isStreamSection && viewMode === 'board' && homeOverviewUsesFooterCountRetirementStage561
+    const sectionCountLabel = formatCountLabel(section.documents.length, 'source', 'sources')
+    const sectionAriaLabel = useVisibleCountChipRetirementStage559
+      ? `${section.label}, ${sectionCountLabel}`
+      : section.label
+    const footerVisibleLabel = expandedLibrarySectionKeys[section.key]
+      ? `Show fewer ${section.label.toLowerCase()}`
+      : `Show all ${section.label.toLowerCase()}`
+    const footerAccessibleTotalLabel = `${section.documents.length} total ${section.documents.length === 1 ? 'source' : 'sources'}`
 
     return (
       <section
-        aria-label={section.label}
+        aria-label={sectionAriaLabel}
         className={[
           'recall-home-library-card',
           isWideSection ? 'recall-home-library-card-wide' : '',
           isStreamSection ? 'recall-home-library-card-stream' : '',
           isStreamSection ? 'recall-home-library-card-overview-stage479-reset' : '',
           isStreamSection ? 'recall-home-library-card-stage500-reset' : '',
+          isStreamSection ? 'recall-home-library-card-stage535-reset' : '',
+          useCardIntroRetirementStage549 ? 'recall-home-library-card-stage549-reset' : '',
+          useRowDensityStage551 ? 'recall-home-library-card-stage551-reset' : '',
+          useRowCompressionStage553 ? 'recall-home-library-card-stage553-reset' : '',
+          useLighterRowMetaStage555 ? 'recall-home-library-card-stage555-reset' : '',
+          useVisibleViewCountRetirementStage557 ? 'recall-home-library-card-stage557-reset' : '',
+          useVisibleCountChipRetirementStage559 ? 'recall-home-library-card-stage559-reset' : '',
+          overviewLayoutRole === 'primary' ? 'recall-home-library-card-stage537-primary-reset' : '',
+          overviewLayoutRole === 'secondary' ? 'recall-home-library-card-stage537-secondary-reset' : '',
         ]
           .filter(Boolean)
           .join(' ')}
         key={section.key}
+        title={useCardIntroRetirementStage549 ? section.description : undefined}
       >
         <div
-          className={
-            isStreamSection
-              ? 'section-header section-header-compact recall-home-library-card-header recall-home-library-card-header-stage500-reset'
-              : 'section-header section-header-compact recall-home-library-card-header'
-          }
+          className={[
+            'section-header',
+            'section-header-compact',
+            'recall-home-library-card-header',
+            isStreamSection ? 'recall-home-library-card-header-stage500-reset' : '',
+            useCardIntroRetirementStage549 ? 'recall-home-library-card-header-stage549-reset' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
         >
           <div>
             <div
-              className={
-                isStreamSection
-                  ? 'recall-library-section-heading-row recall-home-library-section-heading-row-stage500-reset'
-                  : 'recall-library-section-heading-row'
-              }
+              className={[
+                'recall-library-section-heading-row',
+                isStreamSection ? 'recall-home-library-section-heading-row-stage500-reset' : '',
+                useCardIntroRetirementStage549 ? 'recall-home-library-section-heading-row-stage549-reset' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
             >
               <h3>{section.label}</h3>
               <span
-                className={
-                  isStreamSection
-                    ? 'recall-library-section-count recall-home-library-section-count-stage500-reset'
-                    : 'recall-library-section-count'
-                }
+                className={[
+                  'recall-library-section-count',
+                  isStreamSection ? 'recall-home-library-section-count-stage500-reset' : '',
+                  useVisibleCountChipRetirementStage559 ? 'recall-home-library-section-count-stage559-reset' : '',
+                  useVisibleCountChipRetirementStage559 ? 'visually-hidden' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
               >
-                {formatCountLabel(section.documents.length, 'source', 'sources')}
+                {sectionCountLabel}
               </span>
             </div>
-            <p>{section.description}</p>
+            {!useCardIntroRetirementStage549 ? <p>{section.description}</p> : null}
           </div>
         </div>
         <div
           className={
             viewMode === 'list'
-              ? 'recall-library-list recall-home-library-list recall-home-library-stage-list recall-home-library-stage-list-overview-stage479-reset recall-home-library-stage-list-stage500-reset recall-home-library-stage-list-list-view-stage467-reset'
-              : 'recall-library-list recall-home-library-list recall-home-library-stage-list recall-home-library-stage-list-overview-stage479-reset recall-home-library-stage-list-stage500-reset'
+              ? 'recall-library-list recall-home-library-list recall-home-library-stage-list recall-home-library-stage-list-overview-stage479-reset recall-home-library-stage-list-stage500-reset recall-home-library-stage-list-stage535-reset recall-home-library-stage-list-list-view-stage467-reset'
+              : [
+                  'recall-library-list',
+                  'recall-home-library-list',
+                  'recall-home-library-stage-list',
+                  'recall-home-library-stage-list-overview-stage479-reset',
+                  'recall-home-library-stage-list-stage500-reset',
+                  'recall-home-library-stage-list-stage535-reset',
+                  useCardIntroRetirementStage549 ? 'recall-home-library-stage-list-stage549-reset' : '',
+                  useRowDensityStage551 ? 'recall-home-library-stage-list-stage551-reset' : '',
+                  useRowCompressionStage553 ? 'recall-home-library-stage-list-stage553-reset' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')
           }
           role="list"
         >
-          {visibleSectionDocuments.map((document) => renderHomeLibraryStageRow(document, { viewMode }))}
+          {visibleSectionDocuments.map((document) =>
+            renderHomeLibraryStageRow(document, {
+              hideSourcePreview: useRowDensityStage551,
+              metadataSeamStage555: useLighterRowMetaStage555,
+              metadataSeamStage557: useVisibleViewCountRetirementStage557,
+              rowCompressionStage553: useRowCompressionStage553,
+              rowDensityStage551: useRowDensityStage551,
+              sectionKey: section.key,
+              viewMode,
+            }),
+          )}
         </div>
         {section.documents.length > displayLimit ? (
-          <div className="recall-library-section-footer">
+          <div
+            className={[
+              'recall-library-section-footer',
+              isStreamSection ? 'recall-home-library-section-footer-stage535-reset' : '',
+              useRowDensityStage551 ? 'recall-home-library-section-footer-stage551-reset' : '',
+              useFooterCountRetirementStage561 ? 'recall-home-library-section-footer-stage561-reset' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
             <button
-              className="ghost-button"
+              className={[
+                'ghost-button',
+                isStreamSection ? 'recall-home-library-section-footer-button-stage535-reset' : '',
+                useRowDensityStage551 ? 'recall-home-library-section-footer-button-stage551-reset' : '',
+                useFooterCountRetirementStage561 ? 'recall-home-library-section-footer-button-stage561-reset' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               type="button"
               onClick={() =>
                 setExpandedLibrarySectionKeys((current) => ({
@@ -6597,7 +7468,14 @@ export function RecallWorkspace({
                 }))
               }
             >
-              {expandedLibrarySectionKeys[section.key]
+              {useFooterCountRetirementStage561 ? (
+                <>
+                  <span className="recall-home-library-section-footer-label-stage561-reset">{footerVisibleLabel}</span>
+                  <span className="recall-home-library-section-footer-count-stage561-reset visually-hidden">
+                    {`, ${footerAccessibleTotalLabel}`}
+                  </span>
+                </>
+              ) : expandedLibrarySectionKeys[section.key]
                 ? `Show fewer ${section.label.toLowerCase()} sources`
                 : `Show all ${section.documents.length} ${section.label.toLowerCase()} sources`}
             </button>
@@ -8193,6 +9071,13 @@ export function RecallWorkspace({
     ]
       .filter(Boolean)
       .join(' ')
+    const graphLegendActiveCount = graphColorGroupMode === 'source' ? graphSourceTypeFilters.length : graphNodeTypeFilters.length
+    const graphLegendVisibleGroupCount = graphLegendItems.filter((item) => item.count > 0).length
+    const graphLegendStatusLabel = graphLegendActiveCount
+      ? `${formatCountLabel(graphLegendActiveCount, 'active group', 'active groups')}`
+      : graphLegendVisibleGroupCount === graphLegendItems.length
+        ? `All ${graphLegendItems.length} groups visible`
+        : formatCountLabel(graphLegendVisibleGroupCount, 'visible group', 'visible groups')
     const graphCanvasShellClassName = [
       'recall-graph-canvas-shell',
       'recall-graph-canvas-shell-finish',
@@ -8265,66 +9150,72 @@ export function RecallWorkspace({
                     </span>
                   </div>
                   <div className="recall-graph-browser-control-actions recall-graph-browser-control-actions-overlay recall-graph-browser-control-actions-workbench-reset recall-graph-browser-control-actions-corner-reset recall-graph-browser-control-actions-navigation-reset">
-                    <label className="field recall-inline-field recall-graph-workbench-search">
-                      <span className="visually-hidden">Search graph</span>
-                      <input
-                        aria-label="Search graph"
-                        type="search"
-                        placeholder="Search titles"
-                        value={graphSearchQuery}
-                        onChange={(event) => setGraphSearchQuery(event.target.value)}
-                        onKeyDown={handleGraphSearchKeyDown}
-                      />
-                    </label>
-                    <div className="recall-graph-search-navigation" role="group" aria-label="Graph search navigation">
-                      <button
-                        className="ghost-button recall-graph-search-navigation-button"
-                        disabled={graphSearchMatchCount < 2}
-                        type="button"
-                        onClick={() => handleStepGraphSearchMatch(-1)}
-                      >
-                        Prev
-                      </button>
-                      <span className="status-chip status-muted recall-graph-search-navigation-status">
-                        {graphSearchStatusLabel}
-                      </span>
-                      <button
-                        className="ghost-button recall-graph-search-navigation-button"
-                        disabled={graphSearchMatchCount < 2}
-                        type="button"
-                        onClick={() => handleStepGraphSearchMatch(1)}
-                      >
-                        Next
-                      </button>
+                    <div className="recall-graph-browser-control-clusters">
+                      <div className="recall-graph-browser-control-search-cluster">
+                        <label className="field recall-inline-field recall-graph-workbench-search">
+                          <span className="visually-hidden">Search graph</span>
+                          <input
+                            aria-label="Search graph"
+                            type="search"
+                            placeholder="Search titles"
+                            value={graphSearchQuery}
+                            onChange={(event) => setGraphSearchQuery(event.target.value)}
+                            onKeyDown={handleGraphSearchKeyDown}
+                          />
+                        </label>
+                        <div className="recall-graph-search-navigation" role="group" aria-label="Graph search navigation">
+                          <button
+                            className="ghost-button recall-graph-search-navigation-button"
+                            disabled={graphSearchMatchCount < 2}
+                            type="button"
+                            onClick={() => handleStepGraphSearchMatch(-1)}
+                          >
+                            Prev
+                          </button>
+                          <span className="status-chip status-muted recall-graph-search-navigation-status">
+                            {graphSearchStatusLabel}
+                          </span>
+                          <button
+                            className="ghost-button recall-graph-search-navigation-button"
+                            disabled={graphSearchMatchCount < 2}
+                            type="button"
+                            onClick={() => handleStepGraphSearchMatch(1)}
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                      <div className="recall-graph-browser-control-view-cluster">
+                        <div className="recall-graph-view-controls" role="group" aria-label="Graph view controls">
+                          <span className="status-chip status-muted recall-graph-view-controls-scale">
+                            {graphViewportScaleLabel}
+                          </span>
+                          <button
+                            className="ghost-button recall-graph-view-controls-button"
+                            type="button"
+                            onClick={handleFitGraphToView}
+                          >
+                            Fit to view
+                          </button>
+                          <button
+                            className="ghost-button recall-graph-view-controls-button"
+                            type="button"
+                            onClick={handleToggleGraphLayoutLock}
+                          >
+                            {graphLayoutLocked ? 'Unlock graph' : 'Lock graph'}
+                          </button>
+                        </div>
+                        {graphResetActionVisible ? (
+                          <button
+                            className="ghost-button recall-graph-browser-control-reset-button"
+                            type="button"
+                            onClick={handleResetGraphView}
+                          >
+                            Show all
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="recall-graph-view-controls" role="group" aria-label="Graph view controls">
-                      <span className="status-chip status-muted recall-graph-view-controls-scale">
-                        {graphViewportScaleLabel}
-                      </span>
-                      <button
-                        className="ghost-button recall-graph-view-controls-button"
-                        type="button"
-                        onClick={handleFitGraphToView}
-                      >
-                        Fit to view
-                      </button>
-                      <button
-                        className="ghost-button recall-graph-view-controls-button"
-                        type="button"
-                        onClick={handleToggleGraphLayoutLock}
-                      >
-                        {graphLayoutLocked ? 'Unlock graph' : 'Lock graph'}
-                      </button>
-                    </div>
-                    {graphResetActionVisible ? (
-                      <button
-                        className="ghost-button recall-graph-browser-control-reset-button"
-                        type="button"
-                        onClick={handleResetGraphView}
-                      >
-                        Show all
-                      </button>
-                    ) : null}
                     <div
                       className="recall-graph-browser-control-utility-status recall-graph-browser-control-utility-status-workbench-reset"
                       role="status"
@@ -9012,9 +9903,23 @@ export function RecallWorkspace({
                   {graphLegendItems.length ? (
                     <div className={graphLegendClassName} aria-label="Graph legend" role="group">
                       <div className="recall-graph-browser-legend-head">
-                        <span className="recall-graph-browser-node-peek-kicker">Legend</span>
-                        <strong>{graphColorGroupModeLabel}</strong>
-                        <span>Click a group to toggle the matching filter.</span>
+                        <div className="recall-graph-browser-legend-heading">
+                          <span className="recall-graph-browser-node-peek-kicker">Legend</span>
+                          <strong>{graphColorGroupModeLabel}</strong>
+                          <span>Click a group to toggle the matching filter.</span>
+                        </div>
+                        <div className="recall-graph-browser-legend-summary-row">
+                          <span className="status-chip status-muted recall-graph-browser-legend-status">{graphLegendStatusLabel}</span>
+                          {graphLegendActiveCount ? (
+                            <button
+                              className="ghost-button recall-graph-browser-legend-reset"
+                              type="button"
+                              onClick={handleResetGraphLegendFilters}
+                            >
+                              Show all groups
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                       <div className="recall-graph-browser-legend-list" role="list" aria-label="Graph legend items">
                         {graphLegendItems.map((item) => (
@@ -9037,8 +9942,12 @@ export function RecallWorkspace({
                               }}
                             >
                               <span className="recall-graph-browser-legend-swatch" aria-hidden="true" />
-                              <span className="recall-graph-browser-legend-label">{item.label}</span>
-                              <span className="recall-graph-browser-legend-count">{item.count}</span>
+                              <span className="recall-graph-browser-legend-item-copy">
+                                <span className="recall-graph-browser-legend-label">{item.label}</span>
+                                <span className="recall-graph-browser-legend-count">
+                                  {formatCountLabel(item.count, 'visible node', 'visible nodes')}
+                                </span>
+                              </span>
                             </button>
                           </span>
                         ))}
@@ -10806,6 +11715,9 @@ export function RecallWorkspace({
                       style={homeBrowserLayoutStyle}
                     >
                       {homeOrganizerVisible ? (
+                        homeUsesStructuralParityStage563 ? (
+                          renderHomeStage563CollectionRail()
+                        ) : (
                       <aside
                         aria-label="Home browse strip"
                         className="recall-home-browse-strip recall-home-browse-strip-organizer-control-reset recall-home-browse-strip-resizable-stage491-reset"
@@ -11324,6 +12236,7 @@ export function RecallWorkspace({
                           <span className="recall-home-browse-strip-resize-grip-stage491-reset" aria-hidden="true" />
                         </div>
                       </aside>
+                        )
                       ) : null}
 
                       <div
@@ -11334,6 +12247,9 @@ export function RecallWorkspace({
                         }
                       >
                         {showHomeReopenCluster || homeSelectedBrowseSection || showHomeBoardOverview || libraryFilterActive ? (
+                          showHomeStage563Canvas ? (
+                            renderHomeStage563Canvas()
+                          ) : (
                         <section
                           className={
                                 homeOrganizerVisible
@@ -11446,51 +12362,201 @@ export function RecallWorkspace({
                                 </section>
                               ) : showHomeBoardOverview ? (
                                 <section
-                                  className="recall-home-library-stream recall-home-library-stream-parity-reset recall-home-library-stream-overview-stage479-reset recall-home-library-stream-overview-stage500-reset stack-gap priority-surface-stage-shell"
+                                  className={[
+                                    'recall-home-library-stream',
+                                    'recall-home-library-stream-parity-reset',
+                                    'recall-home-library-stream-overview-stage479-reset',
+                                    'recall-home-library-stream-overview-stage500-reset',
+                                    homeOverviewUsesHeaderCompactionStage539
+                                      ? 'recall-home-library-stream-stage539-reset'
+                                      : '',
+                                    homeOverviewUsesInlineStatusSeamStage541
+                                      ? 'recall-home-library-stream-stage541-reset'
+                                      : '',
+                                    homeOverviewUsesStatusNarrowingStage543
+                                      ? 'recall-home-library-stream-stage543-reset'
+                                      : '',
+                                    homeOverviewUsesInlineTitleStatusStage545
+                                      ? 'recall-home-library-stream-stage545-reset'
+                                      : '',
+                                    homeOverviewUsesHelperNoteRetirementStage547
+                                      ? 'recall-home-library-stream-stage547-reset'
+                                      : '',
+                                    'stack-gap',
+                                    'priority-surface-stage-shell',
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' ')}
                                   aria-label="Saved library overview"
                                 >
-                                  <div className="section-header section-header-compact recall-home-library-stream-header recall-home-library-stream-header-overview-stage479-reset recall-home-library-stream-header-stage500-reset">
-                                    <div className="recall-home-library-stream-heading-stage500-reset">
-                                      <span className="recall-home-library-stream-kicker-stage500-reset">
-                                        {homeOverviewBoardEyebrow}
-                                      </span>
-                                      <div className="recall-library-section-heading-row recall-home-library-stream-title-row-stage500-reset">
-                                        <h3>{homeOverviewRowLabel}</h3>
-                                      </div>
-                                      <p>{homeOverviewBoardSummary}</p>
-                                    </div>
+                                  <div
+                                    className={[
+                                      'section-header',
+                                      'section-header-compact',
+                                      'recall-home-library-stream-header',
+                                      'recall-home-library-stream-header-overview-stage479-reset',
+                                      'recall-home-library-stream-header-stage500-reset',
+                                      homeOverviewUsesHeaderCompactionStage539
+                                        ? 'recall-home-library-stream-header-stage539-reset'
+                                        : '',
+                                      homeOverviewUsesInlineStatusSeamStage541
+                                        ? 'recall-home-library-stream-header-stage541-reset'
+                                        : '',
+                                      homeOverviewUsesStatusNarrowingStage543
+                                        ? 'recall-home-library-stream-header-stage543-reset'
+                                        : '',
+                                      homeOverviewUsesInlineTitleStatusStage545
+                                        ? 'recall-home-library-stream-header-stage545-reset'
+                                        : '',
+                                      homeOverviewUsesHelperNoteRetirementStage547
+                                        ? 'recall-home-library-stream-header-stage547-reset'
+                                        : '',
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' ')}
+                                  >
                                     <div
-                                      className="recall-home-library-stream-meta recall-home-library-stream-meta-stage500-reset"
-                                      role="list"
-                                      aria-label="Library overview status"
+                                      className={[
+                                        'recall-home-library-stream-heading-stage500-reset',
+                                        homeOverviewUsesHeaderCompactionStage539
+                                          ? 'recall-home-library-stream-heading-stage539-reset'
+                                          : '',
+                                        homeOverviewUsesInlineStatusSeamStage541
+                                          ? 'recall-home-library-stream-heading-stage541-reset'
+                                          : '',
+                                        homeOverviewUsesStatusNarrowingStage543
+                                          ? 'recall-home-library-stream-heading-stage543-reset'
+                                          : '',
+                                        homeOverviewUsesInlineTitleStatusStage545
+                                          ? 'recall-home-library-stream-heading-stage545-reset'
+                                          : '',
+                                        homeOverviewUsesHelperNoteRetirementStage547
+                                          ? 'recall-home-library-stream-heading-stage547-reset'
+                                          : '',
+                                      ]
+                                        .filter(Boolean)
+                                        .join(' ')}
                                     >
-                                      {[homeSavedSourceLabel, homeOverviewGroupCountLabel, homeWorkingSetStatus].map((item) => (
-                                        <span
-                                          className="recall-home-library-stream-status-stage500-reset"
-                                          role="listitem"
-                                          key={item}
+                                      <div
+                                        className={[
+                                          homeOverviewUsesInlineStatusSeamStage541
+                                            ? 'recall-home-library-stream-headline-stage541-reset'
+                                            : '',
+                                          homeOverviewUsesStatusNarrowingStage543
+                                            ? 'recall-home-library-stream-headline-stage543-reset'
+                                            : '',
+                                          homeOverviewUsesInlineTitleStatusStage545
+                                            ? 'recall-home-library-stream-headline-stage545-reset'
+                                            : '',
+                                          homeOverviewUsesHelperNoteRetirementStage547
+                                            ? 'recall-home-library-stream-headline-stage547-reset'
+                                            : '',
+                                        ]
+                                          .filter(Boolean)
+                                          .join(' ')}
+                                      >
+                                        {!homeOverviewUsesInlineStatusSeamStage541 ? (
+                                          <span
+                                            className={[
+                                              'recall-home-library-stream-kicker-stage500-reset',
+                                              homeOverviewUsesHeaderCompactionStage539
+                                                ? 'recall-home-library-stream-kicker-stage539-reset'
+                                                : '',
+                                            ]
+                                              .filter(Boolean)
+                                              .join(' ')}
+                                          >
+                                            {homeOverviewBoardEyebrow}
+                                          </span>
+                                        ) : null}
+                                        <div
+                                          className={[
+                                            'recall-library-section-heading-row',
+                                            'recall-home-library-stream-title-row-stage500-reset',
+                                            homeOverviewUsesHeaderCompactionStage539
+                                              ? 'recall-home-library-stream-title-row-stage539-reset'
+                                              : '',
+                                            homeOverviewUsesInlineStatusSeamStage541
+                                              ? 'recall-home-library-stream-title-row-stage541-reset'
+                                              : '',
+                                            homeOverviewUsesStatusNarrowingStage543
+                                              ? 'recall-home-library-stream-title-row-stage543-reset'
+                                              : '',
+                                            homeOverviewUsesInlineTitleStatusStage545
+                                              ? 'recall-home-library-stream-title-row-stage545-reset'
+                                              : '',
+                                            homeOverviewUsesHelperNoteRetirementStage547
+                                              ? 'recall-home-library-stream-title-row-stage547-reset'
+                                              : '',
+                                          ]
+                                            .filter(Boolean)
+                                            .join(' ')}
                                         >
-                                          {item}
-                                        </span>
-                                      ))}
+                                          <h3>{homeOverviewRowLabel}</h3>
+                                          {homeOverviewUsesInlineTitleStatusStage545
+                                            ? renderHomeOverviewStatusList({
+                                                useInlineStatusSeamStage541: true,
+                                                useStatusNarrowingStage543: true,
+                                                useInlineTitleStatusStage545: true,
+                                              })
+                                            : null}
+                                        </div>
+                                        {homeOverviewUsesInlineStatusSeamStage541 &&
+                                        !homeOverviewUsesInlineTitleStatusStage545
+                                          ? renderHomeOverviewStatusList({
+                                              useInlineStatusSeamStage541: true,
+                                              useStatusNarrowingStage543: true,
+                                            })
+                                          : null}
+                                      </div>
+                                      {homeOverviewBoardLeadSummary ? <p>{homeOverviewBoardLeadSummary}</p> : null}
                                     </div>
+                                    {!homeOverviewUsesInlineStatusSeamStage541
+                                      ? renderHomeOverviewStatusList()
+                                      : null}
                                   </div>
                                   {!homeOrganizerVisible && showHomeReopenCluster ? renderHomeReopenCluster() : null}
                                   <div
                                     className={
                                       homeViewMode === 'list'
-                                        ? 'recall-home-library-stream-grid recall-home-library-stream-grid-tree-reset recall-home-library-stream-grid-overview-stage479-reset recall-home-library-stream-grid-stage500-reset recall-home-library-stream-grid-list-view-stage479-reset'
-                                        : 'recall-home-library-stream-grid recall-home-library-stream-grid-tree-reset recall-home-library-stream-grid-overview-stage479-reset recall-home-library-stream-grid-stage500-reset'
+                                        ? 'recall-home-library-stream-grid recall-home-library-stream-grid-tree-reset recall-home-library-stream-grid-overview-stage479-reset recall-home-library-stream-grid-stage500-reset recall-home-library-stream-grid-stage535-reset recall-home-library-stream-grid-list-view-stage479-reset'
+                                        : [
+                                            'recall-home-library-stream-grid',
+                                            'recall-home-library-stream-grid-tree-reset',
+                                            'recall-home-library-stream-grid-overview-stage479-reset',
+                                            'recall-home-library-stream-grid-stage500-reset',
+                                            'recall-home-library-stream-grid-stage535-reset',
+                                            homeOverviewUsesHeaderCompactionStage539
+                                              ? 'recall-home-library-stream-grid-stage539-reset'
+                                              : '',
+                                            homeOverviewUsesInlineStatusSeamStage541
+                                              ? 'recall-home-library-stream-grid-stage541-reset'
+                                              : '',
+                                            homeOverviewUsesPrimaryLaneStage537
+                                              ? 'recall-home-library-stream-grid-stage537-reset'
+                                              : '',
+                                          ]
+                                            .filter(Boolean)
+                                            .join(' ')
                                     }
                                   >
-                                    {homeWorkspaceLibrarySections.map((section) =>
-                                      renderHomeLibrarySection(section, { stream: true, viewMode: homeViewMode }),
+                                    {homeWorkspaceLibrarySections.map((section, index) =>
+                                      renderHomeLibrarySection(section, {
+                                        overviewLayoutRole: homeOverviewUsesPrimaryLaneStage537
+                                          ? index === 0
+                                            ? 'primary'
+                                            : 'secondary'
+                                          : undefined,
+                                        stream: true,
+                                        viewMode: homeViewMode,
+                                      }),
                                     )}
                                   </div>
                                 </section>
                               ) : null}
                             </div>
                           </section>
+                          )
                         ) : null}
                       </div>
                     </div>

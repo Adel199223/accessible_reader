@@ -455,6 +455,8 @@ export default function App() {
 
   const activeWorkspaceSection: WorkspaceSection = route.path === 'reader' ? 'reader' : activeRecallSection
   const searchSurfaceVisible = searchOpen || (route.path === 'recall' && activeRecallSection === 'library')
+  const shellLayoutMode: 'default' | 'home' | 'reader' =
+    route.path === 'reader' ? 'reader' : activeRecallSection === 'library' ? 'home' : 'default'
 
   useEffect(() => {
     const trimmedQuery = deferredWorkspaceSearchQuery.trim()
@@ -595,17 +597,19 @@ export default function App() {
         currentContext={shellContext}
         hero={shellHero}
         headerActions={
-          <>
-            <button className="shell-nav-button" type="button" onClick={handleOpenSearch}>
-              Search
-              <span className="shell-nav-hint">Ctrl+K</span>
-            </button>
-            <button className="shell-nav-button shell-nav-button-active" type="button" onClick={handleRequestNewSource}>
-              New
-            </button>
-          </>
+          shellLayoutMode === 'home' ? undefined : (
+            <>
+              <button className="shell-nav-button" type="button" onClick={handleOpenSearch}>
+                Search
+                <span className="shell-nav-hint">Ctrl+K</span>
+              </button>
+              <button className="shell-nav-button shell-nav-button-active" type="button" onClick={handleRequestNewSource}>
+                New
+              </button>
+            </>
+          )
         }
-        layoutMode={route.path === 'reader' ? 'reader' : 'default'}
+        layoutMode={shellLayoutMode}
         onActivateTarget={handleActivateDockTarget}
         onSelectSection={handleSelectWorkspaceSection}
         onToggleSupportChrome={() => setSupportChromeOpen((current) => !current)}
@@ -621,6 +625,7 @@ export default function App() {
             onShellContextChange={setShellContext}
             onSectionChange={handleRecallSectionChange}
             onShellHeroChange={setShellHero}
+            onOpenSearch={handleOpenSearch}
             onRequestNewSource={handleRequestNewSource}
             onShellSourceWorkspaceChange={setShellSourceWorkspace}
             onOpenReader={handleOpenReader}
