@@ -25,22 +25,22 @@ Reference matrix for benchmark-driven Recall UI work.
 
 | Surface | Benchmark source and URL | Current localhost artifact | Structural target | Visual target | Allowed product-specific differences | Current benchmark role |
 | --- | --- | --- | --- | --- | --- | --- |
-| Shared shell + Home | User-provided Recall homepage comparison screenshot in this thread on 2026-03-25, supported by [Recall docs](https://docs.getrecall.ai/), the [Tagging deep dive](https://docs.getrecall.ai/deep-dives/tagging), the [Feb 6, 2026 release notes](https://feedback.getrecall.ai/changelog/recall-release-notes-feb-6-2026-ocr-improved-organization-track-your-reading-pos), the [Release: 15 November 2024 // Exciting Quality of Life Improvements!](https://feedback.getrecall.ai/changelog/release-15-november-2024-exciting-quality-of-life-improvements), and the [Recall changelog](https://feedback.getrecall.ai/changelog) | `output/playwright/stage564-home-wide-top.png` | Default to one selected collection in the left rail, keep the main canvas chronological by day using `updated_at`, lead the first visible group with an `Add Content` tile, and let collection selection filter the main card canvas instead of reopening grouped source buckets. | Dark neutral shell, compact top-right `Search` / `Add` / `List` / `Sort` cluster, lighter first-screen chrome, day headings that start the working canvas earlier, larger card-led source previews, and advanced organizer controls that stay available without dominating the default homepage. | Keep local-first wording, current core sections, product-specific logo/icon differences, and advanced organizer capabilities, but do not let the Stage 537-562 grouped-overview branch define the default Home entry path anymore. | Refreshed parity baseline |
+| Shared shell + Home | User-provided Recall homepage comparison screenshot in this thread on 2026-03-25, supported by [Recall docs](https://docs.getrecall.ai/), the [Tagging deep dive](https://docs.getrecall.ai/deep-dives/tagging), the [Feb 6, 2026 release notes](https://feedback.getrecall.ai/changelog/recall-release-notes-feb-6-2026-ocr-improved-organization-track-your-reading-pos), the [Release: 15 November 2024 // Exciting Quality of Life Improvements!](https://feedback.getrecall.ai/changelog/release-15-november-2024-exciting-quality-of-life-improvements), and the [Recall changelog](https://feedback.getrecall.ai/changelog) | `output/playwright/stage662-home-wide-top.png` | Default to one selected collection in the left rail, keep the main canvas chronological by day using `updated_at`, lead the first visible group with an `Add Content` tile, and let collection selection filter the main card canvas instead of reopening grouped source buckets. | Dark neutral shell, a tight anchored top-right `Search...` / `Add` / `List` / `Sort` cluster with a wider Search trigger, a slightly larger Add action, and taller calmer secondary pills, no large visible in-canvas heading block, softer inactive rail rows with organizer controls behind a compact overflow trigger, calmer rail header/meta, a quieter collection-header summary line, a flatter active selected tree row, a thinner attached child-preview seam, denser add/card rhythm, visible day-group headers without count chrome while counts stay accessible, quieter inactive rail support lines, lighter rail count pills and board-card collection chips, calmer active selected-row chrome, softer card source rows, restrained source-aware poster cards whose lower seam does not repeat the already-grouped day label while poster detail lines stay present but calmer and poster badge chrome stays subtle, plus a quieter `Add Content` tile perimeter, a softer lower collection-chip seam, calmer add-tile icon weight, a softer outer card shell edge, a quieter add-tile halo glow, a softer preview-shell inner border, a quieter preview overlay texture, softer poster mark chrome, a quieter preview detail line, softer preview note chrome, a quieter preview badge row, lighter visible utility-pill borders, a quieter Search glyph chrome, a softer Sort-caret emphasis, a label-only footer continuation that preserves totals accessibly instead of visibly, and a shorter lower card seam with calmer title/source/chip rhythm beneath the poster, now with a calmer lower title wrap, a steadier source/chip handoff, one subtler lower-card title/source/chip descent follow-through, one subtler copy-seam-settling finish, one subtler lower-card copy-seam and title/source/chip descent follow-through beyond the Stage 635 band, one subtler lower-card copy-seam and title/source/chip descent finish beyond the Stage 637 band, one subtler lower-card copy-seam and title/source/chip descent settle beyond the Stage 639 finish state, one subtler lower-card copy-seam and title/source/chip settle follow-through beyond the Stage 641 settle state, one final subtler lower-card copy-seam and title/source/chip settle finish beyond the Stage 643 follow-through state, one subtler lower-card copy-seam and title/source/chip settle follow-through beyond the Stage 645 finish state, one subtler lower-card copy-seam and title/source/chip settle finish follow-through beyond the Stage 647 follow-through baseline, and one final subtler lower-card copy-seam and title/source/chip descent settle finish beyond the Stage 649 finish-follow-through baseline, now with content-targeted saved-HTML preview framing and a rendered-preview quality gate so strong HTML sources stay rendered while weak pale HTML cases fall back cleanly. | Keep local-first wording, current core sections, product-specific logo/icon differences, and advanced organizer capabilities, but do not let the Stage 537-562 grouped-overview branch define the default Home entry path anymore. | Refreshed parity baseline |
 | Add Content modal | User-provided Add Content screenshot in this thread, supported by [Add Content tutorial](https://docs.getrecall.ai/docs/tutorials/add-content) | `output/playwright/stage43-add-content-dialog-desktop.png` | Present one deliberate import modal with grouped source modes and a stronger primary input area instead of a generic form-first dialog. | Cleaner CTA hierarchy, clearer grouping, less utilitarian panel styling. | Keep only the import modes this product actually supports; unsupported Recall tabs such as Wiki or Extension stay out of scope. | Low |
-| Knowledge graph | User-provided graph screenshot in this thread on 2026-03-18, supported by [Knowledge Graph overview](https://docs.getrecall.ai/docs/features/knowledge-graph/overview), [Graph navigation](https://docs.getrecall.ai/deep-dives/graph/navigation), [Graph filtering and customization](https://docs.getrecall.ai/deep-dives/graph/filtering-and-customization), [Graph selection and exploration](https://docs.getrecall.ai/deep-dives/graph/selection-and-exploration), and [Recall Release Notes: Jan 12, 2026 - Graph View 2.0 and much more](https://feedback.getrecall.ai/changelog/recall-release-notes-jan-12-2026-graph-view-20-and-much-more) | `output/playwright/stage562-graph-wide-top.png` | Make the graph canvas the dominant surface with a minimal settings launcher, top-right title search plus next/previous match navigation, explicit `Fit to view` and `Lock graph` / `Unlock graph` controls, a real saved-view workflow for starter and named local presets, a bounded filter-query model in settings, explicit unconnected/leaf/reference visibility controls, timeline and content filters inside settings, explicit color-group ownership, a live bottom-right legend, a resizable settings drawer, a stronger bottom working rail for source continuity plus multi-select/path ownership, and a calmer tabbed inspect drawer that yields during path exploration and returns for single-node overview, mentions, and relations. | Much lighter chrome, fewer boxed metrics, calmer zoom/pan ownership on the canvas itself, real lock-led manual arrangement, quieter focus-mode dimming around selected-node work, less dashboard framing around node detail, visible save/update/rename/reset view controls inside the drawer, a legend that behaves like a real steering aid instead of decorative chrome with obvious active-group state and a visible return-to-all-groups path, idle/node-selected/path states that read clearly from the bottom rail, a search/status corner that behaves like utility navigation rather than filtering chrome, and a settings surface that reads like a real graph-management control center instead of a thin preset wrapper. | Keep evidence grounding, validation actions, source reopen, and local provenance visible somewhere in the flow. | Refreshed parity baseline |
+| Knowledge graph | User-provided graph screenshot in this thread on 2026-03-18, supported by [Knowledge Graph overview](https://docs.getrecall.ai/docs/features/knowledge-graph/overview), [Graph navigation](https://docs.getrecall.ai/deep-dives/graph/navigation), [Graph filtering and customization](https://docs.getrecall.ai/deep-dives/graph/filtering-and-customization), [Graph selection and exploration](https://docs.getrecall.ai/deep-dives/graph/selection-and-exploration), and [Recall Release Notes: Jan 12, 2026 - Graph View 2.0 and much more](https://feedback.getrecall.ai/changelog/recall-release-notes-jan-12-2026-graph-view-20-and-much-more) | `output/playwright/stage662-graph-wide-top.png` | Make the graph canvas the dominant surface with a minimal settings launcher, top-right title search plus next/previous match navigation, explicit `Fit to view` and `Lock graph` / `Unlock graph` controls, a real saved-view workflow for starter and named local presets, a bounded filter-query model in settings, explicit unconnected/leaf/reference visibility controls, timeline and content filters inside settings, explicit color-group ownership, a live bottom-right legend, a resizable settings drawer, a stronger bottom working rail for source continuity plus multi-select/path ownership, and a calmer tabbed inspect drawer that yields during path exploration and returns for single-node overview, mentions, and relations. | Much lighter chrome, fewer boxed metrics, calmer zoom/pan ownership on the canvas itself, real lock-led manual arrangement, quieter focus-mode dimming around selected-node work, less dashboard framing around node detail, visible save/update/rename/reset view controls inside the drawer, a legend that behaves like a real steering aid instead of decorative chrome with obvious active-group state and a visible return-to-all-groups path, idle/node-selected/path states that read clearly from the bottom rail, a search/status corner that behaves like utility navigation rather than filtering chrome, and a settings surface that reads like a real graph-management control center instead of a thin preset wrapper. | Keep evidence grounding, validation actions, source reopen, and local provenance visible somewhere in the flow. | Refreshed parity baseline |
 | Study / review | User-provided spaced-repetition screenshot in this thread on 2026-03-18, supported by [Quiz & Spaced Repetition](https://docs.getrecall.ai/docs/features/quiz-and-spaced-repetition), [Release: 29 November 2024 // Recall Review Reminders](https://feedback.getrecall.ai/changelog/release-29-november-2024-recall-review-reminders), and [Recall Release Notes: Feb 19, 2026 - Quiz 2.0 with Shared Challenges](https://feedback.getrecall.ai/changelog/recall-release-notes-feb-19-2026-quiz-20-with-shared-challenges) | `output/playwright/stage379-study-wide-top.png` | Recenter the page on the review task with a guided flow and simpler queue support, rather than treating review as one panel inside a dashboard. | Cleaner step hierarchy, clearer main action, reduced sidebar weight and card framing. | Keep local FSRS state, source evidence, and Reader reopen actions. | Refreshed regression baseline |
 | Notes workspace | User-provided Notes screenshot in this thread on 2026-03-18, supported by [Recall docs](https://docs.getrecall.ai/) for shell direction | `output/playwright/stage379-notes-wide-top.png` | Turn Notes into one clearer note workspace with primary browse/detail flow and quieter context support instead of a left rail plus large blank detail plus strong context column. | Calmer detail emphasis, less empty shell framing, fewer competing side cards. | Keep note edit/delete, promotion, search, anchored reopen, and `Open in Reader`. | Refreshed regression baseline |
-| Reader workspace | User-provided Reader screenshot in this thread on 2026-03-18, supported by [Recall docs](https://docs.getrecall.ai/) for shell direction | `output/playwright/stage562-reader-original-wide-top.png` | Make original document text more dominant, compress the header/control stack, and demote side support into a calmer dock or tray instead of a co-equal right column. | More reading-first space, calmer side chrome, tighter transport/header rhythm, a thinner attached source-support rail, a flatter embedded library seam, a slimmer source-workspace lead-in, a calmer pre-article seam before the document starts, a joined article-shell-to-dock deck instead of two separate cards, and a calmer attached tray that does not keep the default dock guidance duplicated above it. | Preserve `/reader` compatibility, read-aloud, highlighting, note adjacency, and source-library access. In this track, `Reader` is original-only and cosmetic-only: do not touch `Reflowed`, `Simplified`, `Summary`, generated-view UX, transform logic, or mode-routing. | Refreshed parity baseline (original-only) |
+| Reader workspace | User-provided Reader screenshot in this thread on 2026-03-18, supported by [Recall docs](https://docs.getrecall.ai/) for shell direction | `output/playwright/stage662-reader-original-wide-top.png` | Make original document text more dominant, compress the header/control stack, and demote side support into a calmer dock or tray instead of a co-equal right column. | More reading-first space, calmer side chrome, tighter transport/header rhythm, a thinner attached source-support rail, a flatter embedded library seam, a slimmer source-workspace lead-in, a calmer pre-article seam before the document starts, a joined article-shell-to-dock deck instead of two separate cards, and a calmer attached tray that does not keep the default dock guidance duplicated above it. | Preserve `/reader` compatibility, read-aloud, highlighting, note adjacency, and source-library access. In this track, `Reader` is original-only and cosmetic-only: do not touch `Reflowed`, `Simplified`, `Summary`, generated-view UX, transform logic, or mode-routing. | Refreshed parity baseline (original-only) |
 | Focused reader-led work regression | Internal product behavior reference only; preserve Stage 34 reader-led focused work even though Recall does not expose an exact equivalent screenshot here. | `output/playwright/stage362-focused-reader-narrow-top.png` | Keep live Reader content as the primary pane while Notes/Graph/Study detail stays secondary. | Align shell and framing with the calmer benchmark direction without losing the reader-led split. | Reader-led focused work stays product-specific and should not be removed to mimic Recall literally. | Regression-only |
 
 ## Current Priority Queue And Baseline
 
 - Canonical benchmark URL: `http://127.0.0.1:8000`
-- Current refreshed audit set from March 25, 2026 after the Stage 564 audit:
-  - `Home`: `output/playwright/stage564-home-wide-top.png`
-  - `Graph`: `output/playwright/stage564-graph-wide-top.png`
+- Current refreshed audit set from March 27, 2026 after the Stage 662 audit:
+  - `Home`: `output/playwright/stage662-home-wide-top.png`
+  - `Graph`: `output/playwright/stage662-graph-wide-top.png`
   - `Notes`: `output/playwright/stage379-notes-wide-top.png`
-  - `Reader` original-only: `output/playwright/stage564-reader-original-wide-top.png`
+  - `Reader` original-only: `output/playwright/stage662-reader-original-wide-top.png`
   - `Study`: `output/playwright/stage379-study-wide-top.png`
   - `Study` answer-shown reference: `output/playwright/stage379-study-answer-shown-wide-top.png`
 - Stage 380 explicitly reset the current Recall-parity track to `Graph`, `Home`, and original-only `Reader`, then Stage 381/382 completed the current broad Graph correction, Stage 383/384 completed the first broad Home correction, Stage 385/386 completed the current original-only Reader correction, Stage 387/388 completed the second-pass Home density correction, Stage 389/390 completed the second-pass Graph View 2.0 correction, Stage 391/392 completed the broader Home tree-filtered browse correction, Stage 393/394 completed the broader original-only Reader reading-space correction, Stage 395/396 completed the broader Home tag-tree board correction, Stage 397/398 completed the broader Home board-fill correction, Stage 399/400 completed the broader Home filtered-card density correction, Stage 401/402 completed the broader Home continuous-board-coverage correction, Stage 403/404 completed the broader Home library-sheet flattening correction, Stage 405/406 completed the broader Home tag-tree control-surface correction, Stage 407/408 completed the broader Home minimal-entry correction, Stage 409/410 completed the broader Home organizer-rail header correction, Stage 411/412 completed the broader Home organizer-row flattening correction, Stage 413/414 completed the broader Home organizer-selection continuity correction, Stage 415/416 completed the broader Home organizer-highlight deflation correction, Stage 417/418 completed the broader Home organizer-readout softening correction, Stage 419/420 completed the broader Home organizer-preview grouping correction, Stage 421/422 completed the broader Home summary-preview join correction, Stage 423/424 completed the broader Home active summary-note integration correction, Stage 425/426 completed the broader Home active summary-copy correction, Stage 427/428 completed the broader Home active bridge-hint retirement correction, Stage 429/430 completed the broader Graph corner-controls and focus-rail correction, Stage 431/432 completed the broader Home organizer-control deck correction, Stage 433/434 completed the broader Graph canvas-first drawer correction, Stage 435/436 completed the broader Home board-first organizer correction, Stage 437/438 completed the broader Graph corner-pods and overlay-drawer correction, Stage 439/440 completed the broader Home unified-workbench correction, Stage 441/442 completed the broader Graph minimal-launcher and compact-path-rail correction, Stage 443/444 completed the broader Home single-board pinned-cluster correction, Stage 445/446 completed the broader Graph working-control hierarchy correction, Stage 447/448 completed the broader Home organizer-owned navigation correction, Stage 449/450 completed the broader Graph corner-actions and drawer-hierarchy correction, Stage 451/452 completed the broader Home compact reopen rail and board-top hierarchy correction, Stage 453/454 completed the broader Graph settings-sidebar and search-navigation correction, Stage 455/456 completed the broader Home direct-board and organizer-hierarchy correction, Stage 457/458 completed the broader Graph node-language and hover-hierarchy correction, Stage 459/460 completed the broader Home inline-reopen-strip and board-dominant workspace correction, Stage 461/462 completed the broader Graph bottom-bar and drawer workflow correction, Stage 463/464 completed the broader Home organizer-deck and results-sheet correction, Stage 465/466 completed the broader Graph settings-panel and view-controls correction, Stage 467/468 completed the broader Home organizer sorting and board-view correction, Stage 469/470 completed the broader Graph focus-mode and drawer-exploration correction, Stage 471/472 completed the broader Home organizer tree-branch navigation correction, Stage 473/474 completed the broader Graph multi-select path-exploration correction, Stage 475/476 completed the broader Home collection-lens and organizer-model correction, Stage 477/478 completed the broader Graph timeline-presets and filter-customization correction, Stage 479/480 completed the broader Home overview-board and group drill-in correction, Stage 481/482 completed the broader Graph navigation-controls and locked-layout correction, Stage 483/484 completed the broader Home manual organizer ordering and selection correction, Stage 485/486 completed the broader Graph color-groups, live-legend, and resizable-settings correction, Stage 487/488 completed the broader Home drag-drop organizer workbench correction, Stage 489/490 completed the broader Graph saved-view presets workflow correction, Stage 491/492 completed the broader Home resizable organizer rail correction, Stage 493/494 completed the broader Graph card-drawer and connection-follow correction, and Stage 495/496 completed the broader Home custom collection management correction inside that track.
@@ -51,8 +51,710 @@ Reference matrix for benchmark-driven Recall UI work.
 - Stage 563/564 then reset the active Home benchmark to the March 25, 2026 Recall homepage comparison screenshot:
   - the default wide-desktop `Home` surface is now a selected-collection rail plus a date-grouped card canvas with a first-group `Add Content` tile and a compact `Search` / `Add` / `List` / `Sort` toolbar
   - the Stage 537-562 grouped-overview ladder remains useful continuity evidence, but it is now a legacy Home baseline rather than the active benchmark target
-- The latest completed audit is now Stage 564, the latest green implementation validation is now Stage 563, and the current product move is to hold the refreshed `Home` / `Graph` / original-only `Reader` baseline again rather than auto-opening another slice.
-- Keep `Home`, `Graph`, and original-only `Reader` on refreshed-baseline hold from the Stage 564 checkpoint while `Notes` and `Study` stay regression surfaces; if another bounded slice opens, `Home` remains the likeliest next target.
+- Stage 565/566 then polished the remaining top-chrome and card-media mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while retiring the large visible in-canvas heading block and replacing generic card placeholders with source-aware poster cards
+  - the active Home benchmark now expects metadata-only poster treatment for `web`, `paste`, and file/document sources before any later thumbnail work is considered
+- Stage 567/568 then polished the remaining rail-density and card-rhythm mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while flattening the at-rest rail, splitting the utility cluster into a lighter `2 + 2` toolbar, and tightening the add/card rhythm without dropping metadata-only poster treatment
+  - the active Home benchmark now expects a compact `Organizer options` trigger at rest, `Search...` placeholder wording in the search trigger, a denser add tile, and a narrower sort popover before another structure reset is considered
+- Stage 569/570 then polished the remaining utility-cluster and poster-interior mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while tightening the utility cluster, collapsing the organizer trigger into compact continuation chrome, and removing duplicate poster body-copy from the preview frame
+  - the active Home benchmark now expects a narrower utility cluster than the Stage 568 baseline, a compact `...` organizer trigger at rest, and restrained poster note lines such as `Browser source`, `Saved locally`, and `Local document`
+- Stage 571/572 then polished the remaining rail-header and lower-card-seam mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the rail header/meta, turning the active continuation row into quieter nested child chrome, and removing the redundant visible per-card date from board cards
+  - the active Home benchmark now expects a restrained rail summary line, a marked nested continuation row, and flatter board-card body seams that rely on the day-group header instead of echoing the date inside each card
+- Stage 573/574 then polished the remaining selected-row-support and preview-proportion mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while shortening the active selected-row support seam and letting the poster carry more of each board card
+  - the active Home benchmark now expects compact active-row support copy such as `Local captures`, no visible board-card date nodes, and a more preview-led card proportion without losing source-aware poster variants
+- Stage 575/576 then polished the remaining inactive-rail and day-group-count mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while making inactive rail rows less carded and retiring visible day-group counts from the header
+  - the active Home benchmark now expects transparent at-rest inactive rail rows, visible day-group headers without count chrome, and preserved group totals in accessibility rather than visible header utility
+- Stage 577/578 then polished the remaining inactive-support and small-chip mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while making inactive rail support lines quieter and demoting the remaining count-pill plus card-chip chrome
+  - the active Home benchmark now expects lighter inactive rail support lines plus lighter rail count pills and board-card collection chips without removing those cues completely
+- Stage 579/580 then polished the remaining active-rail and source-row mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the active selected-row chrome and softening board-card source-row emphasis
+  - the active Home benchmark now expects a calmer active rail bracket and softer source-row styling beneath the title without disturbing the poster-led hierarchy
+- Stage 581/582 then polished the remaining active-child-preview and poster-detail mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the attached child-preview seam and softening poster detail lines without removing their source-aware cues
+  - the active Home benchmark now expects a quieter active child preview plus calmer poster detail text while preserving the restrained poster-led hierarchy
+- Stage 583/584 then polished the remaining collection-header-summary and poster-badge mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while shortening the rail header summary seam and softening poster badge chrome without removing the source-aware cue
+  - the active Home benchmark now expects a quieter rail summary line plus subtler poster badge chrome while preserving the restrained poster-led hierarchy
+- Stage 585/586 then polished the remaining add-tile-perimeter and lower-collection-chip mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while softening the `Add Content` tile perimeter and the lower collection chip without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a quieter add-tile seam plus a softer lower collection chip while preserving the restrained poster-led hierarchy
+- Stage 587/588 then polished the remaining add-tile-icon-weight and outer-card-shell mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the `Add Content` icon weight and softening the outer board-card shell edge without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a calmer add-tile mark plus a softer outer card shell while preserving the restrained poster-led hierarchy
+- Stage 589/590 then polished the remaining add-tile-halo and preview-shell-inner-border mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the `Add Content` halo glow and softening the preview shell inner border without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a calmer add-tile halo plus a softer preview shell inner border while preserving the restrained poster-led hierarchy
+- Stage 591/592 then polished the remaining preview-overlay-texture and poster-mark-chrome mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the preview overlay texture and softening the representative poster mark chrome without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a quieter preview overlay texture plus softer poster mark chrome while preserving the restrained poster-led hierarchy
+- Stage 593/594 then polished the remaining preview-detail-line and preview-note-chrome mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the preview detail line and softening the lower preview note chrome without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a quieter preview detail line plus softer preview note chrome while preserving the restrained poster-led hierarchy
+- Stage 595/596 then polished the remaining preview-badge-row and utility-pill-border mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the preview badge row and softening the visible utility-pill border emphasis without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a quieter preview badge row plus lighter utility-pill borders while preserving the restrained poster-led hierarchy
+- Stage 597/598 then polished the remaining Search-glyph and Sort-caret mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the Search glyph chrome and softening the visible Sort-caret emphasis without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a quieter Search glyph plus a softer Sort cue while preserving the restrained poster-led hierarchy
+- Stage 599/600 then polished the remaining rail-selection and board-continuation mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while flattening the active tree row, thinning the attached child preview, and demoting the footer continuation copy without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a flatter selected row, a thinner attached child seam, and a label-only footer continuation with accessible totals while preserving the restrained poster-led hierarchy
+- Stage 601/602 then polished the remaining toolbar scale and utility-fill mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while widening Search, giving Add better scale, and making the secondary `List` plus `Sort` pills taller and calmer without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a wider Search control with visible `Search...` plus `Ctrl+K`, a slightly larger Add action, and darker calmer secondary pills before another structural reset is considered
+- Stage 609/610 then polished the remaining toolbar-text seam and rail-copy restraint mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while calming the visible Search label plus `Ctrl+K` hint and softening the remaining quiet-copy seams in the rail without disturbing the poster-led hierarchy
+  - the active Home benchmark now expects a calmer Search/Ctrl+K seam, quieter rail summary/support copy, and a thinner overall copy hierarchy before another toolbar or rail-only pass is considered
+- Stage 615/616 then polished the remaining board-column cadence and add-tile/card-width balance mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while widening the three-up board columns and using more of the first-row canvas without disturbing the poster-led hierarchy
+  - the active Home benchmark then expected slightly calmer upper-board whitespace and first-row vertical start before another toolbar or rail-only pass was considered
+- Stage 617/618 then polished the remaining upper-board whitespace and first-row-start mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while trimming the canvas top pad plus first day-group seams so the board begins earlier without disturbing the Stage 615 width cadence or the poster-led hierarchy
+  - the active Home benchmark now expects slightly softer canvas-frame contrast and calmer utility-pill emphasis before another rail-copy or structure pass is considered
+- Stage 619/620 then polished the remaining canvas-frame and utility-pill mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while softening the board frame and calming Search/List/Sort emphasis without disturbing the Stage 617 board-start compaction, the Stage 615 board-width cadence, or the poster-led hierarchy
+  - the active Home benchmark then expected slightly stronger lower-card title/source/chip cadence and vertical share before another toolbar or rail-only pass was considered
+- Stage 621/622 then polished the remaining lower-card share mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while giving slightly more ownership back to the lower title/source/chip seam without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark now expects only a subtler remaining lower-card seam follow-through before another shell, rail, or toolbar-only pass is considered
+- Stage 623/624 then polished the remaining lower-card seam and copy-stack cadence mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while continuing the lower title/source/chip follow-through so cards read less poster-led and the lower copy stack lands in a steadier descending cadence without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark then expected one subtler remaining lower-card title/source/chip hierarchy refinement before another shell, rail, or toolbar-only pass was considered
+- Stage 625/626 then polished the remaining lower-card title/source/chip hierarchy mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while giving the title clearer ownership and a steadier source/chip handoff without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark now expects only one subtler lower-card title-wrap and source/chip handoff refinement before another shell, rail, or toolbar-only pass is considered
+- Stage 627/628 then polished the remaining lower-card title-wrap and source/chip handoff mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while giving the title line a calmer wrap and the source/chip handoff a steadier descending cadence without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark now expects only one subtler lower-card title-tail balance and source/chip cadence refinement before another shell, rail, or toolbar-only pass is considered
+- Stage 629/630 then polished the remaining lower-card title-tail and source/chip cadence mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while giving the lower title tail a more even finish and the source/chip cadence a cleaner descending handoff without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark then expected only one subtler lower-card hierarchy finish across the title/source/chip seam before another shell, rail, or toolbar-only pass was considered
+- Stage 631/632 then polished that remaining lower-card hierarchy mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while giving the lower title/source/chip seam one subtler hierarchy-finish pass and a calmer descending cadence without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark then expected only one subtler lower-card title/source/chip descent follow-through before another shell, rail, or toolbar-only pass was considered
+- Stage 633/634 then polished that remaining lower-card title/source/chip descent mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while giving the lower title/source/chip seam one subtler follow-through so cards read slightly less poster-led and the copy stack descends cleaner without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark now expects only one subtler lower-card title/source/chip descent finish and copy-seam settle before another shell, rail, or toolbar-only pass is considered
+- Stage 635/636 then polished that remaining lower-card title/source/chip descent and copy-seam mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while giving the lower title/source/chip seam one subtler finish pass and settling the copy seam a little further so cards read slightly less poster-led without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark then expected only one subtler lower-card copy-seam and title/source/chip descent follow-through before another shell, rail, or toolbar-only pass was considered
+- Stage 637/638 then polished that remaining lower-card copy-seam and title/source/chip descent mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while carrying the lower copy seam and title/source/chip descent one subtler step beyond the Stage 635 finish state so cards read slightly less poster-led without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark then expected only one subtler lower-card copy-seam and title/source/chip descent finish before another shell, rail, or toolbar-only pass was considered
+- Stage 639/640 then polished that remaining lower-card copy-seam and title/source/chip descent mismatch:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while finishing one subtler lower-card copy-seam and title/source/chip descent step beyond the Stage 637 follow-through state so cards read slightly less poster-led without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark then expected only one final subtler lower-card copy-seam and title/source/chip descent settle before another shell, rail, or toolbar-only pass was considered
+- Stage 641/642 then settled that remaining lower-card copy-seam and title/source/chip descent mismatch one subtler step further:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while settling the lower copy seam and title/source/chip descent slightly further beyond the Stage 639 finish state so cards read less poster-led without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark now expects only one subtler lower-card copy-seam and title/source/chip settle follow-through before another shell, rail, or toolbar-only pass is considered
+- Stage 643/644 then settled that remaining lower-card copy-seam and title/source/chip descent mismatch one subtler step further:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while carrying the lower copy seam and title/source/chip settle one subtler step beyond the Stage 641 settle state so cards read slightly less poster-led without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark then expected only one final subtler lower-card copy-seam and title/source/chip settle finish before another shell, rail, or toolbar-only pass was considered
+- Stage 645/646 then finished that remaining lower-card copy-seam and title/source/chip settle mismatch one subtler step further:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while carrying one final subtler lower-card copy-seam and title/source/chip settle finish step beyond the Stage 643 follow-through state so cards read slightly less poster-led without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark then expected only one subtler lower-card copy-seam and title/source/chip settle follow-through before another shell, rail, or toolbar-only pass was considered
+- Stage 649/650 then carried that remaining lower-card copy-seam and title/source/chip settle mismatch one subtler step further:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure while carrying one subtler lower-card copy-seam and title/source/chip settle finish follow-through beyond the Stage 647 follow-through baseline so cards read slightly less poster-led without disturbing the Stage 615 width cadence, the Stage 617 earlier board start, or the calmer shell/rail/toolbar work
+  - the active Home benchmark then expected only one final subtler lower-card copy-seam and title/source/chip descent settle finish before another shell, rail, or toolbar-only pass was considered
+- Stage 653/654 then carried the broader parity closeout pass beyond those lower-card trims:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure and the settled Stage 652 lower seam, but the poster layer differentiates more clearly by source type through visible hero text plus distinct accent treatment so the board reads less blank and less samey at page scale
+  - the active Home benchmark then expected one bounded follow-through on richer source-preview fidelity before actual thumbnail/media acquisition became the next honest gap
+- Stage 655/656 then carried that richer source-preview fidelity follow-through:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure and the settled Stage 654 poster/layout baseline, but representative paste, web, and file/document posters now expose content-derived hero text from stored document views instead of relying only on metadata fallback hero seams
+  - the active Home benchmark then expected actual thumbnail/media acquisition rather than another shell, rail, toolbar, lower-card, or metadata-only poster micro-trim
+- Stage 657/658 then carried that real media-preview acquisition uplift:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure and the settled Stage 655 fallback poster path, but preview-ready saved sources can now render real cached media thumbnails sourced from saved HTML or attachment-backed image candidates instead of synthetic-only poster surfaces
+  - the active Home benchmark now expects richer screenshot-like or otherwise higher-fidelity preview acquisition only for the sources that still fall back, not another shell, rail, toolbar, lower-card, or metadata-only poster trim
+- Stage 659/660 then carried that rendered HTML snapshot preview-promotion uplift:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure and the settled Stage 655 fallback poster path, but the remaining HTML-backed `Web` and `Documents` fallback cards can now render real cached media thumbnails sourced from rendered saved HTML snapshots when direct saved image candidates are unavailable
+  - the active Home benchmark then expected one bounded follow-through on rendered-preview framing and quality before broadening into richer preview generation for remaining fallback-only sources
+- Stage 661/662 then carried that content-targeted rendered-preview framing and quality-gate follow-through:
+  - the wide-desktop `Home` surface now keeps the Stage 563 structure and the settled Stage 655 fallback poster path, but weak washed-out saved-HTML cases no longer survive as pale real thumbnails: low-signal rendered snapshots fall back cleanly while strong rendered HTML sources stay promoted as real cached media previews
+  - the active Home benchmark now expects richer screenshot-like or otherwise higher-fidelity preview generation only for the sources that still fall back, especially paste/text or sources without usable saved image assets, not another shell, rail, toolbar, lower-card, metadata-only poster, or HTML-backed preview-framing trim
+- The latest completed audit is now Stage 662, the latest green implementation validation is now Stage 661, and the current product move is to hold the refreshed `Home` / `Graph` / original-only `Reader` baseline again rather than auto-opening another slice.
+- Keep `Home`, `Graph`, and original-only `Reader` on refreshed-baseline hold from the Stage 662 checkpoint while `Notes` and `Study` stay regression surfaces; if another bounded slice opens, `Home` remains the likeliest next target, now around richer screenshot-like or otherwise higher-fidelity preview generation for the sources that still fall back, especially paste/text or sources without usable saved image assets, rather than more shell, rail, toolbar, lower-card, metadata-only poster, or HTML-backed preview-framing restraint.
+
+## Stage 662 Post-Stage-661 Home Content-Targeted Rendered Preview Framing And Quality Gate Audit Snapshot
+
+- Stage 662 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home weak-web, rendered-document, and fallback-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 661 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, keeps the settled Stage 655 content-derived fallback path for paste/text/image-less cards, preserves strong rendered HTML previews where saved content is rich, and now rejects washed-out low-signal HTML snapshots before they can present as pale image thumbnails.
+- A supporting live Edge sample recorded a weak HTML-backed `Web` case now falling back cleanly (`weakWebPreviewMediaKind: fallback`, `weakWebPreviewSourceKind: fallback`, `weakWebHeroText: Debug harness sentence alpha.`), a rendered `Documents` thumbnail staying on `html-rendered-snapshot` (`documentRenderedNaturalWidth: 960`, `documentRenderedNaturalHeight: 540`, `documentSignalStddev: 37.63`, `documentSignalLightCoverage: 0.8858`, `documentSignalDarkCoverage: 0.0252`), a preserved fallback paste poster with a substantial content-derived hero seam (`fallbackHeroSource: content`, `fallbackHeroText: Debug import sentence one.`), preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 661 Home Content-Targeted Rendered Preview Framing And Quality Gate Reset Snapshot
+
+- Stage 661 refreshed the live wide desktop `Home` implementation captures plus dedicated Home weak-web, rendered-document, and fallback-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and improved saved-HTML snapshot framing beyond the Stage 659 first-pass rendered promotion by scoring meaningful content regions, scrolling chosen regions into view when needed, clipping a padded `16:9` content target, and rejecting obviously low-information rendered snapshots before caching.
+- The resulting Home surface recorded a weak HTML-backed `Web` case resolving to fallback (`weakWebPreviewMediaKind: fallback`, `weakWebPreviewSourceKind: fallback`, `weakWebHeroText: Debug harness sentence alpha.`), a content-rich `Documents` thumbnail staying on `html-rendered-snapshot` (`documentRenderedNaturalWidth: 960`, `documentRenderedNaturalHeight: 540`, `documentSignalStddev: 37.63`, `documentSignalLightCoverage: 0.8859`, `documentSignalDarkCoverage: 0.0252`), a preserved content-derived fallback paste seam (`fallbackHeroText: Debug import sentence one.`), preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset, and preserved `4` visible toolbar controls with `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 662 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 660 Post-Stage-659 Home Rendered HTML Snapshot Preview Promotion Audit Snapshot
+
+- Stage 660 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home rendered-web, rendered-document, and fallback-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 659 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, keeps the settled Stage 655 content-derived fallback path for paste/text/image-less cards, and now upgrades the remaining HTML-backed `Web` plus `Documents` cards to real cached image thumbnails served from the preview API with `source: html-rendered-snapshot`.
+- A supporting live Edge sample recorded a rendered-snapshot `Web` thumbnail (`webRenderedPreviewSourceKind: html-rendered-snapshot`, `webRenderedNaturalWidth: 960`, `webRenderedNaturalHeight: 540`), a rendered-snapshot `Documents` thumbnail (`documentRenderedPreviewSourceKind: html-rendered-snapshot`, `documentRenderedNaturalWidth: 960`, `documentRenderedNaturalHeight: 540`), a preserved fallback paste poster with a substantial content-derived hero seam (`fallbackHeroSource: content`, `fallbackHeroText: Debug import sentence one.`), preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 659 Home Rendered HTML Snapshot Preview Promotion Reset Snapshot
+
+- Stage 659 refreshed the live wide desktop `Home` implementation captures plus dedicated Home rendered-web, rendered-document, and fallback-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and extended preview acquisition beyond direct saved image candidates by rendering saved local HTML into cached `960x540` preview assets whenever HTML-backed sources had no usable attachment/meta/preload/inline image candidate, without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a rendered-snapshot `Web` thumbnail (`webRenderedPreviewSourceKind: html-rendered-snapshot`, `webRenderedNaturalWidth: 960`, `webRenderedNaturalHeight: 540`), a rendered-snapshot `Documents` thumbnail (`documentRenderedPreviewSourceKind: html-rendered-snapshot`, `documentRenderedNaturalWidth: 960`, `documentRenderedNaturalHeight: 540`), a preserved content-derived fallback paste seam (`fallbackHeroText: Debug import sentence one.`), preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset, and preserved `4` visible toolbar controls with `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 660 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 658 Post-Stage-657 Home Real Media-Preview Acquisition Audit Snapshot
+
+- Stage 658 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home image-preview and fallback-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 657 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, keeps the settled Stage 655 content-derived fallback path for paste/text/image-less cards, and now upgrades preview-ready saved sources to real cached image thumbnails served from the new preview API.
+- A supporting live Edge sample recorded one real cached `Web` thumbnail (`imagePreviewCardCount: 1`, `imagePreviewSourceKind: web`, `imageNaturalWidth: 960`, `imageNaturalHeight: 540`) alongside a preserved fallback paste poster with a substantial content-derived hero seam (`fallbackHeroSource: content`, `fallbackHeroText: Debug import sentence one.`), plus preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 657 Home Real Media-Preview Acquisition From Saved Source Attachments Reset Snapshot
+
+- Stage 657 refreshed the live wide desktop `Home` implementation captures plus dedicated Home image-preview and fallback-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and broadened preview fidelity beyond synthetic/content-derived poster surfaces by acquiring image candidates from saved source attachments or stored HTML, normalizing them into cached `960x540` preview assets, and serving them back through a new Recall preview API without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded one real cached image preview in the visible `Web` collection (`imagePreviewCardCount: 1`, `imageNaturalWidth: 960`, `imageNaturalHeight: 540`), a preserved content-derived fallback paste seam (`fallbackHeroText: Debug import sentence one.`), preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset, and preserved `4` visible toolbar controls with `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 658 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 656 Post-Stage-655 Home Content-Derived Poster Preview Fidelity Audit Snapshot
+
+- Stage 656 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card, web-card, and file-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 655 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, keeps the settled Stage 654 poster/layout baseline, and now upgrades paste, web, and file/document posters from metadata-only hero seams to content-derived hero seams sourced from stored document views.
+- A supporting live Edge sample recorded content-derived hero text for representative paste (`Debug import sentence one.`), web (`Debug harness sentence alpha.`), and file/document (`There are classical Sunni scholars who explicitly…`) cards, the file-detail seam `at_tariq_86_pronoun_research_v3.html`, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 655 Home Content-Derived Poster Preview Fidelity Reset Snapshot
+
+- Stage 655 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card, web-card, and file-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and broadened poster fidelity beyond metadata-only fallback seams by sourcing representative paste, web, and file/document hero text from stored `DocumentView` content without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded content-derived hero text for representative paste (`Debug import sentence one.`), web (`Debug harness sentence alpha.`), and file/document (`There are classical Sunni scholars who explicitly…`) cards, the file-detail seam `at_tariq_86_pronoun_research_v3.html`, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset, and preserved `4` visible toolbar controls with `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 656 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 652 Post-Stage-651 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Settle Finish Audit Snapshot
+
+- Stage 652 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 651 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower copy seam and title/source/chip settle now read cleaner and less poster-led than the Stage 649 finish-follow-through baseline.
+- A supporting live Edge sample recorded a `0.5536` preview ratio, a `0.3226` copy ratio, a `20.99px` title line-height, a `6.36px` title-to-source gap, a `5.69px` source-to-chip gap, `10.64px` source text at `0.8` alpha, a `7.952px` chip at `0.63` alpha, `0.027` chip background alpha, `0.055` chip border alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 651 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Settle Finish Reset Snapshot
+
+- Stage 651 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and carried one final subtler lower-card copy-seam and title/source/chip descent settle finish step beyond the Stage 649 finish-follow-through baseline without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.5536` preview ratio, a `0.3226` copy ratio, a `20.99px` title line-height, a `6.36px` title-to-source gap, a `5.69px` source-to-chip gap, `10.64px` source text at `0.8` alpha, a `7.952px` chip at `0.63` alpha, `0.027` chip background alpha, `0.055` chip border alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 652 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 644 Post-Stage-643 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Settle Follow-Through Audit Snapshot
+
+- Stage 644 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 643 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower copy seam and title/source/chip settle now read cleaner and less poster-led than the Stage 641 settle baseline.
+- A supporting live Edge sample recorded a `0.5737` preview ratio, a `0.3056` copy ratio, a `19.70px` title line-height, a `5.53px` title-to-source gap, a `4.86px` source-to-chip gap, `10.54px` source text at `0.76` alpha, a `7.86px` chip at `0.59` alpha, `0.024` chip background alpha, `0.047` chip border alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 643 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Settle Follow-Through Reset Snapshot
+
+- Stage 643 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and carried one subtler lower-card copy-seam and title/source/chip settle follow-through beyond the Stage 641 settle state without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.5737` preview ratio, a `0.3056` copy ratio, a `19.70px` title line-height, a `5.53px` title-to-source gap, a `4.86px` source-to-chip gap, `10.54px` source text at `0.76` alpha, a `7.86px` chip at `0.59` alpha, `0.024` chip background alpha, `0.047` chip border alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 644 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 642 Post-Stage-641 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Settle Audit Snapshot
+
+- Stage 642 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 641 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower copy seam and title/source/chip descent now read cleaner and less poster-led than the Stage 639 baseline.
+- A supporting live Edge sample recorded a `0.5787` preview ratio, a `0.3016` copy ratio, a `19.42px` title line-height, a `5.30px` title-to-source gap, a `4.63px` source-to-chip gap, `10.53px` source text at `0.75` alpha, a `7.84px` chip at `0.58` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 641 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Settle Reset Snapshot
+
+- Stage 641 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and settled one final subtler lower-card copy-seam and title/source/chip descent step past the Stage 639 finish state without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.5787` preview ratio, a `0.3016` copy ratio, a `19.42px` title line-height, a `5.30px` title-to-source gap, a `4.63px` source-to-chip gap, `10.53px` source text at `0.75` alpha, a `7.84px` chip at `0.58` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 642 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 640 Post-Stage-639 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Finish Audit Snapshot
+
+- Stage 640 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 639 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower copy seam and title/source/chip descent now read cleaner and less poster-led than the Stage 637 baseline.
+- A supporting live Edge sample recorded a `0.5838` preview ratio, a `0.2974` copy ratio, a `19.15px` title line-height, a `5.08px` title-to-source gap, a `4.41px` source-to-chip gap, `10.51px` source text at `0.74` alpha, a `7.82px` chip at `0.57` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 639 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Finish Reset Snapshot
+
+- Stage 639 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and finished one subtler lower-card copy-seam and title/source/chip descent step past the Stage 637 follow-through state without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.5838` preview ratio, a `0.2974` copy ratio, a `19.15px` title line-height, a `5.08px` title-to-source gap, a `4.41px` source-to-chip gap, `10.51px` source text at `0.74` alpha, a `7.82px` chip at `0.57` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 640 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 638 Post-Stage-637 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Follow-Through Audit Snapshot
+
+- Stage 638 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 637 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower copy seam and title/source/chip descent now read calmer and less poster-led than the Stage 635 baseline.
+- A supporting live Edge sample recorded a `0.5887` preview ratio, a `0.2935` copy ratio, an `18.87px` title line-height, a `4.86px` title-to-source gap, a `4.19px` source-to-chip gap, `10.50px` source text at `0.73` alpha, a `7.81px` chip at `0.56` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 637 Home Lower-Card Copy-Seam And Title-Source-Chip Descent Follow-Through Reset Snapshot
+
+- Stage 637 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and carried the remaining lower copy seam and title/source/chip descent one subtler step past the Stage 635 finish state without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.5887` preview ratio, a `0.2935` copy ratio, an `18.87px` title line-height, a `4.86px` title-to-source gap, a `4.19px` source-to-chip gap, `10.50px` source text at `0.73` alpha, a `7.81px` chip at `0.56` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 638 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 636 Post-Stage-635 Home Lower-Card Title-Source-Chip Descent Finish And Copy-Seam Settling Audit Snapshot
+
+- Stage 636 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 635 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower title/source/chip seam now reads cleaner and slightly less poster-led than the Stage 633 baseline.
+- A supporting live Edge sample recorded a `0.5937` preview ratio, a `0.2894` copy ratio, an `18.60px` title line-height, a `4.67px` title-to-source gap, a `3.95px` source-to-chip gap, `10.48px` source text at `0.72` alpha, a `7.79px` chip at `0.55` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 635 Home Lower-Card Title-Source-Chip Descent Finish And Copy-Seam Settling Reset Snapshot
+
+- Stage 635 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the repo-owned launcher path `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and gave the remaining lower title/source/chip seam one subtler finish pass while settling the copy seam a little further without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.5937` preview ratio, a `0.2894` copy ratio, an `18.60px` title line-height, a `4.67px` title-to-source gap, a `3.95px` source-to-chip gap, `10.48px` source text at `0.72` alpha, a `7.79px` chip at `0.55` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 636 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 632 Post-Stage-631 Home Lower-Card Hierarchy Finish And Title-Source-Chip Descent Audit Snapshot
+
+- Stage 632 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The audit confirmed that Stage 631 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower title/source/chip seam now reads calmer and slightly less poster-led than the Stage 629 balance.
+- A supporting live Edge sample recorded a `0.6041` preview ratio, a `0.2812` copy ratio, an `18.03px` title line-height, a `4.22px` title-to-source gap, a `3.52px` source-to-chip gap, `10.45px` source text at `0.7` alpha, a `7.76px` chip at `0.53` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 631 Home Lower-Card Hierarchy Finish And Title-Source-Chip Descent Reset Snapshot
+
+- Stage 631 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The implementation pass kept the Stage 563 structure intact and gave the remaining lower title/source/chip seam one subtler hierarchy-finish pass so the card reads slightly less poster-led without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.6041` preview ratio, a `0.2812` copy ratio, an `18.03px` title line-height, a `4.22px` title-to-source gap, a `3.52px` source-to-chip gap, `10.45px` source text at `0.7` alpha, a `7.76px` chip at `0.53` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 632 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 630 Post-Stage-629 Home Lower-Card Title-Tail Balance And Source-Chip Cadence Audit Snapshot
+
+- Stage 630 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The audit confirmed that Stage 629 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower title tail now reads more evenly and the source/chip cadence lands cleaner than the Stage 627 balance.
+- A supporting live Edge sample recorded a `0.6091` preview ratio, a `0.2773` copy ratio, a `17.74px` title line-height, a `4.03px` title-to-source gap, a `3.31px` source-to-chip gap, `10.43px` source text at `0.69` alpha, a `7.73px` chip at `0.52` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 629 Home Lower-Card Title-Tail Balance And Source-Chip Cadence Refinement Reset Snapshot
+
+- Stage 629 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The implementation pass kept the Stage 563 structure intact and gave the remaining lower title tail and source/chip cadence one subtler refinement so the card reads less poster-led without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.6091` preview ratio, a `0.2773` copy ratio, a `17.74px` title line-height, a `4.03px` title-to-source gap, a `3.31px` source-to-chip gap, `10.43px` source text at `0.69` alpha, a `7.73px` chip at `0.52` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 630 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 628 Post-Stage-627 Home Lower-Card Title-Wrap And Source-Chip Handoff Audit Snapshot
+
+- Stage 628 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The audit confirmed that Stage 627 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower title line now wraps more calmly and the source/chip handoff reads steadier than the Stage 625 balance.
+- A supporting live Edge sample recorded a `0.6149` preview ratio, a `0.2726` copy ratio, a `17.46px` title line-height, a `3.8px` title-to-source gap, a `3.03px` source-to-chip gap, `10.42px` source text at `0.68` alpha, a `7.7px` chip at `0.51` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 627 Home Lower-Card Title-Wrap And Source-Chip Handoff Refinement Reset Snapshot
+
+- Stage 627 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The implementation pass kept the Stage 563 structure intact and gave the remaining lower title line and source/chip handoff one subtler refinement so the card reads less poster-led without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.6149` preview ratio, a `0.2726` copy ratio, a `17.46px` title line-height, a `3.8px` title-to-source gap, a `3.03px` source-to-chip gap, `10.42px` source text at `0.68` alpha, a `7.7px` chip at `0.51` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 628 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 624 Post-Stage-623 Home Lower-Card Seam Continuation And Copy-Stack Cadence Audit Snapshot
+
+- Stage 624 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The audit confirmed that Stage 623 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower title/source/chip seam now reads slightly steadier beneath the poster than the older Stage 622 balance.
+- A supporting live Edge sample recorded a `0.6271` preview ratio, a `0.2625` copy ratio, a `16.78px` title line-height, a `3.27px` title-to-source gap, a `2.47px` source-to-chip gap, `10.37px` source text at `0.67` alpha, a `7.65px` chip at `0.5` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, preserved the Stage 617 `90.98px` first day-group top offset and `115.36px` first-row grid top offset, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 623 Home Lower-Card Seam Continuation And Copy-Stack Cadence Reset Snapshot
+
+- Stage 623 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The implementation pass kept the Stage 563 structure intact and gave the remaining lower title/source/chip seam one subtler follow-through pass so the card reads less poster-led without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.6271` preview ratio, a `0.2625` copy ratio, a `16.78px` title line-height, a `3.27px` title-to-source gap, a `2.47px` source-to-chip gap, `10.37px` source text at `0.67` alpha, a `7.65px` chip at `0.5` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, and preserved the Stage 617 `90.98px` first day-group top offset plus `115.36px` first-row grid top offset.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 624 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 622 Post-Stage-621 Home Lower-Card Share And Title-Source-Chip Follow-Through Audit Snapshot
+
+- Stage 622 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The audit confirmed that Stage 621 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower title/source/chip seam now owns a steadier share of the card rhythm than the older Stage 620 poster-led balance.
+- A supporting live Edge sample recorded a `0.6335` preview ratio, a `0.2569` copy ratio, a `16.47px` title line-height, a `2.88px` title-to-source gap, a `2.23px` source-to-chip gap, `10.32px` source text at `0.66` alpha, a `7.6px` chip at `0.49` alpha, preserved `352px` representative card width, preserved `203.52px` representative card height, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 621 Home Lower-Card Share And Title-Source-Chip Follow-Through Reset Snapshot
+
+- Stage 621 refreshed the live wide desktop `Home` implementation captures plus dedicated Home paste-card and web-card crops against the working WSL host `http://172.27.18.251:8002` because Windows localhost forwarding was unavailable in this session.
+- The implementation pass kept the Stage 563 structure intact and slightly reduced the remaining poster-led bias by returning more vertical ownership to the lower title/source/chip seam without changing rail ownership, grouping, toolbar layout, or board-width cadence.
+- The resulting Home surface recorded a `0.6335` preview ratio, a `0.2569` copy ratio, a `16.47px` title line-height, a `2.88px` title-to-source gap, a `2.23px` source-to-chip gap, `10.32px` source text at `0.66` alpha, a `7.6px` chip at `0.49` alpha, preserved `352px` representative card width, and a preserved `203.52px` representative card height.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 622 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 620 Post-Stage-619 Home Canvas-Frame Contrast And Utility-Pill Emphasis Softening Audit Snapshot
+
+- Stage 620 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus a dedicated Home toolbar crop against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 619 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the outer frame reads less boxed and the non-primary utility pills pull less strongly than they did in the Stage 618 baseline.
+- A supporting live Edge sample recorded `0.82` canvas background alpha, `0.024` canvas border alpha, `0.02` Search fill alpha, `0.035` Search border alpha, `0.01` List/Sort fill alpha, `0.03` List/Sort border alpha, preserved `352px` add-tile/card widths, preserved `203.52px` representative card height, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 619 Home Canvas-Frame Contrast And Utility-Pill Emphasis Softening Reset Snapshot
+
+- Stage 619 refreshed the live wide desktop `Home` implementation captures plus a dedicated Home toolbar crop against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and reduced the remaining outer-frame contrast plus Search/List/Sort emphasis without changing rail ownership, grouping, card-width cadence, or lower-card rhythm.
+- The resulting Home surface recorded `0.82` canvas background alpha, `0.024` canvas border alpha, `0.02` Search fill alpha, `0.035` Search border alpha, `0.01` List/Sort fill alpha, `0.03` List/Sort border alpha, preserved `352px` add-tile/card widths, and a preserved `203.52px` representative card height.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 620 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 618 Post-Stage-617 Home Upper-Board Whitespace Compaction And Earlier First-Row Start Audit Snapshot
+
+- Stage 618 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home toolbar and first-day-group crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 617 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the first day label and first row now begin earlier inside the canvas without giving back the Stage 615 board-column cadence.
+- A supporting live Edge sample recorded `6.4px` canvas top padding, `6.4px` canvas gap, a `90.98px` first day-group heading top offset, a `115.36px` first-row grid top offset, `6.39px` toolbar-to-heading and heading-to-grid seams, preserved `352px` add-tile/card widths, preserved `203.52px` representative card height, `3` visible first-row tiles, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 617 Home Upper-Board Whitespace Compaction And Earlier First-Row Start Reset Snapshot
+
+- Stage 617 refreshed the live wide desktop `Home` implementation captures plus dedicated Home toolbar and first-day-group crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and trimmed the canvas top pad plus first day-group seams so the board begins earlier without changing rail ownership, grouping, card-width cadence, or lower-card rhythm.
+- The resulting Home surface recorded `6.4px` canvas top padding, `6.4px` canvas gap, a `90.98px` first day-group heading top offset, a `115.36px` first-row grid top offset, `6.39px` toolbar-to-heading and heading-to-grid seams, preserved `352px` add-tile/card widths, and a preserved `203.52px` representative card height.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 618 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 616 Post-Stage-615 Home Board-Column Cadence And Add-Tile/Card-Width Balance Audit Snapshot
+
+- Stage 616 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home add-tile and representative-card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 615 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the add tile and first-row cards no longer read as under-scaled against the available canvas width.
+- A supporting live Edge sample recorded `352px` add-tile width, `352px` representative card width, `8px` column gap, `110.81px` first-row right slack, preserved `203.52px` representative card height, `3` visible first-row tiles, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 615 Home Board-Column Cadence And Add-Tile/Card-Width Balance Reset Snapshot
+
+- Stage 615 refreshed the live wide desktop `Home` implementation captures plus dedicated Home add-tile and representative-card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and widened the three-up board columns so the first row uses more of the canvas without changing rail ownership, grouping, toolbar layout, or lower-card rhythm.
+- The resulting Home surface recorded `352px` add-tile width, `352px` representative card width, `8px` column gap, `110.81px` first-row right slack, and a preserved `203.52px` representative card height.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 616 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 610 Post-Stage-609 Home Toolbar-Text Seam And Rail-Copy Restraint Audit Snapshot
+
+- Stage 610 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home toolbar and rail crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 609 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the Search label, `Ctrl+K` hint, and remaining rail copy now read calmer than the Stage 608 baseline.
+- A supporting live Edge sample recorded `Search...` at `rgba(221, 230, 242, 0.66)` with a `12.64px` label, `Ctrl+K` at `rgba(205, 216, 234, 0.54)` with an `11.68px` hint, `3 groups` rail heading meta at `0.32` alpha, `34 sources` rail summary at `0.4` alpha, active and inactive support lines at `0.36` alpha, the active preview label at `0.36` alpha, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 609 Home Toolbar-Text Seam And Rail-Copy Restraint Reset Snapshot
+
+- Stage 609 refreshed the live wide desktop `Home` implementation captures plus dedicated Home toolbar and rail crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and softened the remaining Search/Ctrl+K seam plus the quiet copy inside the rail without changing ownership, grouping, toolbar layout, or lower-card identity.
+- The resulting Home surface recorded `Search...` at `rgba(221, 230, 242, 0.66)`, `Ctrl+K` at `rgba(205, 216, 234, 0.54)`, rail heading meta `3 groups` at `rgba(196, 207, 226, 0.32)`, rail summary `34 sources` at `rgba(176, 190, 211, 0.4)`, active and inactive support lines at `0.36` alpha, and the active child-preview label at `0.36` alpha.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 610 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 608 Post-Stage-607 Home Card-Identity Seam Rebalance Audit Snapshot
+
+- Stage 608 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus a dedicated Home representative-card crop against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 607 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower card seam now reads more like a content card instead of an anonymous preview tile beneath the poster.
+- A supporting live Edge sample recorded a preserved `203.52px` representative card height, `13.92px` title text at `680` weight with `15.312px` line height, `10px` source text at `rgba(190, 205, 229, 0.6)`, a `7.28px` collection chip at `rgba(202, 214, 235, 0.42)`, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 607 Home Card-Identity Seam Rebalance Reset Snapshot
+
+- Stage 607 refreshed the live wide desktop `Home` implementation captures plus a dedicated Home representative-card crop against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact and made the lower title/source/chip seam more readable again without changing ownership, grouping, toolbar layout, or source-aware poster variants.
+- The resulting Home surface recorded a preserved `203.52px` representative card height, `13.92px` title text at `680` weight with `15.312px` line height, `10px` source text at `rgba(190, 205, 229, 0.6)`, and a `7.28px` collection chip at `rgba(202, 214, 235, 0.42)`.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 608 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 604 Post-Stage-603 Home Card-Body Compression And Lower-Meta Rhythm Audit Snapshot
+
+- Stage 604 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home add-tile and representative-card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 603 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the lower card seam now spends less height on title/source/chip support and yields more cleanly to the poster.
+- A supporting live Edge sample recorded a `203.52px` add-tile height, a matching `203.52px` representative card height, `7.36px` top/bottom card padding, a `4.16px` lower-seam row gap, `13.44px` title text at `680` weight with `14.5152px` line height, `9.76px` source text at `rgba(190, 205, 229, 0.56)`, a `7.04px` collection chip at `rgba(202, 214, 235, 0.38)`, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 603 Home Card-Body Compression And Lower-Meta Rhythm Reset Snapshot
+
+- Stage 603 refreshed the live wide desktop `Home` implementation captures plus dedicated Home add-tile and representative-card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, shortened the add tile and representative board cards, and calmed the lower title/source/chip seam without changing ownership, grouping, toolbar layout, or source-aware poster variants.
+- The resulting Home surface recorded a `203.52px` add-tile height, a matching `203.52px` representative card height, `7.36px` top/bottom card padding, a `4.16px` lower-seam row gap, `13.44px` title text at `680` weight with `14.5152px` line height, `9.76px` source text at `rgba(190, 205, 229, 0.56)`, and a `7.04px` collection chip at `rgba(202, 214, 235, 0.38)`.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 604 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 602 Post-Stage-601 Home Toolbar Scale And Utility Fill Calibration Audit Snapshot
+
+- Stage 602 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home toolbar-cluster, Search-trigger, and secondary-toolbar crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 601 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the top-right utility cluster now reads closer to Recall in scale and calmer fill rhythm.
+- A supporting live Edge sample recorded a `194px` Search trigger width at `41px` height with visible `Search...` plus `Ctrl+K`, a `66.88px` Add width at `38.77px` height, `34.53px` `List` plus `Sort` pill heights, `0.02` secondary fill alpha, `0.043` secondary border alpha, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 601 Home Toolbar Scale And Utility Fill Calibration Reset Snapshot
+
+- Stage 601 refreshed the live wide desktop `Home` implementation captures plus dedicated Home toolbar-cluster, Search-trigger, and secondary-toolbar crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, widened Search, gave Add better visual weight, and made the secondary `List` plus `Sort` pills taller and calmer without changing grouping, ownership, or card treatment.
+- The resulting Home surface recorded a `194px` Search trigger width at `41px` height with visible `Search...` plus `Ctrl+K`, a `66.88px` Add width at `38.77px` height, secondary pill styling at `0.02` fill alpha plus `0.043` border alpha with `34.53px` height, `4` visible toolbar controls, and `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 602 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 600 Post-Stage-599 Home Rail Tree Simplification And Board Continuation Demotion Audit Snapshot
+
+- Stage 600 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home rail, active-row, add-tile, and footer crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 599 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the selected row now reads flatter, the attached child seam now reads thinner, and the footer continuation now yields more cleanly to the board.
+- A supporting live Edge sample recorded active-row styling at `0.66` background alpha, `0.05` border alpha, and `0.01` inset-glow alpha with a `10px` radius plus a `44.61px` button height, an attached child-preview seam at `13.58px` with `8.96px` type and `0.42` text alpha plus a `3.19px` mark, visible footer copy `Show all captures`, hidden accessible footer total `, 34 total sources`, `0` visible numeric footer-count nodes, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 599 Home Rail Tree Simplification And Board Continuation Demotion Reset Snapshot
+
+- Stage 599 refreshed the live wide desktop `Home` implementation captures plus dedicated Home rail, active-row, add-tile, and footer crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, flattened the active rail tree row, thinned the attached child preview, and demoted the visible board continuation copy without changing ownership, grouping, or toolbar layout.
+- The resulting Home surface recorded active-row styling at `0.66` background alpha, `0.05` border alpha, and `0.01` inset-glow alpha with a `10px` radius plus a `44.61px` button height, an attached child-preview seam at `13.58px` with `8.96px` type and `0.42` text alpha plus a `3.19px` mark, and visible footer copy `Show all captures` with hidden accessible total `, 34 total sources`.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 600 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 596 Post-Stage-595 Home Preview Badge Row And Utility Pill Border Softening Audit Snapshot
+
+- Stage 596 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home add-tile and representative Home card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 595 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the preview badge row now reads quieter and the visible utility-pill borders now yield more cleanly to the dark shell.
+- A supporting live Edge sample recorded preview-badge styling at `0.46` background alpha with `0.04` border alpha and `8.16px` size, `Paste` as the representative badge text, `0.05` border alpha across the visible Search, List, and Sort pills, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 595 Home Preview Badge Row And Utility Pill Border Softening Reset Snapshot
+
+- Stage 595 refreshed the live wide desktop `Home` implementation captures plus dedicated Home add-tile and representative Home card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, calmed the preview badge row, and softened the visible utility-pill border emphasis without changing ownership, grouping, or toolbar layout.
+- The resulting Home surface recorded preview-badge styling at `0.46` background alpha with `0.04` border alpha and `8.16px` size, `Paste` as the representative badge text, and `0.05` border alpha across the visible Search, List, and Sort pills.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 596 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 588 Post-Stage-587 Home Add-Tile Icon Weight And Card Shell Edge Softening Audit Snapshot
+
+- Stage 588 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home add-tile and representative Home card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 587 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the `Add Content` plus mark now reads calmer and the outer board-card shell edge now yields more cleanly to the preview surface.
+- A supporting live Edge sample recorded `Add content to Captures`, add-tile mark styling at `33.92px` with `500` weight, `44.47px` width/height, `rgba(163, 196, 255, 0.9)` text, card-shell styling at `rgba(11, 16, 24, 0.96)` background with `rgba(255, 255, 255, 0.043)` border, `15px` radius, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 587 Home Add-Tile Icon Weight And Card Shell Edge Softening Reset Snapshot
+
+- Stage 587 refreshed the live wide desktop `Home` implementation captures plus dedicated Home add-tile and representative Home card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, calmed the `Add Content` plus-mark circle and glyph, and softened the outer board-card shell edge without changing ownership, grouping, or toolbar layout.
+- The resulting Home surface recorded `Add content to Captures`, add-tile mark styling at `33.92px` with `500` weight, `44.47px` width/height, `rgba(163, 196, 255, 0.9)` text, card-shell styling at `rgba(11, 16, 24, 0.96)` background with `rgba(255, 255, 255, 0.043)` border and `15px` radius, and `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 588 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 586 Post-Stage-585 Home Add-Tile Perimeter And Collection-Chip Softening Audit Snapshot
+
+- Stage 586 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home add-tile and representative Home card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 585 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the `Add Content` tile perimeter now reads calmer and the lower collection chip now yields more cleanly to the poster plus title hierarchy.
+- A supporting live Edge sample recorded `Add content to Captures`, add-tile styling at `rgba(10, 14, 21, 0.88)` background with `rgba(138, 175, 235, 0.17)` dashed border, collection-chip styling at `7.52px` with `rgba(255, 255, 255, 0.008)` background, `rgba(255, 255, 255, 0.024)` border, `rgba(202, 214, 235, 0.44)` text, `4` visible toolbar controls, `0` visible day-group count nodes, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 585 Home Add-Tile Perimeter And Collection-Chip Softening Reset Snapshot
+
+- Stage 585 refreshed the live wide desktop `Home` implementation captures plus dedicated Home add-tile and representative Home card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, calmed the `Add Content` tile perimeter, and softened the lower collection chip without changing ownership, grouping, or toolbar layout.
+- The resulting Home surface recorded `Add content to Captures`, add-tile styling at `rgba(10, 14, 21, 0.88)` background with `rgba(138, 175, 235, 0.17)` dashed border, collection-chip styling at `7.52px` with `rgba(255, 255, 255, 0.008)` background, `rgba(255, 255, 255, 0.024)` border, `rgba(202, 214, 235, 0.44)` text, and `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 586 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 584 Post-Stage-583 Home Collection Header Summary And Poster Badge Softening Audit Snapshot
+
+- Stage 584 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home rail and representative Home card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 583 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the rail header summary line now reads quieter and poster badge chrome now sits subtler inside the source-aware card preview.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `Local captures` as the active selected-row support text, `34 sources` as the quiet rail summary line, rail heading-meta styling at `9.76px` with `rgba(196, 207, 226, 0.38)`, rail summary styling at `10.08px` with `rgba(176, 190, 211, 0.46)`, poster badge styling at `8.48px` with `rgba(13, 17, 25, 0.54)` background, `rgba(255, 255, 255, 0.05)` border, `rgba(220, 230, 246, 0.78)` text, `4` visible toolbar controls, `0` visible day-group count nodes, `...` as the organizer trigger text, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 583 Home Collection Header Summary And Poster Badge Softening Reset Snapshot
+
+- Stage 583 refreshed the live wide desktop `Home` implementation captures plus dedicated Home rail and representative Home card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, shortened the rail header summary seam so it no longer repeats the active collection label, and softened the poster badge chrome without changing ownership, grouping, or toolbar layout.
+- The resulting Home surface recorded `Captures` as the active rail label, `34` as the active rail count, `34 sources` as the quiet rail summary line, rail heading-meta styling at `9.76px` with `rgba(196, 207, 226, 0.38)`, rail summary styling at `10.08px` with `rgba(176, 190, 211, 0.46)`, poster badge styling at `8.48px` with `rgba(13, 17, 25, 0.54)` background, `rgba(255, 255, 255, 0.05)` border, `rgba(220, 230, 246, 0.78)` text, and `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 584 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 582 Post-Stage-581 Home Active Child-Preview And Poster Detail Softening Audit Snapshot
+
+- Stage 582 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home rail and representative Home card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 581 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the active child-preview seam now reads quieter and poster detail lines sit calmer inside the source-aware cards.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `Local captures` as the active selected-row support text, child-preview styling at `9.6px` with `rgba(190, 205, 229, 0.48)`, child-preview mark styling at `3.83px` with `rgba(169, 184, 209, 0.32)`, preview detail styling at `8.96px` with `rgba(219, 227, 240, 0.62)` for `Local capture`, preview note styling at `8.32px` with `rgba(214, 224, 239, 0.54)` for `Saved locally`, `4` visible toolbar controls, `0` visible day-group count nodes, `...` as the organizer trigger text, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 581 Home Active Child-Preview And Poster Detail Softening Reset Snapshot
+
+- Stage 581 refreshed the live wide desktop `Home` implementation captures plus dedicated Home rail and representative Home card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, calmed the attached active child-preview seam, and softened poster detail lines without changing ownership, grouping, or toolbar layout.
+- The resulting Home surface recorded `Captures` as the active rail label, `Captures collection canvas` as the canvas aria-label, child-preview styling at `9.6px` with `rgba(190, 205, 229, 0.48)`, child-preview mark styling at `3.83px` with `rgba(169, 184, 209, 0.32)`, preview detail styling at `8.96px` with `rgba(219, 227, 240, 0.62)` for `Local capture`, preview note styling at `8.32px` with `rgba(214, 224, 239, 0.54)` for `Saved locally`, and `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 582 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 580 Post-Stage-579 Home Active-Rail Chrome And Source-Row Softening Audit Snapshot
+
+- Stage 580 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home rail and representative Home card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 579 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the active selected row now lands calmer and board-card source rows sit softer beneath the title.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `Local captures` as the active selected-row support text, active-rail styling at `rgba(17, 23, 34, 0.82)` background with `rgba(112, 167, 255, 0.082)` border and `rgba(112, 167, 255, 0.024)` inset box-shadow, board-card source-row styling at `10.24px` with `rgba(190, 205, 229, 0.62)`, `4` visible toolbar controls, `0` visible day-group count nodes, `...` as the organizer trigger text, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 579 Home Active-Rail Chrome And Source-Row Softening Reset Snapshot
+
+- Stage 579 refreshed the live wide desktop `Home` implementation captures plus dedicated Home rail and representative Home card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, calmed the active selected-row highlight chrome, and softened board-card source-row emphasis without changing ownership, grouping, or toolbar layout.
+- The resulting Home surface recorded `Captures` as the active rail label, `Captures collection canvas` as the canvas aria-label, active-rail styling at `rgba(17, 23, 34, 0.82)` background with `rgba(112, 167, 255, 0.082)` border and `rgba(112, 167, 255, 0.024)` inset box-shadow, board-card source-row styling at `10.24px` with `rgba(190, 205, 229, 0.62)`, `4` visible toolbar controls, and `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 580 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 578 Post-Stage-577 Home Inactive-Rail Support And Chip Chrome Softening Audit Snapshot
+
+- Stage 578 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home closed-toolbar, Home rail, and representative Home card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 577 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but inactive support lines now read quieter while the residual rail count-pill and board-card chip chrome sit lighter.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `Local captures` as the active selected-row support text, inactive support styling at `9.76px` with `rgba(186, 198, 218, 0.42)`, inactive count-pill styling at `8.96px` with `rgba(210, 221, 240, 0.38)`, board-card chip styling at `8px` with `rgba(202, 214, 235, 0.5)`, `2` inactive rail rows, `0` visible day-group count nodes, `...` as the organizer trigger text, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 577 Home Inactive-Rail Support And Chip Chrome Softening Reset Snapshot
+
+- Stage 577 refreshed the live wide desktop `Home` implementation captures plus dedicated Home closed-toolbar, Home rail, and representative Home card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, quieted inactive rail support lines, and demoted the remaining rail count-pill plus board-card chip chrome without changing layout or card ownership.
+- The resulting Home surface recorded `Captures` as the active rail label, `Captures collection canvas` as the canvas aria-label, inactive support styling at `9.76px` with `rgba(186, 198, 218, 0.42)`, inactive count-pill styling at `8.96px` with `rgba(210, 221, 240, 0.38)`, board-card chip styling at `8px` with `rgba(202, 214, 235, 0.5)`, `2` inactive rail rows, `4` visible toolbar controls, and `0` visible day-group count nodes.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 578 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 576 Post-Stage-575 Home Inactive-Rail Softening And Day-Group Count Demotion Audit Snapshot
+
+- Stage 576 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, and `Add Content` crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 575 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but inactive rows now rest like quieter list entries and visible day-group counts are gone while group totals stay available accessibly.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `Local captures` as the active selected-row support text, `2` inactive rail rows with transparent background and border at rest, `0` visible day-group count nodes, `Sat, Mar 14, 2026, 3 sources` as the first day-group aria-label, a preserved `215.19px` add-tile height, a preserved `182px` sort-popover width, `...` as the organizer trigger text, and `Stage13 Debug 1773482318378` as the original-only Reader regression source title.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 575 Home Inactive-Rail Softening And Day-Group Count Demotion Reset Snapshot
+
+- Stage 575 refreshed the live wide desktop `Home` implementation captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, and `Add Content` crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, softened inactive rail rows into quieter at-rest list entries, and retired visible day-group counts while preserving group totals in section accessibility labels.
+- The resulting Home surface recorded `Captures` as the active rail label, `Captures collection canvas` as the canvas aria-label, `Local captures` as the active selected-row support text, `2` inactive rail rows, transparent inactive-row styles (`rgba(0, 0, 0, 0)` background and border), `0` visible day-group count nodes, `Sat, Mar 14, 2026, 3 sources` as the first day-group aria-label, a preserved `215.19px` add-tile height, and a preserved `182px` sort-popover width.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 576 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 574 Post-Stage-573 Home Preview-Led Card Proportion And Quieter Selected-Row Support Audit Snapshot
+
+- Stage 574 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, `Add Content`, representative `paste`, representative `web`, and representative file/document crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 573 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the active selected-row support seam now reads as compact continuation copy and the poster now owns more of each board card while the lower seam stays quieter.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `Local captures` as the active selected-row support text with a compact `14`-character length, a `215.19px` add-tile height versus the Stage 572 `225.59px` baseline, `0` visible board-card date nodes, a `0.64` preview-to-card height ratio for the representative `paste` card, a preserved `182px` sort-popover width, `127.0.0.1` as the representative `web` source row, and `at_tariq_86_pronoun_research_v3.html` as the representative file/document source row.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 573 Home Preview-Led Card Proportion And Quieter Selected-Row Support Reset Snapshot
+
+- Stage 573 refreshed the live wide desktop `Home` implementation captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, `Add Content`, representative `paste`, representative `web`, and representative file/document crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, shortened the active selected-row support seam to compact copy such as `Local captures`, and let the poster own more of each board card while keeping source-aware variants intact.
+- The resulting Home surface recorded `Captures` as the active rail label, `Captures collection canvas` as the canvas aria-label, `Local captures` as the active selected-row support text with a compact `14`-character length, a `215.19px` add-tile height, `0` visible board-card date nodes, a `0.64` preview-to-card height ratio for the representative `paste` card, `Local capture` as the representative `paste` source row, and `127.0.0.1` as the representative `web` source row.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 574 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 572 Post-Stage-571 Home Rail-Header Restraint And Board-Card Meta Flattening Audit Snapshot
+
+- Stage 572 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, `Add Content`, representative `paste`, representative `web`, and representative file/document crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 571 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the rail header now reads calmer, the active child row now behaves like nested continuation instead of a mini card, and board cards no longer repeat the visible day-group date in each lower seam.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `4` first-screen toolbar controls split into `2 + 2` rows, `3 groups` as the restrained rail heading meta, `34 sources in Captures` as the quieter rail summary line, a `16.61px` active continuation-row height with one visible preview marker, `0` visible board-card date nodes, an `18.88px` chip height, a `225.59px` add-tile height, a `94.28px` first day-group top offset, a preserved `182px` sort-popover width, `Local capture` as the representative `paste` source row, `127.0.0.1` as the representative `web` source row, and `at_tariq_86_pronoun_research_v3.html` as the representative file/document source row.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 571 Home Rail-Header Restraint And Board-Card Meta Flattening Reset Snapshot
+
+- Stage 571 refreshed the live wide desktop `Home` implementation captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, `Add Content`, representative `paste`, representative `web`, and representative file/document crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, calmed the rail header/meta, turned the active continuation row into quieter nested child chrome, and flattened the board-card lower seam by removing the redundant visible per-card date.
+- The resulting Home surface recorded `Captures` as the active rail label, `Captures collection canvas` as the canvas aria-label, `3 groups` as the restrained rail heading meta, `34 sources in Captures` as the quieter rail summary line, a `16.61px` active continuation-row height with one visible preview marker, `0` visible board-card date nodes, an `18.88px` chip height, a `225.59px` add-tile height, a `94.28px` first day-group top offset, `Local capture` as the representative `paste` source row, and `127.0.0.1` as the representative `web` source row.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 572 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 570 Post-Stage-569 Home Utility-Cluster Anchoring And Restrained Poster-Copy Audit Snapshot
+
+- Stage 570 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, `Add Content`, representative `paste`, representative `web`, and representative file/document crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 569 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the utility cluster now lands narrower than the Stage 568 baseline, the organizer trigger now reads as compact continuation chrome, and the posters no longer duplicate body-copy inside the preview frame.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `4` first-screen toolbar controls split into `2 + 2` rows, `Search...Ctrl+K` as the visible search trigger text, a `215.48px` toolbar width, a `33.91px` organizer-trigger width, `0` preview body-copy nodes, a `182px` sort-popover width, a `237.59px` add-tile height, a `96.53px` first day-group top offset, `127.0.0.1` plus `Browser source` for the representative `web` poster, and `HTML file` plus `Local document` for the representative file poster.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 569 Home Utility-Cluster Anchoring And Restrained Poster-Copy Reset Snapshot
+
+- Stage 569 refreshed the live wide desktop `Home` implementation captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, `Add Content`, representative `paste`, representative `web`, and representative file/document crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, tightened the top-right utility cluster, collapsed the organizer trigger into compact continuation chrome, and retired duplicate poster body-copy so the title plus source row own more of the card hierarchy.
+- The resulting Home surface recorded `Captures` as the active rail label, `Captures collection canvas` as the canvas aria-label, a `215.48px` toolbar width, a `33.91px` organizer-trigger width, `0` preview body-copy nodes, a `182px` sort-popover width, a `237.59px` add-tile height, a `96.53px` first day-group top offset, `127.0.0.1` plus `Browser source` for the representative `web` poster, and `HTML file` plus `Local document` for the representative file poster.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 570 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 568 Post-Stage-567 Home Rail-Density And Card-Rhythm Parity Audit Snapshot
+
+- Stage 568 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, `Add Content`, representative `paste`, and representative `web` crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 567 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the visible at-rest organizer block is gone, the toolbar now reads as a smaller `2 + 2` cluster, and the add tile plus cards read denser than the Stage 565 pass.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `0` visible at-rest organizer panels, `1` visible `Organizer options` trigger, `4` first-screen toolbar controls split into `2 + 2` rows, `Search...Ctrl+K` as the visible search trigger text, a `249.59px` add-tile height, a `196px` sort-popover width, a `122.39px` first day-group top offset, and `Sat, Mar 14, 2026` plus `Fri, Mar 13, 2026` as the first visible day-group labels.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 567 Home Rail-Density And Card-Rhythm Parity Reset Snapshot
+
+- Stage 567 refreshed the live wide desktop `Home` implementation captures plus dedicated Home closed-toolbar, Home sort-popover, Home rail, `Add Content`, representative `paste`, and representative `web` crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, replaced the visible at-rest organizer block with a compact `Organizer options` trigger, split the visible utility cluster into a smaller `2 + 2` layout, and tightened the add tile plus card shells.
+- The resulting Home surface recorded `Captures` as the active rail label, `Captures collection canvas` as the canvas aria-label, `0` visible at-rest organizer panels, `4` visible toolbar controls split into `2 + 2` rows, `Search...Ctrl+K` as the visible search trigger text, a `249.59px` add-tile height, a `196px` sort-popover width, a `122.39px` first day-group top offset, `paste` as the active first-card preview kind, and `127.0.0.1` as the representative `web` poster detail.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 568 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
+
+## Stage 566 Post-Stage-565 Home Card-Media And Top-Chrome Parity Audit Snapshot
+
+- Stage 566 refreshed the live wide desktop `Home`, `Graph`, and original-only `Reader` captures plus dedicated Home toolbar, Home rail, representative `web` card, and representative file/document card crops against `http://127.0.0.1:8000`.
+- The audit confirmed that Stage 565 succeeded overall: wide desktop `Home` keeps the Stage 563 selected-collection rail and day-grouped canvas, but the first-screen toolbar no longer carries the large visible heading block and the cards now read as source-aware posters instead of generic placeholder media.
+- A supporting live Edge sample recorded `Captures collection canvas` as the active canvas aria-label, `0` visible toolbar heading nodes, `4` visible first-screen toolbar controls, `Sat, Mar 14, 2026` and `Fri, Mar 13, 2026` as the first visible day-group labels, a `320px` visible `Web` card width, a `127.0.0.1` web poster detail line, and `at_tariq_86_pronoun_research_v3.html` as the representative file-poster detail.
+- `Graph` and original-only `Reader` refreshed in real Windows Edge without surfacing a new blocker, and the Reader regression capture stayed locked to an asserted `Original` tab selection so generated-content work remained out of scope.
+- No new top-level surface reopens automatically from this checkpoint; `Home`, `Graph`, and original-only `Reader` return to refreshed-baseline hold again.
+
+## Stage 565 Home Card-Media And Top-Chrome Parity Polish Snapshot
+
+- Stage 565 refreshed the live wide desktop `Home` implementation captures plus dedicated Home toolbar, Home rail, representative `web` card, and representative file/document card crops against `http://127.0.0.1:8000`.
+- The implementation pass kept the Stage 563 structure intact, retired the visible in-canvas heading block from the toolbar, and replaced the generic board-card placeholder art with source-aware poster treatments derived only from existing document metadata.
+- The resulting Home surface recorded `Captures` as the active rail label, `Captures collection canvas` as the canvas aria-label, `0` visible toolbar heading nodes, `4` visible toolbar controls, a `288px` `Add Content` tile height, a `127.0.0.1` web poster detail line, and `at_tariq_86_pronoun_research_v3.html` as the representative file-poster detail.
+- `Graph` and original-only `Reader` remain the regression surfaces for the subsequent Stage 566 audit.
+- Generated-content `Reader` work remained explicitly out of scope throughout the pass.
 
 ## Stage 564 Post-Stage-563 Home Structural Recall Parity Audit Snapshot
 

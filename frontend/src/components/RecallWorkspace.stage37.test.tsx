@@ -8,6 +8,7 @@ import type {
   DocumentView,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
+  RecallDocumentPreview,
   RecallDocumentRecord,
   RecallNoteRecord,
   ReaderSettings,
@@ -481,6 +482,38 @@ const views: Record<string, DocumentView> = {
     source_hash: 'stage13-original',
     updated_at: '2026-03-14T10:32:00Z',
   },
+  'doc-archive-1:original': {
+    mode: 'original',
+    detail_level: 'default',
+    title: 'Archived Reference 1',
+    blocks: [
+      {
+        id: 'archive-1-original-1',
+        kind: 'paragraph',
+        text: 'Archive reference sentence one. Archive reference sentence two.',
+      },
+    ],
+    generated_by: 'local',
+    cached: false,
+    source_hash: 'archive-1-original',
+    updated_at: '2026-02-20T09:00:00Z',
+  },
+  'doc-archive-13:original': {
+    mode: 'original',
+    detail_level: 'default',
+    title: 'Archived Reference 13',
+    blocks: [
+      {
+        id: 'archive-13-original-1',
+        kind: 'paragraph',
+        text: 'Archive thirteen sentence one. Archive thirteen sentence two.',
+      },
+    ],
+    generated_by: 'local',
+    cached: false,
+    source_hash: 'archive-13-original',
+    updated_at: '2026-02-08T09:00:00Z',
+  },
 }
 
 const recallNotes: RecallNoteRecord[] = [
@@ -891,12 +924,44 @@ const studyCards: StudyCardRecord[] = [
   },
 ]
 
+const recallDocumentPreviews: Record<string, RecallDocumentPreview> = {
+  'doc-stage10': {
+    document_id: 'doc-stage10',
+    kind: 'image',
+    source: 'html-inline-image',
+    asset_url: '/api/recall/documents/doc-stage10/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
+    updated_at: '2026-03-27T08:00:00Z',
+  },
+  'doc-stage13': {
+    document_id: 'doc-stage13',
+    kind: 'fallback',
+    source: 'fallback',
+    asset_url: null,
+    updated_at: '2026-03-27T08:00:00Z',
+  },
+  'doc-archive-1': {
+    document_id: 'doc-archive-1',
+    kind: 'image',
+    source: 'html-rendered-snapshot',
+    asset_url: '/api/recall/documents/doc-archive-1/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
+    updated_at: '2026-03-27T08:00:00Z',
+  },
+  'doc-archive-13': {
+    document_id: 'doc-archive-13',
+    kind: 'image',
+    source: 'html-rendered-snapshot',
+    asset_url: '/api/recall/documents/doc-archive-13/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
+    updated_at: '2026-03-27T08:00:00Z',
+  },
+}
+
 const {
   decideRecallGraphEdgeMock,
   decideRecallGraphNodeMock,
   deleteRecallNoteMock,
   fetchDocumentViewMock,
   fetchRecallDocumentMock,
+  fetchRecallDocumentPreviewMock,
   fetchRecallDocumentsMock,
   fetchRecallGraphMock,
   fetchRecallGraphNodeMock,
@@ -915,6 +980,7 @@ const {
   deleteRecallNoteMock: vi.fn(),
   fetchDocumentViewMock: vi.fn<(documentId: string, mode: string) => Promise<DocumentView>>(),
   fetchRecallDocumentMock: vi.fn(),
+  fetchRecallDocumentPreviewMock: vi.fn<(documentId: string) => Promise<RecallDocumentPreview>>(),
   fetchRecallDocumentsMock: vi.fn(),
   fetchRecallGraphMock: vi.fn(),
   fetchRecallGraphNodeMock: vi.fn(),
@@ -936,6 +1002,7 @@ vi.mock('../api', () => ({
   decideRecallGraphNode: decideRecallGraphNodeMock,
   fetchDocumentView: fetchDocumentViewMock,
   fetchRecallDocument: fetchRecallDocumentMock,
+  fetchRecallDocumentPreview: fetchRecallDocumentPreviewMock,
   fetchRecallDocuments: fetchRecallDocumentsMock,
   fetchRecallGraph: fetchRecallGraphMock,
   fetchRecallGraphNode: fetchRecallGraphNodeMock,
@@ -962,6 +1029,7 @@ beforeEach(() => {
 
   fetchDocumentViewMock.mockReset()
   fetchRecallDocumentMock.mockReset()
+  fetchRecallDocumentPreviewMock.mockReset()
   fetchRecallDocumentsMock.mockReset()
   fetchRecallGraphMock.mockReset()
   fetchRecallGraphNodeMock.mockReset()
@@ -980,6 +1048,16 @@ beforeEach(() => {
 
   fetchRecallDocumentsMock.mockImplementation(async () => recallDocuments)
   fetchRecallDocumentMock.mockImplementation(async (documentId: string) => recallDocuments.find((document) => document.id === documentId) ?? recallDocuments[0])
+  fetchRecallDocumentPreviewMock.mockImplementation(
+    async (documentId: string) =>
+      recallDocumentPreviews[documentId] ?? {
+        document_id: documentId,
+        kind: 'fallback',
+        source: 'fallback',
+        asset_url: null,
+        updated_at: '2026-03-27T08:00:00Z',
+      },
+  )
   fetchRecallNotesMock.mockImplementation(async () => recallNotes)
   fetchRecallGraphMock.mockImplementation(async () => recallGraph)
   fetchRecallGraphNodeMock.mockImplementation(async (nodeId: string) => nodeDetailById[nodeId] ?? nodeDetail)
@@ -1092,18 +1170,22 @@ function renderHarness(options?: {
 
 async function waitForHomeLanding() {
   await waitFor(() => {
-    expect(screen.getByRole('region', { name: 'Home collection canvas' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /(collection|results) canvas$/i })).toBeInTheDocument()
   })
 }
 
+function getHomeCanvas() {
+  return screen.getByRole('region', { name: /(collection|results) canvas$/i })
+}
+
 function getHomeWorkspace() {
-  const homeWorkspace = screen.getByRole('region', { name: 'Home collection canvas' }).closest('.recall-home-workspace')
+  const homeWorkspace = getHomeCanvas().closest('.recall-home-workspace')
   expect(homeWorkspace).not.toBeNull()
   return homeWorkspace as HTMLElement
 }
 
 function getHomeLanding() {
-  const homeLanding = screen.getByRole('region', { name: 'Home collection canvas' }).closest('.recall-library-landing')
+  const homeLanding = getHomeCanvas().closest('.recall-library-landing')
   expect(homeLanding).not.toBeNull()
   return homeLanding as HTMLElement
 }
@@ -1124,17 +1206,17 @@ function getHomeOpenButton(title: string, container?: HTMLElement) {
 
 async function openHomeOrganizerOptions(container?: HTMLElement) {
   const scope = container ? within(container) : screen
-  const toggle = scope.getByText('Organizer options')
+  const toggle = scope.getByRole('button', { name: 'Organizer options' })
   fireEvent.click(toggle)
   await waitFor(() => {
-    expect(toggle.closest('details')).toHaveAttribute('open')
+    expect(scope.getByRole('group', { name: 'Organizer options' })).toBeInTheDocument()
   })
 }
 
 function getHomeRailSectionButton(label: string, container?: HTMLElement) {
   const scope = (container ?? screen.getByRole('complementary', { name: 'Home collection rail' })) as HTMLElement
-  const button = Array.from(scope.querySelectorAll<HTMLButtonElement>('.recall-home-parity-rail-button-stage563')).find((candidate) =>
-    candidate.textContent?.includes(label),
+  const button = Array.from(scope.querySelectorAll<HTMLButtonElement>('.recall-home-parity-rail-button-stage563')).find(
+    (candidate) => candidate.querySelector('strong')?.textContent?.trim() === label,
   )
   expect(button).not.toBeUndefined()
   return button as HTMLButtonElement
@@ -2308,34 +2390,148 @@ test('Home now defaults to a selected collection rail plus a date-grouped Recall
   const homeWorkspace = getHomeWorkspace()
   const homeLanding = getHomeLanding()
   const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
-  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
+  const canvas = getHomeCanvas()
   const toolbarActions = canvas.querySelector('.recall-home-parity-toolbar-actions-stage563')
+  const primaryToolbarRow = canvas.querySelector('.recall-home-parity-toolbar-row-primary-stage567')
+  const secondaryToolbarRow = canvas.querySelector('.recall-home-parity-toolbar-row-secondary-stage567')
   const activeRailButton = rail.querySelector('.recall-home-parity-rail-button-active-stage563')
-  const activeRailLabel = activeRailButton?.querySelector('strong')?.textContent?.trim() ?? ''
+  expect(activeRailButton).not.toBeNull()
+  const activeRailButtonElement = activeRailButton as HTMLElement
+  const activeRailLabel = activeRailButtonElement.querySelector('strong')?.textContent?.trim() ?? ''
+  const activeRailSupport = activeRailButtonElement.querySelector('.recall-home-parity-rail-button-copy-stage563 span')?.textContent?.trim() ?? ''
+  const activeRailCount = Number(activeRailButtonElement.querySelector('.recall-home-parity-rail-count-stage563')?.textContent?.trim() ?? '0')
+  const railSummary = rail.querySelector('.recall-home-parity-rail-note-stage563')?.textContent?.trim() ?? ''
+  const expectedActiveRailSupport =
+    activeRailLabel === 'Captures'
+      ? 'Local captures'
+      : activeRailLabel === 'Web'
+        ? 'Browser sources'
+        : activeRailLabel === 'Documents'
+          ? 'Local documents'
+          : activeRailSupport
+  const expectedRailSummary =
+    Number.isFinite(activeRailCount) && activeRailCount > 0
+      ? `${activeRailCount} ${activeRailCount === 1 ? 'source' : 'sources'}`
+      : railSummary
 
   expect(homeLanding).toHaveClass('recall-library-landing-unboxed')
   expect(screen.queryByRole('region', { name: 'Saved library overview' })).not.toBeInTheDocument()
   expect(screen.queryByRole('complementary', { name: 'Home browse strip' })).not.toBeInTheDocument()
   expect(homeWorkspace.querySelector('.recall-home-parity-rail-stage563')).not.toBeNull()
   expect(homeWorkspace.querySelector('.recall-home-parity-canvas-stage563')).not.toBeNull()
-  expect(toolbarActions?.children).toHaveLength(4)
+  expect(homeWorkspace.querySelector('.recall-home-parity-canvas-stage617')).not.toBeNull()
+  expect(homeWorkspace.querySelector('.recall-home-parity-canvas-stage619')).not.toBeNull()
+  expect(toolbarActions).toHaveClass('recall-home-parity-toolbar-actions-stage569')
+  expect(toolbarActions).toHaveClass('recall-home-parity-toolbar-actions-stage617')
+  expect(toolbarActions?.children).toHaveLength(2)
+  expect(primaryToolbarRow?.children).toHaveLength(2)
+  expect(secondaryToolbarRow?.children).toHaveLength(2)
   expect(activeRailLabel).not.toBe('')
-  expect(within(canvas).getByRole('heading', { name: activeRailLabel, level: 2 })).toBeInTheDocument()
-  expect(within(canvas).getByRole('button', { name: /Search/i })).toBeInTheDocument()
-  expect(within(canvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
-  expect(within(canvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
-  expect(within(canvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
-  expect(
-    within(canvas).getByRole('button', { name: new RegExp(`Add content to ${escapeRegExp(activeRailLabel)}`, 'i') }),
-  ).toBeInTheDocument()
+  expect(activeRailSupport).toBe(expectedActiveRailSupport)
+  expect(railSummary).toBe(expectedRailSummary)
+  expect(railSummary).not.toContain(activeRailLabel)
+  expect(canvas).toHaveAccessibleName(`${activeRailLabel} collection canvas`)
+  expect(canvas.querySelector('.recall-home-parity-toolbar-heading-stage563')).toBeNull()
+  expect(canvas.querySelector('.recall-home-parity-advanced-stage563')).toBeNull()
+  const organizerTrigger = within(rail).getByRole('button', { name: 'Organizer options' })
+  expect(organizerTrigger).toBeInTheDocument()
+  expect(organizerTrigger).toHaveTextContent('...')
+  const searchButton = within(canvas).getByRole('button', { name: 'Search saved sources' })
+  expect(searchButton).toBeInTheDocument()
+  expect(searchButton).toHaveClass('recall-home-parity-toolbar-button-search-stage601')
+  expect(searchButton).toHaveClass('recall-home-parity-toolbar-button-search-stage609')
+  expect(searchButton).toHaveClass('recall-home-parity-toolbar-button-search-stage619')
+  expect(searchButton.querySelector('.recall-home-parity-toolbar-button-leading-stage569')).not.toBeNull()
+  expect(searchButton.querySelector('.recall-home-parity-toolbar-search-glyph-stage569')).not.toBeNull()
+  expect(within(searchButton).getByText('Search...')).toBeInTheDocument()
+  expect(searchButton.querySelector('.recall-home-parity-toolbar-search-label-stage609')).not.toBeNull()
+  expect(searchButton.querySelector('.recall-home-parity-toolbar-hint-stage601')?.textContent?.trim()).toBe('Ctrl+K')
+  expect(searchButton.querySelector('.recall-home-parity-toolbar-hint-stage609')).not.toBeNull()
+  const addButton = within(canvas).getByRole('button', { name: 'Add' })
+  expect(addButton).toBeInTheDocument()
+  expect(addButton).toHaveClass('recall-home-parity-toolbar-button-primary-stage601')
+  const listButton = within(canvas).getByRole('button', { name: 'List' })
+  expect(listButton).toBeInTheDocument()
+  expect(listButton).toHaveClass('recall-home-parity-toolbar-button-secondary-stage601')
+  expect(listButton).toHaveClass('recall-home-parity-toolbar-button-secondary-stage609')
+  expect(listButton).toHaveClass('recall-home-parity-toolbar-button-secondary-stage619')
+  const sortButton = within(canvas).getByRole('button', { name: /Sort Home sources/i })
+  expect(sortButton).toBeInTheDocument()
+  expect(sortButton).toHaveClass('recall-home-parity-sort-trigger-stage601')
+  expect(sortButton).toHaveClass('recall-home-parity-sort-trigger-stage609')
+  expect(sortButton).toHaveClass('recall-home-parity-sort-trigger-stage619')
+  expect(sortButton.querySelector('.recall-home-parity-sort-caret-stage563')).not.toBeNull()
+  expect(sortButton.querySelector('.recall-home-parity-sort-caret-stage563')?.textContent?.trim()).toBe('v')
+  const addTile = within(canvas).getByRole('button', {
+    name: new RegExp(`Add content to ${escapeRegExp(activeRailLabel)}`, 'i'),
+  })
+  expect(addTile).toBeInTheDocument()
+  expect(addTile).toHaveClass('recall-home-parity-add-tile-stage603')
+  expect(addTile).toHaveClass('recall-home-parity-add-tile-stage605')
+  expect(addTile).toHaveClass('recall-home-parity-add-tile-stage615')
+  expect(addTile.querySelector('.recall-home-parity-add-tile-mark-stage563')).not.toBeNull()
+  expect(addTile.querySelector('.recall-home-parity-add-tile-mark-stage563')?.textContent?.trim()).toBe('+')
+  expect(addTile.querySelector('.recall-home-parity-add-tile-copy-stage563 span')).toBeNull()
+  expect(canvas.querySelector('.recall-home-parity-day-groups-stage605')).not.toBeNull()
+  expect(canvas.querySelector('.recall-home-parity-day-groups-stage617')).not.toBeNull()
+  expect(canvas.querySelector('.recall-home-parity-day-group-stage605')).not.toBeNull()
+  expect(canvas.querySelector('.recall-home-parity-day-group-stage617')).not.toBeNull()
+  expect(canvas.querySelector('.recall-home-parity-day-group-header-stage617')).not.toBeNull()
+  expect(canvas.querySelector('.recall-home-parity-grid-stage605')).not.toBeNull()
+  expect(canvas.querySelector('.recall-home-parity-grid-stage615')).not.toBeNull()
   expect(canvas.querySelectorAll('.recall-home-parity-card-stage563').length).toBeGreaterThan(0)
   expect(rail.querySelector('.recall-home-parity-rail-heading-stage563 strong')?.textContent).toBe('Collections')
+  expect(rail.querySelector('.recall-home-parity-rail-heading-meta-stage609')).not.toBeNull()
+  expect(rail.querySelector('.recall-home-parity-rail-note-stage609')).not.toBeNull()
+  expect(activeRailButtonElement).toHaveClass('recall-home-parity-rail-button-active-stage599')
+  expect(activeRailButtonElement.querySelector('.recall-home-parity-rail-support-stage609')).not.toBeNull()
+  const activeRailPreview = rail.querySelector('.recall-home-parity-rail-preview-stage571')
+  expect(activeRailPreview).not.toBeNull()
+  expect(activeRailPreview).toHaveClass('recall-home-parity-rail-preview-stage599')
+  expect(activeRailPreview?.closest('.recall-home-parity-rail-item-active-stage599')).not.toBeNull()
+  expect(activeRailPreview?.querySelector('.recall-home-parity-rail-preview-mark-stage571')).not.toBeNull()
+  expect(activeRailPreview?.querySelector('.recall-home-parity-rail-preview-label-stage571')).not.toBeNull()
+  expect(activeRailPreview?.querySelector('.recall-home-parity-rail-preview-label-stage609')).not.toBeNull()
+  if (activeRailLabel !== 'Web') {
+    const inactiveWebButton = getHomeRailSectionButton('Web', rail as HTMLElement)
+    expect(inactiveWebButton).toHaveClass('recall-home-parity-rail-button-inactive-stage575')
+    expect(inactiveWebButton.querySelector('.recall-home-parity-rail-button-copy-stage563 span')?.textContent?.trim()).not.toBe('')
+    expect(inactiveWebButton.querySelector('.recall-home-parity-rail-support-stage609')).not.toBeNull()
+    expect(inactiveWebButton.querySelector('.recall-home-parity-rail-count-stage563')).not.toBeNull()
+  }
+  if (activeRailLabel !== 'Documents') {
+    const inactiveDocumentsButton = getHomeRailSectionButton('Documents', rail as HTMLElement)
+    expect(inactiveDocumentsButton).toHaveClass('recall-home-parity-rail-button-inactive-stage575')
+    expect(inactiveDocumentsButton.querySelector('.recall-home-parity-rail-button-copy-stage563 span')?.textContent?.trim()).not.toBe('')
+    expect(inactiveDocumentsButton.querySelector('.recall-home-parity-rail-support-stage609')).not.toBeNull()
+    expect(inactiveDocumentsButton.querySelector('.recall-home-parity-rail-count-stage563')).not.toBeNull()
+  }
+  expect(activeRailButtonElement.querySelector('.recall-home-parity-rail-count-stage563')).not.toBeNull()
+  expect(canvas.querySelectorAll('.recall-home-parity-day-group-header-stage563 span')).toHaveLength(0)
+  const homeFooterButton = within(canvas).getByRole('button', {
+    name: new RegExp(`Show all ${escapeRegExp(activeRailLabel.toLowerCase())},\\s+${activeRailCount}\\s+total\\s+sources?`, 'i'),
+  })
+  expect(homeFooterButton).toBeInTheDocument()
+  expect(homeFooterButton).toHaveClass('recall-home-parity-footer-button-stage599')
+  expect(homeFooterButton.querySelector('.recall-home-parity-footer-label-stage599')?.textContent?.trim()).toBe(
+    `Show all ${activeRailLabel.toLowerCase()}`,
+  )
+  expect(homeFooterButton.querySelector('.recall-home-parity-footer-label-stage599')?.textContent).not.toMatch(/\d/)
+  expect(homeFooterButton.querySelector('.recall-home-parity-footer-count-stage599')).not.toBeNull()
+  fireEvent.click(homeFooterButton)
+  const expandedHomeFooterButton = within(canvas).getByRole('button', {
+    name: new RegExp(`Show fewer ${escapeRegExp(activeRailLabel.toLowerCase())},\\s+${activeRailCount}\\s+total\\s+sources?`, 'i'),
+  })
+  expect(expandedHomeFooterButton.querySelector('.recall-home-parity-footer-label-stage599')?.textContent?.trim()).toBe(
+    `Show fewer ${activeRailLabel.toLowerCase()}`,
+  )
+  expect(expandedHomeFooterButton.querySelector('.recall-home-parity-footer-label-stage599')?.textContent).not.toMatch(/\d/)
 
   const dayHeadings = within(canvas).getAllByRole('heading', { level: 3 })
   expect(dayHeadings.length).toBeGreaterThan(0)
   expect(dayHeadings[0]).toHaveTextContent(/2026/)
 
-  fireEvent.click(within(canvas).getByRole('button', { name: /Search/i }))
+  fireEvent.click(searchButton)
   fireEvent.click(within(canvas).getByRole('button', { name: 'Add' }))
 
   await waitFor(() => {
@@ -2350,24 +2546,766 @@ test('Home collection selection now changes the card canvas instead of reopening
   await waitForHomeLanding()
 
   const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
-  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
+  const canvas = getHomeCanvas()
 
   fireEvent.click(getHomeRailSectionButton('Web', rail as HTMLElement))
 
   await waitFor(() => {
-    expect(within(canvas).getByRole('heading', { name: 'Web', level: 2 })).toBeInTheDocument()
+    expect(canvas).toHaveAccessibleName('Web collection canvas')
     expect(within(canvas).getByRole('button', { name: 'Open Stage 10 Debug Article' })).toBeInTheDocument()
     expect(within(canvas).queryByRole('button', { name: 'Open Stage 13 Debug Notes' })).not.toBeInTheDocument()
     expect(within(rail).getByRole('button', { name: 'Open Stage 10 Debug Article from Web' })).toBeInTheDocument()
   })
+  expect(getHomeRailSectionButton('Captures', rail as HTMLElement)).toHaveClass('recall-home-parity-rail-button-inactive-stage575')
+  expect(getHomeRailSectionButton('Web', rail as HTMLElement).querySelector('.recall-home-parity-rail-support-stage609')).not.toBeNull()
+  expect(getHomeRailSectionButton('Web', rail as HTMLElement).querySelector('.recall-home-parity-rail-button-copy-stage563 span')?.textContent?.trim()).toBe(
+    'Browser sources',
+  )
 
   fireEvent.click(getHomeRailSectionButton('Documents', rail as HTMLElement))
 
   await waitFor(() => {
-    expect(within(canvas).getByRole('heading', { name: 'Documents', level: 2 })).toBeInTheDocument()
+    expect(canvas).toHaveAccessibleName('Documents collection canvas')
     expect(within(canvas).getByRole('button', { name: 'Open Archived Reference 1' })).toBeInTheDocument()
     expect(within(canvas).queryByRole('button', { name: 'Open Stage 10 Debug Article' })).not.toBeInTheDocument()
   })
+  expect(getHomeRailSectionButton('Documents', rail as HTMLElement).querySelector('.recall-home-parity-rail-support-stage609')).not.toBeNull()
+  expect(
+    getHomeRailSectionButton('Documents', rail as HTMLElement)
+      .querySelector('.recall-home-parity-rail-button-copy-stage563 span')
+      ?.textContent?.trim(),
+  ).toBe('Local documents')
+})
+
+test('Home board cards now render source-aware fallback media for web, paste, and file sources', async () => {
+  renderHarness()
+
+  await waitForHomeLanding()
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  const canvas = getHomeCanvas()
+
+  fireEvent.click(getHomeRailSectionButton('Captures', rail as HTMLElement))
+
+  await waitFor(() => {
+    expect(canvas).toHaveAccessibleName('Captures collection canvas')
+  })
+
+  const pasteCard = within(canvas).getByRole('button', { name: 'Open Stage 13 Debug Notes' })
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage563')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage603')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage605')
+  const pastePreview = pasteCard.querySelector('.recall-home-parity-card-preview-paste-stage565')
+  expect(pastePreview).not.toBeNull()
+  expect(pastePreview).toHaveClass('recall-home-parity-card-preview-stage563')
+  expect(pastePreview).toHaveAttribute('data-preview-kind', 'paste')
+  expect(pastePreview?.querySelector('.recall-home-parity-card-preview-badge-stage563')?.textContent?.trim()).toBe('Paste')
+  expect(pastePreview?.querySelector('.recall-home-parity-card-preview-detail-stage565')?.textContent?.trim()).toBe('Local capture')
+  expect(pastePreview?.querySelector('.recall-home-parity-card-preview-detail-stage605')).not.toBeNull()
+  expect(pastePreview?.querySelector('.recall-home-parity-card-preview-copy-stage565')).toBeNull()
+  expect(pastePreview).toHaveTextContent(/Local capture/i)
+  expect(pastePreview).toHaveTextContent(/Saved locally/i)
+  expect(pastePreview?.querySelector('.recall-home-parity-card-preview-note-stage569')?.textContent?.trim()).toBe('Saved locally')
+  expect(pastePreview?.querySelector('.recall-home-parity-card-preview-note-stage605')).not.toBeNull()
+  expect(pastePreview?.querySelector('.recall-home-parity-card-preview-mark-stage565')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stage563')).toBeNull()
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage613')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage615')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage621')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage623')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage625')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage627')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage629')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage631')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage633')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage635')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage637')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage639')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage641')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage643')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage645')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage647')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage649')
+  expect(pasteCard).toHaveClass('recall-home-parity-card-stage651')
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage613')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage621')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage623')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage625')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage627')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage629')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage631')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage633')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage635')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage637')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage639')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage641')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage643')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage645')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage647')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage649')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage651')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage653')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage655')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage657')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-hero-stage655')).not.toBeNull()
+  await waitFor(() =>
+    expect(pasteCard.querySelector('.recall-home-parity-card-preview-hero-stage653')?.textContent?.trim()).toBe(
+      'Stage thirteen sentence one.',
+    ),
+  )
+  expect(pastePreview).toHaveAttribute('data-preview-hero-source', 'content')
+  expect(pastePreview).toHaveAttribute('data-preview-media-kind', 'fallback')
+  expect(pastePreview).toHaveAttribute('data-preview-media-source', 'fallback')
+  expect(pastePreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).toBeNull()
+  expect(pastePreview?.getAttribute('style') ?? '').toMatch(/--recall-home-preview-glow-stage653/i)
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage603')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage605')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage607')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage613')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage621')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage623')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage625')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage627')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage629')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage631')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage633')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage635')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage637')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage639')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage641')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage643')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage645')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage647')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage649')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage651')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage603')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage605')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage607')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage613')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage621')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage623')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage625')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage627')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage629')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage631')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage633')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage635')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage637')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage639')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage641')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage643')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage645')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage647')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage649')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-title-stage651')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage603')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage605')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage607')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage611')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage613')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage621')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage623')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage625')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage627')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage629')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage631')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage633')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage635')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage637')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage639')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage641')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage643')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage645')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage647')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage649')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-stage651')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage603')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage607')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage611')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage621')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage623')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage625')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage627')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage629')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage631')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage633')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage635')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage637')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage639')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage641')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage643')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage645')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage647')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage649')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-stage651')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage603')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage605')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage607')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage611')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage621')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage623')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage625')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage627')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage629')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage631')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage633')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage635')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage637')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage639')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage641')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage643')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage645')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage647')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage649')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-stage651')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage571')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage603')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage605')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage607')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage611')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage621')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage623')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage625')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage627')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage629')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage631')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage633')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage635')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage637')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage639')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage641')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage643')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage645')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage647')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage649')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage651')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage563')).toHaveTextContent('Captures')
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage563')?.textContent?.trim()).toBe('Captures')
+
+  fireEvent.click(getHomeRailSectionButton('Web', rail as HTMLElement))
+
+  await waitFor(() => {
+    expect(canvas).toHaveAccessibleName('Web collection canvas')
+  })
+
+  const webCard = within(canvas).getByRole('button', { name: 'Open Stage 10 Debug Article' })
+  expect(webCard).toHaveClass('recall-home-parity-card-stage603')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage605')
+  const webPreview = webCard.querySelector('.recall-home-parity-card-preview-web-stage565')
+  expect(webPreview).not.toBeNull()
+  expect(webCard).toHaveClass('recall-home-parity-card-stage613')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage615')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage621')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage623')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage625')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage627')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage629')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage631')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage633')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage635')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage637')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage639')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage641')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage643')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage645')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage647')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage649')
+  expect(webCard).toHaveClass('recall-home-parity-card-stage651')
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage613')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage621')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage623')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage625')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage627')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage629')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage631')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage633')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage635')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage637')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage639')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage641')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage643')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage645')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage647')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage649')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage651')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage653')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage655')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-preview-stage657')).not.toBeNull()
+  expect(webPreview).toHaveAttribute('data-preview-kind', 'web')
+  expect(webPreview).toHaveAttribute('data-preview-media-kind', 'image')
+  expect(webPreview).toHaveAttribute('data-preview-media-source', 'html-inline-image')
+  expect(webPreview).toHaveClass('recall-home-parity-card-preview-has-image-stage657')
+  const webPreviewImage = webPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')
+  expect(webPreviewImage).not.toBeNull()
+  expect(webPreviewImage).toHaveAttribute(
+    'src',
+    '/api/recall/documents/doc-stage10/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
+  )
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-hero-stage653')).toBeNull()
+  expect(webPreview?.getAttribute('style') ?? '').toMatch(/--recall-home-preview-glow-stage653/i)
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-badge-stage563')?.textContent?.trim()).toBe('Web')
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-detail-stage565')).not.toBeNull()
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-detail-stage605')).not.toBeNull()
+  expect(webPreview).toHaveTextContent(/127\.0\.0\.1/i)
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-copy-stage565')).toBeNull()
+  expect(webPreview).toHaveTextContent(/Browser source/i)
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-note-stage569')?.textContent?.trim()).toBe('Browser source')
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-note-stage605')).not.toBeNull()
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-mark-stage565')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stage563')).toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage603')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage605')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage607')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage613')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage621')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage623')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage625')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage627')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage629')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage631')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage633')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage635')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage637')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage639')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage641')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage643')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage645')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage647')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage649')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-copy-stage651')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage603')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage605')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage607')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage613')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage621')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage623')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage625')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage627')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage629')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage631')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage633')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage635')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage637')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage639')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage641')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage643')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage645')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage647')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage649')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-title-stage651')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage603')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage605')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage607')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage611')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage613')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage621')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage623')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage625')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage627')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage629')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage631')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage633')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage635')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage637')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage639')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage641')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage643')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage645')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage647')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage649')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-stage651')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage603')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage607')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage611')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage621')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage623')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage625')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage627')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage629')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage631')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage633')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage635')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage637')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage639')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage641')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage643')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage645')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage647')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage649')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-stage651')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage603')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage605')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage607')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage611')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage621')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage623')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage625')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage627')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage629')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage631')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage633')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage635')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage637')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage639')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage641')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage643')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage645')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage647')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage649')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-stage651')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage571')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage603')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage605')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage607')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage611')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage621')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage623')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage625')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage627')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage629')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage631')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage633')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage635')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage637')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage639')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage641')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage643')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage645')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage647')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage649')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage651')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage563')).toHaveTextContent('Web')
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage563')?.textContent?.trim()).toBe('Web')
+
+  fireEvent.click(getHomeRailSectionButton('Documents', rail as HTMLElement))
+
+  await waitFor(() => {
+    expect(canvas).toHaveAccessibleName('Documents collection canvas')
+  })
+
+  const fileCard = within(canvas).getByRole('button', { name: 'Open Archived Reference 1' })
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage603')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage605')
+  const filePreview = fileCard.querySelector('.recall-home-parity-card-preview-file-stage565')
+  expect(filePreview).not.toBeNull()
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage613')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage615')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage621')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage623')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage625')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage627')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage629')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage631')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage633')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage635')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage637')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage639')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage641')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage643')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage645')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage647')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage649')
+  expect(fileCard).toHaveClass('recall-home-parity-card-stage651')
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage613')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage621')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage623')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage625')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage627')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage629')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage631')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage633')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage635')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage637')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage639')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage641')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage643')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage645')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage647')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage649')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage651')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage653')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage655')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-preview-stage657')).not.toBeNull()
+  expect(filePreview).toHaveAttribute('data-preview-kind', 'file')
+  expect(filePreview).toHaveAttribute('data-preview-media-kind', 'image')
+  expect(filePreview).toHaveAttribute('data-preview-media-source', 'html-rendered-snapshot')
+  const filePreviewImage = filePreview?.querySelector('.recall-home-parity-card-preview-image-stage657')
+  expect(filePreviewImage).not.toBeNull()
+  expect(filePreviewImage).toHaveAttribute(
+    'src',
+    '/api/recall/documents/doc-archive-1/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
+  )
+  expect(filePreview?.querySelector('.recall-home-parity-card-preview-hero-stage653')).toBeNull()
+  expect(filePreview?.getAttribute('style') ?? '').toMatch(/--recall-home-preview-glow-stage653/i)
+  expect(filePreview?.querySelector('.recall-home-parity-card-preview-badge-stage563')?.textContent?.trim()).toBe('TXT')
+  expect(filePreview?.querySelector('.recall-home-parity-card-preview-detail-stage565')?.textContent?.trim()).toBe('archive-1.txt')
+  expect(filePreview?.querySelector('.recall-home-parity-card-preview-detail-stage605')).not.toBeNull()
+  expect(filePreview?.querySelector('.recall-home-parity-card-preview-copy-stage565')).toBeNull()
+  expect(filePreview).toHaveTextContent(/^TXT/i)
+  expect(filePreview).toHaveTextContent(/Local document/i)
+  expect(filePreview?.querySelector('.recall-home-parity-card-preview-note-stage569')?.textContent?.trim()).toBe('Local document')
+  expect(filePreview?.querySelector('.recall-home-parity-card-preview-note-stage605')).not.toBeNull()
+  expect(filePreview?.querySelector('.recall-home-parity-card-preview-mark-stage565')).not.toBeNull()
+  expect(fileCard).toHaveTextContent(/archive-1\.txt/i)
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stage563')).toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage603')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage605')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage607')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage613')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage621')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage623')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage625')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage627')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage629')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage631')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage633')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage635')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage637')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage639')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage641')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage643')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage645')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage647')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage649')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-copy-stage651')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage603')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage605')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage607')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage613')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage621')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage623')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage625')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage627')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage629')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage631')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage633')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage635')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage637')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage639')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage641')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage643')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage645')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage647')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage649')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-title-stage651')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage603')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage605')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage607')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage611')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage613')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage621')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage623')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage625')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage627')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage629')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage631')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage633')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage635')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage637')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage639')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage641')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage643')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage645')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage647')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage649')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-stage651')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage603')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage607')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage611')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage621')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage623')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage625')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage627')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage629')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage631')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage633')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage635')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage637')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage639')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage641')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage643')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage645')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage647')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage649')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-stage651')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage603')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage605')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage607')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage611')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage621')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage623')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage625')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage627')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage629')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage631')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage633')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage635')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage637')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage639')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage641')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage643')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage645')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage647')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage649')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-stage651')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage571')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage603')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage605')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage607')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage611')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage621')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage623')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage625')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage627')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage629')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage631')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage633')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage635')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage637')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage639')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage641')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage643')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage645')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage647')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage649')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage651')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage563')).toHaveTextContent('Documents')
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage563')?.textContent?.trim()).toBe('Documents')
+})
+
+test('Home fetches preview content and media for cards revealed past the initial board limit', async () => {
+  renderHarness()
+  await waitForHomeLanding()
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(getHomeRailSectionButton('Documents', rail as HTMLElement))
+
+  const canvas = getHomeCanvas()
+  await waitFor(() => {
+    expect(canvas).toHaveAccessibleName('Documents collection canvas')
+  })
+
+  expect(within(canvas).queryByRole('button', { name: 'Open Archived Reference 13' })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: /Show all documents/i }))
+
+  await waitFor(() => {
+    expect(within(canvas).getByRole('button', { name: 'Open Archived Reference 13' })).toBeInTheDocument()
+  })
+
+  await waitFor(() => {
+    expect(fetchDocumentViewMock).toHaveBeenCalledWith('doc-archive-13', 'original')
+    expect(fetchRecallDocumentPreviewMock).toHaveBeenCalledWith('doc-archive-13')
+  })
+
+  await waitFor(() => {
+    const laterCard = within(canvas).getByRole('button', { name: 'Open Archived Reference 13' })
+    const laterPreview = laterCard.querySelector('.recall-home-parity-card-preview-file-stage565')
+    expect(laterPreview).toHaveAttribute('data-preview-media-kind', 'image')
+    expect(laterPreview).toHaveAttribute('data-preview-media-source', 'html-rendered-snapshot')
+    expect(laterPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).toHaveAttribute(
+      'src',
+      '/api/recall/documents/doc-archive-13/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
+    )
+  })
+})
+
+test('Home keeps slower rendered preview results when another card preview resolves first', async () => {
+  fetchRecallDocumentPreviewMock.mockImplementation(async (documentId: string) => {
+    if (documentId === 'doc-archive-1') {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 80)
+      })
+      return {
+        document_id: documentId,
+        kind: 'image',
+        source: 'html-rendered-snapshot',
+        asset_url: '/api/recall/documents/doc-archive-1/preview/asset?updated_at=2026-03-27T09%3A30%3A00Z',
+        updated_at: '2026-03-27T09:30:00Z',
+      }
+    }
+
+    return (
+      recallDocumentPreviews[documentId] ?? {
+        document_id: documentId,
+        kind: 'fallback',
+        source: 'fallback',
+        asset_url: null,
+        updated_at: '2026-03-27T08:00:00Z',
+      }
+    )
+  })
+
+  renderHarness()
+  await waitForHomeLanding()
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(getHomeRailSectionButton('Documents', rail as HTMLElement))
+
+  const canvas = getHomeCanvas()
+  await waitFor(() => {
+    expect(canvas).toHaveAccessibleName('Documents collection canvas')
+  })
+
+  await waitFor(
+    () => {
+      const fileCard = within(canvas).getByRole('button', { name: 'Open Archived Reference 1' })
+      const filePreview = fileCard.querySelector('.recall-home-parity-card-preview-file-stage565')
+      expect(filePreview).toHaveAttribute('data-preview-media-kind', 'image')
+      expect(filePreview).toHaveAttribute('data-preview-media-source', 'html-rendered-snapshot')
+      expect(filePreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).not.toBeNull()
+    },
+    { timeout: 3000 },
+  )
+})
+
+test('Home keeps the Stage 655 poster path when a Web preview resolves to fallback after the quality gate', async () => {
+  fetchRecallDocumentPreviewMock.mockImplementation(async (documentId: string) => {
+    if (documentId === 'doc-stage10') {
+      return {
+        document_id: documentId,
+        kind: 'fallback',
+        source: 'fallback',
+        asset_url: null,
+        updated_at: '2026-03-27T10:15:00Z',
+      }
+    }
+
+    return (
+      recallDocumentPreviews[documentId] ?? {
+        document_id: documentId,
+        kind: 'fallback',
+        source: 'fallback',
+        asset_url: null,
+        updated_at: '2026-03-27T08:00:00Z',
+      }
+    )
+  })
+
+  renderHarness()
+  await waitForHomeLanding()
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(getHomeRailSectionButton('Web', rail as HTMLElement))
+
+  const canvas = getHomeCanvas()
+  await waitFor(() => {
+    expect(canvas).toHaveAccessibleName('Web collection canvas')
+  })
+
+  const webCard = within(canvas).getByRole('button', { name: 'Open Stage 10 Debug Article' })
+  const webPreview = webCard.querySelector('.recall-home-parity-card-preview-web-stage565')
+  expect(webPreview).not.toBeNull()
+
+  await waitFor(() => {
+    expect(webPreview).toHaveAttribute('data-preview-media-kind', 'fallback')
+  })
+
+  expect(webPreview).toHaveAttribute('data-preview-media-source', 'fallback')
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).toBeNull()
+  expect(webPreview?.querySelector('.recall-home-parity-card-preview-hero-stage655')?.textContent?.trim()).toBe(
+    'Stage ten sentence one.',
+  )
 })
 
 test('Home keeps advanced organizer controls available inside secondary options instead of first-screen chrome', async () => {
@@ -2376,24 +3314,26 @@ test('Home keeps advanced organizer controls available inside secondary options 
   await waitForHomeLanding()
 
   const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
-  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
-  const advancedPanel = rail.querySelector('.recall-home-parity-advanced-stage563')
+  const canvas = getHomeCanvas()
+  const organizerTrigger = within(rail).getByRole('button', { name: 'Organizer options' })
 
-  expect(advancedPanel).not.toHaveAttribute('open')
-  expect(within(canvas).getByRole('button', { name: /Search/i })).toBeInTheDocument()
+  expect(within(rail).queryByRole('group', { name: 'Organizer options' })).not.toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
   expect(within(canvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
   expect(within(canvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
   expect(within(canvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
   expect(within(canvas).queryByRole('button', { name: 'Collections' })).not.toBeInTheDocument()
+  expect(organizerTrigger).toBeInTheDocument()
+  expect(organizerTrigger).toHaveTextContent('...')
 
   await openHomeOrganizerOptions(rail as HTMLElement)
 
-  expect(advancedPanel).toHaveAttribute('open')
-  expect(within(rail).getByRole('searchbox', { name: 'Filter saved sources' })).toBeInTheDocument()
-  const organizerLensGroup = within(rail).getByRole('group', { name: 'Organizer lens' })
+  const organizerPanel = within(rail).getByRole('group', { name: 'Organizer options' })
+  expect(within(organizerPanel).getByRole('searchbox', { name: 'Filter saved sources' })).toBeInTheDocument()
+  const organizerLensGroup = within(organizerPanel).getByRole('group', { name: 'Organizer lens' })
   expect(within(organizerLensGroup).getByRole('button', { name: 'Collections' })).toBeInTheDocument()
   expect(within(organizerLensGroup).getByRole('button', { name: 'Recent' })).toBeInTheDocument()
-  const organizerUtilities = within(rail).getByRole('group', { name: 'Organizer utilities' })
+  const organizerUtilities = within(organizerPanel).getByRole('group', { name: 'Organizer utilities' })
   expect(
     within(organizerUtilities).getByRole('button', { name: /Create collection|New collection/i }),
   ).toBeInTheDocument()
@@ -2406,7 +3346,7 @@ test('Home filter and rail controls still work from organizer options without un
   await waitForHomeLanding()
 
   const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
-  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
+  const canvas = getHomeCanvas()
 
   await openHomeOrganizerOptions(rail as HTMLElement)
 
@@ -2414,7 +3354,7 @@ test('Home filter and rail controls still work from organizer options without un
   fireEvent.change(filterInput, { target: { value: 'Stage 10' } })
 
   await waitFor(() => {
-    expect(within(canvas).getByRole('heading', { name: 'Search results', level: 2 })).toBeInTheDocument()
+    expect(canvas).toHaveAccessibleName('Search results canvas')
     expect(within(canvas).getByRole('button', { name: 'Open Stage 10 Debug Article' })).toBeInTheDocument()
     expect(within(canvas).queryByRole('button', { name: 'Open Stage 13 Debug Notes' })).not.toBeInTheDocument()
   })
@@ -2433,7 +3373,7 @@ test('Home can hide the collection rail and reopen it from the compact canvas co
     expect(screen.queryByRole('complementary', { name: 'Home collection rail' })).not.toBeInTheDocument()
   })
 
-  const canvas = screen.getByRole('region', { name: 'Home collection canvas' })
+  const canvas = getHomeCanvas()
   fireEvent.click(within(canvas).getByRole('button', { name: 'Collections' }))
 
   await waitFor(() => {
@@ -3000,7 +3940,7 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   })
 
   expect(within(graphDock).getByRole('list', { name: 'Selected node aliases' })).toHaveTextContent('Stage 13')
-}, 15000)
+}, 30000)
 
 test('study browse mode now lands summary-first while keeping the review card dominant', async () => {
   renderHarness({ initialSection: 'study' })
@@ -3074,10 +4014,10 @@ test('study browse can preview evidence before revealing the answer', async () =
   fireEvent.click(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' }))
 
   await waitFor(() => {
-    expect(within(studyEvidenceDock).getByText('Source evidence')).toBeInTheDocument()
+    expect(within(studyEvidenceDock).getByRole('button', { name: 'Hide preview' })).toBeInTheDocument()
   })
 
-  expect(within(studyEvidenceDock).getByRole('button', { name: 'Hide preview' })).toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByRole('heading', { name: 'Supporting evidence' })).toBeInTheDocument()
   expect(within(studyEvidenceDock).getByText('Stage ten sentence three.')).toBeInTheDocument()
 })
 

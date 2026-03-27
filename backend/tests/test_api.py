@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import base64
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib
 import json
+from hashlib import sha256
 import sqlite3
+import socket
 import threading
 from io import BytesIO
 from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
+from PIL import Image, ImageDraw
 import pytest
 
 
@@ -197,6 +201,60 @@ def seed_legacy_reader_db(tmp_path) -> None:
             "INSERT INTO documents_fts (document_id, title, body) VALUES (?, ?, ?)",
             ("legacy-doc-1", "Legacy guide", "Legacy paragraph."),
         )
+
+
+def build_png_bytes(
+    color: tuple[int, int, int] = (52, 104, 180),
+    *,
+    size: tuple[int, int] = (960, 540),
+) -> bytes:
+    buffer = BytesIO()
+    image = Image.new("RGB", size, color)
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def build_png_data_url(
+    color: tuple[int, int, int] = (52, 104, 180),
+    *,
+    size: tuple[int, int] = (960, 540),
+) -> str:
+    encoded = base64.b64encode(build_png_bytes(color, size=size)).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def build_contentful_preview_png_bytes(*, size: tuple[int, int] = (960, 540)) -> bytes:
+    buffer = BytesIO()
+    image = Image.new("RGB", size, (240, 233, 221))
+    draw = ImageDraw.Draw(image)
+    width, height = size
+    draw.rectangle((0, 0, width, 118), fill=(224, 212, 194))
+    draw.rounded_rectangle((34, 40, width - 34, height - 36), radius=28, outline=(96, 74, 54), width=3)
+    draw.rounded_rectangle((60, 78, width - 60, 168), radius=18, fill=(248, 241, 228), outline=(180, 152, 120), width=2)
+    draw.rectangle((72, 94, width - 160, 108), fill=(92, 70, 48))
+    draw.rectangle((72, 126, width - 112, 138), fill=(114, 92, 68))
+    draw.rectangle((72, 156, width - 240, 166), fill=(136, 110, 80))
+    draw.rounded_rectangle((54, 208, 182, 392), radius=26, fill=(168, 124, 78), outline=(214, 181, 144), width=2)
+    for row_index, y_offset in enumerate(range(220, 444, 38)):
+        inset = 116 if row_index % 2 == 0 else 152
+        draw.rectangle((224, y_offset, width - inset, y_offset + 10), fill=(84, 66, 48))
+        draw.rectangle((224, y_offset + 20, width - (inset + 96), y_offset + 28), fill=(120, 98, 72))
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def build_low_information_preview_png_bytes(*, size: tuple[int, int] = (960, 540)) -> bytes:
+    buffer = BytesIO()
+    image = Image.new("RGB", size, (228, 228, 228))
+    draw = ImageDraw.Draw(image)
+    width, height = size
+    for y_offset in range(height):
+        tone = 236 - int(20 * (y_offset / max(height - 1, 1)))
+        draw.line((0, y_offset, width, y_offset), fill=(tone, tone, tone + 2))
+    draw.rounded_rectangle((26, 28, 112, 84), radius=18, fill=(186, 190, 212))
+    draw.rounded_rectangle((36, height - 92, 136, height - 28), radius=22, fill=(178, 184, 220))
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def build_note_anchor(document_id: str, view_payload: dict, *, block_index: int = 0, sentence_start: int = 0, sentence_end: int = 0) -> dict:
@@ -465,6 +523,534 @@ def test_import_url_rejects_pages_without_readable_article_content(tmp_path, mon
 
     assert import_response.status_code == 400
     assert "readable article" in import_response.json()["detail"]
+
+
+def test_recall_document_preview_uses_meta_data_image_and_caches_asset(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    hero_data_url = build_png_data_url((88, 132, 206))
+    article_html = f"""
+    <html>
+      <head>
+        <meta property="og:image" content="{hero_data_url}" />
+      </head>
+      <body>
+        <article>
+          <h1>Preview fixture article</h1>
+          <p>Sentence one for the imported article.</p>
+          <p>Sentence two for the imported article.</p>
+        </article>
+      </body>
+    </html>
+    """.encode("utf-8")
+
+    with serve_fixture_routes({
+        "/article": (200, "text/html; charset=utf-8", article_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/article"},
+        )
+        assert import_response.status_code == 200
+        document = import_response.json()
+
+        preview_response = client.get(f"/api/recall/documents/{document['id']}/preview")
+        assert preview_response.status_code == 200
+        preview = preview_response.json()
+        assert preview["kind"] == "image"
+        assert preview["source"] == "html-meta-image"
+        assert preview["asset_url"]
+
+        asset_response = client.get(preview["asset_url"])
+        assert asset_response.status_code == 200
+        assert asset_response.headers["content-type"].startswith("image/jpeg")
+        with Image.open(BytesIO(asset_response.content)) as preview_image:
+            assert preview_image.size == (960, 540)
+
+        cached_preview_response = client.get(f"/api/recall/documents/{document['id']}/preview")
+        assert cached_preview_response.status_code == 200
+        assert cached_preview_response.json()["asset_url"] == preview["asset_url"]
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        row = connection.execute(
+            "SELECT metadata_json FROM source_documents WHERE id = ?",
+            (document["id"],),
+        ).fetchone()
+
+    assert row is not None
+    metadata = json.loads(row[0] or "{}")
+    preview_metadata = metadata["home_preview"]
+    assert preview_metadata["source"] == "html-meta-image"
+    preview_path = tmp_path / ".data" / preview_metadata["relative_path"]
+    assert preview_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("article_html_template", "expected_source"),
+    [
+        (
+            """
+            <html>
+              <head>
+                <link rel="preload" as="image" href="{image_url}" />
+              </head>
+              <body>
+                <article>
+                  <h1>Preload preview article</h1>
+                  <p>Sentence one for the imported article.</p>
+                  <p>Sentence two for the imported article.</p>
+                </article>
+              </body>
+            </html>
+            """,
+            "html-preload-image",
+        ),
+        (
+            """
+            <html>
+              <body>
+                <article>
+                  <img src="{image_url}" width="1200" height="675" alt="Article preview" />
+                  <h1>Inline preview article</h1>
+                  <p>Sentence one for the imported article.</p>
+                  <p>Sentence two for the imported article.</p>
+                </article>
+              </body>
+            </html>
+            """,
+            "html-inline-image",
+        ),
+    ],
+)
+def test_recall_document_preview_uses_preload_or_inline_image_when_meta_absent(
+    tmp_path,
+    monkeypatch,
+    article_html_template: str,
+    expected_source: str,
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    article_html = article_html_template.format(image_url=build_png_data_url((154, 90, 216))).encode("utf-8")
+
+    with serve_fixture_routes({
+        "/article": (200, "text/html; charset=utf-8", article_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/article"},
+        )
+        assert import_response.status_code == 200
+        document = import_response.json()
+
+        preview_response = client.get(f"/api/recall/documents/{document['id']}/preview")
+
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["kind"] == "image"
+    assert preview["source"] == expected_source
+    assert preview["asset_url"]
+
+
+def test_recall_document_preview_skips_remote_html_candidates_and_uses_rendered_snapshot(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    monkeypatch.setattr(
+        main_module.preview_service,
+        "_load_rendered_html_snapshot_bytes",
+        lambda stored_path: build_contentful_preview_png_bytes(),
+    )
+    monkeypatch.setattr(
+        socket,
+        "create_connection",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("preview generation should stay local-only")),
+    )
+
+    article_html = b"""
+    <html>
+      <head>
+        <meta property=\"og:image\" content=\"https://example.invalid/hero.png\" />
+        <link rel=\"preload\" as=\"image\" href=\"https://example.invalid/preload.png\" />
+      </head>
+      <body>
+        <article>
+          <img src=\"https://example.invalid/inline.png\" width=\"1200\" height=\"675\" alt=\"Article preview\" />
+          <h1>Remote preview article</h1>
+          <p>Sentence one for the imported article.</p>
+          <p>Sentence two for the imported article.</p>
+        </article>
+      </body>
+    </html>
+    """
+
+    import_response = client.post(
+        "/api/documents/import-file",
+        files={"file": ("remote-preview.html", article_html, "text/html")},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    preview_response = client.get(f"/api/recall/documents/{document['id']}/preview")
+
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["kind"] == "image"
+    assert preview["source"] == "html-rendered-snapshot"
+    assert preview["asset_url"]
+
+
+def test_recall_document_preview_falls_back_for_text_and_image_less_html(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module.preview_service, "_load_rendered_html_snapshot_bytes", lambda stored_path: None)
+
+    text_import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Fallback text", "text": "Fallback sentence one. Fallback sentence two."},
+    )
+    assert text_import_response.status_code == 200
+    text_document = text_import_response.json()
+
+    text_preview_response = client.get(f"/api/recall/documents/{text_document['id']}/preview")
+    assert text_preview_response.status_code == 200
+    text_preview = text_preview_response.json()
+    assert text_preview["kind"] == "fallback"
+    assert text_preview["source"] == "fallback"
+    assert text_preview["asset_url"] is None
+
+    image_less_html = b"""
+    <html>
+      <body>
+        <article>
+          <h1>Image-less article</h1>
+          <p>Sentence one for the imported article.</p>
+          <p>Sentence two for the imported article.</p>
+        </article>
+      </body>
+    </html>
+    """
+    with serve_fixture_routes({
+        "/article": (200, "text/html; charset=utf-8", image_less_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/article"},
+        )
+        assert import_response.status_code == 200
+        html_document = import_response.json()
+
+        html_preview_response = client.get(f"/api/recall/documents/{html_document['id']}/preview")
+
+    assert html_preview_response.status_code == 200
+    html_preview = html_preview_response.json()
+    assert html_preview["kind"] == "fallback"
+    assert html_preview["source"] == "fallback"
+    assert html_preview["asset_url"] is None
+
+
+def test_recall_document_preview_uses_rendered_snapshot_when_html_has_no_image_candidate(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    monkeypatch.setattr(
+        main_module.preview_service,
+        "_load_rendered_html_snapshot_bytes",
+        lambda stored_path: build_contentful_preview_png_bytes(),
+    )
+
+    image_less_html = b"""
+    <html>
+      <body>
+        <article>
+          <h1>Rendered snapshot article</h1>
+          <p>Sentence one for the imported article.</p>
+          <p>Sentence two for the imported article.</p>
+        </article>
+      </body>
+    </html>
+    """
+    with serve_fixture_routes({
+        "/article": (200, "text/html; charset=utf-8", image_less_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/article"},
+        )
+        assert import_response.status_code == 200
+        html_document = import_response.json()
+
+        html_preview_response = client.get(f"/api/recall/documents/{html_document['id']}/preview")
+
+    assert html_preview_response.status_code == 200
+    html_preview = html_preview_response.json()
+    assert html_preview["kind"] == "image"
+    assert html_preview["source"] == "html-rendered-snapshot"
+    assert html_preview["asset_url"]
+
+    asset_response = client.get(html_preview["asset_url"])
+    assert asset_response.status_code == 200
+    assert asset_response.headers["content-type"].startswith("image/jpeg")
+    with Image.open(BytesIO(asset_response.content)) as preview_image:
+        assert preview_image.size == (960, 540)
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        row = connection.execute(
+            "SELECT metadata_json FROM source_documents WHERE id = ?",
+            (html_document["id"],),
+        ).fetchone()
+
+    assert row is not None
+    metadata = json.loads(row[0] or "{}")
+    assert metadata["home_preview"]["source"] == "html-rendered-snapshot"
+
+
+def test_recall_document_preview_rejects_low_signal_rendered_snapshot_and_falls_back(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    monkeypatch.setattr(
+        main_module.preview_service,
+        "_load_rendered_html_snapshot_bytes",
+        lambda stored_path: build_low_information_preview_png_bytes(),
+    )
+
+    image_less_html = b"""
+    <html>
+      <body>
+        <article>
+          <h1>Washed out article</h1>
+          <p>Sentence one for the imported article.</p>
+          <p>Sentence two for the imported article.</p>
+        </article>
+      </body>
+    </html>
+    """
+    with serve_fixture_routes({
+        "/article": (200, "text/html; charset=utf-8", image_less_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/article"},
+        )
+        assert import_response.status_code == 200
+        html_document = import_response.json()
+
+        html_preview_response = client.get(f"/api/recall/documents/{html_document['id']}/preview")
+
+    assert html_preview_response.status_code == 200
+    html_preview = html_preview_response.json()
+    assert html_preview["kind"] == "fallback"
+    assert html_preview["source"] == "fallback"
+    assert html_preview["asset_url"] is None
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        row = connection.execute(
+            "SELECT metadata_json FROM source_documents WHERE id = ?",
+            (html_document["id"],),
+        ).fetchone()
+
+    assert row is not None
+    metadata = json.loads(row[0] or "{}")
+    assert metadata["home_preview"]["kind"] == "fallback"
+    assert metadata["home_preview"]["source"] == "fallback"
+
+
+def test_recall_document_preview_cache_invalidates_when_preview_metadata_version_changes(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    rendered_snapshots = [
+        build_contentful_preview_png_bytes(),
+        build_contentful_preview_png_bytes(size=(1280, 720)),
+    ]
+    monkeypatch.setattr(
+        main_module.preview_service,
+        "_load_rendered_html_snapshot_bytes",
+        lambda stored_path: rendered_snapshots.pop(0),
+    )
+
+    image_less_html = b"""
+    <html>
+      <body>
+        <article>
+          <h1>Rendered snapshot versioned article</h1>
+          <p>Sentence one for the imported article.</p>
+          <p>Sentence two for the imported article.</p>
+        </article>
+      </body>
+    </html>
+    """
+    with serve_fixture_routes({
+        "/article": (200, "text/html; charset=utf-8", image_less_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/article"},
+        )
+        assert import_response.status_code == 200
+        html_document = import_response.json()
+
+        first_preview_response = client.get(f"/api/recall/documents/{html_document['id']}/preview")
+        assert first_preview_response.status_code == 200
+        first_preview = first_preview_response.json()
+        first_asset_response = client.get(first_preview["asset_url"])
+        assert first_asset_response.status_code == 200
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        row = connection.execute(
+            "SELECT metadata_json FROM source_documents WHERE id = ?",
+            (html_document["id"],),
+        ).fetchone()
+        assert row is not None
+        metadata = json.loads(row[0] or "{}")
+        metadata["home_preview"]["version"] = 2
+        connection.execute(
+            "UPDATE source_documents SET metadata_json = ? WHERE id = ?",
+            (json.dumps(metadata), html_document["id"]),
+        )
+        connection.commit()
+
+    second_preview_response = client.get(f"/api/recall/documents/{html_document['id']}/preview")
+    assert second_preview_response.status_code == 200
+    second_preview = second_preview_response.json()
+    second_asset_response = client.get(second_preview["asset_url"])
+    assert second_asset_response.status_code == 200
+
+    assert first_preview["asset_url"] != second_preview["asset_url"]
+    assert first_asset_response.content != second_asset_response.content
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        row = connection.execute(
+            "SELECT metadata_json FROM source_documents WHERE id = ?",
+            (html_document["id"],),
+        ).fetchone()
+
+    assert row is not None
+    metadata = json.loads(row[0] or "{}")
+    assert metadata["home_preview"]["version"] == 5
+    assert metadata["home_preview"]["source"] == "html-rendered-snapshot"
+
+
+def test_recall_document_preview_cache_invalidates_when_content_hash_changes(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    article_html_a = f"""
+    <html>
+      <head>
+        <meta property="og:image" content="{build_png_data_url((22, 128, 210))}" />
+      </head>
+      <body>
+        <article>
+          <h1>Preview cache article</h1>
+          <p>Sentence one for the imported article.</p>
+          <p>Sentence two for the imported article.</p>
+        </article>
+      </body>
+    </html>
+    """.encode("utf-8")
+    article_html_b = f"""
+    <html>
+      <head>
+        <meta property="og:image" content="{build_png_data_url((208, 92, 42))}" />
+      </head>
+      <body>
+        <article>
+          <h1>Preview cache article updated</h1>
+          <p>Sentence three for the imported article.</p>
+          <p>Sentence four for the imported article.</p>
+        </article>
+      </body>
+    </html>
+    """.encode("utf-8")
+
+    with serve_fixture_routes({
+        "/article": (200, "text/html; charset=utf-8", article_html_a),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/article"},
+        )
+        assert import_response.status_code == 200
+        document = import_response.json()
+
+        first_preview_response = client.get(f"/api/recall/documents/{document['id']}/preview")
+        assert first_preview_response.status_code == 200
+        first_preview = first_preview_response.json()
+        first_asset_response = client.get(first_preview["asset_url"])
+        assert first_asset_response.status_code == 200
+
+        stored_file = tmp_path / ".data" / "files" / f"{document['id']}.html"
+        stored_file.write_bytes(article_html_b)
+        new_content_hash = sha256(article_html_b).hexdigest()
+        with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+            connection.execute(
+                "UPDATE source_documents SET content_hash = ? WHERE id = ?",
+                (new_content_hash, document["id"]),
+            )
+            connection.commit()
+
+        second_preview_response = client.get(f"/api/recall/documents/{document['id']}/preview")
+        assert second_preview_response.status_code == 200
+        second_preview = second_preview_response.json()
+        second_asset_response = client.get(second_preview["asset_url"])
+        assert second_asset_response.status_code == 200
+
+    assert first_preview["asset_url"] != second_preview["asset_url"]
+    assert first_asset_response.content != second_asset_response.content
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        row = connection.execute(
+            "SELECT metadata_json FROM source_documents WHERE id = ?",
+            (document["id"],),
+        ).fetchone()
+
+    assert row is not None
+    metadata = json.loads(row[0] or "{}")
+    assert metadata["home_preview"]["content_hash"] == new_content_hash
+
+
+def test_delete_document_removes_cached_preview_asset(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    article_html = f"""
+    <html>
+      <head>
+        <meta property="og:image" content="{build_png_data_url((74, 150, 98))}" />
+      </head>
+      <body>
+        <article>
+          <h1>Delete preview asset</h1>
+          <p>Sentence one for the imported article.</p>
+          <p>Sentence two for the imported article.</p>
+        </article>
+      </body>
+    </html>
+    """.encode("utf-8")
+
+    with serve_fixture_routes({
+        "/article": (200, "text/html; charset=utf-8", article_html),
+    }) as base_url:
+        import_response = client.post(
+            "/api/documents/import-url",
+            json={"url": f"{base_url}/article"},
+        )
+        assert import_response.status_code == 200
+        document = import_response.json()
+
+        preview_response = client.get(f"/api/recall/documents/{document['id']}/preview")
+        assert preview_response.status_code == 200
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        row = connection.execute(
+            "SELECT metadata_json FROM source_documents WHERE id = ?",
+            (document["id"],),
+        ).fetchone()
+    assert row is not None
+    metadata = json.loads(row[0] or "{}")
+    preview_path = tmp_path / ".data" / metadata["home_preview"]["relative_path"]
+    assert preview_path.exists()
+
+    delete_response = client.delete(f"/api/documents/{document['id']}")
+
+    assert delete_response.status_code == 204
+    assert not preview_path.exists()
 
 
 def test_delete_document_removes_imported_webpage_snapshot(tmp_path, monkeypatch) -> None:

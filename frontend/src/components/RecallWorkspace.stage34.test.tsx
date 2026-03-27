@@ -8,6 +8,7 @@ import type {
   DocumentView,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
+  RecallDocumentPreview,
   RecallDocumentRecord,
   RecallNoteRecord,
   ReaderSettings,
@@ -202,6 +203,7 @@ const {
   deleteRecallNoteMock,
   fetchDocumentViewMock,
   fetchRecallDocumentMock,
+  fetchRecallDocumentPreviewMock,
   fetchRecallDocumentsMock,
   fetchRecallGraphMock,
   fetchRecallGraphNodeMock,
@@ -220,6 +222,7 @@ const {
   deleteRecallNoteMock: vi.fn(),
   fetchDocumentViewMock: vi.fn<(documentId: string, mode: string) => Promise<DocumentView>>(),
   fetchRecallDocumentMock: vi.fn(),
+  fetchRecallDocumentPreviewMock: vi.fn<(documentId: string) => Promise<RecallDocumentPreview>>(),
   fetchRecallDocumentsMock: vi.fn(),
   fetchRecallGraphMock: vi.fn(),
   fetchRecallGraphNodeMock: vi.fn(),
@@ -241,6 +244,7 @@ vi.mock('../api', () => ({
   decideRecallGraphNode: decideRecallGraphNodeMock,
   fetchDocumentView: fetchDocumentViewMock,
   fetchRecallDocument: fetchRecallDocumentMock,
+  fetchRecallDocumentPreview: fetchRecallDocumentPreviewMock,
   fetchRecallDocuments: fetchRecallDocumentsMock,
   fetchRecallGraph: fetchRecallGraphMock,
   fetchRecallGraphNode: fetchRecallGraphNodeMock,
@@ -266,6 +270,7 @@ beforeEach(() => {
   })
   fetchDocumentViewMock.mockReset()
   fetchRecallDocumentMock.mockReset()
+  fetchRecallDocumentPreviewMock.mockReset()
   fetchRecallDocumentsMock.mockReset()
   fetchRecallGraphMock.mockReset()
   fetchRecallGraphNodeMock.mockReset()
@@ -284,6 +289,13 @@ beforeEach(() => {
 
   fetchRecallDocumentsMock.mockImplementation(async () => recallDocuments)
   fetchRecallDocumentMock.mockImplementation(async () => recallDocuments[0])
+  fetchRecallDocumentPreviewMock.mockImplementation(async (documentId: string) => ({
+    document_id: documentId,
+    kind: 'fallback',
+    source: 'fallback',
+    asset_url: null,
+    updated_at: '2026-03-27T08:00:00Z',
+  }))
   fetchRecallNotesMock.mockImplementation(async () => baseRecallNotes)
   fetchRecallGraphMock.mockImplementation(async () => baseRecallGraph)
   fetchRecallGraphNodeMock.mockImplementation(async () => baseNodeDetail)

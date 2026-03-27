@@ -13,6 +13,7 @@ import type {
   RecallNoteSearchHit,
   RecallNoteStudyPromotionRequest,
   RecallNoteUpdateRequest,
+  RecallDocumentPreview,
   RecallRetrievalHit,
   ReaderSettings,
   RecallDocumentRecord,
@@ -25,7 +26,6 @@ import type {
   ViewMode,
 } from './types'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 const DEFAULT_LOCAL_SERVICE_HOST = '127.0.0.1:8000'
 
 export type ApiRequestErrorKind = 'http' | 'network'
@@ -43,7 +43,8 @@ export class ApiRequestError extends Error {
 }
 
 function resolveLocalServiceHost() {
-  if (!API_BASE) {
+  const apiBase = getApiBase()
+  if (!apiBase) {
     return DEFAULT_LOCAL_SERVICE_HOST
   }
 
@@ -52,10 +53,31 @@ function resolveLocalServiceHost() {
   }
 
   try {
-    return new URL(API_BASE, window.location.origin).host || DEFAULT_LOCAL_SERVICE_HOST
+    return new URL(apiBase, window.location.origin).host || DEFAULT_LOCAL_SERVICE_HOST
   } catch {
     return DEFAULT_LOCAL_SERVICE_HOST
   }
+}
+
+function getApiBase() {
+  return (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/u, '')
+}
+
+function isAbsoluteHttpUrl(path: string) {
+  return /^https?:\/\//iu.test(path)
+}
+
+function buildApiUrl(path: string) {
+  if (isAbsoluteHttpUrl(path)) {
+    return path
+  }
+
+  const apiBase = getApiBase()
+  if (!apiBase) {
+    return path
+  }
+
+  return path.startsWith('/') ? `${apiBase}${path}` : `${apiBase}/${path}`
 }
 
 function localServiceUnavailableMessage() {
@@ -65,7 +87,7 @@ function localServiceUnavailableMessage() {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`${API_BASE}${path}`, init)
+    response = await fetch(buildApiUrl(path), init)
   } catch {
     throw new ApiRequestError(localServiceUnavailableMessage(), { kind: 'network' })
   }
@@ -115,6 +137,14 @@ export function fetchRecallDocuments() {
 
 export function fetchRecallDocument(documentId: string) {
   return request<RecallDocumentRecord>(`/api/recall/documents/${documentId}`)
+}
+
+export async function fetchRecallDocumentPreview(documentId: string) {
+  const preview = await request<RecallDocumentPreview>(`/api/recall/documents/${documentId}/preview`)
+  return {
+    ...preview,
+    asset_url: preview.asset_url ? buildApiUrl(preview.asset_url) : preview.asset_url,
+  }
 }
 
 export function fetchRecallNotes(documentId: string) {
@@ -241,7 +271,7 @@ export function reviewRecallStudyCard(cardId: string, rating: StudyReviewRating)
 }
 
 export function buildRecallExportUrl(documentId: string) {
-  return `${API_BASE}/api/recall/documents/${documentId}/export.md`
+  return buildApiUrl(`/api/recall/documents/${documentId}/export.md`)
 }
 
 export function importTextDocument(text: string, title?: string) {

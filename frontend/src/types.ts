@@ -46,6 +46,20 @@ export interface RecallDocumentRecord {
   chunk_count: number
 }
 
+export interface RecallDocumentPreview {
+  document_id: string
+  kind: 'image' | 'fallback'
+  source:
+    | 'attachment-image'
+    | 'html-meta-image'
+    | 'html-inline-image'
+    | 'html-preload-image'
+    | 'html-rendered-snapshot'
+    | 'fallback'
+  asset_url?: string | null
+  updated_at: string
+}
+
 export interface RecallNoteAnchor {
   source_document_id: string
   variant_id: string

@@ -47,6 +47,7 @@ from .models import (
     KnowledgeNodeRecord,
     ReaderSessionState,
     ReaderSettings,
+    SourceDocument,
     RecallNoteAnchor,
     RecallNoteCreateRequest,
     RecallNoteGraphPromotionRequest,
@@ -249,6 +250,16 @@ class Repository:
                 return None
             return self._row_to_record(connection, row)
 
+    def get_source_document(self, document_id: str) -> SourceDocument | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM source_documents WHERE id = ?",
+                (document_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return self._row_to_source_document(row)
+
     def get_view(self, document_id: str, mode: str, detail_level: str = "default") -> DocumentView | None:
         with self.connect() as connection:
             row = connection.execute(
@@ -262,6 +273,41 @@ class Repository:
         if not row:
             return None
         return self._view_from_variant_row(row)
+
+    def save_source_document_metadata(
+        self,
+        document_id: str,
+        metadata: dict[str, Any],
+        *,
+        touch_updated_at: bool = False,
+    ) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT id FROM source_documents WHERE id = ?",
+                (document_id,),
+            ).fetchone()
+            if not row:
+                return False
+
+            if touch_updated_at:
+                connection.execute(
+                    """
+                    UPDATE source_documents
+                    SET metadata_json = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (json.dumps(metadata, sort_keys=True), now_iso(), document_id),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE source_documents
+                    SET metadata_json = ?
+                    WHERE id = ?
+                    """,
+                    (json.dumps(metadata, sort_keys=True), document_id),
+                )
+        return True
 
     def save_view(self, document_id: str, view: DocumentView) -> DocumentView:
         should_refresh_recall = view.mode == "reflowed" and view.detail_level == "default"
@@ -4186,6 +4232,20 @@ class Repository:
             if attachment:
                 attachments.append(attachment)
         return attachments
+
+    def _row_to_source_document(self, row: sqlite3.Row) -> SourceDocument:
+        return SourceDocument(
+            id=row["id"],
+            title=row["title"],
+            source_type=row["source_type"],
+            file_name=row["file_name"],
+            source_locator=row["source_locator"],
+            stored_path=row["stored_path"],
+            content_hash=row["content_hash"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            metadata=json.loads(row["metadata_json"] or "{}"),
+        )
 
     def _missing_attachment_warnings_with_connection(self, connection: sqlite3.Connection) -> list[str]:
         rows = connection.execute(

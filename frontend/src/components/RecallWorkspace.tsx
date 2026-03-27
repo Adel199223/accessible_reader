@@ -20,6 +20,8 @@ import {
   deleteRecallNote,
   decideRecallGraphEdge,
   decideRecallGraphNode,
+  fetchDocumentView,
+  fetchRecallDocumentPreview,
   fetchRecallNotes,
   fetchRecallDocument,
   fetchRecallDocuments,
@@ -57,10 +59,12 @@ import {
   type GraphFilterNodeContext,
 } from '../lib/graphViewFilters'
 import type {
+  DocumentView,
   KnowledgeEdgeRecord,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
   KnowledgeNodeRecord,
+  RecallDocumentPreview,
   RecallDocumentRecord,
   RecallNoteGraphPromotionRequest,
   RecallNoteRecord,
@@ -439,6 +443,221 @@ function getHomeDocumentSourceLabel(document: RecallDocumentRecord) {
   }
 
   return document.source_type === 'paste' ? 'Local capture' : 'Local source'
+}
+
+function getHomeDocumentPreviewMonogram(value: string, fallback: string) {
+  const compact = value.replace(/[^a-z0-9]/gi, '').toUpperCase()
+  if (compact.length >= 2) {
+    return compact.slice(0, 2)
+  }
+  if (compact.length === 1) {
+    return compact
+  }
+  return fallback
+}
+
+interface HomeDocumentPreviewContent {
+  heroText: string
+}
+
+function hashHomePreviewSeed(value: string) {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
+  }
+  return hash
+}
+
+function normalizeHomePreviewText(value: string) {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function truncateHomePreviewText(value: string, maxLength = 48) {
+  const normalized = normalizeHomePreviewText(value)
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`
+}
+
+function splitHomePreviewSentences(text: string) {
+  const normalized = normalizeHomePreviewText(text)
+  if (!normalized) {
+    return []
+  }
+
+  const rawSentences = normalized.split(/(?<=[.!?])\s+/).filter(Boolean)
+  if (rawSentences.length <= 1) {
+    return [normalized]
+  }
+
+  const sentences: string[] = []
+  for (let index = 0; index < rawSentences.length; index += 1) {
+    const sentence = rawSentences[index]?.trim()
+    if (!sentence) {
+      continue
+    }
+    if (sentence.length < 10 && index < rawSentences.length - 1) {
+      const nextSentence = rawSentences[index + 1]?.trim()
+      if (nextSentence) {
+        sentences.push(normalizeHomePreviewText(`${sentence} ${nextSentence}`))
+        index += 1
+        continue
+      }
+    }
+    sentences.push(sentence)
+  }
+  return sentences
+}
+
+function collectHomePreviewViewLines(view: DocumentView) {
+  const lines: string[] = []
+
+  for (const block of view.blocks) {
+    const blockMetadata =
+      block.metadata && typeof block.metadata === 'object' ? (block.metadata as Record<string, unknown>) : null
+    const sentenceTexts = Array.isArray(blockMetadata?.sentence_texts)
+      ? blockMetadata.sentence_texts.filter((value): value is string => typeof value === 'string')
+      : []
+    const candidates =
+      block.kind === 'heading'
+        ? [block.text, ...sentenceTexts]
+        : sentenceTexts.length > 0
+          ? sentenceTexts
+          : splitHomePreviewSentences(block.text)
+
+    for (const candidate of candidates) {
+      const normalized = normalizeHomePreviewText(candidate)
+      if (!normalized) {
+        continue
+      }
+      if (!lines.some((line) => line.localeCompare(normalized, undefined, { sensitivity: 'base' }) === 0)) {
+        lines.push(normalized)
+      }
+      if (lines.length >= 6) {
+        return lines
+      }
+    }
+  }
+
+  return lines
+}
+
+function getHomePreviewViewMode(document: RecallDocumentRecord): ViewMode {
+  if (document.available_modes.includes('reflowed')) {
+    return 'reflowed'
+  }
+  if (document.available_modes.includes('original')) {
+    return 'original'
+  }
+  return document.available_modes[0] ?? 'original'
+}
+
+function getHomeDocumentPreviewContentFromView(document: RecallDocumentRecord, view: DocumentView): HomeDocumentPreviewContent | null {
+  const sourceType = document.source_type.trim().toLowerCase()
+  const previewKind = sourceType === 'web' ? 'web' : sourceType === 'paste' ? 'paste' : 'file'
+  const sourceLabel = getHomeDocumentSourceLabel(document)
+  const fallbackHeroText = getHomeDocumentPreviewHeroText(document, sourceLabel, previewKind)
+  const blockedTexts = [document.title, sourceLabel, document.file_name ?? '', document.source_locator ?? '', fallbackHeroText]
+    .map((value) => normalizeHomePreviewText(value).toLowerCase())
+    .filter(Boolean)
+
+  const candidate = collectHomePreviewViewLines(view).find((line) => {
+    const normalized = line.toLowerCase()
+    if (normalized.length < 12) {
+      return false
+    }
+    return blockedTexts.every((blocked) => {
+      if (!blocked) {
+        return true
+      }
+      return normalized !== blocked && !normalized.includes(blocked) && !blocked.includes(normalized)
+    })
+  })
+
+  if (!candidate) {
+    return null
+  }
+
+  return {
+    heroText: truncateHomePreviewText(candidate, 50),
+  }
+}
+
+function getHomeDocumentPreviewHeroText(document: RecallDocumentRecord, sourceLabel: string, kind: 'file' | 'paste' | 'web') {
+  const seedText =
+    kind === 'web'
+      ? sourceLabel
+      : document.file_name?.trim() || document.title.trim() || sourceLabel
+  const compactText = seedText.replace(/\s+/g, ' ').trim()
+  if (!compactText) {
+    return kind === 'web' ? 'Saved web source' : kind === 'file' ? 'Local document' : 'Captured locally'
+  }
+  if (compactText.length <= 26) {
+    return compactText
+  }
+  return `${compactText.slice(0, 25).trimEnd()}…`
+}
+
+function getHomeDocumentPreviewAccentStyle(document: RecallDocumentRecord, kind: 'file' | 'paste' | 'web') {
+  const seed = hashHomePreviewSeed(`${document.id}:${document.title}:${document.source_locator ?? ''}:${document.file_name ?? ''}`)
+  const baseHue =
+    kind === 'web'
+      ? 216 + (seed % 18)
+      : kind === 'file'
+        ? 24 + (seed % 16)
+        : 174 + (seed % 22)
+  const secondaryHue =
+    kind === 'web'
+      ? 232 + (seed % 14)
+      : kind === 'file'
+        ? 40 + (seed % 14)
+        : 204 + (seed % 16)
+
+  return {
+    '--recall-home-preview-glow-stage653': `hsla(${baseHue}, 72%, 66%, 0.3)`,
+    '--recall-home-preview-sheen-stage653': `hsla(${secondaryHue}, 70%, 60%, 0.2)`,
+    '--recall-home-preview-mark-border-stage653': `hsla(${baseHue}, 76%, 78%, 0.18)`,
+  } as CSSProperties
+}
+
+function getHomeDocumentPreviewDescriptor(document: RecallDocumentRecord, previewContent?: HomeDocumentPreviewContent | null) {
+  const sourceTypeLabel = formatHomeDocumentSourceTypeEyebrow(document.source_type)
+  const sourceLabel = getHomeDocumentSourceLabel(document)
+  const normalizedSourceType = document.source_type.trim().toLowerCase()
+  const heroTextSource = previewContent?.heroText ? 'content' : 'fallback'
+
+  if (normalizedSourceType === 'web') {
+    const hostname = sourceLabel.replace(/^https?:\/\//i, '')
+    return {
+      detail: hostname,
+      footerLabel: 'Browser source',
+      heroText: previewContent?.heroText ?? getHomeDocumentPreviewHeroText(document, hostname, 'web'),
+      heroTextSource,
+      kind: 'web' as const,
+      mark: getHomeDocumentPreviewMonogram(hostname, 'WB'),
+    }
+  }
+
+  if (normalizedSourceType === 'paste') {
+    return {
+      detail: 'Local capture',
+      footerLabel: 'Saved locally',
+      heroText: previewContent?.heroText ?? getHomeDocumentPreviewHeroText(document, sourceLabel, 'paste'),
+      heroTextSource,
+      kind: 'paste' as const,
+      mark: getHomeDocumentPreviewMonogram(document.title, 'LP'),
+    }
+  }
+
+  return {
+    detail: document.file_name?.trim() || `${sourceTypeLabel} file`,
+    footerLabel: 'Local document',
+    heroText: previewContent?.heroText ?? getHomeDocumentPreviewHeroText(document, sourceLabel, 'file'),
+    heroTextSource,
+    kind: 'file' as const,
+    mark: getHomeDocumentPreviewMonogram(sourceTypeLabel, 'FL'),
+  }
 }
 
 function buildHomeCalendarDayKey(timestamp: string) {
@@ -1560,6 +1779,8 @@ export function RecallWorkspace({
   const [documents, setDocuments] = useState<RecallDocumentRecord[]>([])
   const [selectedDocument, setSelectedDocument] = useState<RecallDocumentRecord | null>(null)
   const [sourceWorkspaceDocument, setSourceWorkspaceDocument] = useState<RecallDocumentRecord | null>(null)
+  const [homeDocumentPreviewById, setHomeDocumentPreviewById] = useState<Record<string, RecallDocumentPreview>>({})
+  const [homePreviewContentById, setHomePreviewContentById] = useState<Record<string, HomeDocumentPreviewContent>>({})
   const [documentsStatus, setDocumentsStatus] = useState<LoadState>('loading')
   const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [detailStatus, setDetailStatus] = useState<LoadState>('idle')
@@ -1599,6 +1820,8 @@ export function RecallWorkspace({
   const [graphSettingsDrawerWidth, setGraphSettingsDrawerWidth] = useState(GRAPH_SETTINGS_DRAWER_DEFAULT_WIDTH)
   const [graphSettingsDrawerResizing, setGraphSettingsDrawerResizing] = useState(false)
   const graphCanvasViewportRef = useRef<HTMLDivElement | null>(null)
+  const requestedHomeDocumentPreviewIdsRef = useRef<Set<string>>(new Set())
+  const requestedHomePreviewDocumentIdsRef = useRef<Set<string>>(new Set())
   const graphCanvasPanSessionRef = useRef<GraphCanvasPanSession | null>(null)
   const graphNodeDragSessionRef = useRef<GraphCanvasNodeDragSession | null>(null)
   const graphSettingsDrawerResizeSessionRef = useRef<GraphSettingsDrawerResizeSession | null>(null)
@@ -1663,8 +1886,10 @@ export function RecallWorkspace({
   const [homeCollectionDraftState, setHomeCollectionDraftState] = useState<HomeCollectionDraftState | null>(null)
   const [homeCollectionDraftName, setHomeCollectionDraftName] = useState('')
   const [homeCollectionAssignmentPanelOpen, setHomeCollectionAssignmentPanelOpen] = useState(false)
+  const [homeStage567RailMenuOpen, setHomeStage567RailMenuOpen] = useState(false)
   const [homeStage563SortMenuOpen, setHomeStage563SortMenuOpen] = useState(false)
   const homeOrganizerRailResizeSessionRef = useRef<HomeOrganizerRailResizeSession | null>(null)
+  const homeStage567RailMenuRef = useRef<HTMLDivElement | null>(null)
   const homeStage563SortMenuRef = useRef<HTMLDivElement | null>(null)
   const [homeManualSectionOrderByLens, setHomeManualSectionOrderByLens] = useState<
     Record<RecallHomeOrganizerLens, LibraryBrowseSectionKey[]>
@@ -1878,6 +2103,38 @@ export function RecallWorkspace({
       }
     }
   }, [homeSortDirection, homeSortMode])
+
+  useEffect(() => {
+    if (!homeStage567RailMenuOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (homeStage567RailMenuRef.current?.contains(event.target as Node)) {
+        return
+      }
+      setHomeStage567RailMenuOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setHomeStage567RailMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [homeStage567RailMenuOpen])
+
+  useEffect(() => {
+    if (!homeOrganizerVisible) {
+      setHomeStage567RailMenuOpen(false)
+    }
+  }, [homeOrganizerVisible])
 
   useEffect(() => {
     if (!homeStage563SortMenuOpen) {
@@ -3649,10 +3906,17 @@ export function RecallWorkspace({
   const homeVisibleCanvasCountLabel = formatCountLabel(homeCanvasDocuments.length, 'source', 'sources')
   const homeCanvasHeading = libraryFilterActive ? 'Search results' : homeSelectedBrowseSection?.label ?? 'Saved sources'
   const homeCanvasSummary = libraryFilterActive
-    ? `${visibleDocuments.length} matches across your local workspace.`
+    ? formatCountLabel(visibleDocuments.length, 'match', 'matches')
     : homeSelectedBrowseSection
-      ? `${homeVisibleCanvasCountLabel} in ${homeSelectedBrowseSection.label}.`
+      ? homeVisibleCanvasCountLabel
       : `${documents.length} ready`
+  const homeCanvasAriaLabel = libraryFilterActive ? `${homeCanvasHeading} canvas` : `${homeCanvasHeading} collection canvas`
+  const homeFooterVisibleLabel = homeSelectedBrowseSection
+    ? expandedLibrarySectionKeys[homeSelectedBrowseSection.key]
+      ? `Show fewer ${homeSelectedBrowseSection.label.toLowerCase()}`
+      : `Show all ${homeSelectedBrowseSection.label.toLowerCase()}`
+    : ''
+  const homeFooterAccessibleTotalLabel = `${homeCanvasDocuments.length} total ${homeCanvasDocuments.length === 1 ? 'source' : 'sources'}`
   const homeCanvasEmptyNote =
     documentsStatus === 'error'
       ? 'Saved sources are unavailable until the local service reconnects.'
@@ -3660,11 +3924,82 @@ export function RecallWorkspace({
         ? 'No saved sources match that filter yet.'
         : homeSelectedBrowseSection
           ? isHomeCustomCollectionSection(homeSelectedBrowseSection.key)
-            ? 'This collection is empty. Add or assign sources to start filling the board.'
-            : 'No sources are in this lane yet.'
-          : 'No saved sources are ready for Home yet.'
-  const homeCanvasDayLeadLabel = homeCanvasDayGroups[0]?.label ?? null
+          ? 'This collection is empty. Add or assign sources to start filling the board.'
+          : 'No sources are in this lane yet.'
+        : 'No saved sources are ready for Home yet.'
   const showHomeStage563Canvas = homeUsesStructuralParityStage563 && Boolean(homeSelectedBrowseSection || libraryFilterActive)
+
+  useEffect(() => {
+    if (!showHomeStage563Canvas || homeViewMode !== 'board') {
+      return
+    }
+
+    if (visibleHomeCanvasDocuments.length === 0) {
+      return
+    }
+
+    for (const document of visibleHomeCanvasDocuments) {
+      if (homePreviewContentById[document.id] || requestedHomePreviewDocumentIdsRef.current.has(document.id)) {
+        continue
+      }
+
+      requestedHomePreviewDocumentIdsRef.current.add(document.id)
+      const previewMode = getHomePreviewViewMode(document)
+      void fetchDocumentView(document.id, previewMode)
+        .then((view) => {
+          const previewContent = getHomeDocumentPreviewContentFromView(document, view)
+          if (!previewContent) {
+            return
+          }
+          setHomePreviewContentById((current) => {
+            if (current[document.id]) {
+              return current
+            }
+            return {
+              ...current,
+              [document.id]: previewContent,
+            }
+          })
+        })
+        .catch(() => {
+          requestedHomePreviewDocumentIdsRef.current.delete(document.id)
+        })
+    }
+  }, [homePreviewContentById, homeViewMode, showHomeStage563Canvas, visibleHomeCanvasDocuments])
+
+  useEffect(() => {
+    if (!showHomeStage563Canvas || homeViewMode !== 'board') {
+      return
+    }
+
+    if (visibleHomeCanvasDocuments.length === 0) {
+      return
+    }
+
+    for (const document of visibleHomeCanvasDocuments) {
+      if (homeDocumentPreviewById[document.id] || requestedHomeDocumentPreviewIdsRef.current.has(document.id)) {
+        continue
+      }
+
+      requestedHomeDocumentPreviewIdsRef.current.add(document.id)
+      void fetchRecallDocumentPreview(document.id)
+        .then((preview) => {
+          setHomeDocumentPreviewById((current) => {
+            if (current[document.id]) {
+              return current
+            }
+            return {
+              ...current,
+              [document.id]: preview,
+            }
+          })
+        })
+        .catch(() => {
+          requestedHomeDocumentPreviewIdsRef.current.delete(document.id)
+        })
+    }
+  }, [homeDocumentPreviewById, homeViewMode, showHomeStage563Canvas, visibleHomeCanvasDocuments])
+
   const showHomeReopenCluster = Boolean(homeLeadDocument || homeContinueDocuments.length > 0)
   const homeWorkspaceLeadLabel = resumeSourceDocument ? 'Continue where you left off' : 'Open next'
   const homeWorkspaceLeadSummary =
@@ -6050,7 +6385,7 @@ export function RecallWorkspace({
     return (
       <button
         aria-label={`Add content to ${homeCanvasHeading}`}
-        className="recall-home-parity-add-tile-stage563"
+        className="recall-home-parity-add-tile-stage563 recall-home-parity-add-tile-stage603 recall-home-parity-add-tile-stage605 recall-home-parity-add-tile-stage615"
         type="button"
         onClick={onRequestNewSource}
       >
@@ -6059,11 +6394,6 @@ export function RecallWorkspace({
         </span>
         <span className="recall-home-parity-add-tile-copy-stage563">
           <strong>Add Content</strong>
-          <span>
-            {homeCanvasDayLeadLabel
-              ? `Start a new source in ${homeCanvasDayLeadLabel}.`
-              : 'Bring in a link, paste, or local file.'}
-          </span>
         </span>
       </button>
     )
@@ -6072,30 +6402,69 @@ export function RecallWorkspace({
   function renderHomeStage563Card(document: RecallDocumentRecord) {
     const sourceTypeLabel = formatHomeDocumentSourceTypeEyebrow(document.source_type)
     const sourceLabel = getHomeDocumentSourceLabel(document)
-    const updatedLabel = homeDateFormatter.format(new Date(document.updated_at))
     const cardCollectionLabel = libraryFilterActive ? formatHomeDocumentSourceTypeEyebrow(document.source_type) : homeCanvasHeading
+    const mediaPreview = homeDocumentPreviewById[document.id] ?? null
+    const previewContent = homePreviewContentById[document.id] ?? null
+    const preview = getHomeDocumentPreviewDescriptor(document, previewContent)
+    const previewAccentStyle = getHomeDocumentPreviewAccentStyle(document, preview.kind)
+    const hasImagePreview = mediaPreview?.kind === 'image' && Boolean(mediaPreview.asset_url)
 
     return (
       <button
         aria-label={`Open ${document.title}`}
-        className="recall-home-parity-card-stage563"
+        className="recall-home-parity-card-stage563 recall-home-parity-card-stage603 recall-home-parity-card-stage605 recall-home-parity-card-stage613 recall-home-parity-card-stage615 recall-home-parity-card-stage621 recall-home-parity-card-stage623 recall-home-parity-card-stage625 recall-home-parity-card-stage627 recall-home-parity-card-stage629 recall-home-parity-card-stage631 recall-home-parity-card-stage633 recall-home-parity-card-stage635 recall-home-parity-card-stage637 recall-home-parity-card-stage639 recall-home-parity-card-stage641 recall-home-parity-card-stage643 recall-home-parity-card-stage645 recall-home-parity-card-stage647 recall-home-parity-card-stage649 recall-home-parity-card-stage651"
         key={`home-parity-card:${document.id}`}
         type="button"
         onClick={() => focusSourceLibrary(document.id)}
       >
         <span
-          className="recall-home-parity-card-preview-stage563"
+          className={`recall-home-parity-card-preview-stage563 recall-home-parity-card-preview-stage613 recall-home-parity-card-preview-stage621 recall-home-parity-card-preview-stage623 recall-home-parity-card-preview-stage625 recall-home-parity-card-preview-stage627 recall-home-parity-card-preview-stage629 recall-home-parity-card-preview-stage631 recall-home-parity-card-preview-stage633 recall-home-parity-card-preview-stage635 recall-home-parity-card-preview-stage637 recall-home-parity-card-preview-stage639 recall-home-parity-card-preview-stage641 recall-home-parity-card-preview-stage643 recall-home-parity-card-preview-stage645 recall-home-parity-card-preview-stage647 recall-home-parity-card-preview-stage649 recall-home-parity-card-preview-stage651 recall-home-parity-card-preview-stage653 recall-home-parity-card-preview-stage655 recall-home-parity-card-preview-stage657 recall-home-parity-card-preview-${preview.kind}-stage565${hasImagePreview ? ' recall-home-parity-card-preview-has-image-stage657' : ''}`}
           aria-hidden="true"
+          data-preview-kind={preview.kind}
+          data-preview-hero-source={preview.heroTextSource}
+          data-preview-media-kind={hasImagePreview ? 'image' : 'fallback'}
+          data-preview-media-source={mediaPreview?.source ?? 'fallback'}
           data-source-type={document.source_type.toLowerCase()}
+          style={previewAccentStyle}
         >
-          <span className="recall-home-parity-card-preview-badge-stage563">{sourceTypeLabel}</span>
+          {hasImagePreview ? (
+            <img
+              alt=""
+              className="recall-home-parity-card-preview-image-stage657"
+              decoding="async"
+              loading="lazy"
+              src={mediaPreview.asset_url ?? undefined}
+            />
+          ) : null}
+          <span className="recall-home-parity-card-preview-topline-stage565">
+            <span className="recall-home-parity-card-preview-badge-stage563">{sourceTypeLabel}</span>
+            <span className="recall-home-parity-card-preview-detail-stage565 recall-home-parity-card-preview-detail-stage605">
+              {preview.detail}
+            </span>
+          </span>
+          <span className="recall-home-parity-card-preview-footer-stage569">
+            <span className="recall-home-parity-card-preview-mark-stage565">{preview.mark}</span>
+            {!hasImagePreview ? (
+              <span className="recall-home-parity-card-preview-hero-stage653 recall-home-parity-card-preview-hero-stage655">
+                {preview.heroText}
+              </span>
+            ) : null}
+            <span className="recall-home-parity-card-preview-note-stage569 recall-home-parity-card-preview-note-stage605">
+              {preview.footerLabel}
+            </span>
+          </span>
         </span>
-        <span className="recall-home-parity-card-copy-stage563">
-          <strong>{document.title}</strong>
-          <span className="recall-home-parity-card-source-stage563">{sourceLabel}</span>
-          <span className="recall-home-parity-card-meta-stage563">{updatedLabel}</span>
+        <span className="recall-home-parity-card-copy-stage563 recall-home-parity-card-copy-stage571 recall-home-parity-card-copy-stage603 recall-home-parity-card-copy-stage605 recall-home-parity-card-copy-stage607 recall-home-parity-card-copy-stage613 recall-home-parity-card-copy-stage621 recall-home-parity-card-copy-stage623 recall-home-parity-card-copy-stage625 recall-home-parity-card-copy-stage627 recall-home-parity-card-copy-stage629 recall-home-parity-card-copy-stage631 recall-home-parity-card-copy-stage633 recall-home-parity-card-copy-stage635 recall-home-parity-card-copy-stage637 recall-home-parity-card-copy-stage639 recall-home-parity-card-copy-stage641 recall-home-parity-card-copy-stage643 recall-home-parity-card-copy-stage645 recall-home-parity-card-copy-stage647 recall-home-parity-card-copy-stage649 recall-home-parity-card-copy-stage651">
+          <strong className="recall-home-parity-card-title-stage603 recall-home-parity-card-title-stage605 recall-home-parity-card-title-stage607 recall-home-parity-card-title-stage613 recall-home-parity-card-title-stage621 recall-home-parity-card-title-stage623 recall-home-parity-card-title-stage625 recall-home-parity-card-title-stage627 recall-home-parity-card-title-stage629 recall-home-parity-card-title-stage631 recall-home-parity-card-title-stage633 recall-home-parity-card-title-stage635 recall-home-parity-card-title-stage637 recall-home-parity-card-title-stage639 recall-home-parity-card-title-stage641 recall-home-parity-card-title-stage643 recall-home-parity-card-title-stage645 recall-home-parity-card-title-stage647 recall-home-parity-card-title-stage649 recall-home-parity-card-title-stage651">{document.title}</strong>
+          <span className="recall-home-parity-card-meta-stack-stage571 recall-home-parity-card-meta-stack-stage603 recall-home-parity-card-meta-stack-stage605 recall-home-parity-card-meta-stack-stage607 recall-home-parity-card-meta-stack-stage611 recall-home-parity-card-meta-stack-stage613 recall-home-parity-card-meta-stack-stage621 recall-home-parity-card-meta-stack-stage623 recall-home-parity-card-meta-stack-stage625 recall-home-parity-card-meta-stack-stage627 recall-home-parity-card-meta-stack-stage629 recall-home-parity-card-meta-stack-stage631 recall-home-parity-card-meta-stack-stage633 recall-home-parity-card-meta-stack-stage635 recall-home-parity-card-meta-stack-stage637 recall-home-parity-card-meta-stack-stage639 recall-home-parity-card-meta-stack-stage641 recall-home-parity-card-meta-stack-stage643 recall-home-parity-card-meta-stack-stage645 recall-home-parity-card-meta-stack-stage647 recall-home-parity-card-meta-stack-stage649 recall-home-parity-card-meta-stack-stage651">
+            <span className="recall-home-parity-card-source-row-stage565 recall-home-parity-card-source-row-stage571 recall-home-parity-card-source-row-stage603 recall-home-parity-card-source-row-stage607 recall-home-parity-card-source-row-stage611 recall-home-parity-card-source-row-stage621 recall-home-parity-card-source-row-stage623 recall-home-parity-card-source-row-stage625 recall-home-parity-card-source-row-stage627 recall-home-parity-card-source-row-stage629 recall-home-parity-card-source-row-stage631 recall-home-parity-card-source-row-stage633 recall-home-parity-card-source-row-stage635 recall-home-parity-card-source-row-stage637 recall-home-parity-card-source-row-stage639 recall-home-parity-card-source-row-stage641 recall-home-parity-card-source-row-stage643 recall-home-parity-card-source-row-stage645 recall-home-parity-card-source-row-stage647 recall-home-parity-card-source-row-stage649 recall-home-parity-card-source-row-stage651">
+              <span className="recall-home-parity-card-source-stage563 recall-home-parity-card-source-stage603 recall-home-parity-card-source-stage605 recall-home-parity-card-source-stage607 recall-home-parity-card-source-stage611 recall-home-parity-card-source-stage621 recall-home-parity-card-source-stage623 recall-home-parity-card-source-stage625 recall-home-parity-card-source-stage627 recall-home-parity-card-source-stage629 recall-home-parity-card-source-stage631 recall-home-parity-card-source-stage633 recall-home-parity-card-source-stage635 recall-home-parity-card-source-stage637 recall-home-parity-card-source-stage639 recall-home-parity-card-source-stage641 recall-home-parity-card-source-stage643 recall-home-parity-card-source-stage645 recall-home-parity-card-source-stage647 recall-home-parity-card-source-stage649 recall-home-parity-card-source-stage651">{sourceLabel}</span>
+            </span>
+            <span className="recall-home-parity-card-chip-stage563 recall-home-parity-card-chip-stage571 recall-home-parity-card-chip-stage603 recall-home-parity-card-chip-stage605 recall-home-parity-card-chip-stage607 recall-home-parity-card-chip-stage611 recall-home-parity-card-chip-stage621 recall-home-parity-card-chip-stage623 recall-home-parity-card-chip-stage625 recall-home-parity-card-chip-stage627 recall-home-parity-card-chip-stage629 recall-home-parity-card-chip-stage631 recall-home-parity-card-chip-stage633 recall-home-parity-card-chip-stage635 recall-home-parity-card-chip-stage637 recall-home-parity-card-chip-stage639 recall-home-parity-card-chip-stage641 recall-home-parity-card-chip-stage643 recall-home-parity-card-chip-stage645 recall-home-parity-card-chip-stage647 recall-home-parity-card-chip-stage649 recall-home-parity-card-chip-stage651">
+              {cardCollectionLabel}
+            </span>
+          </span>
         </span>
-        <span className="recall-home-parity-card-chip-stage563">{cardCollectionLabel}</span>
       </button>
     )
   }
@@ -6140,12 +6509,18 @@ export function RecallWorkspace({
           aria-expanded={homeStage563SortMenuOpen}
           aria-haspopup="true"
           aria-label={`Sort Home sources. Current ${homeSortMenuLabel}`}
-          className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-sort-trigger-stage563"
+          className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-sort-trigger-stage563 recall-home-parity-sort-trigger-stage601 recall-home-parity-sort-trigger-stage609 recall-home-parity-sort-trigger-stage619"
           type="button"
-          onClick={() => setHomeStage563SortMenuOpen((current) => !current)}
+          onClick={() => {
+            setHomeStage567RailMenuOpen(false)
+            setHomeStage563SortMenuOpen((current) => !current)
+          }}
         >
           <span>Sort</span>
-          <span aria-hidden="true" className="recall-home-parity-sort-caret-stage563">
+          <span
+            aria-hidden="true"
+            className="recall-home-parity-sort-caret-stage563 recall-home-parity-sort-caret-stage601"
+          >
             v
           </span>
         </button>
@@ -6240,100 +6615,169 @@ export function RecallWorkspace({
         className="recall-home-parity-rail-stage563 priority-surface-support-rail priority-surface-support-rail-quiet"
         style={homeOrganizerRailStyle}
       >
-        <div className="recall-home-parity-rail-header-stage563">
-          <div className="recall-home-parity-rail-heading-stage563">
-            <strong>{homeOrganizerLens === 'collections' ? 'Collections' : 'Recent'}</strong>
-            <span>{formatCountLabel(homeBrowseSectionEntries.length, 'group', 'groups')}</span>
+        <div className="recall-home-parity-rail-header-stage563 recall-home-parity-rail-header-stage599">
+          <div className="recall-home-parity-rail-header-row-stage567">
+            <div className="recall-home-parity-rail-heading-stage563">
+              <strong>{homeOrganizerLens === 'collections' ? 'Collections' : 'Recent'}</strong>
+              <span className="recall-home-parity-rail-heading-meta-stage571 recall-home-parity-rail-heading-meta-stage609">
+                {formatCountLabel(homeBrowseSectionEntries.length, 'group', 'groups')}
+              </span>
+            </div>
+            <div
+              className={
+                homeStage567RailMenuOpen
+                  ? 'recall-home-parity-rail-overflow-stage567 recall-home-parity-rail-overflow-stage567-open'
+                  : 'recall-home-parity-rail-overflow-stage567'
+              }
+              ref={homeStage567RailMenuRef}
+            >
+              <button
+                aria-controls="home-stage567-rail-panel"
+                aria-expanded={homeStage567RailMenuOpen}
+                aria-haspopup="true"
+                aria-label="Organizer options"
+                className="ghost-button recall-home-parity-rail-overflow-trigger-stage567"
+                type="button"
+                onClick={() => {
+                  setHomeStage563SortMenuOpen(false)
+                  setHomeStage567RailMenuOpen((current) => !current)
+                }}
+              >
+                <span aria-hidden="true">...</span>
+              </button>
+              <div
+                className="recall-home-parity-rail-overflow-panel-stage567"
+                hidden={!homeStage567RailMenuOpen}
+                id="home-stage567-rail-panel"
+                role="group"
+                aria-label="Organizer options"
+              >
+                <div className="recall-home-parity-advanced-body-stage563">
+                  <label className="field recall-inline-field">
+                    <span>Filter sources</span>
+                    <input
+                      aria-label="Filter saved sources"
+                      type="search"
+                      placeholder="Filter saved sources"
+                      value={libraryFilterQuery}
+                      onChange={(event) =>
+                        updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer lens">
+                    <button
+                      aria-pressed={homeOrganizerLens === 'collections'}
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => setHomeOrganizerLens('collections')}
+                    >
+                      Collections
+                    </button>
+                    <button
+                      aria-pressed={homeOrganizerLens === 'recent'}
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => setHomeOrganizerLens('recent')}
+                    >
+                      Recent
+                    </button>
+                  </div>
+                  <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer utilities">
+                    {homeCanCreateCustomCollection ? (
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() =>
+                          openHomeCollectionDraft('create', {
+                            seedDocumentIds: homeSelectedOrganizerDocumentIds,
+                          })
+                        }
+                      >
+                        {homeSelectedOrganizerDocumentIds.length > 0 ? 'New collection' : 'Create collection'}
+                      </button>
+                    ) : null}
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => {
+                        setHomeStage567RailMenuOpen(false)
+                        setHomeOrganizerVisible(false)
+                      }}
+                    >
+                      Hide rail
+                    </button>
+                  </div>
+                  {renderHomeCollectionManagementPanel()}
+                </div>
+              </div>
+            </div>
           </div>
-          <span className="recall-home-parity-rail-note-stage563">{homeCanvasSummary}</span>
+          <span className="recall-home-parity-rail-note-stage563 recall-home-parity-rail-note-stage609">{homeCanvasSummary}</span>
         </div>
 
         <div className="recall-home-parity-rail-list-stage563" role="list">
           {homeBrowseSectionEntries.map((section) => {
             const active = section.key === homeSelectedBrowseSection?.key
+            let supportText = section.previewLeadDocument?.title ?? section.description
+            if (active) {
+              if (isCollectionCaptureSection(section.key)) {
+                supportText = 'Local captures'
+              } else if (section.key === 'collection:web') {
+                supportText = 'Browser sources'
+              } else if (section.key === 'collection:documents') {
+                supportText = 'Local documents'
+              } else if (isHomeCustomCollectionSection(section.key)) {
+                supportText = 'Custom collection'
+              } else if (section.key.startsWith('recent:')) {
+                supportText = 'Recent sources'
+              } else {
+                supportText = section.description.replace(/\.+$/u, '')
+              }
+            }
             return (
-              <div className="recall-home-parity-rail-item-stage563" key={section.key} role="listitem">
+              <div
+                className={
+                  active
+                    ? 'recall-home-parity-rail-item-stage563 recall-home-parity-rail-item-active-stage599'
+                    : 'recall-home-parity-rail-item-stage563'
+                }
+                key={section.key}
+                role="listitem"
+              >
                 <button
                   aria-pressed={active}
-                  className={active ? 'recall-home-parity-rail-button-stage563 recall-home-parity-rail-button-active-stage563' : 'recall-home-parity-rail-button-stage563'}
+                  className={
+                    active
+                      ? 'recall-home-parity-rail-button-stage563 recall-home-parity-rail-button-active-stage563 recall-home-parity-rail-button-active-stage599'
+                      : 'recall-home-parity-rail-button-stage563 recall-home-parity-rail-button-inactive-stage575'
+                  }
                   type="button"
                   onClick={(event) => handleHomeOrganizerSectionClick(section.key, event)}
                 >
                   <span className="recall-home-parity-rail-button-copy-stage563">
                     <strong>{section.label}</strong>
-                    <span>{active ? section.description : section.previewLeadDocument?.title ?? section.description}</span>
+                    <span className="recall-home-parity-rail-support-stage609">{supportText}</span>
                   </span>
                   <span className="recall-home-parity-rail-count-stage563">{section.count}</span>
                 </button>
                 {active && section.previewLeadDocument ? (
                   <button
                     aria-label={`Open ${section.previewLeadDocument.title} from ${section.label}`}
-                    className="recall-home-parity-rail-preview-stage563"
+                    className="recall-home-parity-rail-preview-stage563 recall-home-parity-rail-preview-stage571 recall-home-parity-rail-preview-stage599"
                     type="button"
                     onClick={() => focusSourceLibrary(section.previewLeadDocument?.id ?? '')}
                   >
-                    {section.previewLeadDocument.title}
+                    <span className="recall-home-parity-rail-preview-mark-stage571" aria-hidden="true" />
+                    <span className="recall-home-parity-rail-preview-label-stage571 recall-home-parity-rail-preview-label-stage609">
+                      {section.previewLeadDocument.title}
+                    </span>
                   </button>
                 ) : null}
               </div>
             )
           })}
         </div>
-
-        <details className="recall-home-parity-advanced-stage563">
-          <summary>Organizer options</summary>
-          <div className="recall-home-parity-advanced-body-stage563">
-            <label className="field recall-inline-field">
-              <span>Filter sources</span>
-              <input
-                aria-label="Filter saved sources"
-                type="search"
-                placeholder="Filter saved sources"
-                value={libraryFilterQuery}
-                onChange={(event) =>
-                  updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
-                }
-              />
-            </label>
-            <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer lens">
-              <button
-                aria-pressed={homeOrganizerLens === 'collections'}
-                className="ghost-button"
-                type="button"
-                onClick={() => setHomeOrganizerLens('collections')}
-              >
-                Collections
-              </button>
-              <button
-                aria-pressed={homeOrganizerLens === 'recent'}
-                className="ghost-button"
-                type="button"
-                onClick={() => setHomeOrganizerLens('recent')}
-              >
-                Recent
-              </button>
-            </div>
-            <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer utilities">
-              {homeCanCreateCustomCollection ? (
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() =>
-                    openHomeCollectionDraft('create', {
-                      seedDocumentIds: homeSelectedOrganizerDocumentIds,
-                    })
-                  }
-                >
-                  {homeSelectedOrganizerDocumentIds.length > 0 ? 'New collection' : 'Create collection'}
-                </button>
-              ) : null}
-              <button className="ghost-button" type="button" onClick={() => setHomeOrganizerVisible(false)}>
-                Hide rail
-              </button>
-            </div>
-            {renderHomeCollectionManagementPanel()}
-          </div>
-        </details>
 
         {homeOrganizerSelectionKeys.length > 0 ? (
           <div className="recall-home-organizer-selection-bar recall-home-organizer-selection-bar-stage483-reset recall-home-organizer-selection-bar-stage487-reset" role="group" aria-label="Organizer selection bar">
@@ -6387,50 +6831,82 @@ export function RecallWorkspace({
 
   function renderHomeStage563Canvas() {
     return (
-      <section className="recall-home-parity-canvas-stage563 priority-surface-stage-shell" aria-label="Home collection canvas">
-        <div className="recall-home-parity-toolbar-stage563">
-          <div className="recall-home-parity-toolbar-copy-stage563">
-            <div className="recall-home-parity-toolbar-heading-stage563">
-              <h2>{homeCanvasHeading}</h2>
-              <span>{homeCanvasSummary}</span>
-            </div>
-          </div>
-          <div className="recall-home-parity-toolbar-actions-stage563" aria-label="Home workspace controls">
-            {!homeOrganizerVisible ? (
+      <section
+        className="recall-home-parity-canvas-stage563 recall-home-parity-canvas-stage617 recall-home-parity-canvas-stage619 priority-surface-stage-shell"
+        aria-label={homeCanvasAriaLabel}
+      >
+        <div className="recall-home-parity-toolbar-stage563 recall-home-parity-toolbar-stage617">
+          <span className="visually-hidden">{homeCanvasSummary}</span>
+          <div
+            className="recall-home-parity-toolbar-actions-stage563 recall-home-parity-toolbar-actions-stage569 recall-home-parity-toolbar-actions-stage601 recall-home-parity-toolbar-actions-stage617"
+            aria-label="Home workspace controls"
+          >
+            <div className="recall-home-parity-toolbar-row-stage567 recall-home-parity-toolbar-row-primary-stage567 recall-home-parity-toolbar-row-stage569 recall-home-parity-toolbar-row-primary-stage601">
+              {!homeOrganizerVisible ? (
+                <button
+                  className="ghost-button recall-home-parity-toolbar-button-stage563"
+                  type="button"
+                  onClick={() => setHomeOrganizerVisible(true)}
+                >
+                  Collections
+                </button>
+              ) : null}
               <button
-                className="ghost-button recall-home-parity-toolbar-button-stage563"
+                aria-label="Search saved sources"
+                className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-search-stage567 recall-home-parity-toolbar-button-search-stage601 recall-home-parity-toolbar-button-search-stage609 recall-home-parity-toolbar-button-search-stage619"
                 type="button"
-                onClick={() => setHomeOrganizerVisible(true)}
-              >
-                Collections
+                onClick={() => {
+                  setHomeStage567RailMenuOpen(false)
+                  setHomeStage563SortMenuOpen(false)
+                  onOpenSearch()
+                }}
+                >
+                <span className="recall-home-parity-toolbar-button-leading-stage569">
+                  <span className="recall-home-parity-toolbar-search-glyph-stage569" aria-hidden="true" />
+                  <span className="recall-home-parity-toolbar-search-label-stage609">Search...</span>
+                </span>
+                <span className="shell-nav-hint recall-home-parity-toolbar-hint-stage601 recall-home-parity-toolbar-hint-stage609">Ctrl+K</span>
               </button>
-            ) : null}
-            <button className="ghost-button recall-home-parity-toolbar-button-stage563" type="button" onClick={onOpenSearch}>
-              Search
-              <span className="shell-nav-hint">Ctrl+K</span>
-            </button>
-            <button className="recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-primary-stage563" type="button" onClick={onRequestNewSource}>
-              Add
-            </button>
-            <button
-              aria-pressed={homeViewMode === 'list'}
-              className="ghost-button recall-home-parity-toolbar-button-stage563"
-              type="button"
-              onClick={() => setHomeViewMode(homeViewMode === 'list' ? 'board' : 'list')}
-            >
-              List
-            </button>
-            {renderHomeStage563SortMenu()}
+              <button
+                className="recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-primary-stage563 recall-home-parity-toolbar-button-primary-stage601"
+                type="button"
+                onClick={() => {
+                  setHomeStage567RailMenuOpen(false)
+                  setHomeStage563SortMenuOpen(false)
+                  onRequestNewSource()
+                }}
+              >
+                Add
+              </button>
+            </div>
+            <div className="recall-home-parity-toolbar-row-stage567 recall-home-parity-toolbar-row-secondary-stage567 recall-home-parity-toolbar-row-stage569 recall-home-parity-toolbar-row-secondary-stage601">
+              <button
+                aria-pressed={homeViewMode === 'list'}
+                className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-secondary-stage567 recall-home-parity-toolbar-button-secondary-stage601 recall-home-parity-toolbar-button-secondary-stage609 recall-home-parity-toolbar-button-secondary-stage619"
+                type="button"
+                onClick={() => {
+                  setHomeStage567RailMenuOpen(false)
+                  setHomeStage563SortMenuOpen(false)
+                  setHomeViewMode(homeViewMode === 'list' ? 'board' : 'list')
+                }}
+              >
+                List
+              </button>
+              {renderHomeStage563SortMenu()}
+            </div>
           </div>
         </div>
 
         {homeCanvasDayGroups.length > 0 ? (
-          <div className="recall-home-parity-day-groups-stage563">
+          <div className="recall-home-parity-day-groups-stage563 recall-home-parity-day-groups-stage605 recall-home-parity-day-groups-stage617">
             {homeCanvasDayGroups.map((group, index) => (
-              <section className="recall-home-parity-day-group-stage563" key={group.key} aria-label={`${group.label} sources`}>
-                <div className="recall-home-parity-day-group-header-stage563">
+              <section
+                className="recall-home-parity-day-group-stage563 recall-home-parity-day-group-stage605 recall-home-parity-day-group-stage617"
+                key={group.key}
+                aria-label={`${group.label}, ${formatCountLabel(group.documents.length, 'source', 'sources')}`}
+              >
+                <div className="recall-home-parity-day-group-header-stage563 recall-home-parity-day-group-header-stage617">
                   <h3>{group.label}</h3>
-                  <span>{formatCountLabel(group.documents.length, 'source', 'sources')}</span>
                 </div>
                 {homeViewMode === 'list' ? (
                   <div className="recall-home-parity-list-stage563" role="list">
@@ -6438,7 +6914,7 @@ export function RecallWorkspace({
                     {group.documents.map((document) => renderHomeStage563ListRow(document))}
                   </div>
                 ) : (
-                  <div className="recall-home-parity-grid-stage563" role="list">
+                  <div className="recall-home-parity-grid-stage563 recall-home-parity-grid-stage605 recall-home-parity-grid-stage615" role="list">
                     {index === 0 ? renderHomeStage563AddTile() : null}
                     {group.documents.map((document) => renderHomeStage563Card(document))}
                   </div>
@@ -6457,10 +6933,10 @@ export function RecallWorkspace({
 
         {!libraryFilterActive &&
         homeSelectedBrowseSection &&
-        homeCanvasDocuments.length > visibleHomeCanvasDocuments.length ? (
-          <div className="recall-home-parity-footer-stage563">
+        homeCanvasDocuments.length > homeSelectedSectionDisplayLimit ? (
+          <div className="recall-home-parity-footer-stage563 recall-home-parity-footer-stage599">
             <button
-              className="ghost-button"
+              className="ghost-button recall-home-parity-footer-button-stage599"
               type="button"
               onClick={() =>
                 setExpandedLibrarySectionKeys((current) => ({
@@ -6469,9 +6945,10 @@ export function RecallWorkspace({
                 }))
               }
             >
-              {expandedLibrarySectionKeys[homeSelectedBrowseSection.key]
-                ? `Show fewer ${homeSelectedBrowseSection.label.toLowerCase()} sources`
-                : `Show all ${homeCanvasDocuments.length} ${homeSelectedBrowseSection.label.toLowerCase()} sources`}
+              <span className="recall-home-parity-footer-label-stage599">{homeFooterVisibleLabel}</span>
+              <span className="recall-home-parity-footer-count-stage599 visually-hidden">
+                {`, ${homeFooterAccessibleTotalLabel}`}
+              </span>
             </button>
           </div>
         ) : null}

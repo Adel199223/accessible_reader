@@ -26,6 +26,7 @@ from .models import (
     KnowledgeNodeDetail,
     KnowledgeNodeRecord,
     ProgressUpdate,
+    RecallDocumentPreview,
     RecallNoteCreateRequest,
     RecallNoteGraphPromotionRequest,
     RecallNoteRecord,
@@ -55,6 +56,7 @@ from .parsers import (
     parse_uploaded_file,
     parse_web_page,
 )
+from .previews import RecallPreviewService
 from .reflow import reflow_blocks
 from .storage import Repository
 from .text_utils import now_iso, sha256_text
@@ -65,6 +67,7 @@ from .web_import import WebImportError, fetch_webpage_snapshot
 
 settings = get_settings()
 repository = Repository(settings.database_path, legacy_database_path=settings.legacy_database_path)
+preview_service = RecallPreviewService(repository, settings.files_dir)
 transform_provider = provider_for_key(settings.openai_api_key, settings.openai_model)
 
 
@@ -180,6 +183,26 @@ def get_recall_document(document_id: str) -> RecallDocumentRecord:
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
     return document
+
+
+@app.get("/api/recall/documents/{document_id}/preview", response_model=RecallDocumentPreview)
+def get_recall_document_preview(document_id: str) -> RecallDocumentPreview:
+    preview_resolution = preview_service.resolve_document_preview(document_id)
+    if not preview_resolution:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    preview, _ = preview_resolution
+    return preview
+
+
+@app.get("/api/recall/documents/{document_id}/preview/asset")
+def get_recall_document_preview_asset(document_id: str) -> FileResponse:
+    preview_resolution = preview_service.resolve_document_preview(document_id)
+    if not preview_resolution:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    preview, asset_path = preview_resolution
+    if preview.kind != "image" or not asset_path or not asset_path.exists():
+        raise HTTPException(status_code=404, detail="Preview asset not found.")
+    return FileResponse(asset_path, media_type="image/jpeg", filename=asset_path.name)
 
 
 @app.get("/api/recall/documents/{document_id}/notes", response_model=list[RecallNoteRecord])
@@ -397,12 +420,14 @@ def delete_document(document_id: str) -> None:
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
 
+    source_document = repository.get_source_document(document_id)
     stored_path = repository.delete_document(document_id)
     if stored_path:
         try:
             Path(stored_path).unlink(missing_ok=True)
         except OSError:
             pass
+    preview_service.delete_cached_preview_for_document(source_document)
 
 
 @app.get("/api/documents/{document_id}/view", response_model=DocumentView)

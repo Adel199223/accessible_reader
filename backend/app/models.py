@@ -159,6 +159,21 @@ class AttachmentRef(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class RecallDocumentPreview(BaseModel):
+    document_id: str
+    kind: Literal["image", "fallback"]
+    source: Literal[
+        "attachment-image",
+        "html-meta-image",
+        "html-inline-image",
+        "html-preload-image",
+        "html-rendered-snapshot",
+        "fallback",
+    ]
+    asset_url: str | None = None
+    updated_at: str
+
+
 class ChangeEvent(BaseModel):
     id: str
     entity_type: str
