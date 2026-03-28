@@ -35,7 +35,7 @@ const sourceWorkspaceTabs: Array<{
 }> = [
   { label: 'Overview', value: 'overview' },
   { label: 'Reader', value: 'reader' },
-  { label: 'Notes', value: 'notes' },
+  { label: 'Notebook', value: 'notes' },
   { label: 'Graph', value: 'graph' },
   { label: 'Study', value: 'study' },
 ]
@@ -60,15 +60,18 @@ export function SourceWorkspaceFrame({
   onSelectTab,
 }: SourceWorkspaceFrameProps) {
   const sourcePreview = buildSourcePreview(document)
-  const frameClassName =
-    activeTab === 'reader' ? 'source-workspace-frame source-workspace-frame-reader-active' : 'source-workspace-frame'
+  const readerActive = activeTab === 'reader'
+  const frameClassName = readerActive
+    ? 'source-workspace-frame source-workspace-frame-reader-active'
+    : 'source-workspace-frame'
+  const badgeLabel = readerActive ? 'Source' : 'Focused source'
 
   return (
     <section className={frameClassName} aria-label={`${document.title} workspace`}>
       <div className="source-workspace-strip-main">
         <div className="source-workspace-strip-overview">
           <div className="source-workspace-strip-heading">
-            <span className="status-chip source-workspace-strip-badge">Focused source</span>
+            <span className="status-chip source-workspace-strip-badge">{badgeLabel}</span>
             <strong className="source-workspace-title">{document.title}</strong>
           </div>
           <p className="source-workspace-source">{sourcePreview}</p>

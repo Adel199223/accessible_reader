@@ -40,6 +40,7 @@ import type {
   ReaderAnchorRange,
   RecallHomeOrganizerLens,
   RecallHomeViewMode,
+  RecallLibrarySurface,
   RecallLibrarySortDirection,
   RecallLibrarySortMode,
   RecallSection,
@@ -79,13 +80,19 @@ import type {
 } from '../types'
 import type { WorkspaceHeroProps } from './WorkspaceHero'
 import { FocusedSourceReaderPane } from './FocusedSourceReaderPane'
+import { HomeOrganizerPanelShell } from './HomeOrganizerPanelShell'
 import type { SourceWorkspaceFrameState } from './SourceWorkspaceFrame'
+import { GraphBrowseControlCorner } from './graph/GraphBrowseControlCorner'
+import { GraphBrowseTour, graphBrowseTourStepCount } from './graph/GraphBrowseTour'
+import { GraphSettingsDisclosure } from './graph/GraphSettingsDisclosure'
+import { GraphSettingsPanelShell } from './graph/GraphSettingsPanelShell'
 
 
 interface RecallWorkspaceProps {
   continuityState: RecallWorkspaceContinuityState
   focusRequest?: RecallWorkspaceFocusRequest | null
   onContinuityStateChange: Dispatch<SetStateAction<RecallWorkspaceContinuityState>>
+  onOpenNotebook: (options?: { documentId?: string | null; noteId?: string | null }) => void
   onShellContextChange: (context: WorkspaceDockContext | null) => void
   onSectionChange: (section: RecallSection) => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
@@ -112,6 +119,9 @@ function formatModeLabel(mode: string) {
 function formatSourceWorkspaceTabLabel(tab: SourceWorkspaceTab) {
   if (tab === 'overview') {
     return 'Overview'
+  }
+  if (tab === 'notes') {
+    return 'Notebook'
   }
   return tab.slice(0, 1).toUpperCase() + tab.slice(1)
 }
@@ -984,6 +994,8 @@ interface GraphCanvasLayoutOptions {
   spacingMode: GraphSpacingMode
 }
 
+type GraphTourHelpTarget = 'help' | 'replay'
+
 interface GraphCanvasViewportState {
   offsetX: number
   offsetY: number
@@ -1034,6 +1046,7 @@ const GRAPH_CANVAS_LOCKED_DRAG_MAX = 94
 const GRAPH_SETTINGS_DRAWER_DEFAULT_WIDTH = 244
 const GRAPH_SETTINGS_DRAWER_MIN_WIDTH = 228
 const GRAPH_SETTINGS_DRAWER_MAX_WIDTH = 388
+const GRAPH_TOUR_HELP_STEP = 3
 const HOME_ORGANIZER_RAIL_DEFAULT_WIDTH = 268
 const HOME_ORGANIZER_RAIL_MIN_WIDTH = 224
 const HOME_ORGANIZER_RAIL_MAX_WIDTH = 388
@@ -1485,18 +1498,33 @@ function sortGraphNodesForBrowse(
   })
 }
 
-function placeGraphOrbit(nodes: KnowledgeNodeRecord[], emphasis: GraphCanvasNodeLayout['emphasis'], radiusX: number, radiusY: number) {
+function placeGraphArc(
+  nodes: KnowledgeNodeRecord[],
+  emphasis: GraphCanvasNodeLayout['emphasis'],
+  options: {
+    centerX: number
+    centerY: number
+    endAngle: number
+    radiusX: number
+    radiusY: number
+    startAngle: number
+  },
+) {
   if (!nodes.length) {
     return []
   }
 
+  const angleSpan = options.endAngle - options.startAngle
+  const singleNodeAngle = options.startAngle + angleSpan / 2
+
   return nodes.map<GraphCanvasNodeLayout>((node, index) => {
-    const angle = (-Math.PI / 2) + (index * (2 * Math.PI)) / nodes.length
+    const ratio = nodes.length === 1 ? 0.5 : index / Math.max(nodes.length - 1, 1)
+    const angle = nodes.length === 1 ? singleNodeAngle : options.startAngle + angleSpan * ratio
     return {
       emphasis,
       node,
-      x: 50 + Math.cos(angle) * radiusX,
-      y: 52 + Math.sin(angle) * radiusY,
+      x: options.centerX + Math.cos(angle) * options.radiusX,
+      y: options.centerY + Math.sin(angle) * options.radiusY,
     }
   })
 }
@@ -1586,31 +1614,33 @@ function buildGraphCanvasLayout(
   const visibleEdges = candidateEdges.filter((edge) => visibleNodeIds.has(edge.source_id) && visibleNodeIds.has(edge.target_id))
   const spacingByMode: Record<GraphSpacingMode, { ambientRadiusX: number; ambientRadiusY: number; linkedRadiusX: number; linkedRadiusY: number; secondaryRadiusX: number; secondaryRadiusY: number }> = {
     compact: {
-      ambientRadiusX: 37,
-      ambientRadiusY: 29,
-      linkedRadiusX: 22,
-      linkedRadiusY: 16,
-      secondaryRadiusX: 30,
-      secondaryRadiusY: 23,
+      ambientRadiusX: 42,
+      ambientRadiusY: 33,
+      linkedRadiusX: 30,
+      linkedRadiusY: 22,
+      secondaryRadiusX: 36,
+      secondaryRadiusY: 28,
     },
     balanced: {
-      ambientRadiusX: 42,
-      ambientRadiusY: 32,
-      linkedRadiusX: 24,
-      linkedRadiusY: 18,
-      secondaryRadiusX: 34,
-      secondaryRadiusY: 25,
+      ambientRadiusX: 48,
+      ambientRadiusY: 37,
+      linkedRadiusX: 34,
+      linkedRadiusY: 25,
+      secondaryRadiusX: 42,
+      secondaryRadiusY: 31,
     },
     spread: {
-      ambientRadiusX: 46,
-      ambientRadiusY: 35,
-      linkedRadiusX: 27,
-      linkedRadiusY: 20,
-      secondaryRadiusX: 38,
-      secondaryRadiusY: 28,
+      ambientRadiusX: 54,
+      ambientRadiusY: 41,
+      linkedRadiusX: 38,
+      linkedRadiusY: 28,
+      secondaryRadiusX: 46,
+      secondaryRadiusY: 35,
     },
   }
   const spacing = spacingByMode[options.spacingMode]
+  const focusNodeY = priorityNodeId ? 26 : 14
+  const orbitCenterY = priorityNodeId ? 52 : 56
 
   return {
     edges: visibleEdges,
@@ -1620,11 +1650,32 @@ function buildGraphCanvasLayout(
         emphasis: 'focus',
         node: focusNode,
         x: 50,
-        y: 52,
+        y: focusNodeY,
       },
-      ...placeGraphOrbit(visibleLinkedNodes, 'linked', spacing.linkedRadiusX, spacing.linkedRadiusY),
-      ...placeGraphOrbit(visibleSecondaryNodes, 'ambient', spacing.secondaryRadiusX, spacing.secondaryRadiusY),
-      ...placeGraphOrbit(visibleAmbientNodes, 'ambient', spacing.ambientRadiusX, spacing.ambientRadiusY),
+      ...placeGraphArc(visibleLinkedNodes, 'linked', {
+        centerX: 50,
+        centerY: orbitCenterY,
+        endAngle: Math.PI * 0.08,
+        radiusX: spacing.linkedRadiusX,
+        radiusY: spacing.linkedRadiusY,
+        startAngle: Math.PI * 0.92,
+      }),
+      ...placeGraphArc(visibleSecondaryNodes, 'ambient', {
+        centerX: 50,
+        centerY: orbitCenterY + 2,
+        endAngle: Math.PI * 0.03,
+        radiusX: spacing.secondaryRadiusX,
+        radiusY: spacing.secondaryRadiusY,
+        startAngle: Math.PI * 0.97,
+      }),
+      ...placeGraphArc(visibleAmbientNodes, 'ambient', {
+        centerX: 50,
+        centerY: orbitCenterY + 5,
+        endAngle: Math.PI * 0.02,
+        radiusX: spacing.ambientRadiusX,
+        radiusY: spacing.ambientRadiusY,
+        startAngle: Math.PI * 0.98,
+      }),
     ],
   }
 }
@@ -1766,6 +1817,7 @@ export function RecallWorkspace({
   continuityState,
   focusRequest = null,
   onContinuityStateChange,
+  onOpenNotebook,
   onOpenSearch,
   onRequestNewSource,
   onShellContextChange,
@@ -1819,6 +1871,13 @@ export function RecallWorkspace({
   const [graphDetailRelationsExpanded, setGraphDetailRelationsExpanded] = useState(false)
   const [graphSettingsDrawerWidth, setGraphSettingsDrawerWidth] = useState(GRAPH_SETTINGS_DRAWER_DEFAULT_WIDTH)
   const [graphSettingsDrawerResizing, setGraphSettingsDrawerResizing] = useState(false)
+  const [graphSavedViewsOpen, setGraphSavedViewsOpen] = useState(false)
+  const [graphPresetSaveDraftOpen, setGraphPresetSaveDraftOpen] = useState(false)
+  const [graphPresetActionsOpen, setGraphPresetActionsOpen] = useState(false)
+  const [graphAdvancedFiltersOpen, setGraphAdvancedFiltersOpen] = useState(false)
+  const [graphAdvancedLayoutOpen, setGraphAdvancedLayoutOpen] = useState(false)
+  const [graphQuickPicksOpen, setGraphQuickPicksOpen] = useState(false)
+  const [graphGroupBuilderOpen, setGraphGroupBuilderOpen] = useState(false)
   const graphCanvasViewportRef = useRef<HTMLDivElement | null>(null)
   const requestedHomeDocumentPreviewIdsRef = useRef<Set<string>>(new Set())
   const requestedHomePreviewDocumentIdsRef = useRef<Set<string>>(new Set())
@@ -1924,6 +1983,7 @@ export function RecallWorkspace({
     mode: 'updated',
   })
   const previousActiveSourceDocumentIdRef = useRef<string | null>(null)
+  const libraryActiveSurface = continuityState.library.activeSurface ?? 'home'
   const libraryFilterQuery = continuityState.library.filterQuery
   const homeOrganizerLens = continuityState.library.homeOrganizerLens
   const homeOrganizerVisible = continuityState.library.homeOrganizerVisible
@@ -1934,6 +1994,8 @@ export function RecallWorkspace({
   const selectedNodeId = continuityState.graph.selectedNodeId
   const graphFocusTrailNodeIds = continuityState.graph.focusTrailNodeIds
   const graphPathSelectedNodeIds = continuityState.graph.pathSelectedNodeIds
+  const graphTourDismissed = continuityState.graph.tourDismissed
+  const graphTourStep = continuityState.graph.tourStep
   const studyFilter = continuityState.study.filter
   const activeCardId = continuityState.study.activeCardId
   const selectedNotesDocumentId = continuityState.notes.selectedDocumentId
@@ -1948,9 +2010,14 @@ export function RecallWorkspace({
   const notesBrowseDrawerOpen = continuityState.browseDrawers.notes
   const studyBrowseDrawerOpen = continuityState.browseDrawers.study
   const sourceWorkspaceFocused = activeSourceMode === 'focused'
-  const showFocusedLibraryOverview = section === 'library' && sourceWorkspaceFocused && Boolean(activeSourceDocumentId)
+  const legacyNotesSectionActive = section === 'notes'
+  const notebookSurfaceActive =
+    section === 'library' && (libraryActiveSurface === 'notebook' || (sourceWorkspaceFocused && activeSourceTab === 'notes'))
+  const notebookSectionActive = legacyNotesSectionActive || notebookSurfaceActive
+  const showFocusedLibraryOverview =
+    section === 'library' && sourceWorkspaceFocused && activeSourceTab !== 'notes' && Boolean(activeSourceDocumentId)
   const showFocusedNotesSplitView =
-    section === 'notes' && sourceWorkspaceFocused && !notesBrowseDrawerOpen && Boolean(activeSourceDocumentId)
+    notebookSectionActive && sourceWorkspaceFocused && activeSourceTab === 'notes' && !notesBrowseDrawerOpen && Boolean(activeSourceDocumentId)
   const showFocusedGraphSplitView =
     section === 'graph' && sourceWorkspaceFocused && !graphBrowseDrawerOpen && Boolean(activeSourceDocumentId)
   const showFocusedStudySplitView =
@@ -2438,7 +2505,7 @@ export function RecallWorkspace({
     null
   const showFocusedNotesEmptyDetailLane = showFocusedNotesSplitView && !activeNote
   const showFocusedNotesDrawerOpenEmptyState =
-    section === 'notes' &&
+    notebookSectionActive &&
     sourceWorkspaceFocused &&
     notesBrowseDrawerOpen &&
     !activeNote &&
@@ -2479,7 +2546,7 @@ export function RecallWorkspace({
     sourceWorkspaceNotesStatus === 'loading'
       ? 'Loading notes…'
       : sourceWorkspaceNotesStatus === 'error'
-        ? 'Notes unavailable'
+        ? 'Notebook unavailable'
         : sourceWorkspaceNotes.length === 1
           ? '1 saved note'
           : `${sourceWorkspaceNotes.length} saved notes`
@@ -2487,7 +2554,7 @@ export function RecallWorkspace({
     selectedDocumentNoteCountStatus === 'loading'
       ? 'Loading notes…'
       : selectedDocumentNoteCountStatus === 'error'
-        ? 'Notes unavailable'
+        ? 'Notebook unavailable'
         : selectedDocumentNoteCount === 1
           ? '1 note'
           : `${selectedDocumentNoteCount ?? 0} notes`
@@ -2497,7 +2564,7 @@ export function RecallWorkspace({
     notesStatus === 'loading'
       ? 'Loading notes…'
       : notesStatus === 'error'
-        ? 'Notes unavailable'
+        ? 'Notebook unavailable'
         : showingNoteSearch
           ? visibleNotes.length === 1
             ? '1 matching note'
@@ -3406,7 +3473,7 @@ export function RecallWorkspace({
     focusedStudyGroundingExcerpt.trim().length > 0 &&
     focusedStudyGroundingExcerpt.trim() !== focusedStudyEvidenceExcerpt.trim()
   const focusedReaderAnchorCandidates = useMemo(() => {
-    if (section === 'notes' && activeNote) {
+    if (notebookSectionActive && activeNote) {
       return buildAnchorTextCandidates(activeNote.anchor.anchor_text, activeNote.anchor.excerpt_text)
     }
     if (section === 'graph' && focusedGraphEvidence) {
@@ -3419,7 +3486,7 @@ export function RecallWorkspace({
       )
     }
     return []
-  }, [activeNote, focusedGraphEvidence, focusedStudySourceSpan, section])
+  }, [activeNote, focusedGraphEvidence, focusedStudySourceSpan, notebookSectionActive, section])
   const sourceWorkspacePrimaryNote = sourceWorkspaceNotes[0] ?? null
   const sourceWorkspacePrimaryNode = activeSourceGraphNodes[0] ?? null
   const sourceWorkspacePrimaryStudyCard = activeSourceStudyCards[0] ?? null
@@ -3447,9 +3514,9 @@ export function RecallWorkspace({
   )
   const sourceWorkspaceDescription =
     section === 'library'
-      ? 'Keep one source in focus while Reader, Notes, Graph, and Study stay nearby.'
-      : section === 'notes'
-        ? 'Edit saved notes beside the live source.'
+      ? 'Keep one source in focus while Reader, Notebook, Graph, and Study stay nearby.'
+      : notebookSectionActive
+        ? 'Edit saved notebook notes beside the live source.'
         : section === 'graph'
           ? 'Validate graph evidence beside the live source.'
           : 'Review study evidence beside the live source.'
@@ -3458,9 +3525,6 @@ export function RecallWorkspace({
       if (!selectedDocument) {
         return null
       }
-
-      const noteActionLabel =
-        selectedDocumentNoteCount === 1 && selectedDocumentNoteCountStatus === 'success' ? 'View note' : 'View notes'
 
       return {
         actions: [
@@ -3474,7 +3538,7 @@ export function RecallWorkspace({
           },
           {
             key: `library-notes:${selectedDocument.id}`,
-            label: noteActionLabel,
+            label: 'Open notebook',
             target: {
               documentId: selectedDocument.id,
               section: 'notes',
@@ -3500,7 +3564,7 @@ export function RecallWorkspace({
       }
     }
 
-    if (section === 'notes') {
+    if (notebookSectionActive) {
       if (activeNote) {
         const noteDocumentTitle = getNoteDocumentTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)
         return {
@@ -3524,7 +3588,7 @@ export function RecallWorkspace({
               },
             },
           ],
-          badge: 'Notes',
+          badge: 'Notebook',
           key: `note:${activeNote.id}`,
           meta: activeNote.body_text?.trim() || activeNote.anchor.excerpt_text,
           recentItem: {
@@ -3534,11 +3598,11 @@ export function RecallWorkspace({
             target: {
               documentId: activeNote.anchor.source_document_id,
               noteId: activeNote.id,
-              section: 'notes',
+              section: 'library',
             },
             title: activeNote.anchor.anchor_text,
           },
-          section: 'notes',
+          section: 'library',
           subtitle: `${noteDocumentTitle} · ${formatSentenceSpanLabel(
             activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
             activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
@@ -3562,7 +3626,7 @@ export function RecallWorkspace({
             },
           },
         ],
-        badge: 'Notes',
+        badge: 'Notebook',
         key: `notes-document:${selectedNotesDocumentId}`,
         meta:
           noteSearchQuery.trim().length > 0
@@ -3571,11 +3635,11 @@ export function RecallWorkspace({
               ? `${documentNotes.length} saved ${documentNotes.length === 1 ? 'note' : 'notes'} ready.`
               : 'Choose a saved note to inspect it.',
         recentItem: null,
-        section: 'notes',
+        section: 'library',
         subtitle: selectedNotesDocumentTitle
-          ? `Saved notes for ${selectedNotesDocumentTitle}.`
+          ? `Notebook notes for ${selectedNotesDocumentTitle}.`
           : 'Choose a document to inspect its saved notes.',
-        title: selectedNotesDocumentTitle ?? 'Saved notes',
+        title: selectedNotesDocumentTitle ?? 'Notebook notes',
       }
     }
 
@@ -3597,7 +3661,7 @@ export function RecallWorkspace({
             },
             {
               key: `graph-notes:${selectedNodeDetail.node.id}`,
-              label: 'View notes',
+              label: 'Open notebook',
               target: {
                 documentId: primaryMention.source_document_id,
                 section: 'notes',
@@ -3840,7 +3904,7 @@ export function RecallWorkspace({
     homeSelectedSectionDisplayLimit,
     homeSelectedSectionDocuments,
   ])
-  const homeUsesStructuralParityStage563 = section === 'library' && !showFocusedLibraryOverview
+  const homeUsesStructuralParityStage563 = section === 'library' && !showFocusedLibraryOverview && !notebookSurfaceActive
   const homeCanvasDocuments = useMemo(() => {
     if (libraryFilterActive) {
       return visibleDocuments
@@ -4242,11 +4306,9 @@ export function RecallWorkspace({
         '--recall-home-organizer-width': `${homeOrganizerRailWidth}px`,
       } as CSSProperties)
     : undefined
-  const homeOrganizerRailStyle = homeOrganizerVisible
-    ? ({
-        width: `${homeOrganizerRailWidth}px`,
-      } as CSSProperties)
-    : undefined
+  const homeOrganizerRailStyle = {
+    width: `${homeOrganizerRailWidth}px`,
+  } as CSSProperties
   const homeOrganizerSelectionDescriptors = useMemo(
     () =>
       homeOrganizerSelectionKeys
@@ -4889,14 +4951,25 @@ export function RecallWorkspace({
     updateSourceWorkspaceState((current) => ({
       ...current,
       activeDocumentId: focusRequest.documentId ?? current.activeDocumentId,
-      activeTab: mapRecallSectionToSourceTab(focusRequest.section),
+      activeTab: focusRequest.sourceTab ?? mapRecallSectionToSourceTab(focusRequest.section),
     }))
+
+    if (focusRequest.section === 'library' && focusRequest.librarySurface) {
+      updateLibraryState((current) => ({
+        ...current,
+        activeSurface: focusRequest.librarySurface ?? current.activeSurface,
+      }))
+    }
 
     if (focusRequest.documentId) {
       if (focusRequest.section === 'library') {
         updateLibraryState((current) => ({ ...current, selectedDocumentId: focusRequest.documentId ?? null }))
       }
-      if (focusRequest.section === 'notes') {
+      if (
+        focusRequest.section === 'notes' ||
+        (focusRequest.section === 'library' &&
+          (focusRequest.librarySurface === 'notebook' || focusRequest.sourceTab === 'notes'))
+      ) {
         updateNotesState((current) => ({ ...current, selectedDocumentId: focusRequest.documentId ?? null }))
       }
     }
@@ -4925,7 +4998,7 @@ export function RecallWorkspace({
   }, [focusRequest, section, updateGraphState, updateLibraryState, updateNotesState, updateSourceWorkspaceState, updateStudyState])
 
   useEffect(() => {
-    if (section !== 'library' || !selectedLibraryDocumentId || !sourceWorkspaceFocused) {
+    if (section !== 'library' || notebookSurfaceActive || !selectedLibraryDocumentId || !sourceWorkspaceFocused) {
       return
     }
     updateSourceWorkspaceState((current) =>
@@ -4937,10 +5010,10 @@ export function RecallWorkspace({
             activeTab: 'overview',
           },
     )
-  }, [section, selectedLibraryDocumentId, sourceWorkspaceFocused, updateSourceWorkspaceState])
+  }, [notebookSurfaceActive, section, selectedLibraryDocumentId, sourceWorkspaceFocused, updateSourceWorkspaceState])
 
   useEffect(() => {
-    if (section !== 'notes' || !selectedNotesDocumentId) {
+    if (!notebookSectionActive || !selectedNotesDocumentId) {
       return
     }
     updateSourceWorkspaceState((current) =>
@@ -4952,7 +5025,7 @@ export function RecallWorkspace({
             activeTab: 'notes',
           },
     )
-  }, [section, selectedNotesDocumentId, updateSourceWorkspaceState])
+  }, [notebookSectionActive, selectedNotesDocumentId, updateSourceWorkspaceState])
 
   useEffect(() => {
     if (section !== 'graph' || !selectedNodeDetail) {
@@ -5183,6 +5256,7 @@ export function RecallWorkspace({
   const handleApplyGraphPreset = useCallback((presetKey: GraphViewPresetKey) => {
     setGraphPresetBaseline({ kind: 'builtin', key: presetKey })
     setGraphPresetDraftName('')
+    setGraphPresetSaveDraftOpen(false)
     applyGraphPresetSnapshot(buildGraphBuiltInPresetSnapshot(presetKey, graphTimelineSteps.length))
   }, [applyGraphPresetSnapshot, graphTimelineSteps.length])
 
@@ -5193,8 +5267,21 @@ export function RecallWorkspace({
     }
     setGraphPresetBaseline({ kind: 'saved', id: preset.id })
     setGraphPresetDraftName(preset.name)
+    setGraphPresetSaveDraftOpen(false)
     applyGraphPresetSnapshot(preset.snapshot)
   }, [applyGraphPresetSnapshot, graphSavedPresets])
+
+  const handleOpenGraphPresetSaveDraft = useCallback(() => {
+    setGraphPresetSaveDraftOpen(true)
+    setGraphSavedViewsOpen(true)
+    setGraphPresetActionsOpen(false)
+    setGraphPresetDraftName((current) => current.trim() || buildDefaultGraphPresetName(graphSavedPresets))
+  }, [graphSavedPresets])
+
+  const handleCancelGraphPresetSaveDraft = useCallback(() => {
+    setGraphPresetSaveDraftOpen(false)
+    setGraphPresetDraftName(graphActiveSavedPreset?.name ?? '')
+  }, [graphActiveSavedPreset])
 
   const handleSaveNewGraphPreset = useCallback(() => {
     const resolvedName = graphPresetDraftName.trim() || buildDefaultGraphPresetName(graphSavedPresets)
@@ -5206,6 +5293,8 @@ export function RecallWorkspace({
     setGraphSavedPresets((current) => [...current, nextPreset])
     setGraphPresetBaseline({ kind: 'saved', id: nextPreset.id })
     setGraphPresetDraftName(resolvedName)
+    setGraphPresetSaveDraftOpen(false)
+    setGraphSavedViewsOpen(true)
   }, [graphCurrentPresetSnapshot, graphPresetDraftName, graphSavedPresets])
 
   const handleUpdateGraphPreset = useCallback(() => {
@@ -5249,11 +5338,13 @@ export function RecallWorkspace({
     setGraphSavedPresets((current) => current.filter((preset) => preset.id !== graphActiveSavedPreset.id))
     setGraphPresetBaseline(null)
     setGraphPresetDraftName('')
+    setGraphPresetSaveDraftOpen(false)
   }, [graphActiveSavedPreset])
 
   const handleResetGraphPresetDefaults = useCallback(() => {
     setGraphPresetBaseline({ kind: 'builtin', key: 'explore' })
     setGraphPresetDraftName('')
+    setGraphPresetSaveDraftOpen(false)
     applyGraphPresetSnapshot(buildGraphBuiltInPresetSnapshot('explore', graphTimelineSteps.length))
   }, [applyGraphPresetSnapshot, graphTimelineSteps.length])
 
@@ -5371,6 +5462,60 @@ export function RecallWorkspace({
   const handleResetGraphSettingsDrawerWidth = useCallback(() => {
     setGraphSettingsDrawerWidth(GRAPH_SETTINGS_DRAWER_DEFAULT_WIDTH)
   }, [])
+
+  const setGraphTourState = useCallback((nextState: { dismissed: boolean; step: number | null }) => {
+    updateGraphState((current) => ({
+      ...current,
+      tourDismissed: nextState.dismissed,
+      tourStep: nextState.step,
+    }))
+  }, [updateGraphState])
+
+  const handleOpenGraphTour = useCallback((target: GraphTourHelpTarget = 'replay') => {
+    setGraphTourState({
+      dismissed: false,
+      step: target === 'help' ? GRAPH_TOUR_HELP_STEP : 0,
+    })
+  }, [setGraphTourState])
+
+  const handleCloseGraphTour = useCallback(() => {
+    setGraphTourState({
+      dismissed: true,
+      step: null,
+    })
+  }, [setGraphTourState])
+
+  const handleAdvanceGraphTour = useCallback(() => {
+    if (graphTourStep === null) {
+      setGraphTourState({
+        dismissed: false,
+        step: 0,
+      })
+      return
+    }
+    if (graphTourStep >= graphBrowseTourStepCount - 1) {
+      handleCloseGraphTour()
+      return
+    }
+    setGraphTourState({
+      dismissed: false,
+      step: graphTourStep + 1,
+    })
+  }, [graphTourStep, handleCloseGraphTour, setGraphTourState])
+
+  const handleRewindGraphTour = useCallback(() => {
+    if (graphTourStep === null) {
+      setGraphTourState({
+        dismissed: false,
+        step: 0,
+      })
+      return
+    }
+    setGraphTourState({
+      dismissed: false,
+      step: Math.max(graphTourStep - 1, 0),
+    })
+  }, [graphTourStep, setGraphTourState])
 
   const handleStartHomeOrganizerRailResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -5502,8 +5647,14 @@ export function RecallWorkspace({
   }, [handleToggleGraphPathNode])
 
   function handleSelectNotesDocument(documentId: string) {
+    handleSelectLibraryDocument(documentId)
     updateNotesState((current) => ({
       ...current,
+      selectedDocumentId: documentId,
+    }))
+    updateLibraryState((current) => ({
+      ...current,
+      activeSurface: 'notebook',
       selectedDocumentId: documentId,
     }))
   }
@@ -5586,6 +5737,9 @@ export function RecallWorkspace({
     setShowAnswer(false)
     setStudyEvidencePeekOpen(false)
     setFocusedStudySourceSpanIndex(0)
+    if (studyBrowseDrawerOpen) {
+      setBrowseDrawerOpen('study', false)
+    }
   }
 
   function handleRetryRecallLoading() {
@@ -5900,22 +6054,13 @@ export function RecallWorkspace({
   const graphActivePresetLabel = graphActiveSavedPreset?.name ?? graphActiveBuiltInPreset?.label ?? 'Custom view'
   const graphActivePresetDescription = graphActiveSavedPreset
     ? graphPresetDirty
-      ? `${graphActiveSavedPreset.name} is active with unsaved view changes. Update it or save a new preset when this view should stick.`
-      : `${graphActiveSavedPreset.name} captures the current graph filters, visibility rules, timeline, groups, and appearance choices.`
+      ? `${graphActiveSavedPreset.name} with local changes`
+      : `${graphActiveSavedPreset.name} saved view active`
     : graphActiveBuiltInPreset
       ? graphPresetDirty
-        ? `${graphActiveBuiltInPreset.description} Local view changes are layered on top of this starter preset.`
-        : graphActiveBuiltInPreset.description
-      : 'Mixed settings from visibility, timeline, content filters, or manual view changes.'
-  const graphPresetStatusLabel = graphActiveSavedPreset
-    ? graphPresetDirty
-      ? 'Saved view modified'
-      : 'Saved view active'
-    : graphActiveBuiltInPreset
-      ? graphPresetDirty
-        ? `${graphActiveBuiltInPreset.label} modified`
-        : `${graphActiveBuiltInPreset.label} default`
-      : 'Custom view'
+        ? `${graphActiveBuiltInPreset.label} with local changes`
+        : `${graphActiveBuiltInPreset.label} starter preset`
+      : 'Current local graph view'
   const graphPresetDraftNameTrimmed = graphPresetDraftName.trim()
   const graphCanRenameSavedPreset = Boolean(
     graphActiveSavedPreset &&
@@ -5924,15 +6069,18 @@ export function RecallWorkspace({
   )
   const graphCanUpdateSavedPreset = Boolean(graphActiveSavedPreset && graphPresetDirty)
   const graphCanDeleteSavedPreset = Boolean(graphActiveSavedPreset)
+  const graphSavedViewsSummary = graphSavedPresets.length
+    ? `${graphSavedPresets.length} saved ${graphSavedPresets.length === 1 ? 'view' : 'views'}`
+    : 'No saved views yet'
   const graphPresetStatusNote = graphActiveSavedPreset
     ? graphPresetDirty
-      ? `${graphActiveSavedPreset.name} has local changes waiting to be saved.`
-      : `${graphActiveSavedPreset.name} is active and ready to reuse.`
+      ? `${graphActiveSavedPreset.name} has unsaved changes`
+      : `${graphActiveSavedPreset.name} is ready to reuse`
     : graphActiveBuiltInPreset
       ? graphPresetDirty
-        ? `You are editing ${graphActiveBuiltInPreset.label}. Save this as a new view or reset back to defaults.`
-        : `${graphActiveBuiltInPreset.label} is the current starter preset.`
-      : 'This is a custom graph view. Save it as a new preset when it becomes useful.'
+        ? `Editing ${graphActiveBuiltInPreset.label}`
+        : `${graphActiveBuiltInPreset.label} is the active starter`
+      : 'Manage saved views or reset to the starter preset'
   const graphVisibilitySummary = [
     graphShowUnconnectedNodes ? null : 'Unconnected hidden',
     graphShowLeafNodes ? null : 'Leaf nodes hidden',
@@ -5954,8 +6102,8 @@ export function RecallWorkspace({
   const graphColorGroupModeLabel = formatGraphColorGroupModeLabel(graphColorGroupMode)
   const graphColorGroupSummary =
     graphColorGroupMode === 'source'
-      ? 'Color nodes by source type and use the legend to steer matching filters.'
-      : 'Color nodes by node type and use the legend to steer matching filters.'
+      ? 'Color by source type'
+      : 'Color by node type'
   const graphTimelineStatusLabel = graphTimelineStep
     ? `Through ${graphTimelineStep.label}`
     : graphTimelineEnabled
@@ -5967,24 +6115,18 @@ export function RecallWorkspace({
   ]
     .filter(Boolean)
     .join(' · ')
-  const graphDrawerStatusItems = [
-    `${graphCanvasNodes.length} visible ${graphCanvasNodes.length === 1 ? 'node' : 'nodes'}`,
-    graphColorGroupModeLabel,
-    graphTimelineEnabled
-      ? graphTimelineStatusLabel
-      : graphContentFilterActive
-        ? graphContentFilterSummary
-        : graphVisibilityFilterActive
-          ? graphVisibilitySummary
-        : graphFilterActive
-          ? 'Filter query active'
-          : graphPresetStatusLabel,
-  ].filter(Boolean)
   const studyNewCountLabel = studyStatus === 'error' ? 'Study unavailable' : `${studyOverview?.new_count ?? 0} new`
   const studyDueCountLabel = studyStatus === 'error' ? 'Counts unavailable' : `${studyOverview?.due_count ?? 0} due`
   const studyReviewCountLabel =
     studyStatus === 'error' ? 'Retry needed' : `${studyOverview?.review_event_count ?? 0} reviews logged`
+  const studyNextReviewLabel =
+    studyStatus === 'error'
+      ? 'Study unavailable'
+      : studyOverview?.next_due_at
+        ? `Next review ${dateFormatter.format(new Date(studyOverview.next_due_at))}`
+        : 'No next review scheduled'
   const collapsedStudyBrowseRail = !showFocusedStudySplitView && !studyBrowseDrawerOpen
+  const studyQuestionsViewOpen = studyBrowseDrawerOpen
   const collapsedStudyQueueOverview = studyStatus === 'error'
     ? 'Study unavailable'
     : studyOverview
@@ -6031,16 +6173,21 @@ export function RecallWorkspace({
       ? selectedDocumentNoteCountLabel
       : sourceWorkspaceNoteCountLabel
   const sourceOverviewDescription =
-    section === 'notes'
+    notebookSectionActive
       ? 'Keep the source summary visible while editing saved notes and grounded promotions.'
       : section === 'graph'
         ? 'Keep the source summary visible while validating graph evidence and relation suggestions.'
         : section === 'study'
           ? 'Keep the source summary visible while reviewing study evidence and scheduling actions.'
-          : 'Work from one source-centered summary with nearby reading, notes, graph, and study handoffs.'
+          : 'Work from one source-centered summary with nearby reading, notebook, graph, and study handoffs.'
 
   const focusSourceLibrary = useCallback((documentId: string) => {
     handleSelectLibraryDocument(documentId)
+    updateLibraryState((current) => ({
+      ...current,
+      activeSurface: 'home',
+      selectedDocumentId: documentId,
+    }))
     updateSourceWorkspaceState((current) => ({
       ...current,
       activeDocumentId: documentId,
@@ -6050,7 +6197,7 @@ export function RecallWorkspace({
     }))
     setBrowseDrawerOpen('library', false)
     onSectionChange('library')
-  }, [handleSelectLibraryDocument, onSectionChange, setBrowseDrawerOpen, updateSourceWorkspaceState])
+  }, [handleSelectLibraryDocument, onSectionChange, setBrowseDrawerOpen, updateLibraryState, updateSourceWorkspaceState])
 
   useEffect(() => {
     if (!homeOrganizerSelectionKeys.length) {
@@ -6393,7 +6540,8 @@ export function RecallWorkspace({
           +
         </span>
         <span className="recall-home-parity-add-tile-copy-stage563">
-          <strong>Add Content</strong>
+          <strong>Add content</strong>
+          <span className="recall-home-parity-add-tile-subcopy-stage708">Paste, link, or file</span>
         </span>
       </button>
     )
@@ -6438,7 +6586,7 @@ export function RecallWorkspace({
           ) : null}
           <span className="recall-home-parity-card-preview-topline-stage565">
             <span className="recall-home-parity-card-preview-badge-stage563">{sourceTypeLabel}</span>
-            <span className="recall-home-parity-card-preview-detail-stage565 recall-home-parity-card-preview-detail-stage605">
+            <span className="recall-home-parity-card-preview-detail-stage565 recall-home-parity-card-preview-detail-stage605 recall-home-parity-card-preview-detail-stage696">
               {preview.detail}
             </span>
           </span>
@@ -6455,10 +6603,10 @@ export function RecallWorkspace({
           </span>
         </span>
         <span className="recall-home-parity-card-copy-stage563 recall-home-parity-card-copy-stage571 recall-home-parity-card-copy-stage603 recall-home-parity-card-copy-stage605 recall-home-parity-card-copy-stage607 recall-home-parity-card-copy-stage613 recall-home-parity-card-copy-stage621 recall-home-parity-card-copy-stage623 recall-home-parity-card-copy-stage625 recall-home-parity-card-copy-stage627 recall-home-parity-card-copy-stage629 recall-home-parity-card-copy-stage631 recall-home-parity-card-copy-stage633 recall-home-parity-card-copy-stage635 recall-home-parity-card-copy-stage637 recall-home-parity-card-copy-stage639 recall-home-parity-card-copy-stage641 recall-home-parity-card-copy-stage643 recall-home-parity-card-copy-stage645 recall-home-parity-card-copy-stage647 recall-home-parity-card-copy-stage649 recall-home-parity-card-copy-stage651">
-          <strong className="recall-home-parity-card-title-stage603 recall-home-parity-card-title-stage605 recall-home-parity-card-title-stage607 recall-home-parity-card-title-stage613 recall-home-parity-card-title-stage621 recall-home-parity-card-title-stage623 recall-home-parity-card-title-stage625 recall-home-parity-card-title-stage627 recall-home-parity-card-title-stage629 recall-home-parity-card-title-stage631 recall-home-parity-card-title-stage633 recall-home-parity-card-title-stage635 recall-home-parity-card-title-stage637 recall-home-parity-card-title-stage639 recall-home-parity-card-title-stage641 recall-home-parity-card-title-stage643 recall-home-parity-card-title-stage645 recall-home-parity-card-title-stage647 recall-home-parity-card-title-stage649 recall-home-parity-card-title-stage651">{document.title}</strong>
+          <strong className="recall-home-parity-card-title-stage603 recall-home-parity-card-title-stage605 recall-home-parity-card-title-stage607 recall-home-parity-card-title-stage613 recall-home-parity-card-title-stage621 recall-home-parity-card-title-stage623 recall-home-parity-card-title-stage625 recall-home-parity-card-title-stage627 recall-home-parity-card-title-stage629 recall-home-parity-card-title-stage631 recall-home-parity-card-title-stage633 recall-home-parity-card-title-stage635 recall-home-parity-card-title-stage637 recall-home-parity-card-title-stage639 recall-home-parity-card-title-stage641 recall-home-parity-card-title-stage643 recall-home-parity-card-title-stage645 recall-home-parity-card-title-stage647 recall-home-parity-card-title-stage649 recall-home-parity-card-title-stage651 recall-home-parity-card-title-stage696">{document.title}</strong>
           <span className="recall-home-parity-card-meta-stack-stage571 recall-home-parity-card-meta-stack-stage603 recall-home-parity-card-meta-stack-stage605 recall-home-parity-card-meta-stack-stage607 recall-home-parity-card-meta-stack-stage611 recall-home-parity-card-meta-stack-stage613 recall-home-parity-card-meta-stack-stage621 recall-home-parity-card-meta-stack-stage623 recall-home-parity-card-meta-stack-stage625 recall-home-parity-card-meta-stack-stage627 recall-home-parity-card-meta-stack-stage629 recall-home-parity-card-meta-stack-stage631 recall-home-parity-card-meta-stack-stage633 recall-home-parity-card-meta-stack-stage635 recall-home-parity-card-meta-stack-stage637 recall-home-parity-card-meta-stack-stage639 recall-home-parity-card-meta-stack-stage641 recall-home-parity-card-meta-stack-stage643 recall-home-parity-card-meta-stack-stage645 recall-home-parity-card-meta-stack-stage647 recall-home-parity-card-meta-stack-stage649 recall-home-parity-card-meta-stack-stage651">
-            <span className="recall-home-parity-card-source-row-stage565 recall-home-parity-card-source-row-stage571 recall-home-parity-card-source-row-stage603 recall-home-parity-card-source-row-stage607 recall-home-parity-card-source-row-stage611 recall-home-parity-card-source-row-stage621 recall-home-parity-card-source-row-stage623 recall-home-parity-card-source-row-stage625 recall-home-parity-card-source-row-stage627 recall-home-parity-card-source-row-stage629 recall-home-parity-card-source-row-stage631 recall-home-parity-card-source-row-stage633 recall-home-parity-card-source-row-stage635 recall-home-parity-card-source-row-stage637 recall-home-parity-card-source-row-stage639 recall-home-parity-card-source-row-stage641 recall-home-parity-card-source-row-stage643 recall-home-parity-card-source-row-stage645 recall-home-parity-card-source-row-stage647 recall-home-parity-card-source-row-stage649 recall-home-parity-card-source-row-stage651">
-              <span className="recall-home-parity-card-source-stage563 recall-home-parity-card-source-stage603 recall-home-parity-card-source-stage605 recall-home-parity-card-source-stage607 recall-home-parity-card-source-stage611 recall-home-parity-card-source-stage621 recall-home-parity-card-source-stage623 recall-home-parity-card-source-stage625 recall-home-parity-card-source-stage627 recall-home-parity-card-source-stage629 recall-home-parity-card-source-stage631 recall-home-parity-card-source-stage633 recall-home-parity-card-source-stage635 recall-home-parity-card-source-stage637 recall-home-parity-card-source-stage639 recall-home-parity-card-source-stage641 recall-home-parity-card-source-stage643 recall-home-parity-card-source-stage645 recall-home-parity-card-source-stage647 recall-home-parity-card-source-stage649 recall-home-parity-card-source-stage651">{sourceLabel}</span>
+            <span className="recall-home-parity-card-source-row-stage565 recall-home-parity-card-source-row-stage571 recall-home-parity-card-source-row-stage603 recall-home-parity-card-source-row-stage607 recall-home-parity-card-source-row-stage611 recall-home-parity-card-source-row-stage621 recall-home-parity-card-source-row-stage623 recall-home-parity-card-source-row-stage625 recall-home-parity-card-source-row-stage627 recall-home-parity-card-source-row-stage629 recall-home-parity-card-source-row-stage631 recall-home-parity-card-source-row-stage633 recall-home-parity-card-source-row-stage635 recall-home-parity-card-source-row-stage637 recall-home-parity-card-source-row-stage639 recall-home-parity-card-source-row-stage641 recall-home-parity-card-source-row-stage643 recall-home-parity-card-source-row-stage645 recall-home-parity-card-source-row-stage647 recall-home-parity-card-source-row-stage649 recall-home-parity-card-source-row-stage651 recall-home-parity-card-source-row-stage696">
+              <span className="recall-home-parity-card-source-stage563 recall-home-parity-card-source-stage603 recall-home-parity-card-source-stage605 recall-home-parity-card-source-stage607 recall-home-parity-card-source-stage611 recall-home-parity-card-source-stage621 recall-home-parity-card-source-stage623 recall-home-parity-card-source-stage625 recall-home-parity-card-source-stage627 recall-home-parity-card-source-stage629 recall-home-parity-card-source-stage631 recall-home-parity-card-source-stage633 recall-home-parity-card-source-stage635 recall-home-parity-card-source-stage637 recall-home-parity-card-source-stage639 recall-home-parity-card-source-stage641 recall-home-parity-card-source-stage643 recall-home-parity-card-source-stage645 recall-home-parity-card-source-stage647 recall-home-parity-card-source-stage649 recall-home-parity-card-source-stage651 recall-home-parity-card-source-stage696">{sourceLabel}</span>
             </span>
             <span className="recall-home-parity-card-chip-stage563 recall-home-parity-card-chip-stage571 recall-home-parity-card-chip-stage603 recall-home-parity-card-chip-stage605 recall-home-parity-card-chip-stage607 recall-home-parity-card-chip-stage611 recall-home-parity-card-chip-stage621 recall-home-parity-card-chip-stage623 recall-home-parity-card-chip-stage625 recall-home-parity-card-chip-stage627 recall-home-parity-card-chip-stage629 recall-home-parity-card-chip-stage631 recall-home-parity-card-chip-stage633 recall-home-parity-card-chip-stage635 recall-home-parity-card-chip-stage637 recall-home-parity-card-chip-stage639 recall-home-parity-card-chip-stage641 recall-home-parity-card-chip-stage643 recall-home-parity-card-chip-stage645 recall-home-parity-card-chip-stage647 recall-home-parity-card-chip-stage649 recall-home-parity-card-chip-stage651">
               {cardCollectionLabel}
@@ -6608,13 +6756,9 @@ export function RecallWorkspace({
     )
   }
 
-  function renderHomeStage563CollectionRail() {
+  function renderHomeStage563CollectionRailBody() {
     return (
-      <aside
-        aria-label="Home collection rail"
-        className="recall-home-parity-rail-stage563 priority-surface-support-rail priority-surface-support-rail-quiet"
-        style={homeOrganizerRailStyle}
-      >
+      <>
         <div className="recall-home-parity-rail-header-stage563 recall-home-parity-rail-header-stage599">
           <div className="recall-home-parity-rail-header-row-stage567">
             <div className="recall-home-parity-rail-heading-stage563">
@@ -6623,92 +6767,84 @@ export function RecallWorkspace({
                 {formatCountLabel(homeBrowseSectionEntries.length, 'group', 'groups')}
               </span>
             </div>
-            <div
-              className={
-                homeStage567RailMenuOpen
-                  ? 'recall-home-parity-rail-overflow-stage567 recall-home-parity-rail-overflow-stage567-open'
-                  : 'recall-home-parity-rail-overflow-stage567'
-              }
-              ref={homeStage567RailMenuRef}
-            >
-              <button
-                aria-controls="home-stage567-rail-panel"
-                aria-expanded={homeStage567RailMenuOpen}
-                aria-haspopup="true"
-                aria-label="Organizer options"
-                className="ghost-button recall-home-parity-rail-overflow-trigger-stage567"
-                type="button"
-                onClick={() => {
-                  setHomeStage563SortMenuOpen(false)
-                  setHomeStage567RailMenuOpen((current) => !current)
-                }}
-              >
-                <span aria-hidden="true">...</span>
-              </button>
+            <div className="recall-home-parity-rail-actions-stage694">
               <div
-                className="recall-home-parity-rail-overflow-panel-stage567"
-                hidden={!homeStage567RailMenuOpen}
-                id="home-stage567-rail-panel"
-                role="group"
-                aria-label="Organizer options"
+                className={
+                  homeStage567RailMenuOpen
+                    ? 'recall-home-parity-rail-overflow-stage567 recall-home-parity-rail-overflow-stage567-open'
+                    : 'recall-home-parity-rail-overflow-stage567'
+                }
+                ref={homeStage567RailMenuRef}
               >
-                <div className="recall-home-parity-advanced-body-stage563">
-                  <label className="field recall-inline-field">
-                    <span>Filter sources</span>
-                    <input
-                      aria-label="Filter saved sources"
-                      type="search"
-                      placeholder="Filter saved sources"
-                      value={libraryFilterQuery}
-                      onChange={(event) =>
-                        updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer lens">
-                    <button
-                      aria-pressed={homeOrganizerLens === 'collections'}
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => setHomeOrganizerLens('collections')}
-                    >
-                      Collections
-                    </button>
-                    <button
-                      aria-pressed={homeOrganizerLens === 'recent'}
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => setHomeOrganizerLens('recent')}
-                    >
-                      Recent
-                    </button>
-                  </div>
-                  <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer utilities">
-                    {homeCanCreateCustomCollection ? (
+                <button
+                  aria-controls="home-stage567-rail-panel"
+                  aria-expanded={homeStage567RailMenuOpen}
+                  aria-haspopup="true"
+                  aria-label="Organizer options"
+                  className="ghost-button recall-home-parity-rail-overflow-trigger-stage567"
+                  type="button"
+                  onClick={() => {
+                    setHomeStage563SortMenuOpen(false)
+                    setHomeStage567RailMenuOpen((current) => !current)
+                  }}
+                >
+                  <span aria-hidden="true">...</span>
+                </button>
+                <div
+                  className="recall-home-parity-rail-overflow-panel-stage567"
+                  hidden={!homeStage567RailMenuOpen}
+                  id="home-stage567-rail-panel"
+                  role="group"
+                  aria-label="Organizer options"
+                >
+                  <div className="recall-home-parity-advanced-body-stage563">
+                    <label className="field recall-inline-field">
+                      <span>Filter sources</span>
+                      <input
+                        aria-label="Filter saved sources"
+                        type="search"
+                        placeholder="Filter saved sources"
+                        value={libraryFilterQuery}
+                        onChange={(event) =>
+                          updateLibraryState((current) => ({ ...current, filterQuery: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer lens">
                       <button
+                        aria-pressed={homeOrganizerLens === 'collections'}
                         className="ghost-button"
                         type="button"
-                        onClick={() =>
-                          openHomeCollectionDraft('create', {
-                            seedDocumentIds: homeSelectedOrganizerDocumentIds,
-                          })
-                        }
+                        onClick={() => setHomeOrganizerLens('collections')}
                       >
-                        {homeSelectedOrganizerDocumentIds.length > 0 ? 'New collection' : 'Create collection'}
+                        Collections
                       </button>
-                    ) : null}
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => {
-                        setHomeStage567RailMenuOpen(false)
-                        setHomeOrganizerVisible(false)
-                      }}
-                    >
-                      Hide rail
-                    </button>
+                      <button
+                        aria-pressed={homeOrganizerLens === 'recent'}
+                        className="ghost-button"
+                        type="button"
+                        onClick={() => setHomeOrganizerLens('recent')}
+                      >
+                        Recent
+                      </button>
+                    </div>
+                    <div className="recall-home-parity-advanced-row-stage563" role="group" aria-label="Organizer utilities">
+                      {homeCanCreateCustomCollection ? (
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() =>
+                            openHomeCollectionDraft('create', {
+                              seedDocumentIds: homeSelectedOrganizerDocumentIds,
+                            })
+                          }
+                        >
+                          {homeSelectedOrganizerDocumentIds.length > 0 ? 'New collection' : 'Create collection'}
+                        </button>
+                      ) : null}
+                    </div>
+                    {renderHomeCollectionManagementPanel()}
                   </div>
-                  {renderHomeCollectionManagementPanel()}
                 </div>
               </div>
             </div>
@@ -6812,20 +6948,7 @@ export function RecallWorkspace({
             </div>
           </div>
         ) : null}
-
-        <div
-          aria-label="Resize Home organizer"
-          aria-orientation="vertical"
-          className="recall-home-browse-strip-resize-handle-stage491-reset"
-          role="separator"
-          tabIndex={0}
-          onDoubleClick={handleResetHomeOrganizerRailWidth}
-          onKeyDown={handleHomeOrganizerRailResizeKeyDown}
-          onPointerDown={handleStartHomeOrganizerRailResize}
-        >
-          <span className="recall-home-browse-strip-resize-grip-stage491-reset" aria-hidden="true" />
-        </div>
-      </aside>
+      </>
     )
   }
 
@@ -6842,15 +6965,6 @@ export function RecallWorkspace({
             aria-label="Home workspace controls"
           >
             <div className="recall-home-parity-toolbar-row-stage567 recall-home-parity-toolbar-row-primary-stage567 recall-home-parity-toolbar-row-stage569 recall-home-parity-toolbar-row-primary-stage601">
-              {!homeOrganizerVisible ? (
-                <button
-                  className="ghost-button recall-home-parity-toolbar-button-stage563"
-                  type="button"
-                  onClick={() => setHomeOrganizerVisible(true)}
-                >
-                  Collections
-                </button>
-              ) : null}
               <button
                 aria-label="Search saved sources"
                 className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-search-stage567 recall-home-parity-toolbar-button-search-stage601 recall-home-parity-toolbar-button-search-stage609 recall-home-parity-toolbar-button-search-stage619"
@@ -6877,6 +6991,29 @@ export function RecallWorkspace({
                 }}
               >
                 Add
+              </button>
+              <button
+                aria-label="New note"
+                className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-note-stage690"
+                title="Open notebook"
+                type="button"
+                onClick={() => {
+                  setHomeStage567RailMenuOpen(false)
+                  setHomeStage563SortMenuOpen(false)
+                  onOpenNotebook()
+                }}
+              >
+                <svg
+                  aria-hidden="true"
+                  className="recall-home-parity-toolbar-note-icon-stage690"
+                  viewBox="0 0 16 16"
+                >
+                  <path
+                    d="M11.69 1.59a1.5 1.5 0 0 1 2.12 2.12l-7.4 7.4-2.72.6.6-2.72 7.4-7.4Zm1.06 1.06a.5.5 0 0 0-.7 0l-.78.78 1.41 1.41.78-.78a.5.5 0 0 0 0-.7l-.7-.7ZM11.97 4.2 10.56 2.8 5.07 8.29l-.32 1.42 1.42-.32 5.8-5.19Z"
+                    fill="currentColor"
+                  />
+                  <path d="M3 12.5h10v1H3z" fill="currentColor" />
+                </svg>
               </button>
             </div>
             <div className="recall-home-parity-toolbar-row-stage567 recall-home-parity-toolbar-row-secondary-stage567 recall-home-parity-toolbar-row-stage569 recall-home-parity-toolbar-row-secondary-stage601">
@@ -7092,6 +7229,11 @@ export function RecallWorkspace({
 
   const focusSourceNotes = useCallback((documentId: string, noteId?: string | null) => {
     handleSelectLibraryDocument(documentId)
+    updateLibraryState((current) => ({
+      ...current,
+      activeSurface: 'notebook' as RecallLibrarySurface,
+      selectedDocumentId: documentId,
+    }))
     updateSourceWorkspaceState((current) => ({
       ...current,
       activeDocumentId: documentId,
@@ -7106,8 +7248,8 @@ export function RecallWorkspace({
       selectedNoteId: noteId ?? current.selectedNoteId,
     }))
     setBrowseDrawerOpen('notes', false)
-    onSectionChange('notes')
-  }, [handleSelectLibraryDocument, onSectionChange, setBrowseDrawerOpen, updateNotesState, updateSourceWorkspaceState])
+    onSectionChange('library')
+  }, [handleSelectLibraryDocument, onSectionChange, setBrowseDrawerOpen, updateLibraryState, updateNotesState, updateSourceWorkspaceState])
 
   const focusSourceGraph = useCallback((documentId: string, nodeId?: string | null) => {
     handleSelectLibraryDocument(documentId)
@@ -7302,18 +7444,18 @@ export function RecallWorkspace({
             </div>
             <div className="recall-source-overview-grid">
               <div className="recall-detail-panel recall-source-summary-card">
-                <strong>Saved notes</strong>
+                <strong>Notebook</strong>
                 <span>{sourceOverviewNoteCountLabel}</span>
                 <p className="small-note">
                   {sourceWorkspacePrimaryNote
                     ? sourceWorkspacePrimaryNote.body_text?.trim() || sourceWorkspacePrimaryNote.anchor.anchor_text
                     : sourceWorkspaceNotesStatus === 'loading'
-                      ? 'Loading saved note context for this source.'
-                      : 'Capture a source-linked highlight from Reader to keep a note close by.'}
+                      ? 'Loading notebook context for this source.'
+                      : 'Capture a source-linked highlight from Reader to keep a note nearby in Notebook.'}
                 </p>
                 <div className="recall-actions recall-actions-inline">
                   <button className="ghost-button" type="button" onClick={() => focusSourceNotes(sourceOverviewDocument.id)}>
-                    View notes
+                    Open notebook
                   </button>
                   {sourceWorkspacePrimaryNote ? (
                     <button className="ghost-button" type="button" onClick={() => handleOpenNoteInReader(sourceWorkspacePrimaryNote)}>
@@ -7413,7 +7555,11 @@ export function RecallWorkspace({
       }
 
       if (tab === 'overview') {
-        updateLibraryState((current) => ({ ...current, selectedDocumentId: sourceDocumentId }))
+        updateLibraryState((current) => ({
+          ...current,
+          activeSurface: 'home',
+          selectedDocumentId: sourceDocumentId,
+        }))
         setBrowseDrawerOpen('library', false)
         onSectionChange('library')
         return
@@ -8024,9 +8170,9 @@ export function RecallWorkspace({
         className="recall-study-toolbar-utility"
         aria-label="Browse study support"
       >
-        <div className="recall-study-toolbar-glance" aria-label="Active study queue summary">
+        <div className="recall-study-toolbar-glance" aria-label="Current question queue summary">
           <div className="recall-study-toolbar-glance-top">
-            <span className="recall-study-toolbar-kicker">{collapsedStudyBrowseRailLabel}</span>
+            <span className="recall-study-toolbar-kicker">{activeStudyCard ? 'Questions' : collapsedStudyBrowseRailLabel}</span>
             <span className="recall-study-toolbar-meta">{collapsedStudyQueueOverview}</span>
           </div>
           {activeStudyCardCollapsedRailSummary ? (
@@ -8038,15 +8184,7 @@ export function RecallWorkspace({
             </span>
           ) : null}
         </div>
-        <div className="recall-actions recall-actions-inline recall-study-toolbar-actions">
-          <button
-            aria-label="Show queue"
-            className="ghost-button recall-study-sidebar-toggle-button"
-            type="button"
-            onClick={() => setBrowseDrawerOpen('study', true)}
-          >
-            Queue
-          </button>
+        <div className="recall-study-toolbar-actions recall-study-toolbar-actions-row">
           {focusedStudySourceSpan ? (
             <button
               aria-label="Preview evidence"
@@ -9351,17 +9489,6 @@ export function RecallWorkspace({
         : graphPathSelectionActive
           ? '1 node selected'
           : null
-    const graphControlStateLabel = graphPathSelectionActive
-      ? 'Path'
-      : selectedGraphNode
-        ? 'Focus'
-        : graphSearchActive
-          ? 'Search'
-          : graphTimelineActive
-            ? 'Timeline'
-            : graphContentFilterActive || graphFilterActive || graphVisibilityFilterActive
-              ? 'Filtered'
-              : graphActivePresetLabel
     const graphFocusRailKicker = graphPathSelectionActive ? 'Path' : selectedGraphNode ? 'Focus' : graphFocusTrailNodes.length ? 'Path' : 'Graph'
     const graphFocusRailTitle = graphPathSelectionActive
       ? graphPathResultActive
@@ -9426,10 +9553,12 @@ export function RecallWorkspace({
     ]
       .filter(Boolean)
       .join(' ')
-    const graphDrawerIntro =
-      'Save, update, rename, and reset graph views here while selected-node work stays in the trail and detail drawer.'
-    const graphBrowseToggleLabel = graphBrowseDrawerOpen ? 'Hide settings' : 'Show settings'
-    const graphBrowseToggleGlyph = graphBrowseDrawerOpen ? '<' : '>'
+    const graphTourVisible =
+      !graphTourDismissed &&
+      graphTourStep !== null &&
+      !showFocusedGraphSplitView &&
+      (graphSnapshot?.nodes.length ?? 0) > 0
+    const graphBottomTrayVisible = graphPathSelectionActive || Boolean(selectedGraphNode)
     const graphResetActionVisible =
       Boolean(graphFilterQuery.trim()) ||
       Boolean(graphSearchQuery.trim()) ||
@@ -9462,47 +9591,39 @@ export function RecallWorkspace({
       ? graphSearchMatchCount > 0
         ? `${graphSearchMatchPosition + 1} of ${graphSearchMatchCount}`
         : '0 matches'
-      : 'Search'
+      : 'Search by title'
     const graphSearchStatusSummary = graphSearchActive
       ? graphSearchMatchCount > 0
         ? `${graphSearchMatchCount} ${graphSearchMatchCount === 1 ? 'node' : 'nodes'} by title`
         : 'No node titles match'
       : 'Find node titles'
-    const graphCornerStatusLabel = graphPathSelectionActive
+    const graphSearchNavigationVisible = graphSearchActive && graphSearchMatchCount > 1
+    const graphUtilityStatusNote = graphSearchActive && graphSearchMatchCount === 0 ? graphSearchStatusSummary : null
+    const graphCountSummary = `${graphCanvasNodes.length} nodes · ${graphCanvasEdges.length} links`
+    const graphCountStatus = graphPathSelectionActive
       ? graphPathResultActive
         ? graphPathVisibleResult
-          ? 'Path highlighted'
+          ? `${graphPathResultNodeCount} nodes in path`
           : graphPathSelectionVisible
             ? 'No visible path'
-            : 'Path hidden by current view'
+            : 'Path hidden'
         : graphPathSelectionReady
           ? 'Path ready'
-          : '1 node selected'
+          : 'Path selection'
       : selectedGraphNode
-        ? 'Focus mode active'
-        : graphSearchActive
-          ? graphSearchStatusSummary
-          : graphTimelineActive
-            ? graphTimelineStatusLabel
-            : graphLayoutLocked
-              ? 'Layout locked'
-              : graphContentFilterActive
-                ? graphContentFilterSummary || 'Content filters active'
-                : graphVisibilityFilterActive
-                  ? graphVisibilitySummary || 'Visibility rules active'
-                : graphFilterActive
-                  ? 'Filter query active'
-                  : graphColorGroupMode !== 'source'
-                    ? graphColorGroupModeLabel
-                  : graphPresetStatusLabel
-    const graphViewportScaleLabel = `${Math.round(graphViewport.scale * 100)}%`
-    const graphViewControlStatusLabel = graphLayoutLocked
-      ? graphDraggingNodeId
-        ? 'Adjusting layout'
-        : 'Locked layout'
-      : graphCanvasPanning
-        ? 'Panning graph'
-        : 'Unlocked'
+        ? graphSelectedNodeSummary
+        : graphCountSummary
+    const graphCountAriaLabel = graphCountStatus === graphCountSummary ? graphCountSummary : `${graphCountSummary}. ${graphCountStatus}`
+    const graphGroupBuilderSummary = graphGroupBuilderOpen
+      ? 'Custom group editing stays parked in this pass'
+      : graphColorGroupSummary
+    const graphAdvancedFiltersSummary =
+      graphContentFilterActive || graphConnectionDepth !== 2
+        ? `${graphContentFilterSummary}; ${graphConnectionDepth === 1 ? '1 hop' : graphConnectionDepth === 2 ? '2 hops' : '3+ hops'}`
+        : 'Node types, source types, visible nodes, and connection depth'
+    const graphAdvancedLayoutSummary = graphResetActionVisible
+      ? `${graphAppearanceSummary}; spacing ${graphSpacingMode}`
+      : 'Spacing, hover focus, counts, and view reset'
     const hoveredGraphNodeSourceLabel = hoveredGraphNodeLayout?.node.source_document_ids[0]
       ? documentTitleById.get(hoveredGraphNodeLayout.node.source_document_ids[0]) ?? null
       : null
@@ -9537,17 +9658,6 @@ export function RecallWorkspace({
             : 'recall-graph-hover-preview-align-above',
         ].join(' ')
       : ''
-    const graphLegendClassName = [
-      'recall-graph-browser-legend',
-      'recall-graph-browser-legend-overlay',
-      graphDetailExpanded
-        ? 'recall-graph-browser-legend-detail-expanded'
-        : selectedNodeDetail
-          ? 'recall-graph-browser-legend-detail-peek'
-          : 'recall-graph-browser-legend-detail-empty',
-    ]
-      .filter(Boolean)
-      .join(' ')
     const graphLegendActiveCount = graphColorGroupMode === 'source' ? graphSourceTypeFilters.length : graphNodeTypeFilters.length
     const graphLegendVisibleGroupCount = graphLegendItems.filter((item) => item.count > 0).length
     const graphLegendStatusLabel = graphLegendActiveCount
@@ -9569,6 +9679,9 @@ export function RecallWorkspace({
       ]
       .filter(Boolean)
       .join(' ')
+    const graphCanvasUtilityCornerStyle = {
+      '--recall-graph-left-utility-offset': graphBrowseDrawerOpen ? `${graphSettingsDrawerWidth + 18}px` : '0px',
+    } as CSSProperties
     const graphCanvasClassName = [
       'recall-graph-canvas',
       graphCanvasPanning ? 'recall-graph-canvas-panning' : '',
@@ -9613,131 +9726,30 @@ export function RecallWorkspace({
             <div className="recall-graph-browser-stage recall-graph-browser-stage-milestone-reset recall-graph-browser-stage-parity-reset recall-graph-browser-stage-v20-reset">
               <div className={graphCanvasShellClassName}>
                 <div className="recall-graph-browser-control-seam recall-graph-browser-control-seam-overlay recall-graph-browser-control-seam-corner-reset" aria-label="Graph control seam">
-                  <div className="recall-graph-browser-control-overlay-primary recall-graph-browser-control-overlay-primary-workbench-reset recall-graph-browser-control-overlay-primary-corner-reset recall-graph-browser-control-overlay-primary-launcher-reset">
-                    <button
-                      aria-label={graphBrowseToggleLabel}
-                      className="ghost-button recall-graph-sidebar-toggle recall-graph-sidebar-toggle-compact"
-                      type="button"
-                      onClick={() => setBrowseDrawerOpen('graph', !graphBrowseDrawerOpen)}
-                    >
-                      {graphBrowseToggleGlyph}
-                    </button>
-                    <span className="status-chip status-muted recall-graph-browser-control-state-chip">
-                      {graphControlStateLabel}
-                    </span>
-                  </div>
-                  <div className="recall-graph-browser-control-actions recall-graph-browser-control-actions-overlay recall-graph-browser-control-actions-workbench-reset recall-graph-browser-control-actions-corner-reset recall-graph-browser-control-actions-navigation-reset">
-                    <div className="recall-graph-browser-control-clusters">
-                      <div className="recall-graph-browser-control-search-cluster">
-                        <label className="field recall-inline-field recall-graph-workbench-search">
-                          <span className="visually-hidden">Search graph</span>
-                          <input
-                            aria-label="Search graph"
-                            type="search"
-                            placeholder="Search titles"
-                            value={graphSearchQuery}
-                            onChange={(event) => setGraphSearchQuery(event.target.value)}
-                            onKeyDown={handleGraphSearchKeyDown}
-                          />
-                        </label>
-                        <div className="recall-graph-search-navigation" role="group" aria-label="Graph search navigation">
-                          <button
-                            className="ghost-button recall-graph-search-navigation-button"
-                            disabled={graphSearchMatchCount < 2}
-                            type="button"
-                            onClick={() => handleStepGraphSearchMatch(-1)}
-                          >
-                            Prev
-                          </button>
-                          <span className="status-chip status-muted recall-graph-search-navigation-status">
-                            {graphSearchStatusLabel}
-                          </span>
-                          <button
-                            className="ghost-button recall-graph-search-navigation-button"
-                            disabled={graphSearchMatchCount < 2}
-                            type="button"
-                            onClick={() => handleStepGraphSearchMatch(1)}
-                          >
-                            Next
-                          </button>
-                        </div>
-                      </div>
-                      <div className="recall-graph-browser-control-view-cluster">
-                        <div className="recall-graph-view-controls" role="group" aria-label="Graph view controls">
-                          <span className="status-chip status-muted recall-graph-view-controls-scale">
-                            {graphViewportScaleLabel}
-                          </span>
-                          <button
-                            className="ghost-button recall-graph-view-controls-button"
-                            type="button"
-                            onClick={handleFitGraphToView}
-                          >
-                            Fit to view
-                          </button>
-                          <button
-                            className="ghost-button recall-graph-view-controls-button"
-                            type="button"
-                            onClick={handleToggleGraphLayoutLock}
-                          >
-                            {graphLayoutLocked ? 'Unlock graph' : 'Lock graph'}
-                          </button>
-                        </div>
-                        {graphResetActionVisible ? (
-                          <button
-                            className="ghost-button recall-graph-browser-control-reset-button"
-                            type="button"
-                            onClick={handleResetGraphView}
-                          >
-                            Show all
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div
-                      className="recall-graph-browser-control-utility-status recall-graph-browser-control-utility-status-workbench-reset"
-                      role="status"
-                      aria-live="polite"
-                    >
-                      <span className="status-chip status-muted">{graphCornerStatusLabel}</span>
-                      <span className="status-chip status-muted recall-graph-view-controls-lock-status">
-                        {graphViewControlStatusLabel}
-                      </span>
-                      <span className="status-chip status-muted">{graphPresetStatusLabel}</span>
-                    </div>
-                  </div>
+                  <GraphBrowseControlCorner
+                    layoutLocked={graphLayoutLocked}
+                    searchNavigationVisible={graphSearchNavigationVisible}
+                    searchQuery={graphSearchQuery}
+                    searchStatusLabel={graphSearchStatusLabel}
+                    statusNote={graphUtilityStatusNote}
+                    onFitToView={handleFitGraphToView}
+                    onSearchChange={setGraphSearchQuery}
+                    onSearchKeyDown={handleGraphSearchKeyDown}
+                    onStepSearchMatch={handleStepGraphSearchMatch}
+                    onToggleLayoutLock={handleToggleGraphLayoutLock}
+                  />
                 </div>
 
-                {graphBrowseDrawerOpen ? (
-                  <aside
-                    aria-label="Graph settings sidebar"
-                    className={[
-                      'recall-graph-browser-utility-strip',
-                      'recall-graph-browser-utility-strip-attached',
-                      'recall-graph-browser-utility-strip-drawer-reset',
-                      'recall-graph-browser-utility-strip-resizable',
-                      graphSettingsDrawerResizing ? 'recall-graph-browser-utility-strip-resizing' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    style={{ width: `${graphSettingsDrawerWidth}px` }}
-                  >
-                    <div className="recall-graph-browser-utility-shell recall-graph-browser-utility-shell-parity-reset recall-graph-browser-utility-shell-attached recall-graph-browser-utility-shell-workbench-reset recall-graph-browser-utility-shell-drawer-reset recall-graph-browser-utility-shell-settings-reset priority-surface-support-rail">
-                      <div className="recall-graph-browser-utility-header recall-graph-browser-utility-header-workbench-reset recall-graph-browser-utility-header-drawer-reset" aria-label="Graph settings panel">
-                        <span className="recall-graph-browser-node-peek-kicker">Settings</span>
-                        <strong>Graph settings</strong>
-                        <span>{graphDrawerIntro}</span>
-                      </div>
-                      <div className="recall-graph-browser-utility-meta recall-graph-browser-utility-meta-workbench-reset recall-graph-browser-utility-meta-drawer-reset" role="list" aria-label="Graph drawer status">
-                        {graphDrawerStatusItems.map((item) => (
-                          <span
-                            key={`graph-drawer-status:${item}`}
-                            className={item === graphDrawerStatusItems[0] ? 'status-chip' : 'status-chip status-muted'}
-                            role="listitem"
-                          >
-                            {item}
-                          </span>
-                        ))}
-                      </div>
+                <GraphSettingsPanelShell
+                  open={graphBrowseDrawerOpen}
+                  resizing={graphSettingsDrawerResizing}
+                  width={graphSettingsDrawerWidth}
+                  onClose={() => setBrowseDrawerOpen('graph', false)}
+                  onOpen={() => setBrowseDrawerOpen('graph', true)}
+                  onResetWidth={handleResetGraphSettingsDrawerWidth}
+                  onResizeKeyDown={handleGraphSettingsDrawerResizeKeyDown}
+                  onStartResize={handleStartGraphSettingsDrawerResize}
+                >
                       <section className="recall-graph-sidebar-section recall-graph-sidebar-section-presets-reset">
                         <div className="recall-graph-sidebar-section-head">
                           <strong>Presets</strong>
@@ -9763,107 +9775,151 @@ export function RecallWorkspace({
                         <span className="recall-graph-sidebar-filter-note">
                           Active view: {graphActivePresetLabel}
                         </span>
-                        <div className="recall-graph-sidebar-saved-presets">
-                          <div className="recall-graph-sidebar-section-head">
-                            <strong>Saved views</strong>
-                            <span>Reuse named combinations of queries, visibility, timeline, groups, and appearance changes.</span>
-                          </div>
-                          {graphSavedPresets.length ? (
-                            <div className="recall-graph-sidebar-preset-list" role="list" aria-label="Saved graph presets">
-                              {graphSavedPresets.map((preset) => {
-                                const savedPresetActive =
-                                  graphPresetBaseline?.kind === 'saved' && graphPresetBaseline.id === preset.id
-                                return (
-                                  <span key={`graph-saved-preset:${preset.id}`} className="recall-graph-sidebar-preset-entry" role="listitem">
-                                    <button
-                                      aria-pressed={savedPresetActive}
-                                      className={
-                                        savedPresetActive
-                                          ? 'recall-graph-sidebar-preset-item recall-graph-sidebar-preset-item-active'
-                                          : 'recall-graph-sidebar-preset-item'
-                                      }
-                                      type="button"
-                                      onClick={() => handleApplySavedGraphPreset(preset.id)}
-                                    >
-                                      <span className="recall-graph-sidebar-preset-item-topline">
-                                        <strong>{preset.name}</strong>
-                                        <span className={savedPresetActive && graphPresetDirty ? 'status-chip' : 'status-chip status-muted'}>
-                                          {savedPresetActive && graphPresetDirty ? 'Modified' : 'Saved'}
-                                        </span>
-                                      </span>
-                                      <span className="recall-graph-sidebar-preset-item-summary">
-                                        {buildGraphPresetSummary(preset.snapshot)}
-                                      </span>
-                                    </button>
-                                  </span>
-                                )
-                              })}
+                        <div className="recall-graph-sidebar-preset-actions-block">
+                          {graphPresetSaveDraftOpen ? (
+                            <div className="recall-graph-settings-inline-action-row recall-graph-settings-inline-action-row-expanded">
+                              <label className="field recall-inline-field recall-graph-sidebar-preset-name">
+                                <span className="recall-graph-browser-node-peek-kicker">Preset name</span>
+                                <input
+                                  aria-label="Graph preset name"
+                                  type="text"
+                                  placeholder="Name this view"
+                                  value={graphPresetDraftName}
+                                  onChange={(event) => setGraphPresetDraftName(event.target.value)}
+                                />
+                              </label>
+                              <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-inline-actions" role="group" aria-label="Graph preset save actions">
+                                <button
+                                  className="ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active"
+                                  type="button"
+                                  onClick={handleSaveNewGraphPreset}
+                                >
+                                  Save view
+                                </button>
+                                <button
+                                  className="ghost-button recall-graph-sidebar-toggle-chip"
+                                  type="button"
+                                  onClick={handleCancelGraphPresetSaveDraft}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
                             </div>
                           ) : (
-                            <span className="recall-graph-sidebar-filter-note">
-                              No saved views yet. Save the current graph setup when it becomes worth reusing.
-                            </span>
+                            <button
+                              className="ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active recall-graph-sidebar-primary-action"
+                              type="button"
+                              onClick={handleOpenGraphPresetSaveDraft}
+                            >
+                              Save as preset
+                            </button>
                           )}
-                          <label className="field recall-inline-field recall-graph-sidebar-preset-name">
-                            <span className="recall-graph-browser-node-peek-kicker">Preset name</span>
-                            <input
-                              aria-label="Graph preset name"
-                              type="text"
-                              placeholder="Name this view"
-                              value={graphPresetDraftName}
-                              onChange={(event) => setGraphPresetDraftName(event.target.value)}
-                            />
-                          </label>
-                          <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-preset-actions" role="group" aria-label="Graph preset actions">
-                            <button
-                              className="ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active"
-                              type="button"
-                              onClick={handleSaveNewGraphPreset}
-                            >
-                              Save new preset
-                            </button>
-                            <button
-                              className="ghost-button recall-graph-sidebar-toggle-chip"
-                              disabled={!graphCanUpdateSavedPreset}
-                              type="button"
-                              onClick={handleUpdateGraphPreset}
-                            >
-                              Update preset
-                            </button>
-                            <button
-                              className="ghost-button recall-graph-sidebar-toggle-chip"
-                              disabled={!graphCanRenameSavedPreset}
-                              type="button"
-                              onClick={handleRenameGraphPreset}
-                            >
-                              Rename preset
-                            </button>
-                            <button
-                              className="ghost-button recall-graph-sidebar-toggle-chip"
-                              disabled={!graphCanDeleteSavedPreset}
-                              type="button"
-                              onClick={handleDeleteGraphPreset}
-                            >
-                              Delete preset
-                            </button>
-                            <button
-                              className="ghost-button recall-graph-sidebar-toggle-chip"
-                              type="button"
-                              onClick={handleResetGraphPresetDefaults}
-                            >
-                              Reset to defaults
-                            </button>
-                          </div>
-                          <span className="recall-graph-sidebar-filter-note">{graphPresetStatusNote}</span>
                         </div>
+                        <GraphSettingsDisclosure
+                          className="recall-graph-settings-disclosure-saved-views"
+                          open={graphSavedViewsOpen}
+                          summary={graphSavedViewsSummary}
+                          title="Saved views"
+                          onToggle={() => setGraphSavedViewsOpen((current) => !current)}
+                        >
+                          <div className="recall-graph-sidebar-saved-presets">
+                            {graphSavedPresets.length ? (
+                              <div className="recall-graph-sidebar-preset-list" role="list" aria-label="Saved graph presets">
+                                {graphSavedPresets.map((preset) => {
+                                  const savedPresetActive =
+                                    graphPresetBaseline?.kind === 'saved' && graphPresetBaseline.id === preset.id
+                                  return (
+                                    <span key={`graph-saved-preset:${preset.id}`} className="recall-graph-sidebar-preset-entry" role="listitem">
+                                      <button
+                                        aria-pressed={savedPresetActive}
+                                        className={
+                                          savedPresetActive
+                                            ? 'recall-graph-sidebar-preset-item recall-graph-sidebar-preset-item-active'
+                                            : 'recall-graph-sidebar-preset-item'
+                                        }
+                                        type="button"
+                                        onClick={() => handleApplySavedGraphPreset(preset.id)}
+                                      >
+                                        <span className="recall-graph-sidebar-preset-item-topline">
+                                          <strong>{preset.name}</strong>
+                                          <span className={savedPresetActive && graphPresetDirty ? 'status-chip' : 'status-chip status-muted'}>
+                                            {savedPresetActive && graphPresetDirty ? 'Modified' : 'Saved'}
+                                          </span>
+                                        </span>
+                                        <span className="recall-graph-sidebar-preset-item-summary">
+                                          {buildGraphPresetSummary(preset.snapshot)}
+                                        </span>
+                                      </button>
+                                    </span>
+                                  )
+                                })}
+                              </div>
+                            ) : (
+                              <span className="recall-graph-sidebar-filter-note">No saved views yet.</span>
+                            )}
+                            <GraphSettingsDisclosure
+                              className="recall-graph-settings-disclosure-preset-management"
+                              open={graphPresetActionsOpen}
+                              summary={graphPresetStatusNote}
+                              title="Manage saved views"
+                              onToggle={() => setGraphPresetActionsOpen((current) => !current)}
+                            >
+                              <div className="recall-graph-settings-inline-action-row">
+                                <label className="field recall-inline-field recall-graph-sidebar-preset-name">
+                                  <span className="recall-graph-browser-node-peek-kicker">Saved view name</span>
+                                  <input
+                                    aria-label="Graph preset name"
+                                    type="text"
+                                    placeholder="Rename saved view"
+                                    value={graphPresetDraftName}
+                                    onChange={(event) => setGraphPresetDraftName(event.target.value)}
+                                  />
+                                </label>
+                                <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-preset-actions" role="group" aria-label="Graph preset actions">
+                                  <button
+                                    className="ghost-button recall-graph-sidebar-toggle-chip"
+                                    disabled={!graphCanUpdateSavedPreset}
+                                    type="button"
+                                    onClick={handleUpdateGraphPreset}
+                                  >
+                                    Update preset
+                                  </button>
+                                  <button
+                                    className="ghost-button recall-graph-sidebar-toggle-chip"
+                                    disabled={!graphCanRenameSavedPreset}
+                                    type="button"
+                                    onClick={handleRenameGraphPreset}
+                                  >
+                                    Rename preset
+                                  </button>
+                                  <button
+                                    className="ghost-button recall-graph-sidebar-toggle-chip"
+                                    disabled={!graphCanDeleteSavedPreset}
+                                    type="button"
+                                    onClick={handleDeleteGraphPreset}
+                                  >
+                                    Delete preset
+                                  </button>
+                                  <button
+                                    className="ghost-button recall-graph-sidebar-toggle-chip"
+                                    type="button"
+                                    onClick={handleResetGraphPresetDefaults}
+                                  >
+                                    Reset to defaults
+                                  </button>
+                                </div>
+                              </div>
+                            </GraphSettingsDisclosure>
+                          </div>
+                        </GraphSettingsDisclosure>
                       </section>
                       <section className="recall-graph-sidebar-section recall-graph-sidebar-section-filter-reset">
                         <div className="recall-graph-sidebar-section-head">
-                          <strong>Filter query</strong>
-                          <span>Use bounded `tag:`, `source:`, `name:`, and `search:` terms without changing title search.</span>
+                          <strong>Filters</strong>
+                          <span>Query, visibility, and timeline.</span>
                         </div>
                         <label className="field recall-inline-field recall-graph-sidebar-filter">
-                          <span className="recall-graph-browser-node-peek-kicker">Filter query</span>
+                          <span className="recall-graph-browser-node-peek-kicker">Query</span>
                           <input
                             aria-label="Filter graph"
                             type="search"
@@ -9871,182 +9927,207 @@ export function RecallWorkspace({
                             value={graphFilterQuery}
                             onChange={(event) => setGraphFilterQuery(event.target.value)}
                           />
-                          <span className="recall-graph-sidebar-filter-note">
-                            {graphFilterActive
-                              ? `${graphNodesMatchingQueryCount} matching ${graphNodesMatchingQueryCount === 1 ? 'node' : 'nodes'} with ${filteredGraphNodes.length} visible after context and visibility rules.`
-                              : 'Supports `-` negation plus `OR`, and works alongside presets, timeline, and content filters.'}
-                          </span>
-                          <span className="recall-graph-sidebar-filter-note">
-                            `tag:` uses current custom collection labels when local organizer metadata is available.
-                          </span>
-                        </label>
-                      </section>
-                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-visibility-reset">
-                        <div className="recall-graph-sidebar-section-head">
-                          <strong>Visibility</strong>
-                          <span>
-                            {graphVisibilityFilterActive
-                              ? graphVisibilitySummary
-                              : 'Keep or hide unconnected cards, leaf references, and inferred reference-style graph content.'}
-                          </span>
-                        </div>
-                        <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph visibility controls">
-                          <button
-                            aria-pressed={graphShowUnconnectedNodes}
-                            className={
-                              graphShowUnconnectedNodes
-                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
-                                : 'ghost-button recall-graph-sidebar-toggle-chip'
-                            }
-                            type="button"
-                            onClick={handleToggleGraphShowUnconnectedNodes}
-                          >
-                            Unconnected
-                          </button>
-                          <button
-                            aria-pressed={graphShowLeafNodes}
-                            className={
-                              graphShowLeafNodes
-                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
-                                : 'ghost-button recall-graph-sidebar-toggle-chip'
-                            }
-                            type="button"
-                            onClick={handleToggleGraphShowLeafNodes}
-                          >
-                            Leaf nodes
-                          </button>
-                          <button
-                            aria-pressed={graphShowReferenceNodes}
-                            className={
-                              graphShowReferenceNodes
-                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
-                                : 'ghost-button recall-graph-sidebar-toggle-chip'
-                            }
-                            type="button"
-                            onClick={handleToggleGraphShowReferenceNodes}
-                          >
-                            Reference content
-                          </button>
-                        </div>
-                        <span className="recall-graph-sidebar-filter-note">
-                          Reference content uses the current inferred-edge model as the local fallback for Recall-style auto references.
-                        </span>
-                      </section>
-                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-timeline-reset">
-                        <div className="recall-graph-sidebar-section-head">
-                          <strong>Timeline</strong>
-                          <span>
-                            {graphTimelineEnabled
-                              ? graphTimelineStep
-                                ? `${graphTimelineStep.documentCount} saved sources through ${graphTimelineStep.label}.`
-                                : 'Timeline ready for saved-source checkpoints.'
-                              : 'Reveal the graph as saved sources accumulate over time.'}
-                          </span>
-                        </div>
-                        <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-timeline-reset" role="group" aria-label="Graph timeline controls">
-                          <button
-                            aria-pressed={graphTimelineEnabled}
-                            className={
-                              graphTimelineEnabled
-                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
-                                : 'ghost-button recall-graph-sidebar-toggle-chip'
-                            }
-                            type="button"
-                            onClick={handleToggleGraphTimelineEnabled}
-                          >
-                            Timeline filter
-                          </button>
-                          <button
-                            aria-pressed={graphTimelinePlaying}
-                            className={
-                              graphTimelinePlaying
-                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
-                                : 'ghost-button recall-graph-sidebar-toggle-chip'
-                            }
-                            disabled={!graphTimelineEnabled || graphTimelineSteps.length < 2}
-                            type="button"
-                            onClick={handleToggleGraphTimelinePlayback}
-                          >
-                            {graphTimelinePlaying ? 'Pause timeline' : 'Play timeline'}
-                          </button>
-                        </div>
-                        <label className="recall-graph-sidebar-range" htmlFor="graph-timeline-range">
-                          <span className="recall-graph-sidebar-range-label">Graph timeline</span>
-                          <span className="recall-graph-sidebar-range-status">{graphTimelineStatusLabel}</span>
-                          <input
-                            id="graph-timeline-range"
-                            aria-label="Graph timeline"
-                            disabled={!graphTimelineEnabled || graphTimelineSteps.length < 2}
-                            max={Math.max(graphTimelineSteps.length - 1, 0)}
-                            min={0}
-                            type="range"
-                            value={graphTimelineSteps.length ? Math.min(graphTimelineIndex, graphTimelineSteps.length - 1) : 0}
-                            onChange={(event) => handleSetGraphTimelineIndex(Number(event.target.value))}
-                          />
-                        </label>
-                        <div className="recall-graph-sidebar-timeline-meta" role="list" aria-label="Timeline checkpoint status">
-                          <span className="status-chip status-muted" role="listitem">
-                            {graphTimelineSteps.length ? `${graphTimelineSteps.length} checkpoints` : 'No checkpoints'}
-                          </span>
-                          {graphTimelineStep?.title ? (
-                            <span className="status-chip status-muted" role="listitem">
-                              {graphTimelineStep.title}
+                          {graphFilterActive ? (
+                            <span className="recall-graph-sidebar-filter-note">
+                              {graphNodesMatchingQueryCount} matching {graphNodesMatchingQueryCount === 1 ? 'node' : 'nodes'} · {filteredGraphNodes.length} visible
                             </span>
                           ) : null}
+                        </label>
+                        <div className="recall-graph-settings-subsection">
+                          <div className="recall-graph-settings-subsection-head">
+                            <strong>Visibility</strong>
+                            <span>
+                              {graphVisibilityFilterActive
+                                ? graphVisibilitySummary
+                                : 'Unconnected, leaf, and reference visibility'}
+                            </span>
+                          </div>
+                          <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph visibility controls">
+                            <button
+                              aria-pressed={graphShowUnconnectedNodes}
+                              className={
+                                graphShowUnconnectedNodes
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              type="button"
+                              onClick={handleToggleGraphShowUnconnectedNodes}
+                            >
+                              Unconnected
+                            </button>
+                            <button
+                              aria-pressed={graphShowLeafNodes}
+                              className={
+                                graphShowLeafNodes
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              type="button"
+                              onClick={handleToggleGraphShowLeafNodes}
+                            >
+                              Leaf nodes
+                            </button>
+                            <button
+                              aria-pressed={graphShowReferenceNodes}
+                              className={
+                                graphShowReferenceNodes
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              type="button"
+                              onClick={handleToggleGraphShowReferenceNodes}
+                            >
+                              Reference content
+                            </button>
+                          </div>
                         </div>
-                      </section>
-                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-content-reset">
-                        <div className="recall-graph-sidebar-section-head">
-                          <strong>Content</strong>
-                          <span>{graphContentFilterActive ? graphContentFilterSummary : 'Filter the graph by node or source type.'}</span>
+                        <div className="recall-graph-settings-subsection">
+                          <div className="recall-graph-settings-subsection-head">
+                            <strong>Timeline</strong>
+                            <span>
+                              {graphTimelineEnabled
+                                ? graphTimelineStep
+                                  ? `${graphTimelineStep.documentCount} saved sources through ${graphTimelineStep.label}`
+                                  : 'Timeline ready'
+                                : 'Saved-source timeline'}
+                            </span>
+                          </div>
+                          <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-timeline-reset" role="group" aria-label="Graph timeline controls">
+                            <button
+                              aria-pressed={graphTimelineEnabled}
+                              className={
+                                graphTimelineEnabled
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              type="button"
+                              onClick={handleToggleGraphTimelineEnabled}
+                            >
+                              Timeline filter
+                            </button>
+                            <button
+                              aria-pressed={graphTimelinePlaying}
+                              className={
+                                graphTimelinePlaying
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              disabled={!graphTimelineEnabled || graphTimelineSteps.length < 2}
+                              type="button"
+                              onClick={handleToggleGraphTimelinePlayback}
+                            >
+                              {graphTimelinePlaying ? 'Pause timeline' : 'Play timeline'}
+                            </button>
+                          </div>
+                          <label className="recall-graph-sidebar-range" htmlFor="graph-timeline-range">
+                            <span className="recall-graph-sidebar-range-label">Graph timeline</span>
+                            <span className="recall-graph-sidebar-range-status">{graphTimelineStatusLabel}</span>
+                            <input
+                              id="graph-timeline-range"
+                              aria-label="Graph timeline"
+                              disabled={!graphTimelineEnabled || graphTimelineSteps.length < 2}
+                              max={Math.max(graphTimelineSteps.length - 1, 0)}
+                              min={0}
+                              type="range"
+                              value={graphTimelineSteps.length ? Math.min(graphTimelineIndex, graphTimelineSteps.length - 1) : 0}
+                              onChange={(event) => handleSetGraphTimelineIndex(Number(event.target.value))}
+                            />
+                          </label>
+                          <div className="recall-graph-sidebar-timeline-meta" role="list" aria-label="Timeline checkpoint status">
+                            <span className="status-chip status-muted" role="listitem">
+                              {graphTimelineSteps.length ? `${graphTimelineSteps.length} checkpoints` : 'No checkpoints'}
+                            </span>
+                            {graphTimelineStep?.title ? (
+                              <span className="status-chip status-muted" role="listitem">
+                                {graphTimelineStep.title}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
-                        <div className="recall-graph-sidebar-filter-groups">
-                          <div className="recall-graph-sidebar-filter-group">
-                            <span className="recall-graph-sidebar-filter-group-label">Node types</span>
-                            <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph node type filters">
-                              {graphAvailableNodeTypes.map((nodeType) => (
-                                <button
-                                  key={`graph-node-type:${nodeType}`}
-                                  aria-pressed={graphNodeTypeFilters.includes(nodeType)}
-                                  className={
-                                    graphNodeTypeFilters.includes(nodeType)
-                                      ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
-                                      : 'ghost-button recall-graph-sidebar-toggle-chip'
-                                  }
-                                  type="button"
-                                  onClick={() => handleToggleGraphNodeTypeFilter(nodeType)}
-                                >
-                                  {formatGraphNodeTypeLabel(nodeType)}
-                                </button>
-                              ))}
+                        <GraphSettingsDisclosure
+                          open={graphAdvancedFiltersOpen}
+                          summary={graphAdvancedFiltersSummary}
+                          title="Advanced filters"
+                          onToggle={() => setGraphAdvancedFiltersOpen((current) => !current)}
+                        >
+                          <div className="recall-graph-sidebar-filter-groups">
+                            <div className="recall-graph-sidebar-filter-group">
+                              <span className="recall-graph-sidebar-filter-group-label">Node types</span>
+                              <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph node type filters">
+                                {graphAvailableNodeTypes.map((nodeType) => (
+                                  <button
+                                    key={`graph-node-type:${nodeType}`}
+                                    aria-pressed={graphNodeTypeFilters.includes(nodeType)}
+                                    className={
+                                      graphNodeTypeFilters.includes(nodeType)
+                                        ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                        : 'ghost-button recall-graph-sidebar-toggle-chip'
+                                    }
+                                    type="button"
+                                    onClick={() => handleToggleGraphNodeTypeFilter(nodeType)}
+                                  >
+                                    {formatGraphNodeTypeLabel(nodeType)}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="recall-graph-sidebar-filter-group">
+                              <span className="recall-graph-sidebar-filter-group-label">Source types</span>
+                              <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph source type filters">
+                                {graphAvailableSourceTypes.map((sourceType) => (
+                                  <button
+                                    key={`graph-source-type:${sourceType}`}
+                                    aria-pressed={graphSourceTypeFilters.includes(sourceType)}
+                                    className={
+                                      graphSourceTypeFilters.includes(sourceType)
+                                        ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                        : 'ghost-button recall-graph-sidebar-toggle-chip'
+                                    }
+                                    type="button"
+                                    onClick={() => handleToggleGraphSourceTypeFilter(sourceType)}
+                                  >
+                                    {formatGraphSourceTypeLabel(sourceType)}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="recall-graph-sidebar-filter-group">
+                              <span className="recall-graph-sidebar-filter-group-label">Connection depth</span>
+                              <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-depth-reset" role="group" aria-label="Graph connection depth">
+                                {([1, 2, 3] as const).map((depth) => (
+                                  <button
+                                    key={`graph-depth:${depth}`}
+                                    aria-pressed={graphConnectionDepth === depth}
+                                    className={
+                                      graphConnectionDepth === depth
+                                        ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                        : 'ghost-button recall-graph-sidebar-toggle-chip'
+                                    }
+                                    type="button"
+                                    onClick={() => handleSetGraphConnectionDepth(depth)}
+                                  >
+                                    {depth === 1 ? '1 hop' : depth === 2 ? '2 hops' : '3+ hops'}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
                           </div>
-                          <div className="recall-graph-sidebar-filter-group">
-                            <span className="recall-graph-sidebar-filter-group-label">Source types</span>
-                            <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph source type filters">
-                              {graphAvailableSourceTypes.map((sourceType) => (
-                                <button
-                                  key={`graph-source-type:${sourceType}`}
-                                  aria-pressed={graphSourceTypeFilters.includes(sourceType)}
-                                  className={
-                                    graphSourceTypeFilters.includes(sourceType)
-                                      ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
-                                      : 'ghost-button recall-graph-sidebar-toggle-chip'
-                                  }
-                                  type="button"
-                                  onClick={() => handleToggleGraphSourceTypeFilter(sourceType)}
-                                >
-                                  {formatGraphSourceTypeLabel(sourceType)}
-                                </button>
-                              ))}
-                            </div>
+                        </GraphSettingsDisclosure>
+                        <GraphSettingsDisclosure
+                          open={graphQuickPicksOpen}
+                          summary={graphQuickPickSectionSummary}
+                          title={graphQuickPickSectionLabel}
+                          onToggle={() => setGraphQuickPicksOpen((current) => !current)}
+                        >
+                          <div className="recall-graph-quick-picks" role="list" aria-label={graphQuickPickSectionLabel}>
+                            {graphQuickPickNodes.map((node) => renderGraphQuickPick(node))}
                           </div>
-                        </div>
+                        </GraphSettingsDisclosure>
                       </section>
                       <section className="recall-graph-sidebar-section recall-graph-sidebar-section-groups-reset">
                         <div className="recall-graph-sidebar-section-head">
                           <strong>Groups</strong>
-                          <span>{graphColorGroupSummary}</span>
+                          <span>{graphGroupBuilderSummary}</span>
                         </div>
                         <div className="recall-graph-sidebar-toggle-row" role="group" aria-label="Graph color groups">
                           {([
@@ -10067,122 +10148,144 @@ export function RecallWorkspace({
                               {label}
                             </button>
                           ))}
+                          <button
+                            aria-pressed={graphGroupBuilderOpen}
+                            className={
+                              graphGroupBuilderOpen
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={() => setGraphGroupBuilderOpen((current) => !current)}
+                          >
+                            New group
+                          </button>
+                          {graphLegendActiveCount ? (
+                            <button
+                              className="ghost-button recall-graph-sidebar-toggle-chip"
+                              type="button"
+                              onClick={handleResetGraphLegendFilters}
+                            >
+                              Show all groups
+                            </button>
+                          ) : null}
                         </div>
                         <span className="recall-graph-sidebar-filter-note">
-                          Legend follows {graphColorGroupMode === 'source' ? 'source type' : 'node type'} and toggles matching filters.
+                          Legend follows the active color mode.
                         </span>
+                        <span className="recall-graph-sidebar-filter-note recall-graph-sidebar-filter-note-inline">{graphLegendStatusLabel}</span>
+                        {graphGroupBuilderOpen ? (
+                          <span className="recall-graph-sidebar-filter-note">{graphGroupBuilderSummary}</span>
+                        ) : null}
+                        {graphLegendItems.length ? (
+                          <div className="recall-graph-browser-legend-list recall-graph-browser-legend-list-in-panel" role="list" aria-label="Graph legend items">
+                            {graphLegendItems.map((item) => (
+                              <span key={`graph-legend:${item.key}`} className="recall-graph-browser-legend-entry" role="listitem">
+                                <button
+                                  aria-pressed={item.active}
+                                  className={
+                                    item.active
+                                      ? 'recall-graph-browser-legend-item recall-graph-browser-legend-item-active'
+                                      : 'recall-graph-browser-legend-item'
+                                  }
+                                  style={{ '--graph-legend-accent': item.accent } as CSSProperties}
+                                  type="button"
+                                  onClick={() => {
+                                    if (graphColorGroupMode === 'source') {
+                                      handleToggleGraphSourceTypeFilter(item.key as GraphSourceTypeBucket)
+                                      return
+                                    }
+                                    handleToggleGraphNodeTypeFilter(item.key)
+                                  }}
+                                >
+                                  <span className="recall-graph-browser-legend-swatch" aria-hidden="true" />
+                                  <span className="recall-graph-browser-legend-item-copy">
+                                    <span className="recall-graph-browser-legend-label">{item.label}</span>
+                                    <span className="recall-graph-browser-legend-count">
+                                      {formatCountLabel(item.count, 'visible node', 'visible nodes')}
+                                    </span>
+                                  </span>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </section>
-                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-depth-reset">
-                        <div className="recall-graph-sidebar-section-head">
-                          <strong>View</strong>
-                          <span>Control how much connected context stays visible around the current graph focus or active filter query.</span>
+                      <GraphSettingsDisclosure
+                        className="recall-graph-settings-disclosure-layout"
+                        open={graphAdvancedLayoutOpen}
+                        summary={graphAdvancedLayoutSummary}
+                        title="Advanced layout"
+                        onToggle={() => setGraphAdvancedLayoutOpen((current) => !current)}
+                      >
+                        <span className="recall-graph-sidebar-filter-note">
+                          {graphLayoutLocked
+                            ? 'Unlock the graph from the corner controls before changing spacing.'
+                            : 'Spread nodes farther apart or keep the canvas denser for quicker scanning.'}
+                        </span>
+                        {graphResetActionVisible ? (
+                          <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-layout-actions" role="group" aria-label="Graph layout actions">
+                            <button className="ghost-button recall-graph-sidebar-toggle-chip" type="button" onClick={handleResetGraphView}>
+                              Reset view
+                            </button>
+                          </div>
+                        ) : null}
+                        <div className="recall-graph-sidebar-filter-group">
+                          <span className="recall-graph-sidebar-filter-group-label">Spacing</span>
+                          <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-layout-reset" role="group" aria-label="Graph layout spacing">
+                            {([
+                              ['compact', 'Compact'],
+                              ['balanced', 'Balanced'],
+                              ['spread', 'Spread'],
+                            ] as const).map(([mode, label]) => (
+                              <button
+                                key={`graph-spacing:${mode}`}
+                                aria-pressed={graphSpacingMode === mode}
+                                className={
+                                  graphSpacingMode === mode
+                                    ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                    : 'ghost-button recall-graph-sidebar-toggle-chip'
+                                }
+                                disabled={graphLayoutLocked}
+                                type="button"
+                                onClick={() => handleSetGraphSpacingMode(mode)}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                        <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-depth-reset" role="group" aria-label="Graph connection depth">
-                          {([1, 2, 3] as const).map((depth) => (
+                        <div className="recall-graph-sidebar-filter-group">
+                          <span className="recall-graph-sidebar-filter-group-label">Appearance</span>
+                          <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-appearance-reset" role="group" aria-label="Graph appearance">
                             <button
-                              key={`graph-depth:${depth}`}
-                              aria-pressed={graphConnectionDepth === depth}
+                              aria-pressed={graphHoverFocusEnabled}
                               className={
-                                graphConnectionDepth === depth
+                                graphHoverFocusEnabled
                                   ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
                                   : 'ghost-button recall-graph-sidebar-toggle-chip'
                               }
                               type="button"
-                              onClick={() => handleSetGraphConnectionDepth(depth)}
+                              onClick={handleToggleGraphHoverFocus}
                             >
-                              {depth === 1 ? '1 hop' : depth === 2 ? '2 hops' : '3+ hops'}
+                              Hover focus
                             </button>
-                          ))}
-                        </div>
-                      </section>
-                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-layout-reset">
-                        <div className="recall-graph-sidebar-section-head">
-                          <strong>Layout</strong>
-                          <span>
-                            {graphLayoutLocked
-                              ? 'Unlock the graph to switch spacing presets. Locked mode keeps your manual arrangement in place.'
-                              : 'Spread nodes farther apart or keep the canvas denser for quicker scanning.'}
-                          </span>
-                        </div>
-                        <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-layout-reset" role="group" aria-label="Graph layout spacing">
-                          {([
-                            ['compact', 'Compact'],
-                            ['balanced', 'Balanced'],
-                            ['spread', 'Spread'],
-                          ] as const).map(([mode, label]) => (
                             <button
-                              key={`graph-spacing:${mode}`}
-                              aria-pressed={graphSpacingMode === mode}
+                              aria-pressed={graphShowNodeCounts}
                               className={
-                                graphSpacingMode === mode
+                                graphShowNodeCounts
                                   ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
                                   : 'ghost-button recall-graph-sidebar-toggle-chip'
                               }
-                              disabled={graphLayoutLocked}
                               type="button"
-                              onClick={() => handleSetGraphSpacingMode(mode)}
+                              onClick={handleToggleGraphShowNodeCounts}
                             >
-                              {label}
+                              Show counts
                             </button>
-                          ))}
+                          </div>
                         </div>
-                      </section>
-                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-appearance-reset">
-                        <div className="recall-graph-sidebar-section-head">
-                          <strong>Appearance</strong>
-                          <span>{graphAppearanceSummary}</span>
-                        </div>
-                        <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-appearance-reset" role="group" aria-label="Graph appearance">
-                          <button
-                            aria-pressed={graphHoverFocusEnabled}
-                            className={
-                              graphHoverFocusEnabled
-                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
-                                : 'ghost-button recall-graph-sidebar-toggle-chip'
-                            }
-                            type="button"
-                            onClick={handleToggleGraphHoverFocus}
-                          >
-                            Hover focus
-                          </button>
-                          <button
-                            aria-pressed={graphShowNodeCounts}
-                            className={
-                              graphShowNodeCounts
-                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
-                                : 'ghost-button recall-graph-sidebar-toggle-chip'
-                            }
-                            type="button"
-                            onClick={handleToggleGraphShowNodeCounts}
-                          >
-                            Show counts
-                          </button>
-                        </div>
-                      </section>
-                      <section className="recall-graph-sidebar-section recall-graph-sidebar-section-jump-reset">
-                        <div className="recall-graph-browser-utility-list-head recall-graph-browser-utility-list-head-drawer-reset">
-                          <strong>{graphQuickPickSectionLabel}</strong>
-                          <span>{graphQuickPickSectionSummary}</span>
-                        </div>
-                        <div className="recall-graph-quick-picks" role="list" aria-label={graphQuickPickSectionLabel}>
-                          {graphQuickPickNodes.map((node) => renderGraphQuickPick(node))}
-                        </div>
-                      </section>
-                    </div>
-                    <div
-                      aria-label="Resize graph settings sidebar"
-                      aria-orientation="vertical"
-                      className="recall-graph-sidebar-resize-handle"
-                      role="separator"
-                      tabIndex={0}
-                      onDoubleClick={handleResetGraphSettingsDrawerWidth}
-                      onKeyDown={handleGraphSettingsDrawerResizeKeyDown}
-                      onPointerDown={handleStartGraphSettingsDrawerResize}
-                    >
-                      <span className="recall-graph-sidebar-resize-grip" aria-hidden="true" />
-                    </div>
-                  </aside>
-                ) : null}
+                      </GraphSettingsDisclosure>
+                </GraphSettingsPanelShell>
 
                 <div className="recall-graph-canvas-shell-main">
                   <div
@@ -10281,6 +10384,22 @@ export function RecallWorkspace({
                             const nodeSelectedRelated = !graphSelectedRelatedNodeIds || graphSelectedRelatedNodeIds.has(node.id)
                             const nodeHoverRelated =
                               graphSelectedFocusNodeId ? true : !graphHoverRelatedNodeIds || graphHoverRelatedNodeIds.has(node.id)
+                            const graphNodeCoreCount =
+                              graphShowNodeCounts &&
+                              (selectedNodeId === node.id ||
+                                graphSearchCurrentNode?.id === node.id ||
+                                nodePathSelected ||
+                                emphasis === 'focus')
+                                ? String(Math.min(node.mention_count, 99))
+                                : null
+                            const graphNodeLabelTrackClassName = [
+                              'recall-graph-node-button-label-track',
+                              x < 20
+                                ? 'recall-graph-node-button-label-track-align-right'
+                                : x > 80
+                                  ? 'recall-graph-node-button-label-track-align-left'
+                                  : 'recall-graph-node-button-label-track-align-below',
+                            ].join(' ')
                             const className = [
                               'recall-graph-node-button',
                               emphasis === 'focus'
@@ -10342,7 +10461,12 @@ export function RecallWorkspace({
                                   handleGraphNodePointerUp(event)
                                 }}
                               >
-                                <span className="recall-graph-node-button-shell">
+                                <span className="recall-graph-node-button-core" aria-hidden="true">
+                                  {graphNodeCoreCount ? (
+                                    <span className="recall-graph-node-button-core-count">{graphNodeCoreCount}</span>
+                                  ) : null}
+                                </span>
+                                <span className={graphNodeLabelTrackClassName}>
                                   <strong className="recall-graph-node-button-label">{node.label}</strong>
                                   {graphShowNodeCounts ? (
                                     <span className="recall-graph-node-button-summary">{graphNodeMentionSummary}</span>
@@ -10377,170 +10501,158 @@ export function RecallWorkspace({
                       </div>
                     </div>
                   </div>
-                  {graphLegendItems.length ? (
-                    <div className={graphLegendClassName} aria-label="Graph legend" role="group">
-                      <div className="recall-graph-browser-legend-head">
-                        <div className="recall-graph-browser-legend-heading">
-                          <span className="recall-graph-browser-node-peek-kicker">Legend</span>
-                          <strong>{graphColorGroupModeLabel}</strong>
-                          <span>Click a group to toggle the matching filter.</span>
-                        </div>
-                        <div className="recall-graph-browser-legend-summary-row">
-                          <span className="status-chip status-muted recall-graph-browser-legend-status">{graphLegendStatusLabel}</span>
-                          {graphLegendActiveCount ? (
-                            <button
-                              className="ghost-button recall-graph-browser-legend-reset"
-                              type="button"
-                              onClick={handleResetGraphLegendFilters}
-                            >
-                              Show all groups
-                            </button>
+                  <div
+                    aria-label="Graph utility corners"
+                    className="recall-graph-canvas-utility-corners"
+                    style={graphCanvasUtilityCornerStyle}
+                  >
+                    <div className="recall-graph-canvas-count-pill" aria-label={graphCountAriaLabel} role="status" aria-live="polite">
+                      <span className="recall-graph-canvas-count-pill-label">{graphCountSummary}</span>
+                    </div>
+                    {!graphTourVisible ? (
+                      <div className="recall-graph-canvas-help-controls" role="group" aria-label="Graph help controls">
+                        <button
+                          aria-label="Replay Graph tour"
+                          className="ghost-button recall-graph-canvas-help-button"
+                          title="Replay Graph tour"
+                          type="button"
+                          onClick={() => handleOpenGraphTour('replay')}
+                        >
+                          ↺
+                        </button>
+                        <button
+                          aria-label="Graph help"
+                          className="ghost-button recall-graph-canvas-help-button"
+                          title="Open Graph help"
+                          type="button"
+                          onClick={() => handleOpenGraphTour('help')}
+                        >
+                          ?
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {graphBottomTrayVisible ? (
+                    <div className="recall-graph-canvas-shell-footer recall-graph-canvas-shell-footer-v20 recall-graph-canvas-shell-footer-workbench-reset">
+                      <div className={`${graphFocusRailClassName} recall-graph-focus-rail-corner-reset`} aria-label="Graph focus tray">
+                        <div className="recall-graph-focus-rail-main">
+                          <div className="recall-graph-focus-rail-copy">
+                            <span className="status-chip status-muted recall-graph-focus-rail-kicker">{graphFocusRailKicker}</span>
+                            <div className="recall-graph-focus-rail-heading">
+                              <strong>{graphFocusRailTitle}</strong>
+                              <span className="recall-graph-focus-rail-summary">{graphFocusRailSummary}</span>
+                            </div>
+                            <div className="recall-graph-focus-rail-meta" role="list" aria-label="Graph focus context">
+                              {graphFocusRailMetaItems.map((item) => (
+                                <span key={`graph-focus-meta:${item}`} className="status-chip status-muted" role="listitem">
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="recall-graph-focus-rail-path">
+                            <span className="recall-graph-focus-rail-path-label">Path</span>
+                            <div className="recall-graph-focus-rail-trail" role="list" aria-label="Graph focus trail">
+                              {graphFocusRailTrailNodes.length ? (
+                                graphPathSelectionActive ? (
+                                  graphFocusRailTrailNodes.map((node) => (
+                                    <span key={node.id} className="recall-graph-focus-trail-item" role="listitem">
+                                      <span
+                                        className={
+                                          graphPathResultActive && graphPathVisibleResult && graphPathResultNodeIds.has(node.id)
+                                            ? 'recall-graph-focus-trail-chip recall-graph-focus-trail-chip-path-active'
+                                            : graphPathSelectedNodeIdSet.has(node.id)
+                                              ? 'recall-graph-focus-trail-chip recall-graph-focus-trail-chip-active'
+                                              : 'recall-graph-focus-trail-chip'
+                                        }
+                                        title={getGraphNodePreview(node)}
+                                      >
+                                        {node.label}
+                                      </span>
+                                    </span>
+                                  ))
+                                ) : (
+                                  graphFocusRailTrailNodes.map((node) => (
+                                    <span key={node.id} className="recall-graph-focus-trail-item" role="listitem">
+                                      <button
+                                        aria-pressed={selectedNodeId === node.id}
+                                        className={
+                                          selectedNodeId === node.id
+                                            ? 'recall-graph-focus-trail-chip recall-graph-focus-trail-chip-active'
+                                            : 'recall-graph-focus-trail-chip'
+                                        }
+                                        title={getGraphNodePreview(node)}
+                                        type="button"
+                                        onClick={() => handleSelectGraphNode(node)}
+                                      >
+                                        {node.label}
+                                      </button>
+                                    </span>
+                                  ))
+                                )
+                              ) : (
+                                <span className="status-chip status-muted recall-graph-focus-trail-empty" role="listitem">
+                                  Select nodes to build a recent path.
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {graphPathSelectionActive ? (
+                            <div className="recall-graph-focus-rail-actions">
+                              {graphPathSelectionReady && !graphPathResultActive ? (
+                                <button type="button" onClick={handleFindGraphPath}>
+                                  Find path
+                                </button>
+                              ) : null}
+                              <button className="ghost-button" type="button" onClick={handleClearGraphPathSelection}>
+                                Clear selection
+                              </button>
+                            </div>
+                          ) : graphSelectedNodeSourceDocumentId || selectedNodeId ? (
+                            <div className="recall-graph-focus-rail-actions">
+                              {graphJumpBackNode ? (
+                                <button className="ghost-button" type="button" onClick={handleJumpBackGraphFocus}>
+                                  Jump back
+                                </button>
+                              ) : null}
+                              {graphSelectedNodeSourceDocumentId && selectedNodeId ? (
+                                <button
+                                  className="ghost-button"
+                                  type="button"
+                                  onClick={() => focusSourceGraph(graphSelectedNodeSourceDocumentId, selectedNodeId)}
+                                >
+                                  Focus source
+                                </button>
+                              ) : null}
+                              {graphSelectedNodeSourceDocumentId ? (
+                                <button
+                                  className="ghost-button"
+                                  type="button"
+                                  onClick={() => handleOpenMentionInReader(graphSelectedNodeSourceDocumentId)}
+                                >
+                                  Open source
+                                </button>
+                              ) : null}
+                              {selectedNodeId ? (
+                                <button className="ghost-button" type="button" onClick={handleClearGraphFocus}>
+                                  Clear focus
+                                </button>
+                              ) : null}
+                            </div>
                           ) : null}
                         </div>
                       </div>
-                      <div className="recall-graph-browser-legend-list" role="list" aria-label="Graph legend items">
-                        {graphLegendItems.map((item) => (
-                          <span key={`graph-legend:${item.key}`} className="recall-graph-browser-legend-entry" role="listitem">
-                            <button
-                              aria-pressed={item.active}
-                              className={
-                                item.active
-                                  ? 'recall-graph-browser-legend-item recall-graph-browser-legend-item-active'
-                                  : 'recall-graph-browser-legend-item'
-                              }
-                              style={{ '--graph-legend-accent': item.accent } as CSSProperties}
-                              type="button"
-                              onClick={() => {
-                                if (graphColorGroupMode === 'source') {
-                                  handleToggleGraphSourceTypeFilter(item.key as GraphSourceTypeBucket)
-                                  return
-                                }
-                                handleToggleGraphNodeTypeFilter(item.key)
-                              }}
-                            >
-                              <span className="recall-graph-browser-legend-swatch" aria-hidden="true" />
-                              <span className="recall-graph-browser-legend-item-copy">
-                                <span className="recall-graph-browser-legend-label">{item.label}</span>
-                                <span className="recall-graph-browser-legend-count">
-                                  {formatCountLabel(item.count, 'visible node', 'visible nodes')}
-                                </span>
-                              </span>
-                            </button>
-                          </span>
-                        ))}
-                      </div>
                     </div>
                   ) : null}
-                  <div className="recall-graph-canvas-shell-footer recall-graph-canvas-shell-footer-v20 recall-graph-canvas-shell-footer-workbench-reset">
-                    <div className={`${graphFocusRailClassName} recall-graph-focus-rail-corner-reset`} aria-label="Graph focus rail">
-                      <div className="recall-graph-focus-rail-main">
-                        <div className="recall-graph-focus-rail-copy">
-                          <span className="status-chip status-muted recall-graph-focus-rail-kicker">{graphFocusRailKicker}</span>
-                          <div className="recall-graph-focus-rail-heading">
-                            <strong>{graphFocusRailTitle}</strong>
-                            <span className="recall-graph-focus-rail-summary">{graphFocusRailSummary}</span>
-                          </div>
-                          <div className="recall-graph-focus-rail-meta" role="list" aria-label="Graph focus context">
-                            {graphFocusRailMetaItems.map((item) => (
-                              <span key={`graph-focus-meta:${item}`} className="status-chip status-muted" role="listitem">
-                                {item}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="recall-graph-focus-rail-path">
-                          <span className="recall-graph-focus-rail-path-label">Path</span>
-                          <div className="recall-graph-focus-rail-trail" role="list" aria-label="Graph focus trail">
-                            {graphFocusRailTrailNodes.length ? (
-                              graphPathSelectionActive ? (
-                                graphFocusRailTrailNodes.map((node) => (
-                                  <span key={node.id} className="recall-graph-focus-trail-item" role="listitem">
-                                    <span
-                                      className={
-                                        graphPathResultActive && graphPathVisibleResult && graphPathResultNodeIds.has(node.id)
-                                          ? 'recall-graph-focus-trail-chip recall-graph-focus-trail-chip-path-active'
-                                          : graphPathSelectedNodeIdSet.has(node.id)
-                                            ? 'recall-graph-focus-trail-chip recall-graph-focus-trail-chip-active'
-                                            : 'recall-graph-focus-trail-chip'
-                                      }
-                                      title={getGraphNodePreview(node)}
-                                    >
-                                      {node.label}
-                                    </span>
-                                  </span>
-                                ))
-                              ) : (
-                                graphFocusRailTrailNodes.map((node) => (
-                                  <span key={node.id} className="recall-graph-focus-trail-item" role="listitem">
-                                    <button
-                                      aria-pressed={selectedNodeId === node.id}
-                                      className={
-                                        selectedNodeId === node.id
-                                          ? 'recall-graph-focus-trail-chip recall-graph-focus-trail-chip-active'
-                                          : 'recall-graph-focus-trail-chip'
-                                      }
-                                      title={getGraphNodePreview(node)}
-                                      type="button"
-                                      onClick={() => handleSelectGraphNode(node)}
-                                    >
-                                      {node.label}
-                                    </button>
-                                  </span>
-                                ))
-                              )
-                            ) : (
-                              <span className="status-chip status-muted recall-graph-focus-trail-empty" role="listitem">
-                                Select nodes to build a recent path.
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {graphPathSelectionActive ? (
-                          <div className="recall-graph-focus-rail-actions">
-                            {graphPathSelectionReady && !graphPathResultActive ? (
-                              <button type="button" onClick={handleFindGraphPath}>
-                                Find path
-                              </button>
-                            ) : null}
-                            <button className="ghost-button" type="button" onClick={handleClearGraphPathSelection}>
-                              Clear selection
-                            </button>
-                          </div>
-                        ) : graphSelectedNodeSourceDocumentId || selectedNodeId ? (
-                          <div className="recall-graph-focus-rail-actions">
-                            {graphJumpBackNode ? (
-                              <button className="ghost-button" type="button" onClick={handleJumpBackGraphFocus}>
-                                Jump back
-                              </button>
-                            ) : null}
-                            {graphSelectedNodeSourceDocumentId && selectedNodeId ? (
-                              <button
-                                className="ghost-button"
-                                type="button"
-                                onClick={() => focusSourceGraph(graphSelectedNodeSourceDocumentId, selectedNodeId)}
-                              >
-                                Focus source
-                              </button>
-                            ) : null}
-                            {graphSelectedNodeSourceDocumentId ? (
-                              <button
-                                className="ghost-button"
-                                type="button"
-                                onClick={() => handleOpenMentionInReader(graphSelectedNodeSourceDocumentId)}
-                              >
-                                Open source
-                              </button>
-                            ) : null}
-                            {selectedNodeId ? (
-                              <button className="ghost-button" type="button" onClick={handleClearGraphFocus}>
-                                Clear focus
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
+                  {graphTourVisible ? (
+                    <GraphBrowseTour
+                      currentStep={graphTourStep ?? 0}
+                      onBack={handleRewindGraphTour}
+                      onClose={handleCloseGraphTour}
+                      onNext={handleAdvanceGraphTour}
+                      totalSteps={graphBrowseTourStepCount}
+                    />
+                  ) : null}
                 </div>
                 {renderBrowseGraphDetailDock()}
               </div>
@@ -10594,9 +10706,9 @@ export function RecallWorkspace({
       studyStatus === 'error'
         ? 'Reconnect the local service to reload study cards and review state.'
         : activeStudyCard
-          ? 'Keep one active review lane in motion while queue and grounding stay docked instead of framing the whole page.'
+          ? 'Review one grounded question at a time. Open Questions only when you need to switch cards or filters.'
           : studyCards.length > 0
-            ? 'Choose one grounded card, then keep queue changes and supporting evidence in the side dock.'
+            ? 'Choose one grounded card, then keep questions and supporting evidence nearby instead of turning Study into a dashboard.'
             : 'Generate or promote a grounded card to begin a calmer review flow.'
     const studyWorkspaceNote =
       studyStatus === 'error'
@@ -10605,15 +10717,55 @@ export function RecallWorkspace({
           (studyCards.length > 0 ? collapsedStudyQueueOverview : 'No active card yet')
     const queuePreviewCards = studyCards.filter((card) => card.id !== activeStudyCard?.id).slice(0, 2)
     const studySessionActiveStep =
-      studyStatus === 'error' || !activeStudyCard ? 'queue' : showAnswer ? 'rate' : 'recall'
-    const studySessionSummary =
+      studyStatus === 'error' || studyQuestionsViewOpen || !activeStudyCard ? 'questions' : showAnswer ? 'rate' : 'recall'
+    const studyDashboardTitle =
       studyStatus === 'error'
-        ? 'Reconnect the local service to restore the review flow.'
+        ? 'Study needs the local service'
         : activeStudyCard
-          ? `Up next ${collapsedStudyQueueOverview} while grounded ${browseStudyEvidenceSummary.toLowerCase()} stays nearby.`
+          ? 'Keep the next grounded review moving.'
           : studyCards.length > 0
-            ? 'Choose one grounded card, recall the answer, then rate the result without leaving this workspace.'
-            : 'Generate or promote one grounded card to begin the review flow.'
+            ? 'Start the next grounded review.'
+            : 'Build your first grounded question.'
+    const studyDashboardMetrics = [
+      {
+        detail: studyOverview?.due_count ? 'Needs review now' : 'Nothing due right now',
+        emphasis: Boolean(studyOverview?.due_count),
+        label: 'Ready now',
+        value: studyOverview ? String(studyOverview.due_count) : '—',
+      },
+      {
+        detail: studyOverview?.new_count ? 'Fresh prompts available' : 'No new prompts queued',
+        emphasis: Boolean(studyOverview?.new_count),
+        label: 'New',
+        value: studyOverview ? String(studyOverview.new_count) : '—',
+      },
+      {
+        detail: studyNextReviewLabel,
+        emphasis: false,
+        label: 'Scheduled',
+        value: studyOverview ? String(studyOverview.scheduled_count) : '—',
+      },
+      {
+        detail: studyStatus === 'error' ? 'Retry needed' : 'Review activity logged locally',
+        emphasis: false,
+        label: 'Logged',
+        value: studyOverview ? String(studyOverview.review_event_count) : '—',
+      },
+    ] as const
+    const studyDashboardCurrentLabel =
+      studyStatus === 'error'
+        ? 'Reconnect local study service'
+        : studyQuestionsViewOpen
+          ? 'Questions are open'
+          : activeStudyCard
+            ? 'Current review'
+            : 'Next step'
+    const studyDashboardCurrentSummary =
+      studyStatus === 'error'
+        ? 'Reconnect the local service to restore questions, evidence, and review state.'
+        : activeStudyCard
+          ? `${activeStudyCard.document_title} · ${formatStudyStatus(activeStudyCard.status)} · ${browseStudyEvidenceSummary}`
+          : 'Generate or promote one grounded card to start reviewing here.'
 
     return (
       <div
@@ -10623,64 +10775,80 @@ export function RecallWorkspace({
             : 'recall-study-workspace stack-gap'
         }
       >
-        <section className="card recall-study-stage-shell priority-surface-stage-shell">
-          <div className="recall-study-stage-shell-copy">
+        <section className="card recall-study-dashboard-shell priority-surface-stage-shell" aria-label="Study workspace header">
+          <div className="recall-study-header-copy">
             <div className="reader-stage-kicker-row">
               <span className="status-chip recall-study-stage-badge">{studyWorkspaceBadge}</span>
-              <span className="recall-study-stage-note">{studyWorkspaceNote}</span>
+              <span className="recall-study-stage-note">Review dashboard</span>
             </div>
-            <div className="recall-study-stage-heading">
-              <h2>Study</h2>
+            <div className="recall-study-header-heading">
+              <h2>{studyDashboardTitle}</h2>
               <p>{studyWorkspaceSummary}</p>
-            </div>
-            <div className="recall-study-session-strip" aria-label="Study review flow">
-              <div className="recall-study-session-strip-copy">
-                <span className="recall-study-session-strip-kicker">Review flow</span>
-                <span className="recall-study-session-strip-summary">{studySessionSummary}</span>
-              </div>
-              <div className="recall-study-session-progress" role="list" aria-label="Study review steps">
-                <span
-                  className={
-                    studySessionActiveStep === 'queue'
-                      ? 'recall-study-session-step recall-study-session-step-active'
-                      : 'recall-study-session-step'
-                  }
-                  role="listitem"
-                >
-                  Queue
-                </span>
-                <span
-                  className={
-                    studySessionActiveStep === 'recall'
-                      ? 'recall-study-session-step recall-study-session-step-active'
-                      : 'recall-study-session-step'
-                  }
-                  role="listitem"
-                >
-                  Recall
-                </span>
-                <span
-                  className={
-                    studySessionActiveStep === 'rate'
-                      ? 'recall-study-session-step recall-study-session-step-active'
-                      : 'recall-study-session-step'
-                  }
-                  role="listitem"
-                >
-                  Rate
-                </span>
-              </div>
             </div>
           </div>
 
-          <div className="recall-study-stage-actions">
-            <div className="reader-meta-row" role="list" aria-label="Study workspace summary">
-              <span className="status-chip reader-meta-chip" role="listitem">{studyCountLabel}</span>
-              <span className="status-chip reader-meta-chip" role="listitem">{studyDueCountLabel}</span>
-              <span className="status-chip reader-meta-chip" role="listitem">{studyReviewCountLabel}</span>
-              {activeStudyCard ? (
-                <span className="status-chip reader-meta-chip" role="listitem">{activeStudyCard.card_type}</span>
-              ) : null}
+          <div className="recall-study-dashboard-grid" role="list" aria-label="Study dashboard metrics">
+            {studyDashboardMetrics.map((metric) => (
+              <div
+                key={metric.label}
+                className={
+                  metric.emphasis
+                    ? 'recall-study-dashboard-metric recall-study-dashboard-metric-emphasis'
+                    : 'recall-study-dashboard-metric'
+                }
+                role="listitem"
+              >
+                <span className="recall-study-dashboard-metric-label">{metric.label}</span>
+                <strong>{metric.value}</strong>
+                <span>{metric.detail}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="recall-study-dashboard-current" aria-label="Current review summary">
+            <div className="recall-study-dashboard-current-copy">
+              <span className="recall-study-dashboard-current-kicker">{studyDashboardCurrentLabel}</span>
+              <strong>{activeStudyCard?.prompt ?? studyWorkspaceNote}</strong>
+              <span>{studyDashboardCurrentSummary}</span>
+            </div>
+            <div className="recall-study-dashboard-current-actions">
+              <div className="recall-study-mode-toggle" aria-label="Study views" role="tablist">
+                <button
+                  aria-selected={!studyQuestionsViewOpen}
+                  className={
+                    !studyQuestionsViewOpen
+                      ? 'recall-study-mode-toggle-button recall-study-mode-toggle-button-active'
+                      : 'recall-study-mode-toggle-button'
+                  }
+                  role="tab"
+                  type="button"
+                  onClick={() => setBrowseDrawerOpen('study', false)}
+                >
+                  Review
+                </button>
+                <button
+                  aria-selected={studyQuestionsViewOpen}
+                  className={
+                    studyQuestionsViewOpen
+                      ? 'recall-study-mode-toggle-button recall-study-mode-toggle-button-active'
+                      : 'recall-study-mode-toggle-button'
+                  }
+                  role="tab"
+                  type="button"
+                  onClick={() => setBrowseDrawerOpen('study', true)}
+                >
+                  Questions
+                </button>
+              </div>
+              <button
+                aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
+                className="ghost-button recall-study-dashboard-refresh"
+                disabled={studyBusyKey === 'generate'}
+                type="button"
+                onClick={handleGenerateStudyCards}
+              >
+                {studyBusyKey === 'generate' ? 'Refreshing…' : 'Refresh'}
+              </button>
             </div>
           </div>
         </section>
@@ -10694,13 +10862,42 @@ export function RecallWorkspace({
         >
           <section className="card stack-gap recall-study-card recall-study-review-stage">
             <div className="toolbar recall-collection-toolbar recall-study-review-toolbar">
-              <div className="section-header section-header-compact recall-study-review-heading">
-                <h2>Review card</h2>
+              <div className="section-header section-header-compact recall-study-review-heading recall-study-review-heading-row">
+                <h2>Review</h2>
                 <p>
                   {activeStudyCard
-                    ? 'Keep the prompt, reveal, answer, and rating together in one continuous review lane.'
-                    : 'Choose a grounded card from the queue dock to start reviewing here.'}
+                    ? 'Keep recall, reveal, answer, and rating together in one uninterrupted review lane.'
+                    : 'Choose one grounded question from Questions to start reviewing here.'}
                 </p>
+              </div>
+              <div className="recall-study-review-flow" aria-label="Study review flow">
+                <span
+                  className={
+                    studySessionActiveStep === 'questions'
+                      ? 'recall-study-review-flow-step recall-study-review-flow-step-active'
+                      : 'recall-study-review-flow-step'
+                  }
+                >
+                  Questions
+                </span>
+                <span
+                  className={
+                    studySessionActiveStep === 'recall'
+                      ? 'recall-study-review-flow-step recall-study-review-flow-step-active'
+                      : 'recall-study-review-flow-step'
+                  }
+                >
+                  Recall
+                </span>
+                <span
+                  className={
+                    studySessionActiveStep === 'rate'
+                      ? 'recall-study-review-flow-step recall-study-review-flow-step-active'
+                      : 'recall-study-review-flow-step'
+                  }
+                >
+                  Rate
+                </span>
               </div>
               {activeStudyCard ? (
                 <div className="recall-hero-metrics recall-study-review-metrics" role="list" aria-label="Study card metadata">
@@ -10734,7 +10931,8 @@ export function RecallWorkspace({
               >
                 <div className="recall-study-review-glance">
                   <div className="recall-study-review-glance-copy">
-                    <strong>{activeStudyCard.prompt}</strong>
+                    <span className="recall-study-review-glance-kicker">Current question</span>
+                    <strong>{activeStudyCard.document_title}</strong>
                     <span>{activeStudyCardSidebarSummary}</span>
                   </div>
                   <div className="recall-study-review-glance-meta">
@@ -10804,17 +11002,21 @@ export function RecallWorkspace({
                 <>
                   <div className="toolbar recall-study-queue-dock-toolbar">
                     <div className="section-header section-header-compact recall-study-dock-heading">
-                      <h3>Study queue</h3>
-                      <p>Open the full queue only when you want to change cards or filters.</p>
+                      <h3>{studyStatus === 'error' ? 'Study queue' : 'Questions'}</h3>
+                      <p>
+                        {studyStatus === 'error'
+                          ? 'Reconnect the local service to restore questions and review state.'
+                          : 'Switch questions or filters here, then return to Review.'}
+                      </p>
                     </div>
-                    <div className="recall-actions recall-actions-inline">
+                    <div className="recall-study-dock-controls">
                       <button
-                        aria-label={studyBrowseDrawerOpen ? 'Hide queue' : 'Show queue'}
-                        className="ghost-button"
+                        aria-label="Return to review"
+                        className="ghost-button recall-study-return-button"
                         type="button"
-                        onClick={() => setBrowseDrawerOpen('study', !studyBrowseDrawerOpen)}
+                        onClick={() => setBrowseDrawerOpen('study', false)}
                       >
-                        {studyBrowseDrawerOpen ? 'Hide queue' : 'Show queue'}
+                        Review
                       </button>
                       <button
                         aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
@@ -10828,7 +11030,7 @@ export function RecallWorkspace({
                     </div>
                   </div>
 
-                  <div className="recall-study-queue-dock-summary" aria-label="Active study queue summary">
+                  <div className="recall-study-queue-dock-summary" aria-label="Current question queue summary">
                     <strong>{activeStudyCard?.prompt ?? 'No active card yet'}</strong>
                     <span>{activeStudyCardSidebarSummary}</span>
                   </div>
@@ -10904,7 +11106,7 @@ export function RecallWorkspace({
                           type="button"
                           onClick={() => setStudyQueueExpanded((current) => !current)}
                         >
-                          {studyQueueExpanded ? 'Show fewer cards' : `Show all ${studyCards.length} cards`}
+                          {studyQueueExpanded ? 'Show fewer questions' : `Show all ${studyCards.length} questions`}
                         </button>
                       ) : null}
                     </>
@@ -10914,13 +11116,13 @@ export function RecallWorkspace({
                 <>
                   {renderCollapsedStudySupportStrip()}
                   {queuePreviewCards.length > 0 ? (
-                    <div className="recall-study-queue-preview-list" role="list" aria-label="Upcoming study cards">
+                    <div className="recall-study-queue-preview-list" role="list" aria-label="Upcoming questions">
                       {queuePreviewCards.map((card) => renderStudyQueuePreviewRow(card))}
                     </div>
                   ) : (
                     <div className="recall-study-queue-preview-empty">
-                      <strong>No secondary cards yet</strong>
-                      <span>Generate or promote more cards to keep the queue moving after this review.</span>
+                      <strong>No supporting questions yet</strong>
+                      <span>Generate or promote more grounded cards to keep the next review ready.</span>
                     </div>
                   )}
                 </>
@@ -10933,11 +11135,11 @@ export function RecallWorkspace({
             >
               <div className="toolbar recall-study-evidence-dock-toolbar">
                 <div className="section-header section-header-compact recall-study-dock-heading">
-                  <h3>{browseStudyEvidenceExpanded ? 'Supporting evidence' : 'Grounding'}</h3>
+                  <h3>{browseStudyEvidenceExpanded ? 'Evidence' : 'Grounding'}</h3>
                   <p>
                     {browseStudyEvidenceExpanded
-                      ? 'Keep one grounded excerpt nearby before reopening Reader or logging the next review.'
-                      : 'Keep the supporting source docked here instead of turning the review lane into another dashboard.'}
+                      ? 'Keep one grounded excerpt nearby before reopening Reader or recording the next review.'
+                      : 'Keep one source reminder nearby without breaking the review flow.'}
                   </p>
                 </div>
                 {focusedStudySourceSpan ? (
@@ -11036,10 +11238,12 @@ export function RecallWorkspace({
     emptyStateClassName = 'recall-surface-state',
     emptyStateMessage,
     filtersClassName = 'recall-collection-filters',
+    rowVariant = 'desktop',
   }: {
     emptyStateClassName?: string
     emptyStateMessage?: string
     filtersClassName?: string
+    rowVariant?: 'desktop' | 'focused'
   }) {
     return (
       <>
@@ -11061,7 +11265,7 @@ export function RecallWorkspace({
           </label>
 
           <label className="field recall-inline-field">
-            <span>Search notes</span>
+            <span>Search notebook</span>
             <input
               type="search"
               placeholder="Search highlights or note text"
@@ -11076,7 +11280,7 @@ export function RecallWorkspace({
         <div className="recall-document-list recall-notes-browser-list" role="list">
           {documentsStatus === 'error' ? (
             <div className="recall-surface-state stack-gap">
-              <p>Notes are unavailable until the local library reconnects.</p>
+              <p>Notebook is unavailable until the local library reconnects.</p>
               <div className="inline-actions">
                 <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
                   Retry loading
@@ -11084,7 +11288,7 @@ export function RecallWorkspace({
               </div>
             </div>
           ) : null}
-          {documentsStatus !== 'error' && notesLoading ? <p className="small-note">Loading notes…</p> : null}
+          {documentsStatus !== 'error' && notesLoading ? <p className="small-note">Loading notebook…</p> : null}
           {documentsStatus !== 'error' && !showingNoteSearch && notesStatus === 'error' ? (
             <div className="recall-surface-state stack-gap">
               <p>{notesError}</p>
@@ -11117,47 +11321,60 @@ export function RecallWorkspace({
               <p>
                 {emptyStateMessage ??
                   (showingNoteSearch
-                    ? 'No notes match that query in the selected document.'
-                    : 'No notes for this document yet. Add one from Reader to save a local source-linked highlight.')}
+                    ? 'No notebook notes match that query in the selected document.'
+                    : 'No notebook notes for this document yet. Add one from Reader to save a local source-linked highlight.')}
               </p>
             </div>
           ) : null}
 
-          {visibleNotes.map((note) => (
-            <button
-              key={note.id}
-              aria-pressed={activeNote?.id === note.id}
-              className={
-                activeNote?.id === note.id
-                  ? 'recall-document-item recall-document-item-compact recall-document-item-active'
-                  : 'recall-document-item recall-document-item-compact'
-              }
-              type="button"
-              onClick={() =>
-                updateNotesState((current) => ({
-                  ...current,
-                  selectedNoteId: note.id,
-                }))
-              }
-            >
-              <span className="recall-collection-row-head">
-                <span className="recall-document-title">{note.anchor.anchor_text}</span>
-                <span className="recall-document-meta">{dateFormatter.format(new Date(note.updated_at))}</span>
-              </span>
-              <span className="recall-collection-row-preview">{getNoteRowPreview(note)}</span>
-              <span className="recall-collection-row-meta">
-                <span className="status-chip reader-meta-chip">
-                  {getNoteDocumentTitle(note, documentTitleById, selectedNotesDocumentTitle)}
+          {visibleNotes.map((note) => {
+            const noteSentenceCount =
+              (note.anchor.global_sentence_end ?? note.anchor.sentence_end) -
+              (note.anchor.global_sentence_start ?? note.anchor.sentence_start) +
+              1
+            const noteDocumentLabel = getNoteDocumentTitle(note, documentTitleById, selectedNotesDocumentTitle)
+            const noteHasBodyText = Boolean(note.body_text?.trim())
+
+            return (
+              <button
+                key={note.id}
+                aria-pressed={activeNote?.id === note.id}
+                className={
+                  activeNote?.id === note.id
+                    ? `recall-document-item recall-document-item-compact recall-document-item-active recall-note-browser-row recall-note-browser-row-${rowVariant}`
+                    : `recall-document-item recall-document-item-compact recall-note-browser-row recall-note-browser-row-${rowVariant}`
+                }
+                data-note-browser-row-kind="library-note"
+                type="button"
+                onClick={() =>
+                  updateNotesState((current) => ({
+                    ...current,
+                    selectedNoteId: note.id,
+                  }))
+                }
+              >
+                <span className="recall-note-browser-row-kicker">
+                  <span className="status-chip recall-note-browser-row-badge">
+                    {noteHasBodyText ? 'Personal note' : 'Reader anchor'}
+                  </span>
+                  <span className="recall-note-browser-row-source">{noteDocumentLabel}</span>
                 </span>
-                <span className="status-chip reader-meta-chip">
-                  {(note.anchor.global_sentence_end ?? note.anchor.sentence_end) -
-                    (note.anchor.global_sentence_start ?? note.anchor.sentence_start) +
-                    1}{' '}
-                  sentences
+                <span className="recall-note-browser-row-head">
+                  <span className="recall-document-title">{note.anchor.anchor_text}</span>
+                  <span className="recall-document-meta">{dateFormatter.format(new Date(note.updated_at))}</span>
                 </span>
-              </span>
-            </button>
-          ))}
+                <span className="recall-note-browser-row-preview">{getNoteRowPreview(note)}</span>
+                <span className="recall-note-browser-row-meta">
+                  <span className="status-chip reader-meta-chip">
+                    {noteSentenceCount} {noteSentenceCount === 1 ? 'sentence' : 'sentences'}
+                  </span>
+                  <span className="status-chip reader-meta-chip">
+                    {noteHasBodyText ? 'Editable note' : 'Anchor ready'}
+                  </span>
+                </span>
+              </button>
+            )
+          })}
         </div>
       </>
     )
@@ -11167,20 +11384,20 @@ export function RecallWorkspace({
     const selectedSourceReady = Boolean(selectedNotesDocumentId && selectedNotesDocumentTitle)
     const emptyStateLead =
       documentsStatus === 'error'
-        ? 'Reconnect the local library to reopen saved note anchors here.'
+        ? 'Reconnect the local library to reopen saved notebook anchors here.'
         : selectedSourceReady
           ? showingNoteSearch
-            ? `Search is active for ${selectedNotesDocumentTitle}. Clear or refine it to reopen a saved note.`
+            ? `Search is active for ${selectedNotesDocumentTitle}. Clear or refine it to reopen a notebook note.`
             : `${selectedNotesCountLabel} stay local to ${selectedNotesDocumentTitle} and open here when you need to edit, reopen, or promote them.`
-          : 'Choose one saved source on the left to make note browsing and note detail primary here.'
+          : 'Choose one saved source on the left to make notebook browsing and note detail primary here.'
     const emptyStateFooter =
       documentsStatus === 'error'
         ? 'Reader handoff, note search, and promotion all stay available again once the local service reconnects.'
         : showingNoteSearch
           ? 'Try another phrase or clear the search to return to the broader saved note stream.'
           : selectedSourceReady
-            ? 'Capture the next highlight from Reader when you want to turn another passage into an editable local note.'
-            : 'Once a source is selected, saved note anchors, note text, and promotion tools stay together in this workspace.'
+            ? 'Capture the next highlight from Reader when you want to turn another passage into an editable notebook note.'
+            : 'Once a source is selected, saved notebook anchors, note text, and promotion tools stay together in this workspace.'
     const emptyStateActionLead =
       documentsStatus === 'error'
         ? 'Retry once the local library reconnects, then reopen the saved anchor here.'
@@ -11197,15 +11414,15 @@ export function RecallWorkspace({
           : 'After a source is selected, search, anchored reopen, and note editing stay together in one calmer workspace.'
 
     return (
-      <div className="recall-note-empty-stage stack-gap">
-        <div className="recall-note-empty-hero">
+      <div className="recall-note-empty-stage recall-note-empty-stage-stage698 stack-gap">
+        <div className="recall-note-empty-hero recall-note-empty-hero-stage698">
           <div className="recall-note-empty-hero-copy">
             <div className="reader-stage-kicker-row">
               <span className="status-chip recall-notes-stage-badge">
                 {selectedSourceReady ? 'Selected source' : 'Choose a source'}
               </span>
               <span className="recall-notes-stage-note">
-                {selectedSourceReady ? selectedNotesCountLabel : 'Notes workspace'}
+                {selectedSourceReady ? selectedNotesCountLabel : 'Notebook workspace'}
               </span>
             </div>
             <strong>{selectedNotesDocumentTitle ?? 'No active note yet'}</strong>
@@ -11220,7 +11437,7 @@ export function RecallWorkspace({
           ) : null}
         </div>
 
-        <div className="reader-meta-row recall-note-empty-meta" role="list" aria-label="Notes workspace status">
+        <div className="reader-meta-row recall-note-empty-meta" role="list" aria-label="Notebook workspace status">
           <span className="status-chip reader-meta-chip" role="listitem">
             {selectedNotesCountLabel}
           </span>
@@ -11232,12 +11449,12 @@ export function RecallWorkspace({
               ? 'Reconnect local library'
               : selectedSourceReady
                 ? 'Reader handoff nearby'
-                : 'Local-first notes'}
+                : 'Local-first notebook'}
           </span>
         </div>
 
-        <div className="recall-note-empty-guidance-grid">
-          <div className="recall-detail-panel recall-note-empty-guidance-card stack-gap">
+        <div className="recall-note-empty-guidance-grid recall-note-empty-guidance-grid-stage698">
+          <div className="recall-detail-panel recall-note-empty-guidance-card recall-note-empty-guidance-card-stage698 stack-gap">
             <div className="section-header section-header-compact">
               <h3>Ready for next note</h3>
               <p>{emptyStateActionLead}</p>
@@ -11249,9 +11466,9 @@ export function RecallWorkspace({
             </span>
           </div>
 
-          <div className="recall-detail-panel recall-note-empty-guidance-card recall-note-empty-guidance-card-quiet stack-gap">
+          <div className="recall-detail-panel recall-note-empty-guidance-card recall-note-empty-guidance-card-quiet recall-note-empty-guidance-card-stage698 stack-gap">
             <div className="section-header section-header-compact">
-              <h3>When a note is open</h3>
+              <h3>When a notebook note is open</h3>
               <p>{emptyStateFollowOn}</p>
             </div>
             <span className="recall-note-empty-guidance-meta">{emptyStateFooter}</span>
@@ -11261,7 +11478,13 @@ export function RecallWorkspace({
     )
   }
 
-  function renderActiveNoteDetailBody({ includeReaderDockAction = true }: { includeReaderDockAction?: boolean } = {}) {
+  function renderActiveNoteDetailBody({
+    includeReaderDockAction = true,
+    compactForFocusedSplit = false,
+  }: {
+    includeReaderDockAction?: boolean
+    compactForFocusedSplit?: boolean
+  } = {}) {
     if (!activeNote) {
       return null
     }
@@ -11271,9 +11494,28 @@ export function RecallWorkspace({
       activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
     )
     const noteDocumentTitle = getNoteDocumentTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)
+    const workbenchIntro = compactForFocusedSplit
+      ? 'Keep the saved anchor and editable note together here before you reopen Reader or promote it.'
+      : 'Keep the saved anchor and editable note together here while the broader notebook stream stays nearby.'
+    const previewLabel = compactForFocusedSplit ? 'Saved anchor' : 'Highlighted passage'
+    const previewIntro = compactForFocusedSplit
+      ? 'Use the anchored excerpt as the grounded reference for this note.'
+      : 'Use the saved anchor and nearby excerpt as the grounded reference for the note you keep here.'
+    const sourceHandoffIntro = compactForFocusedSplit
+      ? 'Reopen the source or Reader for surrounding context, then return here to keep editing.'
+      : 'Reopen the source or Reader when you need surrounding passage, then keep promotion as the separate next step.'
+    const promoteIntro = compactForFocusedSplit
+      ? 'Only branch into Graph or Study after the note and anchor feel stable.'
+      : 'Branch into Graph or Study only after the anchor and note text look stable enough to keep.'
 
     return (
-      <div className="recall-note-detail recall-note-detail-layout">
+      <div
+        className={
+          compactForFocusedSplit
+            ? 'recall-note-detail recall-note-detail-layout recall-note-detail-layout-compact'
+            : 'recall-note-detail recall-note-detail-layout'
+        }
+      >
         <div className="recall-note-detail-main stack-gap">
           <div className="reader-meta-row recall-note-detail-meta" role="list" aria-label="Selected note metadata">
             <span className="status-chip reader-meta-chip" role="listitem">
@@ -11287,23 +11529,26 @@ export function RecallWorkspace({
             </span>
           </div>
 
-          <div className="recall-detail-panel recall-note-workbench-card stack-gap">
+          <div className="recall-detail-panel recall-note-workbench-card recall-note-workbench-card-stage698 stack-gap">
             <div className="section-header section-header-compact">
               <h3>Note workbench</h3>
-              <p>Keep the anchor and editable note together here before you branch into Reader, Graph, or Study.</p>
+              <p>{workbenchIntro}</p>
             </div>
 
-            <div className="recall-note-workbench-grid">
-              <div className="recall-note-preview recall-note-preview-stage recall-note-workbench-preview">
+            <div
+              className="recall-note-workbench-grid recall-note-workbench-grid-stage698"
+              data-note-workbench-layout={compactForFocusedSplit ? 'stacked' : 'split'}
+            >
+              <div className="recall-note-preview recall-note-preview-stage recall-note-workbench-preview recall-note-workbench-preview-stage698">
                 <div className="section-header section-header-compact">
-                  <h3>Highlighted passage</h3>
-                  <p>Use the saved anchor and nearby excerpt as the grounded reference for the note you keep here.</p>
+                  <h3>{previewLabel}</h3>
+                  <p>{previewIntro}</p>
                 </div>
                 <p>{activeNote.anchor.anchor_text}</p>
                 <span>{activeNote.anchor.excerpt_text}</span>
               </div>
 
-              <div className="recall-note-workbench-editor stack-gap">
+              <div className="recall-note-workbench-editor recall-note-workbench-editor-stage698 stack-gap">
                 <label className="field recall-note-workbench-field">
                   <span>Note text</span>
                   <textarea
@@ -11330,10 +11575,10 @@ export function RecallWorkspace({
         </div>
 
         <aside className="recall-note-detail-dock stack-gap">
-          <div className="recall-detail-panel recall-note-dock-card stack-gap">
+          <div className="recall-detail-panel recall-note-dock-card recall-note-dock-card-stage698 stack-gap">
             <div className="section-header section-header-compact">
               <h3>Source handoff</h3>
-              <p>Reopen the source or Reader when you need surrounding passage, then keep promotion as the separate next step.</p>
+              <p>{sourceHandoffIntro}</p>
             </div>
             <div className="reader-meta-row recall-note-detail-meta" role="list" aria-label="Note source summary">
               <span className="status-chip reader-meta-chip" role="listitem">
@@ -11367,10 +11612,10 @@ export function RecallWorkspace({
             </div>
           </div>
 
-          <div className="recall-detail-panel stack-gap recall-note-promotion-card recall-note-promotion-dock">
+          <div className="recall-detail-panel stack-gap recall-note-promotion-card recall-note-promotion-card-stage698 recall-note-promotion-dock">
             <div className="section-header section-header-compact">
               <h3>Promote note</h3>
-              <p>Branch into Graph or Study only after the anchor and note text look stable enough to keep.</p>
+              <p>{promoteIntro}</p>
             </div>
             <div className="recall-stage-tabs" aria-label="Note promotion" role="tablist">
               <button
@@ -11485,22 +11730,22 @@ export function RecallWorkspace({
           className={
             notesBrowseDrawerOpen
               ? showFocusedNotesDrawerOpenEmptyState
-                ? 'card recall-collection-rail recall-collection-rail-condensed stack-gap recall-source-side-rail recall-notes-focus-rail recall-notes-focus-rail-drawer-empty'
-                : 'card recall-collection-rail stack-gap'
+                ? 'card recall-collection-rail recall-collection-rail-condensed stack-gap recall-source-side-rail recall-notes-focus-rail recall-notes-focus-rail-stage698 recall-notes-focus-rail-drawer-empty'
+                : 'card recall-collection-rail stack-gap recall-source-side-rail recall-notes-focus-rail recall-notes-focus-rail-stage698'
               : showFocusedNotesEmptyDetailLane
-                ? 'card recall-collection-rail recall-collection-rail-condensed stack-gap recall-source-side-rail recall-notes-focus-rail recall-notes-focus-rail-empty'
-                : 'card recall-collection-rail recall-collection-rail-condensed stack-gap recall-source-side-rail recall-notes-focus-rail'
+                ? 'card recall-collection-rail recall-collection-rail-condensed stack-gap recall-source-side-rail recall-notes-focus-rail recall-notes-focus-rail-stage698 recall-notes-focus-rail-empty'
+                : 'card recall-collection-rail recall-collection-rail-condensed stack-gap recall-source-side-rail recall-notes-focus-rail recall-notes-focus-rail-stage698'
           }
         >
           <div className="toolbar recall-collection-toolbar">
             <div className="section-header section-header-compact">
-              <h2>Notes</h2>
+              <h2>Notebook</h2>
               <p>
                 {showFocusedNotesDrawerOpenEmptyState
-                  ? 'Browse saved notes for this source.'
+                  ? 'Browse notebook notes for this source.'
                   : showFocusedNotesEmptyDetailLane
-                    ? 'Browse saved notes without losing the live reading view.'
-                    : 'Search and manage source-linked highlights captured from Reader in reflowed view.'}
+                    ? 'Keep source-linked notes nearby without losing the live reading view.'
+                    : 'Keep this source notebook nearby while the note workbench stays attached to Reader.'}
               </p>
             </div>
             <button className="ghost-button" type="button" onClick={() => setBrowseDrawerOpen('notes', !notesBrowseDrawerOpen)}>
@@ -11514,20 +11759,21 @@ export function RecallWorkspace({
                 showFocusedNotesDrawerOpenEmptyState ? 'recall-surface-state recall-notes-browse-empty-state' : 'recall-surface-state',
               emptyStateMessage:
                 showFocusedNotesDrawerOpenEmptyState && !showingNoteSearch
-                  ? 'No saved notes yet. Add one from Reader to keep it here.'
+                  ? 'No notebook notes yet. Add one from Reader to keep it here.'
                   : undefined,
               filtersClassName:
                 showFocusedNotesDrawerOpenEmptyState
                   ? 'recall-collection-filters recall-notes-browse-empty-filters'
                   : 'recall-collection-filters',
+              rowVariant: 'focused',
             })
           ) : (
             <div className="recall-browse-drawer-summary stack-gap">
               <div
                 className={
                   showFocusedNotesEmptyDetailLane
-                    ? 'recall-detail-panel recall-browse-summary-card recall-note-summary-card recall-note-summary-card-empty'
-                    : 'recall-detail-panel recall-browse-summary-card recall-note-summary-card'
+                    ? 'recall-detail-panel recall-browse-summary-card recall-note-summary-card recall-note-summary-card-stage698 recall-note-summary-card-empty'
+                    : 'recall-detail-panel recall-browse-summary-card recall-note-summary-card recall-note-summary-card-stage698'
                 }
               >
                 <strong>{activeNote?.anchor.anchor_text ?? selectedNotesDocumentTitle ?? 'No active note yet'}</strong>
@@ -11536,9 +11782,9 @@ export function RecallWorkspace({
                     ? activeNote.body_text?.trim() || activeNote.anchor.excerpt_text
                     : selectedNotesDocumentTitle
                       ? showFocusedNotesEmptyDetailLane
-                        ? sourceWorkspaceNoteCountLabel
+                      ? sourceWorkspaceNoteCountLabel
                         : `${sourceWorkspaceNoteCountLabel} for ${selectedNotesDocumentTitle}.`
-                      : 'Choose a source to inspect its saved notes.'}
+                      : 'Choose a source to inspect its notebook notes.'}
                 </span>
                 {showFocusedNotesEmptyDetailLane ? (
                   <span className="recall-note-empty-detail-hint">
@@ -11546,7 +11792,7 @@ export function RecallWorkspace({
                       ? 'Note detail returns after the note index reconnects.'
                       : sourceWorkspaceNotes.length > 0
                         ? 'Select a saved note to open detail.'
-                        : 'Save a note from Reader to open detail here.'}
+                      : 'Save a note from Reader to open detail here.'}
                   </span>
                 ) : null}
                 {activeNote ? (
@@ -11561,7 +11807,7 @@ export function RecallWorkspace({
                 {showFocusedNotesEmptyDetailLane ? null : (
                   <div className="recall-actions recall-actions-inline">
                     <button className="ghost-button" type="button" onClick={() => setBrowseDrawerOpen('notes', true)}>
-                      Browse notes
+                      Browse notebook
                     </button>
                   </div>
                 )}
@@ -11583,23 +11829,23 @@ export function RecallWorkspace({
           <section
             className={
               showFocusedNotesEmptyDetailLane
-                ? 'card stack-gap recall-source-secondary-panel recall-note-detail-panel recall-note-detail-panel-empty'
+                ? 'card stack-gap recall-source-secondary-panel recall-note-detail-panel recall-note-detail-panel-stage698 recall-note-detail-panel-empty'
                 : showFocusedNotesDrawerOpenEmptyDetailPanel
-                  ? 'card stack-gap recall-source-secondary-panel recall-note-detail-panel recall-note-detail-panel-drawer-empty'
-                  : 'card stack-gap recall-source-secondary-panel recall-note-detail-panel'
+                  ? 'card stack-gap recall-source-secondary-panel recall-note-detail-panel recall-note-detail-panel-stage698 recall-note-detail-panel-drawer-empty'
+                  : 'card stack-gap recall-source-secondary-panel recall-note-detail-panel recall-note-detail-panel-stage698'
             }
           >
-            <div className="toolbar">
+            <div className="toolbar recall-note-detail-panel-toolbar-stage698">
               <div className="section-header section-header-compact">
                 <h2>Note detail</h2>
                 <p>
                   {activeNote
-                    ? 'Edit the saved note, inspect the anchor, and branch into graph or study when it helps.'
+                    ? 'Edit the saved note, inspect the anchor, and only branch out once the note is stable.'
                     : showFocusedNotesDrawerOpenEmptyDetailPanel
                       ? 'Select a saved note.'
                       : showFocusedNotesDrawerOpenEmptyState
                         ? 'Select a note to inspect its anchor.'
-                        : 'Choose a note to inspect its anchored passage.'}
+                        : 'Choose a note to open its anchored passage.'}
                 </p>
               </div>
               {activeNote ? (
@@ -11626,7 +11872,10 @@ export function RecallWorkspace({
                 No active note yet.
               </p>
             ) : (
-              renderActiveNoteDetailBody({ includeReaderDockAction: false })
+              renderActiveNoteDetailBody({
+                includeReaderDockAction: false,
+                compactForFocusedSplit: showFocusedNotesSplitView,
+              })
             )}
           </section>
         </div>
@@ -11636,32 +11885,32 @@ export function RecallWorkspace({
 
   function renderDesktopNotesSection() {
     const notesWorkspaceSummary = activeNote
-      ? 'Keep one saved anchor editable here while the broader note stream stays nearby.'
+      ? 'Keep one saved note active here while the rest of the notebook stays nearby.'
       : selectedNotesDocumentTitle
-        ? 'Keep one source and its note stream together so the next saved note can take over the main workbench.'
-        : 'Choose one source, search its saved highlights, and let the next note take over a calmer main workbench.'
+        ? 'Keep this source stream nearby so the next saved note can take over the main workbench.'
+        : 'Pick one saved source, search its notes, and let the next note take over the main workbench.'
     const notesWorkspaceBadge =
       documentsStatus === 'error'
-        ? 'Notes unavailable'
+        ? 'Notebook unavailable'
         : activeNote
           ? 'Current note'
           : selectedNotesDocumentTitle
             ? 'Selected source'
-            : 'Notes workspace'
+            : 'Notebook workspace'
     const notesBrowseSummary =
       documentsStatus === 'error'
-        ? 'Reconnect the local library to reopen source-linked notes here.'
+        ? 'Reconnect the local library to reopen source-linked notebook notes here.'
         : activeNote
           ? getNoteRowPreview(activeNote)
           : selectedNotesDocumentTitle
             ? showingNoteSearch
-              ? `${selectedNotesCountLabel} in ${selectedNotesDocumentTitle}. Clear the query to return to the full saved-note stream.`
+              ? `${selectedNotesCountLabel} in ${selectedNotesDocumentTitle}. Clear the query to return to the full notebook stream.`
               : `${selectedNotesCountLabel} for ${selectedNotesDocumentTitle}. Open one anchored note when it deserves the main workbench.`
-            : 'Pick a saved source to keep its local note stream nearby.'
+            : 'Pick a saved source to keep its notebook stream nearby.'
 
     return (
-      <div className="recall-notes-workspace stack-gap">
-        <section className="card recall-notes-stage-shell priority-surface-stage-shell">
+      <div className="recall-notes-workspace recall-notes-workspace-stage698 stack-gap">
+        <section className="card recall-notes-stage-shell recall-notes-stage-shell-stage698 priority-surface-stage-shell">
           <div className="recall-notes-stage-shell-copy">
             <div className="reader-stage-kicker-row">
               <span className="status-chip recall-notes-stage-badge">{notesWorkspaceBadge}</span>
@@ -11670,18 +11919,18 @@ export function RecallWorkspace({
               </span>
             </div>
             <div className="recall-notes-stage-heading">
-              <h2>Notes</h2>
+              <h2>Notebook</h2>
               <p>{notesWorkspaceSummary}</p>
             </div>
           </div>
 
-          <div className="recall-notes-stage-actions">
-            <div className="reader-meta-row" role="list" aria-label="Notes workspace summary">
+          <div className="recall-notes-stage-actions recall-notes-stage-actions-stage698">
+            <div className="reader-meta-row recall-notes-stage-summary-stage698" role="list" aria-label="Notebook workspace summary">
               <span className="status-chip reader-meta-chip" role="listitem">
                 {selectedNotesCountLabel}
               </span>
               <span className="status-chip reader-meta-chip" role="listitem">
-                {showingNoteSearch ? 'Search active' : 'Local-first notes'}
+                {showingNoteSearch ? 'Search active' : 'Local-first notebook'}
               </span>
               {activeNote ? (
                 <span className="status-chip reader-meta-chip" role="listitem">
@@ -11702,15 +11951,15 @@ export function RecallWorkspace({
           </div>
         </section>
 
-        <div className="recall-notes-stage-grid">
-          <section className="card recall-notes-browser-card stack-gap">
-            <div className="toolbar recall-notes-browser-toolbar">
+        <div className="recall-notes-stage-grid recall-notes-stage-grid-stage698">
+          <section className="card recall-notes-browser-card recall-notes-browser-card-stage698 stack-gap">
+            <div className="toolbar recall-notes-browser-toolbar recall-notes-browser-toolbar-stage698">
               <div className="section-header section-header-compact">
-                <h3>Browse notes</h3>
+                <h3>Browse notebook</h3>
                 <p>Keep one source stream visible, then let the main workbench take over when a saved note needs editing.</p>
               </div>
             </div>
-            <div className="recall-notes-browser-glance">
+            <div className="recall-notes-browser-glance recall-notes-browser-glance-stage698">
               <div className="reader-stage-kicker-row">
                 <span className="status-chip recall-notes-stage-badge">
                   {activeNote ? 'Active note' : selectedNotesDocumentTitle ? 'Selected source' : 'Choose a source'}
@@ -11719,7 +11968,7 @@ export function RecallWorkspace({
               </div>
               <strong>{activeNote?.anchor.anchor_text ?? selectedNotesDocumentTitle ?? 'Pick a saved source'}</strong>
               <p>{notesBrowseSummary}</p>
-              <div className="reader-meta-row recall-notes-browser-glance-meta" role="list" aria-label="Notes browse summary">
+              <div className="reader-meta-row recall-notes-browser-glance-meta" role="list" aria-label="Notebook browse summary">
                 <span className="status-chip reader-meta-chip" role="listitem">
                   {showingNoteSearch ? 'Search active' : 'Stream visible'}
                 </span>
@@ -11736,16 +11985,17 @@ export function RecallWorkspace({
             {renderNotesBrowseContent({
               emptyStateClassName: 'recall-surface-state recall-notes-browser-empty-state',
               filtersClassName: 'recall-collection-filters recall-notes-browser-filters',
+              rowVariant: 'desktop',
             })}
           </section>
 
-          <section className="card stack-gap recall-note-detail-panel recall-note-detail-stage">
-            <div className="toolbar recall-note-detail-toolbar">
+          <section className="card stack-gap recall-note-detail-panel recall-note-detail-stage recall-note-detail-stage698">
+            <div className="toolbar recall-note-detail-toolbar recall-note-detail-toolbar-stage698">
               <div className="section-header section-header-compact">
                 <h2>Note detail</h2>
                 <p>
                   {activeNote
-                    ? 'Edit one note in a stronger workbench, then branch into Reader, Graph, or Study only when the anchor is ready.'
+                    ? 'Edit one note in a stronger workbench, then branch into Reader, Graph, or Study only when it is ready.'
                     : 'Keep the selected source summary and next note handoff together here until one saved note takes over the workbench.'}
                 </p>
               </div>
@@ -11780,7 +12030,9 @@ export function RecallWorkspace({
       {studyMessage ? <p className="small-note">{studyMessage}</p> : null}
 
       {section === 'library' ? (
-        showFocusedLibraryOverview ? (
+        notebookSurfaceActive ? (
+          renderNotesSection()
+        ) : showFocusedLibraryOverview ? (
           <div
             className={
               libraryBrowseDrawerOpen
@@ -12143,16 +12395,6 @@ export function RecallWorkspace({
                               Clear search
                             </button>
                           )}
-                          {!homeOrganizerVisible ? (
-                            <button
-                              aria-label={homeOrganizerToggleLabel}
-                              className="ghost-button recall-home-browse-strip-tool"
-                              type="button"
-                              onClick={() => setHomeOrganizerVisible(true)}
-                            >
-                              Show organizer
-                            </button>
-                          ) : null}
                         </div>
                         {renderHomeCollectionManagementPanel()}
                       </div>
@@ -12174,7 +12416,7 @@ export function RecallWorkspace({
                   ) : null}
                   {!documentsLoading && documentsStatus !== 'error' && documents.length === 0 ? (
                     <div className="recall-library-inline-state">
-                      <p>Your Home is empty. Use New to add a source, then return here to reopen reading, notes, graph, and study work.</p>
+                      <p>Your Home is empty. Use Add to bring in a source, then return here to reopen reading, notes, graph, and study work.</p>
                     </div>
                   ) : null}
                   {!documentsLoading && documentsStatus !== 'error' && documents.length > 0 && visibleDocuments.length === 0 ? (
@@ -12191,15 +12433,29 @@ export function RecallWorkspace({
                       }
                       style={homeBrowserLayoutStyle}
                     >
-                      {homeOrganizerVisible ? (
-                        homeUsesStructuralParityStage563 ? (
-                          renderHomeStage563CollectionRail()
-                        ) : (
-                      <aside
-                        aria-label="Home browse strip"
-                        className="recall-home-browse-strip recall-home-browse-strip-organizer-control-reset recall-home-browse-strip-resizable-stage491-reset"
-                        style={homeOrganizerRailStyle}
-                      >
+                      {homeUsesStructuralParityStage563 ? (
+                        <HomeOrganizerPanelShell
+                          open={homeOrganizerVisible}
+                          resizing={homeOrganizerRailResizing}
+                          width={homeOrganizerRailWidth}
+                          onClose={() => {
+                            setHomeStage567RailMenuOpen(false)
+                            setHomeStage563SortMenuOpen(false)
+                            setHomeOrganizerVisible(false)
+                          }}
+                          onOpen={() => setHomeOrganizerVisible(true)}
+                          onResetWidth={handleResetHomeOrganizerRailWidth}
+                          onResizeKeyDown={handleHomeOrganizerRailResizeKeyDown}
+                          onStartResize={handleStartHomeOrganizerRailResize}
+                        >
+                          {renderHomeStage563CollectionRailBody()}
+                        </HomeOrganizerPanelShell>
+                      ) : homeOrganizerVisible ? (
+                        <aside
+                          aria-label="Home browse strip"
+                          className="recall-home-browse-strip recall-home-browse-strip-organizer-control-reset recall-home-browse-strip-resizable-stage491-reset"
+                          style={homeOrganizerRailStyle}
+                        >
                         <div className="recall-home-browse-strip-shell recall-home-browse-strip-shell-tag-tree-reset recall-home-browse-strip-shell-board-first-reset recall-home-browse-strip-shell-organizer-owned-reset recall-home-browse-strip-shell-unified-workbench-reset recall-home-browse-strip-shell-organizer-deck-reset recall-home-browse-strip-shell-organizer-header-reset recall-home-browse-strip-shell-stage502-reset priority-surface-support-rail priority-surface-support-rail-quiet">
                           <div className="recall-home-browse-strip-top recall-home-browse-strip-top-minimal-entry-reset recall-home-browse-strip-top-header-compression-reset recall-home-browse-strip-top-organizer-owned-reset recall-home-browse-strip-top-unified-workbench-reset recall-home-browse-strip-top-organizer-deck-reset recall-home-browse-strip-top-organizer-header-reset recall-home-browse-strip-top-stage502-reset">
                             <div className="recall-home-browse-strip-copy-stage502-reset">
@@ -12477,7 +12733,7 @@ export function RecallWorkspace({
                                       </span>
                                     ) : null}
                                   </span>
-                                  <span className="recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset recall-home-browse-overview-note-stage500-reset recall-home-browse-overview-note-stage507-reset recall-home-browse-group-note-stage504-reset recall-home-browse-group-note-stage507-reset">
+                                  <span className="recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset recall-home-browse-overview-note-stage500-reset recall-home-browse-overview-note-stage507-reset recall-home-browse-group-note-stage504-reset recall-home-browse-group-note-stage507-reset recall-home-browse-group-note-stage696-reset">
                                     {homeOverviewRowSummary}
                                   </span>
                                 </button>
@@ -12577,8 +12833,8 @@ export function RecallWorkspace({
                                         <span
                                           className={
                                             browseGroupDetailUsesSourceTone
-                                              ? 'recall-home-browse-group-source recall-home-browse-group-source-row-flatten-reset recall-home-browse-group-source-stage504-reset recall-home-browse-group-source-stage507-reset'
-                                              : 'recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset recall-home-browse-group-note-stage504-reset recall-home-browse-group-note-stage507-reset'
+                                              ? 'recall-home-browse-group-source recall-home-browse-group-source-row-flatten-reset recall-home-browse-group-source-stage504-reset recall-home-browse-group-source-stage507-reset recall-home-browse-group-source-stage696-reset'
+                                              : 'recall-home-browse-group-note recall-home-browse-group-note-row-flatten-reset recall-home-browse-group-note-stage504-reset recall-home-browse-group-note-stage507-reset recall-home-browse-group-note-stage696-reset'
                                           }
                                         >
                                           {browseGroupButtonDetail}
@@ -12712,8 +12968,7 @@ export function RecallWorkspace({
                         >
                           <span className="recall-home-browse-strip-resize-grip-stage491-reset" aria-hidden="true" />
                         </div>
-                      </aside>
-                        )
+                        </aside>
                       ) : null}
 
                       <div
@@ -12788,7 +13043,7 @@ export function RecallWorkspace({
                                       <div className="recall-home-stage-lane-header recall-home-stage-lane-header-board-top-reset recall-home-stage-lane-header-direct-board-reset recall-home-stage-lane-header-board-dominant-reset recall-home-stage-lane-header-results-sheet-reset recall-home-stage-lane-header-tree-branch-reset recall-home-stage-lane-header-direct-start-reset recall-home-stage-lane-header-stage513-reset">
                                         <div className="recall-home-library-stage-source recall-home-library-stage-source-stage513-reset">
                                           <h3>{homeSelectedGroupHeading}</h3>
-                                          <span className="recall-home-library-stage-source-summary-stage513-reset">
+                                          <span className="recall-home-library-stage-source-summary-stage513-reset recall-home-library-stage-source-summary-stage696-reset">
                                             {homeSelectedGroupSummary}
                                           </span>
                                         </div>
@@ -13099,7 +13354,7 @@ export function RecallWorkspace({
                     }
                   >
                     <button
-                      aria-label={studyBrowseDrawerOpen ? 'Hide queue' : 'Show queue'}
+                      aria-label={studyBrowseDrawerOpen ? 'Return to review' : 'Open questions'}
                       className={
                         showFocusedStudySplitView
                           ? 'ghost-button recall-study-focus-rail-button recall-study-focus-rail-button-queue'
@@ -13110,7 +13365,7 @@ export function RecallWorkspace({
                       type="button"
                       onClick={() => setBrowseDrawerOpen('study', !studyBrowseDrawerOpen)}
                     >
-                      {studyBrowseDrawerOpen ? 'Hide queue' : 'Queue'}
+                      {studyBrowseDrawerOpen ? 'Review' : 'Questions'}
                     </button>
                     <button
                       aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}

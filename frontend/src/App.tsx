@@ -25,6 +25,7 @@ import {
   shouldOpenRecallBrowseDrawerByDefault,
   type AppRoute,
   type AppSection,
+  type RecallLibrarySurface,
   type SourceWorkspaceTab,
   type WorkspaceDockContext,
   type WorkspaceDockTarget,
@@ -70,6 +71,10 @@ const defaultShellHero: WorkspaceHeroProps = {
   ],
 }
 
+function resolveVisibleRecallSection(section: RecallSection): Exclude<RecallSection, 'notes'> {
+  return section === 'notes' ? 'library' : section
+}
+
 function mapWorkspaceSectionToSourceTab(section: WorkspaceSection): SourceWorkspaceTab {
   if (section === 'library') {
     return 'overview'
@@ -84,10 +89,19 @@ function mapRecallSectionToSourceTab(section: RecallSection): SourceWorkspaceTab
   return section
 }
 
+function AddLauncherIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16">
+      <path d="M8 3.25v9.5M3.25 8h9.5" />
+    </svg>
+  )
+}
 
 export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseAppRoute(window.location))
-  const [activeRecallSection, setActiveRecallSection] = useState<RecallSection>(() => parseAppRoute(window.location).recallSection)
+  const [activeRecallSection, setActiveRecallSection] = useState<RecallSection>(() =>
+    resolveVisibleRecallSection(parseAppRoute(window.location).recallSection),
+  )
   const [recallContinuityState, setRecallContinuityState] = useState<RecallWorkspaceContinuityState>(
     defaultRecallWorkspaceContinuityState,
   )
@@ -108,6 +122,10 @@ export default function App() {
   const [supportChromeOpen, setSupportChromeOpen] = useState(false)
   const [recentItems, setRecentItems] = useState<WorkspaceRecentItem[]>([])
   const lastRecentItemKeyRef = useRef<string | null>(null)
+  const recallSnapshotBeforeReaderRef = useRef<{
+    continuityState: RecallWorkspaceContinuityState
+    section: RecallSection
+  } | null>(null)
   const deferredWorkspaceSearchQuery = useDeferredValue(workspaceSearchSession.query)
 
   useEffect(() => {
@@ -171,6 +189,30 @@ export default function App() {
     if (route.path !== 'recall') {
       return
     }
+    const recallSnapshot = recallSnapshotBeforeReaderRef.current
+    if (recallSnapshot) {
+      recallSnapshotBeforeReaderRef.current = null
+      setActiveRecallSection(recallSnapshot.section)
+      setRecallContinuityState(recallSnapshot.continuityState)
+      return
+    }
+    if (route.recallSection === 'notes') {
+      setActiveRecallSection('library')
+      setRecallContinuityState((current) => ({
+        ...current,
+        library: {
+          ...current.library,
+          activeSurface: 'notebook',
+        },
+        sourceWorkspace: {
+          ...current.sourceWorkspace,
+          activeDocumentId: current.notes.selectedDocumentId ?? current.sourceWorkspace.activeDocumentId,
+          activeTab: 'notes',
+          mode: 'browse',
+        },
+      }))
+      return
+    }
     setActiveRecallSection(route.recallSection)
   }, [route.path, route.recallSection])
 
@@ -197,6 +239,14 @@ export default function App() {
       sentenceStart?: number | null
     },
   ) => {
+    if (path === 'reader' && route.path === 'recall') {
+      recallSnapshotBeforeReaderRef.current = {
+        continuityState: recallContinuityState,
+        section: activeRecallSection,
+      }
+    } else if (path === 'recall') {
+      recallSnapshotBeforeReaderRef.current = null
+    }
     const href = buildAppHref(path, documentId, options)
     const currentHref = `${window.location.pathname}${window.location.search}`
     if (currentHref === href) {
@@ -205,7 +255,7 @@ export default function App() {
     }
     window.history.pushState({}, '', href)
     setRoute(parseAppRoute(window.location))
-  }, [])
+  }, [activeRecallSection, recallContinuityState, route.path])
 
   const syncRecallSectionRoute = useCallback((section: RecallSection) => {
     if (route.path !== 'recall') {
@@ -226,28 +276,53 @@ export default function App() {
   }, [syncRecallSectionRoute])
 
   const openRecallSection = useCallback((section: RecallSection, options?: Omit<RecallWorkspaceFocusRequest, 'section' | 'token'>) => {
+    const resolvedSection = resolveVisibleRecallSection(section)
+    const resolvedLibrarySurface: RecallLibrarySurface | null =
+      options?.librarySurface ??
+      (section === 'notes' || options?.noteId ? 'notebook' : resolvedSection === 'library' ? 'home' : null)
+    const resolvedSourceTab: SourceWorkspaceTab | null =
+      options?.sourceTab ??
+      (section === 'notes' || options?.noteId
+        ? 'notes'
+        : resolvedSection === 'library' && options?.documentId
+          ? 'overview'
+          : null)
+    const resolvedBrowseDrawerSection =
+      resolvedSection === 'library' && resolvedLibrarySurface === 'notebook' ? 'notes' : resolvedSection
     const hasFocusedTarget = Boolean(options?.documentId || options?.noteId || options?.nodeId || options?.cardId)
-    handleRecallSectionChange(section)
+    handleRecallSectionChange(resolvedSection)
     setRecallContinuityState((current) => ({
       ...current,
       browseDrawers: {
         ...current.browseDrawers,
-        [section]: shouldOpenRecallBrowseDrawerByDefault(section, hasFocusedTarget),
+        [resolvedBrowseDrawerSection]: shouldOpenRecallBrowseDrawerByDefault(
+          resolvedBrowseDrawerSection,
+          hasFocusedTarget,
+        ),
       },
+      library:
+        resolvedSection === 'library' && resolvedLibrarySurface
+          ? {
+              ...current.library,
+              activeSurface: resolvedLibrarySurface,
+            }
+          : current.library,
       sourceWorkspace: {
         ...current.sourceWorkspace,
         activeDocumentId: options?.documentId ?? current.sourceWorkspace.activeDocumentId,
-        activeTab: mapRecallSectionToSourceTab(section),
+        activeTab: resolvedSourceTab ?? mapRecallSectionToSourceTab(resolvedSection),
         mode: hasFocusedTarget ? 'focused' : 'browse',
       },
     }))
     setRecallFocusRequest({
-      section,
+      section: resolvedSection,
+      librarySurface: resolvedLibrarySurface,
+      sourceTab: resolvedSourceTab,
       token: Date.now(),
       ...options,
     })
     if (route.path !== 'recall') {
-      navigate('recall', null, { recallSection: section })
+      navigate('recall', null, { recallSection: resolvedSection })
     }
   }, [handleRecallSectionChange, navigate, route.path])
 
@@ -267,14 +342,36 @@ export default function App() {
 
   const handleOpenRecallLibrary = useCallback(
     (documentId: string) => {
-      openRecallSection('library', { documentId })
+      openRecallSection('library', { documentId, librarySurface: 'home', sourceTab: 'overview' })
     },
     [openRecallSection],
   )
 
   const handleOpenRecallNotes = useCallback(
     (documentId: string, noteId?: string | null) => {
-      openRecallSection('notes', { documentId, noteId })
+      openRecallSection('library', { documentId, librarySurface: 'notebook', noteId, sourceTab: 'notes' })
+    },
+    [openRecallSection],
+  )
+
+  const handleOpenRecallNotebook = useCallback(
+    (options?: { documentId?: string | null; noteId?: string | null }) => {
+      const nextFocusRequest: Omit<RecallWorkspaceFocusRequest, 'section' | 'token'> = {
+        librarySurface: 'notebook',
+      }
+      const hasExplicitTarget = options?.documentId !== undefined || options?.noteId !== undefined
+
+      if (options?.documentId !== undefined) {
+        nextFocusRequest.documentId = options.documentId
+      }
+      if (options?.noteId !== undefined) {
+        nextFocusRequest.noteId = options.noteId
+      }
+      if (hasExplicitTarget) {
+        nextFocusRequest.sourceTab = 'notes'
+      }
+
+      openRecallSection('library', nextFocusRequest)
     },
     [openRecallSection],
   )
@@ -303,9 +400,6 @@ export default function App() {
   function handleRequestNewSource() {
     setAddSourceError(null)
     setAddSourceOpen(true)
-    if (route.path !== 'reader') {
-      navigate('reader')
-    }
   }
 
   function handleOpenSearch() {
@@ -396,21 +490,29 @@ export default function App() {
       navigate('reader')
       return
     }
-    handleRecallSectionChange(section)
+    const resolvedSection = resolveVisibleRecallSection(section)
+    handleRecallSectionChange(resolvedSection)
     setRecallContinuityState((current) => ({
       ...current,
       browseDrawers: {
         ...current.browseDrawers,
-        [section]: shouldOpenRecallBrowseDrawerByDefault(section),
+        [resolvedSection]: shouldOpenRecallBrowseDrawerByDefault(resolvedSection),
       },
+      library:
+        resolvedSection === 'library'
+          ? {
+              ...current.library,
+              activeSurface: 'home',
+            }
+          : current.library,
       sourceWorkspace: {
         ...current.sourceWorkspace,
-        activeTab: section === 'library' ? current.sourceWorkspace.activeTab : mapWorkspaceSectionToSourceTab(section),
+        activeTab: resolvedSection === 'library' ? current.sourceWorkspace.activeTab : mapWorkspaceSectionToSourceTab(resolvedSection),
         mode: 'browse',
       },
     }))
     if (route.path !== 'recall') {
-      navigate('recall', null, { recallSection: section })
+      navigate('recall', null, { recallSection: resolvedSection })
     }
   }
 
@@ -453,10 +555,11 @@ export default function App() {
     setSupportChromeOpen(false)
   }, [shellSourceWorkspace])
 
-  const activeWorkspaceSection: WorkspaceSection = route.path === 'reader' ? 'reader' : activeRecallSection
+  const visibleRecallSection = resolveVisibleRecallSection(activeRecallSection)
+  const activeWorkspaceSection: WorkspaceSection = route.path === 'reader' ? 'reader' : visibleRecallSection
   const searchSurfaceVisible = searchOpen || (route.path === 'recall' && activeRecallSection === 'library')
   const shellLayoutMode: 'default' | 'home' | 'reader' =
-    route.path === 'reader' ? 'reader' : activeRecallSection === 'library' ? 'home' : 'default'
+    route.path === 'reader' ? 'reader' : visibleRecallSection === 'library' ? 'home' : 'default'
 
   useEffect(() => {
     const trimmedQuery = deferredWorkspaceSearchQuery.trim()
@@ -603,8 +706,11 @@ export default function App() {
                 Search
                 <span className="shell-nav-hint">Ctrl+K</span>
               </button>
-              <button className="shell-nav-button shell-nav-button-active" type="button" onClick={handleRequestNewSource}>
-                New
+              <button className="shell-nav-button shell-nav-button-active shell-nav-button-add" type="button" onClick={handleRequestNewSource}>
+                <span className="shell-nav-button-leading" aria-hidden="true">
+                  <AddLauncherIcon />
+                </span>
+                Add
               </button>
             </>
           )
@@ -622,6 +728,7 @@ export default function App() {
             continuityState={recallContinuityState}
             focusRequest={recallFocusRequest}
             onContinuityStateChange={setRecallContinuityState}
+            onOpenNotebook={handleOpenRecallNotebook}
             onShellContextChange={setShellContext}
             onSectionChange={handleRecallSectionChange}
             onShellHeroChange={setShellHero}
@@ -630,7 +737,7 @@ export default function App() {
             onShellSourceWorkspaceChange={setShellSourceWorkspace}
             onOpenReader={handleOpenReader}
             settings={settings}
-            section={activeRecallSection}
+            section={visibleRecallSection}
           />
         ) : (
           <ReaderWorkspace
@@ -653,13 +760,16 @@ export default function App() {
         )}
       </RecallShellFrame>
       <WorkspaceDialogFrame
-        description="Paste text, import one public article link, or choose a local file."
+        closeDisabled={addSourceBusy}
+        description="Choose one local-first way to bring a source into Recall without leaving your current workspace."
+        eyebrow="Add to Recall"
         onClose={() => {
           setAddSourceError(null)
           setAddSourceOpen(false)
         }}
         open={addSourceOpen}
         title="Add content"
+        variant="entry"
         wide
       >
         {addSourceError ? (

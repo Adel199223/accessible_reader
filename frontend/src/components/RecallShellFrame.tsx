@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 
 import type { WorkspaceDockContext, WorkspaceDockTarget, WorkspaceRecentItem, WorkspaceSection } from '../lib/appRoute'
 import { SourceWorkspaceFrame, type SourceWorkspaceFrameState } from './SourceWorkspaceFrame'
-import { WorkspaceContextDock } from './WorkspaceContextDock'
 import type { WorkspaceHeroProps } from './WorkspaceHero'
 
 
@@ -28,7 +27,6 @@ const workspaceSections: Array<{
   { label: 'Home', value: 'library' },
   { label: 'Graph', value: 'graph' },
   { label: 'Study', value: 'study' },
-  { label: 'Notes', value: 'notes' },
   { label: 'Reader', value: 'reader' },
 ]
 
@@ -79,29 +77,29 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
   const {
     activeSection,
     children,
-    currentContext,
     headerActions,
     layoutMode = 'default',
-    onActivateTarget,
     onSelectSection,
-    recentItems,
     sourceWorkspace = null,
   } = props
 
   void props.hero
+  void props.currentContext
+  void props.onActivateTarget
+  void props.recentItems
   void props.onToggleSupportChrome
   void props.supportChromeOpen
 
   const sourceFocused = Boolean(sourceWorkspace)
   const activeSectionLabel = workspaceSections.find((section) => section.value === activeSection)?.label ?? 'Recall'
-  const showUtilityPanel = layoutMode === 'default' && !sourceFocused && activeSection === 'notes'
-  const shellTitle = layoutMode === 'reader' ? 'Reader' : 'Recall'
+  const readerMode = layoutMode === 'reader'
+  const shellTitle = readerMode ? 'Reader' : 'Recall'
   const homeMode = layoutMode === 'home'
   const hideTopbar = homeMode
-  const showTopbarEyebrow = layoutMode === 'reader'
-  const shellEyebrow = layoutMode === 'reader' ? 'Reader workspace' : null
-  const showSectionChip = layoutMode === 'reader' || (!sourceFocused && activeSection !== 'library')
-  const quietTopbar = !showTopbarEyebrow && !showSectionChip
+  const showTopbarEyebrow = false
+  const shellEyebrow = null
+  const showSectionChip = !readerMode && (!sourceFocused && activeSection !== 'library')
+  const quietTopbar = readerMode || (!showTopbarEyebrow && !showSectionChip)
 
   return (
     <div
@@ -117,15 +115,12 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
       <aside className="workspace-rail" aria-label="Workspace navigation">
         <div className="workspace-rail-brand">
           <div className="workspace-rail-mark" aria-hidden="true">R</div>
-          <div className="workspace-rail-brand-copy">
-            <span>Local-first</span>
-            <strong>Recall</strong>
-          </div>
         </div>
         <nav className="workspace-rail-nav" aria-label="Workspace sections" role="tablist">
           {workspaceSections.map((section) => (
             <button
               key={section.value}
+              aria-label={section.label}
               aria-current={activeSection === section.value ? 'page' : undefined}
               aria-selected={activeSection === section.value}
               className={
@@ -135,13 +130,15 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
               }
               role="tab"
               tabIndex={activeSection === section.value ? 0 : -1}
+              title={section.label}
               type="button"
               onClick={() => onSelectSection(section.value)}
             >
+              <span aria-hidden="true" className="workspace-rail-button-indicator" />
               <span className="workspace-rail-icon">
                 <WorkspaceSectionIcon section={section.value} />
               </span>
-              <span className="workspace-rail-label">{section.label}</span>
+              <span className="visually-hidden">{section.label}</span>
             </button>
           ))}
         </nav>
@@ -149,7 +146,15 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
 
       <main className="workspace-shell-main">
         {!hideTopbar ? (
-          <header className={quietTopbar ? 'workspace-topbar workspace-topbar-quiet' : 'workspace-topbar'}>
+          <header
+            className={[
+              'workspace-topbar',
+              quietTopbar ? 'workspace-topbar-quiet' : '',
+              readerMode ? 'workspace-topbar-reader' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
             <div className="workspace-topbar-copy">
               {showTopbarEyebrow && shellEyebrow ? <p className="workspace-topbar-eyebrow">{shellEyebrow}</p> : null}
               <div className="workspace-topbar-heading-row">
@@ -181,19 +186,8 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
             />
           ) : null}
 
-          <div className={showUtilityPanel ? 'workspace-shell-layout workspace-shell-layout-with-utility' : 'workspace-shell-layout'}>
+          <div className="workspace-shell-layout">
             <div className="workspace-shell-primary">{children}</div>
-            {showUtilityPanel ? (
-              <aside className="workspace-shell-secondary">
-                <WorkspaceContextDock
-                  activeSection={activeSection}
-                  compact
-                  currentContext={currentContext}
-                  onActivateTarget={onActivateTarget}
-                  recentItems={recentItems}
-                />
-              </aside>
-            ) : null}
           </div>
         </div>
       </main>

@@ -336,8 +336,8 @@ export function WorkspaceSearchSurface({
               onSelectResult,
             )}
             {renderResultList(
-              'Notes',
-              'Compare saved highlights before jumping back to the anchored passage.',
+              'Notebook',
+              'Compare saved notebook notes before jumping back to the anchored passage.',
               notes,
               searchSession.selectedResultKey,
               onSelectResult,

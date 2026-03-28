@@ -97,11 +97,16 @@ function renderShell(overrides?: {
   return { onSelectSection }
 }
 
-test('RecallShellFrame renders the collection-first rail and topbar without the Home utility dock', () => {
+test('RecallShellFrame renders the icon-first rail and topbar without the old utility dock chrome', () => {
   const { onSelectSection } = renderShell()
 
   expect(screen.getByRole('tablist', { name: 'Workspace sections' })).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: 'Notes' })).not.toBeInTheDocument()
+  expect(document.querySelector('.workspace-rail-brand-copy')).toBeNull()
+  expect(document.querySelector('.workspace-shell-secondary')).toBeNull()
+  expect(screen.getByRole('tab', { name: 'Home', selected: true })).toHaveAttribute('title', 'Home')
+  expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute('title', 'Graph')
   expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()
   expect(screen.queryByText('Reader workspace')).not.toBeInTheDocument()
@@ -113,13 +118,14 @@ test('RecallShellFrame renders the collection-first rail and topbar without the 
   expect(onSelectSection).toHaveBeenCalledWith('graph')
 })
 
-test('RecallShellFrame keeps the utility dock for non-library browse sections', () => {
+test('RecallShellFrame keeps graph browse mode on the slimmer topbar without the shared utility dock', () => {
   renderShell({
-    activeSection: 'notes',
+    activeSection: 'graph',
   })
 
-  expect(screen.getByRole('heading', { name: 'Current context', level: 2 })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Recent work', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Recall', level: 1 })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
 })
 
 test('RecallShellFrame home mode hides the shared topbar so Home can own its compact Recall-like chrome', () => {
@@ -134,18 +140,37 @@ test('RecallShellFrame home mode hides the shared topbar so Home can own its com
   expect(screen.getByRole('tablist', { name: 'Workspace sections' })).toBeInTheDocument()
 })
 
+test('RecallShellFrame keeps Reader mode on the quieter topbar without the old eyebrow copy', () => {
+  renderShell({
+    activeSection: 'reader',
+    currentContext: null,
+    layoutMode: 'reader',
+    recentItems: [],
+    sourceWorkspace: null,
+  })
+
+  const shellHeader = document.querySelector('header.workspace-topbar')
+  expect(shellHeader).not.toBeNull()
+  expect(shellHeader).toHaveClass('workspace-topbar-quiet')
+  expect(shellHeader).toHaveClass('workspace-topbar-reader')
+  expect(screen.getByRole('heading', { name: 'Reader', level: 1 })).toBeInTheDocument()
+  expect(screen.queryByText('Reader workspace')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()
+})
+
 test('RecallShellFrame hides the utility dock and shows the compact source strip in focused mode', () => {
   renderShell({
-    activeSection: 'notes',
+    activeSection: 'library',
     currentContext: null,
     recentItems: [],
     sourceWorkspace,
   })
 
-  expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
   expect(screen.getByText('Focused source')).toBeInTheDocument()
   expect(screen.getByText('Focused document')).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: 'Source workspace Notes', selected: true })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Source workspace Notebook', selected: true })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
 })

@@ -15,7 +15,7 @@ Build one localhost-first Recall workspace for Windows 11 that turns pasted text
 - If the current UI structure conflicts with a better Recall-quality workflow, change the UI in staged passes instead of preserving the layout for consistency alone.
 - Treat the current in-repo shell as a baseline for continuity, not as a constraint on better UX.
 - Use the original Recall app as a directional benchmark for workflow, information hierarchy, reading focus, note adjacency, split-view usefulness, and obvious next actions; do not chase pixel-perfect visual cloning.
-- The shared workspace section row is `Library`, `Graph`, `Study`, `Notes`, and `Reader`; `/reader` remains a compatibility route into the `Reader` section.
+- The visible shared workspace section row is `Home`, `Graph`, `Study`, and `Reader`; note-taking now lives as `Notebook` inside `Home` / Library and saved-source workspaces, `/reader` remains a compatibility route into the `Reader` section, and `/recall?section=notes` remains a hidden compatibility alias into the embedded notebook workspace.
 - Public webpage support should stay article-first and snapshot-based: fetch once, store locally, and reopen from the local snapshot instead of live syncing.
 
 ## Architecture
@@ -76,6 +76,9 @@ Build one localhost-first Recall workspace for Windows 11 that turns pasted text
 - Keep `docs/ROADMAP_ANCHOR.md` as the continuity file for future chats.
 - Use ExecPlans for major work under `docs/exec_plans/active/`.
 - If you detour for a blocker or correction, record it and then return to the roadmap.
+- The March 28, 2026 Stage 692-707 queued roadmap is now complete through the Stage 706/707 closeout baseline.
+- The March 28, 2026 Stage 708/709 Add Content reopen is now complete on top of that closeout baseline.
+- Future product work should keep reopening intentionally from the latest stable checkpoint instead of auto-advancing into another queued slice.
 
 ## Baseline Validation
 

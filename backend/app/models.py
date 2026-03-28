@@ -164,6 +164,7 @@ class RecallDocumentPreview(BaseModel):
     kind: Literal["image", "fallback"]
     source: Literal[
         "attachment-image",
+        "content-rendered-preview",
         "html-meta-image",
         "html-inline-image",
         "html-preload-image",

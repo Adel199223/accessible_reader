@@ -51,21 +51,30 @@ test('buildAppHref writes non-library recall sections into the URL and keeps Hom
   expect(buildAppHref('recall', null, { recallSection: 'library' })).toBe('/recall')
 })
 
-test('Study and Graph browse default to collapsed drawers while Home and Notes stay expanded', () => {
+test('Study stays collapsed while Home, Graph, and the hidden notes alias keep their browse drawers expanded by default', () => {
   expect(shouldOpenRecallBrowseDrawerByDefault('study')).toBe(false)
   expect(shouldOpenRecallBrowseDrawerByDefault('library')).toBe(true)
-  expect(shouldOpenRecallBrowseDrawerByDefault('graph')).toBe(false)
+  expect(shouldOpenRecallBrowseDrawerByDefault('graph')).toBe(true)
   expect(shouldOpenRecallBrowseDrawerByDefault('notes')).toBe(true)
   expect(shouldOpenRecallBrowseDrawerByDefault('study', true)).toBe(false)
 })
 
 test('defaultRecallWorkspaceContinuityState keeps Home organizer sorting defaults stable', () => {
+  expect(defaultRecallWorkspaceContinuityState.browseDrawers).toMatchObject({
+    graph: true,
+    library: true,
+    notes: true,
+    study: false,
+  })
   expect(defaultRecallWorkspaceContinuityState.graph).toMatchObject({
     focusTrailNodeIds: [],
     pathSelectedNodeIds: [],
     selectedNodeId: null,
+    tourDismissed: false,
+    tourStep: 0,
   })
   expect(defaultRecallWorkspaceContinuityState.library).toMatchObject({
+    activeSurface: 'home',
     filterQuery: '',
     homeOrganizerLens: 'collections',
     homeOrganizerVisible: true,
@@ -73,5 +82,20 @@ test('defaultRecallWorkspaceContinuityState keeps Home organizer sorting default
     homeSortMode: 'updated',
     homeViewMode: 'board',
     selectedDocumentId: null,
+  })
+})
+
+test('parseAppRoute keeps the legacy notes section alias available for notebook rehydration', () => {
+  const route = parseAppRoute({
+    pathname: '/recall',
+    search: '?section=notes',
+  })
+
+  expect(route).toEqual({
+    documentId: null,
+    path: 'recall',
+    recallSection: 'notes',
+    sentenceEnd: null,
+    sentenceStart: null,
   })
 })

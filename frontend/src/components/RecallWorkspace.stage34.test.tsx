@@ -317,6 +317,8 @@ function makeContinuityState(section: RecallSection): RecallWorkspaceContinuityS
       focusTrailNodeIds: ['node-knowledge-graphs'],
       pathSelectedNodeIds: [],
       selectedNodeId: 'node-knowledge-graphs',
+      tourDismissed: false,
+      tourStep: 0,
     },
     library: {
       ...structuredClone(defaultRecallWorkspaceContinuityState.library),
@@ -359,6 +361,7 @@ function renderHarness(initialSection: RecallSection, initialContinuityState?: R
         <RecallWorkspace
           continuityState={continuityState}
           onContinuityStateChange={setContinuityState}
+          onOpenNotebook={() => undefined}
           onOpenReader={onOpenReader}
           onOpenSearch={() => undefined}
           onRequestNewSource={() => undefined}
@@ -376,7 +379,7 @@ function renderHarness(initialSection: RecallSection, initialContinuityState?: R
   return { onOpenReader }
 }
 
-test('focused Notes keeps Reader as the primary pane and anchors the selected note', async () => {
+test('focused Notebook keeps Reader as the primary pane and anchors the selected note', async () => {
   renderHarness('notes')
 
   await waitFor(() => {
@@ -386,13 +389,16 @@ test('focused Notes keeps Reader as the primary pane and anchors the selected no
     expect(screen.getByRole('button', { name: 'Search sentence two.' })).toHaveClass('reader-sentence-anchored')
   })
 
-  const notesSection = screen.getByRole('heading', { name: 'Notes', level: 2 }).closest('section')
+  const notesSection = screen.getByRole('heading', { name: 'Notebook', level: 2 }).closest('section')
   const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
 
   expect(notesSection).not.toBeNull()
   expect(noteDetailSection).not.toBeNull()
   expect(notesSection).toHaveClass('recall-source-side-rail')
+  expect(notesSection).toHaveClass('recall-notes-focus-rail-stage698')
   expect(noteDetailSection).toHaveClass('recall-source-secondary-panel')
+  expect(noteDetailSection).toHaveClass('recall-note-detail-panel-stage698')
+  expect(noteDetailSection?.querySelector('[data-note-workbench-layout="stacked"]')).not.toBeNull()
   expect(screen.queryByRole('heading', { name: 'Source overview', level: 2 })).not.toBeInTheDocument()
 })
 
@@ -413,7 +419,7 @@ test('focused Home overview marks the condensed rail hook when the drawer is clo
   expect(homeSection?.querySelector('.recall-overview-focus-summary-meta')).not.toBeNull()
 })
 
-test('focused Notes without an active note mark the empty-detail collapse hook and keep guidance in the rail', async () => {
+test('focused Notebook without an active note mark the empty-detail collapse hook and keep guidance in the rail', async () => {
   fetchRecallNotesMock.mockImplementation(async () => [])
   const continuityState = makeContinuityState('notes')
   continuityState.notes.selectedNoteId = null
@@ -427,16 +433,18 @@ test('focused Notes without an active note mark the empty-detail collapse hook a
   })
 
   const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
-  const notesSection = screen.getByRole('heading', { name: 'Notes', level: 2 }).closest('section')
+  const notesSection = screen.getByRole('heading', { name: 'Notebook', level: 2 }).closest('section')
   expect(noteDetailSection).not.toBeNull()
   expect(notesSection).not.toBeNull()
   expect(notesSection).toHaveClass('recall-notes-focus-rail-empty')
+  expect(notesSection).toHaveClass('recall-notes-focus-rail-stage698')
   expect(noteDetailSection).toHaveClass('recall-note-detail-panel-empty')
+  expect(noteDetailSection).toHaveClass('recall-note-detail-panel-stage698')
   expect(noteDetailSection?.parentElement).toHaveClass('recall-source-split-layout-notes-empty')
-  expect(screen.queryByRole('button', { name: 'Browse notes' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Browse notebook' })).not.toBeInTheDocument()
 })
 
-test('focused Notes drawer-open empty state marks the compact browse-empty hook and keeps filters visible', async () => {
+test('focused Notebook drawer-open empty state marks the compact browse-empty hook and keeps filters visible', async () => {
   fetchRecallNotesMock.mockImplementation(async () => [])
   const continuityState = makeContinuityState('notes')
   continuityState.notes.selectedNoteId = null
@@ -445,18 +453,20 @@ test('focused Notes drawer-open empty state marks the compact browse-empty hook 
   renderHarness('notes', continuityState)
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Notes', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('searchbox', { name: 'Search notes' })).toBeInTheDocument()
-    expect(screen.getByText('No saved notes yet. Add one from Reader to keep it here.')).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search notebook' })).toBeInTheDocument()
+    expect(screen.getByText('No notebook notes yet. Add one from Reader to keep it here.')).toBeInTheDocument()
   })
 
-  const notesSection = screen.getByRole('heading', { name: 'Notes', level: 2 }).closest('section')
+  const notesSection = screen.getByRole('heading', { name: 'Notebook', level: 2 }).closest('section')
   const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
   expect(notesSection).not.toBeNull()
   expect(noteDetailSection).not.toBeNull()
   expect(notesSection).toHaveClass('recall-notes-focus-rail-drawer-empty')
+  expect(notesSection).toHaveClass('recall-notes-focus-rail-stage698')
   expect(noteDetailSection).toHaveClass('recall-note-detail-panel-drawer-empty')
+  expect(noteDetailSection).toHaveClass('recall-note-detail-panel-stage698')
   expect(notesSection?.querySelector('.recall-notes-browse-empty-filters')).not.toBeNull()
   expect(notesSection?.querySelector('.recall-notes-browse-empty-state')).not.toBeNull()
 })

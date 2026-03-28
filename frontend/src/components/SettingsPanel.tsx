@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import type { ReaderSettings, SummaryDetail, ViewMode } from '../types'
+import type { ReaderSettings, ViewMode } from '../types'
 
 type SettingsSection = 'view' | 'appearance' | 'layout'
 
@@ -9,11 +9,9 @@ interface SettingsPanelProps {
   hasDocument: boolean
   activeMode: ViewMode
   settings: ReaderSettings
-  summaryDetail: SummaryDetail
   onClose: () => void
   onChange: (nextSettings: ReaderSettings) => void
   onActiveModeChange: (mode: ViewMode) => void
-  onSummaryDetailChange: (detail: SummaryDetail) => void
 }
 
 const fontPresetOptions: Array<{
@@ -74,8 +72,6 @@ const viewModeOptions: Array<{
   },
 ]
 
-const summaryDetailOptions: SummaryDetail[] = ['short', 'balanced', 'detailed']
-
 const sectionLabels: Record<SettingsSection, string> = {
   view: 'View',
   appearance: 'Appearance',
@@ -87,11 +83,9 @@ export function SettingsPanel({
   hasDocument,
   activeMode,
   settings,
-  summaryDetail,
   onClose,
   onChange,
   onActiveModeChange,
-  onSummaryDetailChange,
 }: SettingsPanelProps) {
   const availableSections: SettingsSection[] = hasDocument
     ? ['view', 'appearance', 'layout']
@@ -200,24 +194,6 @@ export function SettingsPanel({
                   </div>
                 </div>
 
-                {activeMode === 'summary' ? (
-                  <label className="field settings-row">
-                    <div className="field-label-row">
-                      <span>Summary detail</span>
-                    </div>
-                    <select
-                      aria-label="Summary detail"
-                      value={summaryDetail}
-                      onChange={(event) => onSummaryDetailChange(event.target.value as SummaryDetail)}
-                    >
-                      {summaryDetailOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option[0].toUpperCase() + option.slice(1)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
               </>
             ) : null}
 

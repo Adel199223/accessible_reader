@@ -196,6 +196,18 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
+function formatSourceTypeLabel(sourceType: string) {
+  return sourceType
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatSummaryDetailLabel(detail: SummaryDetail) {
+  return detail.charAt(0).toUpperCase() + detail.slice(1)
+}
+
 function formatSentenceSpanLabel(start: number | null | undefined, end: number | null | undefined) {
   if (start === null || start === undefined || end === null || end === undefined) {
     return 'Anchored passage'
@@ -1009,6 +1021,7 @@ export function ReaderWorkspace({
   const currentSentenceLabel = `Sentence ${flatSentences.length === 0 ? 0 : speech.currentSentenceIndex + 1} of ${flatSentences.length}`
   const readerTitleId = 'reader-document-title'
   const readerOriginalParityMode = hasActiveDocument && activeMode === 'original'
+  const readerDerivedModeActive = hasActiveDocument && !readerOriginalParityMode
   const transportAction =
     speech.isSpeaking && !speech.isPaused
       ? {
@@ -1034,27 +1047,32 @@ export function ReaderWorkspace({
             title: 'Start read aloud',
           }
   const readerViewLabel = currentModeOption?.label ?? activeMode
+  const readerSourceTypeLabel = selectedDocument ? formatSourceTypeLabel(selectedDocument.source_type) : null
   const readerStageSummary = noteCaptureActive
-    ? 'Pick one sentence in the text to start a saved highlight, then extend it inside the same block if needed.'
+    ? 'Choose one sentence to start a saved highlight, then extend it inside the same block if needed.'
     : routeAnchorRange
-      ? `Anchored evidence stays visible in ${readerViewLabel} while the dock keeps nearby notes and sources attached.`
+      ? `Anchored evidence stays visible in ${readerViewLabel} while nearby notes and source context stay attached.`
       : readerOriginalParityMode
-        ? 'Original text stays primary while notes and source switching stay docked.'
-        : 'Document text stays primary while view controls, notes, and source switching settle into a calmer dock.'
+        ? 'Original text stays primary while notebook work and source switching stay nearby.'
+        : activeMode === 'reflowed'
+          ? 'Reflowed keeps the document primary while notebook work and source switching stay attached.'
+          : activeMode === 'simplified'
+            ? 'Simplified keeps the document primary while lighter language, provenance, and next steps stay attached.'
+            : 'Summary keeps the document primary while compression detail, provenance, and next steps stay attached.'
   const readerDockSummary = selectedDocument
     ? canAnnotateCurrentView
-      ? 'Keep note work, nearby sources, and Reader handoffs close without taking over the reading lane.'
+      ? 'Keep notebook work, nearby sources, and Reader handoffs close without taking over the article.'
       : readerOriginalParityMode
-        ? 'Keep notes and source switching attached here while the article keeps the lead.'
-        : 'This mode stays focused on reading; switch to Reflowed whenever you want to capture or reopen anchored notes in place.'
+        ? 'Keep notebook work and source switching nearby while the article keeps the lead.'
+        : 'This mode stays reading-first; switch to Reflowed whenever you want to capture or reopen anchored notes in place.'
     : 'Saved sources and note work stay nearby here while the reading lane stays ready for the next document.'
   const readerStageGlanceNote = noteCaptureActive
-    ? 'Capture stays in the dock so the text column does not split into separate work cards.'
+      ? 'Capture stays beside the article so the reading lane does not split into separate work cards.'
     : routeAnchorRange
-      ? 'Anchored evidence stays in view while the dock keeps source and notes close without becoming a second page.'
+      ? 'Anchored evidence stays in view while nearby source and notebook work stay docked.'
       : readerOriginalParityMode
-        ? 'Search or New changes source; notes stay close in the dock.'
-        : 'Use shell Search or New to change sources; keep notes and library work tucked into the dock.'
+        ? 'Use Search or Add to change source; Notebook stays close by.'
+        : 'Use Search or Add to change source; Notebook and source switching stay attached here.'
   const showReaderStageGlanceNote = noteCaptureActive || Boolean(routeAnchorRange) || !readerOriginalParityMode
   const showReaderGenerationAction = (activeMode === 'simplified' || activeMode === 'summary') && !view
   const libraryMetricLabel = documentsLoading
@@ -1066,7 +1084,7 @@ export function ReaderWorkspace({
   const notesMetricLabel = hasActiveDocument
     ? canAnnotateCurrentView
       ? notesStatus === 'error'
-        ? 'Notes unavailable'
+        ? 'Notebook unavailable'
         : `${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`
       : view?.generated_by === 'openai'
         ? 'AI view open'
@@ -1083,7 +1101,7 @@ export function ReaderWorkspace({
     ? 'Your local library is loading. Reading controls appear after a document opens.'
     : documentsError
       ? 'Reader could not reconnect to the local library yet. Retry loading after the backend is running again.'
-      : 'Use New to add a source from anywhere in Recall, or reopen something from Home.'
+      : 'Use Add to bring in a source from anywhere in Recall, or reopen something from Home.'
   const currentContextNoteLabel = notesLoading
     ? 'Loading notes…'
     : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'}`
@@ -1099,6 +1117,40 @@ export function ReaderWorkspace({
     view?.generated_by === 'openai' ? 'AI generated' : null,
     view?.cached ? 'Cached' : null,
   ].filter(Boolean)
+  const readerDerivedContextLabel =
+    activeMode === 'reflowed'
+      ? 'Reflowed stays source-linked'
+      : activeMode === 'simplified'
+        ? 'Simplified stays source-linked'
+        : 'Summary stays source-linked'
+  const readerDerivedContextSummary =
+    activeMode === 'reflowed'
+      ? 'Use Reflowed when you want easier spacing, sentence jumps, and anchored notebook capture without leaving the saved source.'
+      : activeMode === 'simplified'
+        ? 'Simplified lowers language load while keeping the same source, notebook branch, and next-step promotions attached.'
+        : 'Summary compresses the saved source into a recall-first overview while Notebook, Graph, Study, and Reflowed stay one step away.'
+  const readerDerivedContextFootnote =
+    activeMode === 'reflowed'
+      ? 'Anchored note capture stays available directly in this mode.'
+      : activeMode === 'simplified'
+        ? 'Return to Reflowed whenever you want anchored notes or sentence-by-sentence reading.'
+        : 'Choose summary detail here without opening Settings, then return to Reflowed when you want anchored evidence.'
+  const readerDerivedModeDescriptor =
+    activeMode === 'reflowed'
+      ? 'Derived locally for easier reading'
+      : activeMode === 'simplified'
+        ? 'Simplified from this saved source'
+        : 'Summary from this saved source'
+  const readerDerivedMetadata = [
+    readerSourceTypeLabel ? `${readerSourceTypeLabel} source` : null,
+    activeMode === 'summary' ? `${formatSummaryDetailLabel(summaryDetail)} detail` : null,
+    view?.generated_by === 'openai' ? 'AI generated' : 'Local derived view',
+    view?.cached ? 'Cached' : null,
+  ].filter(Boolean)
+  const readerGeneratedEmptyStateDescription =
+    activeMode === 'simplified'
+      ? 'No simplified view yet. Create it when you want lighter wording while keeping the saved source attached.'
+      : 'No summary yet. Create one when you want a compressed overview of this saved source.'
   const readerStageKickerLabel = noteCaptureActive
     ? 'Note capture'
     : routeAnchorRange
@@ -1126,25 +1178,25 @@ export function ReaderWorkspace({
     : null
   const readerSupportGlanceNote = selectedDocument
     ? selectedDocument.file_name ?? 'Saved locally in Recall.'
-    : 'Use the shell Search or New actions to open another document without leaving Recall.'
+    : 'Use the shell Search or Add actions to open another document without leaving Recall.'
   const readerSupportGlanceFootnote = selectedDocument
     ? readerOriginalParityMode
-      ? 'Search or New opens another source; nearby reopens stay attached below.'
-      : 'Use shell Search or New when you want another source; the dock keeps nearby reopen options visible here.'
+      ? 'Search or Add opens another source; nearby reopens stay attached below.'
+      : 'Use Search or Add when you want another source; nearby reopen options stay visible here.'
     : null
   const notesPanelSummary = selectedDocument
     ? notesLoading
-      ? 'Loading saved notes for the active source.'
+      ? 'Loading notebook notes for the active source.'
       : notesStatus === 'error'
-        ? 'Saved notes are temporarily unavailable for this source.'
+        ? 'Notebook notes are temporarily unavailable for this source.'
         : activeReaderNote
           ? readerOriginalParityMode
-            ? 'Saved notes stay attached here while the article keeps the lead.'
+            ? 'Notebook notes stay attached here while the article keeps the lead.'
             : `Working note: ${activeReaderNote.anchor.anchor_text}`
           : readerOriginalParityMode
-            ? `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} stay nearby for this source.`
+            ? `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} stay nearby in Notebook for this source.`
             : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} for ${selectedDocument.title}.`
-    : 'Open a source to keep saved highlights close by.'
+    : 'Open a source to keep notebook highlights close by.'
   const shellContext = useMemo<WorkspaceDockContext | null>(() => {
     if (!selectedDocument) {
       return null
@@ -1157,7 +1209,7 @@ export function ReaderWorkspace({
     const subtitle = hasAnchorRange
       ? `${formatSentenceSpanLabel(routeAnchorRange?.start, routeAnchorRange?.end)} in ${readerViewLabel}`
       : `${readerViewLabel} view · ${currentSentenceLabel}`
-    const noteActionLabel = activeReaderNote ? 'Open note' : notes.length === 1 ? 'View note' : 'View notes'
+    const noteActionLabel = activeReaderNote ? 'Open in Notebook' : 'View in Notebook'
 
     return {
       actions: [
@@ -1313,7 +1365,7 @@ export function ReaderWorkspace({
     onShellSourceWorkspaceChange({
       activeTab: 'reader',
       counts: sourceWorkspaceCounts,
-      description: 'Keep one source primary while nearby work stays docked.',
+      description: 'One source stays primary while nearby work stays attached.',
       document: {
         availableModes: selectedDocument.available_modes,
         fileName: selectedDocument.file_name ?? null,
@@ -1385,6 +1437,26 @@ export function ReaderWorkspace({
                     <h2 id={readerTitleId}>{selectedDocument.title}</h2>
                     <p className="reader-stage-summary">{readerStageSummary}</p>
                   </div>
+                  <div
+                    className={`reader-stage-support-row${
+                      readerOriginalParityMode ? ' reader-stage-support-row-original-parity' : ''
+                    }`}
+                  >
+                    <div
+                      className={`reader-meta-row reader-stage-glance-meta${
+                        readerOriginalParityMode ? ' reader-stage-glance-meta-original-parity' : ''
+                      }`}
+                      role="list"
+                      aria-label="Reader metadata"
+                    >
+                      {readerStageMetadata.map((item) => (
+                        <span key={item} className="status-chip reader-meta-chip" role="listitem">
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                    {showReaderStageGlanceNote ? <p className="reader-stage-glance-note">{readerStageGlanceNote}</p> : null}
+                  </div>
                 </div>
                 <div className={`reader-stage-utility${readerOriginalParityMode ? ' reader-stage-utility-original-parity' : ''}`}>
                   <button
@@ -1421,11 +1493,6 @@ export function ReaderWorkspace({
                       </button>
                     )
                   ) : null}
-                  {showReaderGenerationAction ? (
-                    <button disabled={transformBusy} type="button" onClick={() => handleGenerate(activeMode)}>
-                      {transformBusy ? 'Working…' : `Create ${activeMode}`}
-                    </button>
-                  ) : null}
                 </div>
               </div>
 
@@ -1435,7 +1502,9 @@ export function ReaderWorkspace({
                 }`}
               >
                 <div className={`reader-stage-mode-strip${readerOriginalParityMode ? ' reader-stage-mode-strip-original-parity' : ''}`}>
-                  <span className="reader-stage-strip-label">View</span>
+                  <div className="reader-stage-mode-heading">
+                    <span className="reader-stage-strip-label">View</span>
+                  </div>
                   <div className="recall-stage-tabs recall-stage-tabs-compact" aria-label="Reader views" role="tablist">
                     {viewModeOptions.map((option) => (
                       <button
@@ -1533,31 +1602,6 @@ export function ReaderWorkspace({
                   </div>
                 </div>
               </div>
-
-              <div
-                className={`reader-stage-glance-bar${
-                  readerOriginalParityMode ? ' reader-stage-glance-bar-original-parity' : ''
-                }${
-                  readerOriginalParityMode && !showReaderStageGlanceNote
-                    ? ' reader-stage-glance-bar-original-parity-note-hidden'
-                    : ''
-                }`}
-              >
-                <div
-                  className={`reader-meta-row reader-stage-glance-meta${
-                    readerOriginalParityMode ? ' reader-stage-glance-meta-original-parity' : ''
-                  }`}
-                  role="list"
-                  aria-label="Reader metadata"
-                >
-                  {readerStageMetadata.map((item) => (
-                    <span key={item} className="status-chip reader-meta-chip" role="listitem">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-                {showReaderStageGlanceNote ? <p className="reader-stage-glance-note">{readerStageGlanceNote}</p> : null}
-              </div>
               <div
                 className={`reader-reading-deck-layout${
                   readerOriginalParityMode ? ' reader-reading-deck-layout-original-parity' : ''
@@ -1568,12 +1612,105 @@ export function ReaderWorkspace({
                     readerOriginalParityMode ? ' reader-document-shell-original-parity' : ''
                   }`}
                 >
+                  {readerDerivedModeActive ? (
+                    <section
+                      aria-label={`${readerViewLabel} context`}
+                      className="reader-derived-context"
+                    >
+                      <div className="reader-derived-context-copy">
+                        <div className="reader-derived-context-kicker-row">
+                          <span className="status-chip reader-derived-context-kicker">{readerDerivedModeDescriptor}</span>
+                          {readerSourceTypeLabel ? (
+                            <span className="reader-derived-context-note">From {readerSourceTypeLabel.toLowerCase()} source</span>
+                          ) : null}
+                        </div>
+                        <div className="reader-derived-context-heading">
+                          <h3>{readerDerivedContextLabel}</h3>
+                          <p>{readerDerivedContextSummary}</p>
+                        </div>
+                        <div className="reader-meta-row reader-derived-context-meta" role="list" aria-label={`${readerViewLabel} provenance`}>
+                          {readerDerivedMetadata.map((item) => (
+                            <span key={item} className="status-chip reader-meta-chip" role="listitem">
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                        {activeMode === 'summary' ? (
+                          <div className="reader-derived-detail-shell">
+                            <span className="reader-stage-strip-label">Summary detail</span>
+                            <div
+                              aria-label="Summary detail"
+                              className="reader-derived-detail-controls"
+                              role="group"
+                            >
+                              {(['short', 'balanced', 'detailed'] as SummaryDetail[]).map((detail) => (
+                                <button
+                                  key={detail}
+                                  aria-pressed={summaryDetail === detail}
+                                  className={
+                                    summaryDetail === detail
+                                      ? 'reader-derived-detail-button reader-derived-detail-button-active'
+                                      : 'reader-derived-detail-button'
+                                  }
+                                  type="button"
+                                  onClick={() => setSummaryDetail(detail)}
+                                >
+                                  {formatSummaryDetailLabel(detail)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        <p className="reader-derived-context-footnote">{readerDerivedContextFootnote}</p>
+                      </div>
+                      <div className="reader-derived-context-actions">
+                        <div className="reader-derived-context-branch-group" aria-label={`${readerViewLabel} next steps`} role="group">
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() => setReaderContextTab('notes')}
+                          >
+                            Notebook
+                          </button>
+                          {!canAnnotateCurrentView ? (
+                            <button
+                              className="ghost-button"
+                              type="button"
+                              onClick={() => {
+                                setReaderContextTab('notes')
+                                handleSetActiveMode('reflowed')
+                              }}
+                            >
+                              Reflowed view
+                            </button>
+                          ) : null}
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() => onOpenRecallGraph(selectedDocument.id)}
+                          >
+                            Graph
+                          </button>
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() => onOpenRecallStudy(selectedDocument.id)}
+                          >
+                            Study
+                          </button>
+                        </div>
+                        {showReaderGenerationAction ? (
+                          <button disabled={transformBusy} type="button" onClick={() => handleGenerate(activeMode)}>
+                            {transformBusy ? 'Working…' : `Create ${readerViewLabel}`}
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
                   {viewLoading ? <p className="placeholder">Loading view…</p> : null}
                   {selectedDocument && !view && !viewLoading && showReaderGenerationAction ? (
                     <p className="placeholder placeholder-inline">
-                      {activeMode === 'simplified'
-                        ? 'No simplified view yet. Create simplified when you want it.'
-                        : 'No summary yet. Create summary when you want it.'}
+                      {readerGeneratedEmptyStateDescription}
                     </p>
                   ) : null}
                   {view ? (
@@ -1617,25 +1754,27 @@ export function ReaderWorkspace({
                     ) : null}
                   </div>
 
-                  <div className="recall-stage-tabs reader-support-tabs" aria-label="Reader context" role="tablist">
-                    <button
-                      aria-selected={readerContextTab === 'source'}
-                      className={readerContextTab === 'source' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-                      role="tab"
-                      type="button"
-                      onClick={() => setReaderContextTab('source')}
-                    >
-                      Source
-                    </button>
-                    <button
-                      aria-selected={readerContextTab === 'notes'}
-                      className={readerContextTab === 'notes' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-                      role="tab"
-                      type="button"
-                      onClick={() => setReaderContextTab('notes')}
-                    >
-                      Notes
-                    </button>
+                  <div className="reader-support-dock-toolbar">
+                    <div className="recall-stage-tabs reader-support-tabs" aria-label="Reader context" role="tablist">
+                      <button
+                        aria-selected={readerContextTab === 'source'}
+                        className={readerContextTab === 'source' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                        role="tab"
+                        type="button"
+                        onClick={() => setReaderContextTab('source')}
+                      >
+                        Source
+                      </button>
+                      <button
+                        aria-selected={readerContextTab === 'notes'}
+                        className={readerContextTab === 'notes' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                        role="tab"
+                        type="button"
+                        onClick={() => setReaderContextTab('notes')}
+                      >
+                        Notebook
+                      </button>
+                    </div>
                   </div>
 
                   {readerContextTab === 'source' ? (
@@ -1681,41 +1820,43 @@ export function ReaderWorkspace({
                           </>
                         )}
                       </div>
-                      <LibraryPane
-                        activeDocumentId={activeDocumentId}
-                        deletingDocumentId={deletingDocumentId}
-                        documents={documents}
-                        embedded
-                        errorMessage={libraryErrorMessage}
-                        hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
-                        open={libraryOpen}
-                        loading={documentsLoading}
-                        searchPlaceholder="Search saved sources"
-                        searchValue={search}
-                        title="Source library"
-                        onDelete={handleDeleteDocument}
-                        onSearchChange={setSearch}
-                        onSelect={(document) => {
-                          speech.stop()
-                          setRouteAnchorRange(null)
-                          resetNoteComposer()
-                          startTransition(() => {
-                            setActiveDocument(document)
-                            setActiveDocumentId(document.id)
-                            setActiveMode('reflowed')
-                          })
-                        }}
-                        onToggleOpen={() => setLibraryOpen((current) => !current)}
-                      />
-                      <p className="sidebar-footnote">
-                        {health?.openai_configured
-                          ? readerOriginalParityMode
-                            ? 'Optional Simplify and Summary transforms stay available when you want them.'
-                            : 'Simplify and Summary stay available as optional Recall transforms.'
-                          : readerOriginalParityMode
-                            ? 'Optional Simplify and Summary transforms need OPENAI_API_KEY.'
-                            : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
-                      </p>
+                      <div className="reader-support-library-shell stack-gap">
+                        <LibraryPane
+                          activeDocumentId={activeDocumentId}
+                          deletingDocumentId={deletingDocumentId}
+                          documents={documents}
+                          embedded
+                          errorMessage={libraryErrorMessage}
+                          hasAnyDocuments={documents.length > 0 || Boolean(activeDocument)}
+                          open={libraryOpen}
+                          loading={documentsLoading}
+                          searchPlaceholder="Search saved sources"
+                          searchValue={search}
+                          title="Source library"
+                          onDelete={handleDeleteDocument}
+                          onSearchChange={setSearch}
+                          onSelect={(document) => {
+                            speech.stop()
+                            setRouteAnchorRange(null)
+                            resetNoteComposer()
+                            startTransition(() => {
+                              setActiveDocument(document)
+                              setActiveDocumentId(document.id)
+                              setActiveMode('reflowed')
+                            })
+                          }}
+                          onToggleOpen={() => setLibraryOpen((current) => !current)}
+                        />
+                        <p className="sidebar-footnote">
+                          {health?.openai_configured
+                            ? readerOriginalParityMode
+                              ? 'Optional Simplify and Summary transforms stay available when you want them.'
+                              : 'Simplify and Summary stay available as optional Recall transforms.'
+                            : readerOriginalParityMode
+                              ? 'Optional Simplify and Summary transforms need OPENAI_API_KEY.'
+                              : 'Simplify and Summary remain optional and need OPENAI_API_KEY.'}
+                        </p>
+                      </div>
                     </div>
                   ) : (
                     <section
@@ -1725,7 +1866,7 @@ export function ReaderWorkspace({
                     >
               <div className="toolbar">
                 <div className="section-header section-header-compact">
-                  <h3>Notes</h3>
+                  <h3>Notebook</h3>
                   <p>{notesPanelSummary}</p>
                 </div>
                 {selectedDocument ? (
@@ -1734,7 +1875,7 @@ export function ReaderWorkspace({
                     type="button"
                     onClick={() => onOpenRecallNotes(selectedDocument.id, activeReaderNote?.id ?? notes[0]?.id ?? null)}
                   >
-                    Open in Notes
+                    Open in Notebook
                   </button>
                 ) : null}
               </div>
@@ -1745,7 +1886,7 @@ export function ReaderWorkspace({
 
               {canAnnotateCurrentView ? (
                 <div className="reader-note-status">
-                  {notesLoading ? <p className="small-note">Loading saved notes…</p> : null}
+                  {notesLoading ? <p className="small-note">Loading notebook…</p> : null}
                   {!notesLoading && notesStatus === 'error' ? (
                     <div className="inline-actions">
                       <p className="small-note">{notesError}</p>
@@ -2009,18 +2150,18 @@ export function ReaderWorkspace({
                       Retry loading
                     </button>
                     <button type="button" onClick={onRequestNewSource}>
-                      New source
+                      Add source
                     </button>
                   </div>
                   <p className="small-note">
-                    The New action in the shell still works for local text, files, and public article links while Reader reconnects.
+                    The Add action in the shell still works for local text, files, and public article links while Reader reconnects.
                   </p>
                 </>
               ) : (
                 <div className="empty-state-steps" role="list" aria-label="How to begin">
                   <div className="empty-state-step" role="listitem">
                     <strong>1. Add or reopen something</strong>
-                    <span>Use New for fresh sources, or reopen something from Home.</span>
+                    <span>Use Add for fresh sources, or reopen something from Home.</span>
                   </div>
                   <div className="empty-state-step" role="listitem">
                     <strong>2. Read in calmer view</strong>
@@ -2028,7 +2169,7 @@ export function ReaderWorkspace({
                   </div>
                   <div className="empty-state-step" role="listitem">
                     <strong>3. Keep context docked nearby</strong>
-                    <span>Use Search, Notes, and Source context without leaving the reading lane.</span>
+                    <span>Use Search, Notebook, and Source context without leaving the reading lane.</span>
                   </div>
                 </div>
               )}
@@ -2042,11 +2183,9 @@ export function ReaderWorkspace({
         hasDocument={hasActiveDocument}
         open={settingsOpen}
         settings={settings}
-        summaryDetail={summaryDetail}
         onActiveModeChange={handleSetActiveMode}
         onClose={() => setSettingsOpen(false)}
         onChange={onSettingsChange}
-        onSummaryDetailChange={setSummaryDetail}
       />
     </div>
   )

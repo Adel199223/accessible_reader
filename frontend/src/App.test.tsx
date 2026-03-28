@@ -8,6 +8,7 @@ import type {
   DocumentView,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
+  RecallDocumentPreview,
   RecallNoteRecord,
   RecallNoteSearchHit,
   ReaderSettings,
@@ -15,17 +16,6 @@ import type {
   StudyCardRecord,
   StudyOverview,
 } from './types'
-
-function createMockDataTransfer(): DataTransfer {
-  return {
-    clearData: vi.fn(),
-    dropEffect: 'move',
-    effectAllowed: 'all',
-    files: [] as unknown as FileList,
-    getData: vi.fn(() => ''),
-    setData: vi.fn(),
-  } as unknown as DataTransfer
-}
 
 const documents: DocumentRecord[] = [
   {
@@ -410,6 +400,7 @@ const {
   deleteDocumentRecordMock,
   fetchDocumentsMock,
   fetchDocumentViewMock,
+  fetchRecallDocumentPreviewMock,
   fetchRecallDocumentMock,
   fetchRecallDocumentsMock,
   fetchRecallGraphMock,
@@ -439,6 +430,7 @@ const {
     const fetchDocumentViewMock = vi.fn<
       (documentId: string, mode: string, detailLevel?: string) => Promise<DocumentView>
     >()
+    const fetchRecallDocumentPreviewMock = vi.fn<(documentId: string) => Promise<RecallDocumentPreview>>()
     const fetchRecallDocumentMock = vi.fn()
     const fetchRecallDocumentsMock = vi.fn()
     const fetchRecallGraphMock = vi.fn()
@@ -465,6 +457,7 @@ const {
       deleteDocumentRecordMock,
       fetchDocumentsMock,
       fetchDocumentViewMock,
+      fetchRecallDocumentPreviewMock,
       fetchRecallDocumentMock,
       fetchRecallDocumentsMock,
       fetchRecallGraphMock,
@@ -507,6 +500,7 @@ vi.mock('./api', () => ({
   deleteRecallNote: deleteRecallNoteMock,
   deleteDocumentRecord: deleteDocumentRecordMock,
   fetchHealth: vi.fn(async () => ({ ok: true, openai_configured: false })),
+  fetchRecallDocumentPreview: fetchRecallDocumentPreviewMock,
   fetchRecallDocument: fetchRecallDocumentMock,
   fetchRecallDocuments: fetchRecallDocumentsMock,
   fetchRecallGraph: fetchRecallGraphMock,
@@ -573,6 +567,7 @@ beforeEach(() => {
   createRecallNoteMock.mockReset()
   fetchDocumentsMock.mockReset()
   fetchDocumentViewMock.mockReset()
+  fetchRecallDocumentPreviewMock.mockReset()
   fetchRecallDocumentMock.mockReset()
   fetchRecallDocumentsMock.mockReset()
   fetchRecallGraphMock.mockReset()
@@ -612,6 +607,13 @@ beforeEach(() => {
   )
   fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => views[`${documentId}:${mode}`])
   fetchRecallDocumentsMock.mockImplementation(async () => recallDocuments)
+  fetchRecallDocumentPreviewMock.mockImplementation(async (documentId: string) => ({
+    asset_url: `/api/recall/documents/${documentId}/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z`,
+    document_id: documentId,
+    kind: 'image',
+    source: 'content-rendered-preview',
+    updated_at: '2026-03-27T08:00:00Z',
+  }))
   fetchRecallDocumentMock.mockImplementation(async (documentId: string) => {
     const document = recallDocuments.find((candidate) => candidate.id === documentId)
     if (!document) {
@@ -836,7 +838,7 @@ async function ensureLibraryOpen() {
 }
 
 async function ensureAddSourceDialogOpen() {
-  fireEvent.click(screen.getByRole('button', { name: 'New' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }))
   await waitFor(() => {
     expect(screen.getByRole('dialog', { name: 'Add content' })).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Paste text here')).toBeInTheDocument()
@@ -899,12 +901,48 @@ function renderRecallApp(path = '/') {
   render(<App />)
 }
 
-function getCurrentContextPanel() {
-  return screen.getByRole('heading', { name: 'Current context', level: 2 }).closest('.workspace-context-panel')
+async function openNotebookFromHome() {
+  const notebookAlreadyOpen = () =>
+    screen.queryByRole('heading', { name: 'Notebook', level: 2 }) ??
+    screen.queryByRole('searchbox', { name: 'Search notebook' })
+
+  if (!screen.queryByRole('button', { name: 'New note' }) && !notebookAlreadyOpen()) {
+    fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
+  }
+
+  await waitFor(() => {
+    expect(
+      notebookAlreadyOpen() ??
+      screen.queryByRole('button', { name: 'New note' }) ??
+        screen.queryByRole('button', { name: 'Open notebook' }) ??
+        screen.queryByRole('tab', { name: 'Source workspace Notebook' }),
+    ).not.toBeNull()
+  })
+
+  if (!screen.queryByRole('heading', { name: 'Notebook', level: 2 })) {
+    fireEvent.click(
+      screen.queryByRole('button', { name: 'New note' }) ??
+        screen.queryByRole('button', { name: 'Open notebook' }) ??
+        screen.getByRole('tab', { name: 'Source workspace Notebook' }),
+    )
+  }
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
+  })
 }
 
-function getRecentWorkPanel() {
-  return screen.getByRole('heading', { name: 'Recent work', level: 2 }).closest('.workspace-context-panel')
+function getHomeCanvas() {
+  return screen.getByRole('region', { name: /(collection|results) canvas$/i })
+}
+
+async function openHomeOrganizerOptions(container?: HTMLElement) {
+  const scope = container ? within(container) : screen
+  fireEvent.click(scope.getByRole('button', { name: 'Organizer options' }))
+  await waitFor(() => {
+    expect(scope.getByRole('group', { name: 'Organizer options' })).toBeInTheDocument()
+  })
 }
 
 test('app lands on Recall by default and normalizes the URL to /recall', async () => {
@@ -914,288 +952,68 @@ test('app lands on Recall by default and normalizes the URL to /recall', async (
     expect(window.location.pathname).toBe('/recall')
   })
 
-  expect(screen.getByRole('heading', { name: 'Recall', level: 1 })).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: 'Notes' })).not.toBeInTheDocument()
   expect(screen.queryByLabelText('Home control seam')).not.toBeInTheDocument()
-  expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Collections' })).toHaveAttribute('aria-pressed', 'true')
-  expect(screen.getByRole('button', { name: 'Recent' })).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByRole('button', { name: 'Updated' })).toHaveAttribute('aria-pressed', 'true')
-  expect(screen.getByRole('button', { name: 'Created' })).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByRole('button', { name: 'A-Z' })).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByRole('button', { name: 'Manual' })).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByRole('button', { name: 'Newest' })).toHaveAttribute('aria-pressed', 'true')
-  expect(screen.getByRole('button', { name: 'Oldest' })).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'true')
-  expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByRole('button', { name: 'Hide organizer' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Collapse all' })).toBeInTheDocument()
-  expect(screen.getByRole('group', { name: 'Organizer utilities' })).toBeInTheDocument()
-  expect(document.querySelector('.recall-home-browser-workspace-parity-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browser-layout-organizer-header-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browser-workspace-organizer-control-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browser-workspace-board-first-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browser-workspace-organizer-owned-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browser-workspace-unified-workbench-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-control-seam')).toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-filtered-card-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-board-lift-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-minimal-entry-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-organizer-control-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-board-first-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-organizer-owned-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-unified-workbench-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-board-dominant-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-direct-start-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-board-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-fill-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-card-density-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-continuous-board-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-library-sheet-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-organizer-control-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-board-first-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-board-fusion-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-organizer-owned-reset')).not.toBeNull()
+  expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  expect(getHomeCanvas()).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'List' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Organizer options' })).toBeInTheDocument()
+  expect(screen.queryByRole('group', { name: 'Organizer options' })).not.toBeInTheDocument()
   expect(document.querySelector('.recall-home-primary-flow-header')).toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-unified-workbench-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-flow-grid-board-top-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-primary-board-direct-layout-selected-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-primary-board-direct-layout-inline-reopen-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-primary-board-direct-main-selected-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-primary-board-direct-main-inline-reopen-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-control-deck-organizer-control-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-control-deck-board-first-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-control-deck-stage467-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-shell-organizer-owned-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-shell-unified-workbench-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-shell-organizer-deck-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-shell-organizer-header-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-shell-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-top-organizer-owned-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-top-unified-workbench-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-top-organizer-deck-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-top-organizer-header-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-top-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-header-organizer-owned-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-header-unified-workbench-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-header-organizer-deck-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-heading-inline-unified-workbench-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-copy-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-header-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-heading-inline-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-status-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-search-organizer-owned-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-search-organizer-deck-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-note-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-utility-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-search-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-tools-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-tool-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-tools-stage504-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-tool-stage504-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-control-deck-unified-workbench-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-control-deck-organizer-deck-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-control-deck-organizer-header-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-control-deck-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-strip-control-deck-stage504-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-sort-toggle-organizer-control-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-sort-toggle-organizer-deck-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-sort-toggle-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-sort-button-organizer-deck-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-control-groups-stage467-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-control-groups-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-control-groups-stage504-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-control-group-stage502-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-control-pillbox-stage467-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-groups-organizer-deck-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-groups-tree-branch-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-groups-row-flatten-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-groups-stage504-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-groups-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-stage504-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-stage504-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-note-stage504-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-note-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-row-flatten-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-active-continuity-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-active-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-active-readout-softening-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-active-grouping-deflation-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-active-summary-preview-join-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-active-bridge-hint-retirement-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-active-tree-branch-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-organizer-selection-bar-stage483-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-active-summary-note-integration-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-active-continuity-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-active-highlight-deflation-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-active-readout-softening-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-active-grouping-deflation-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-active-summary-preview-join-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-active-bridge-hint-retirement-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-active-tree-branch-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-active-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-button-active-summary-note-integration-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-preview-branch-summary-note-integration-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-preview-bridge-note-summary-note-integration-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-count-chip')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-count-chip-active-highlight-deflation-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-count-chip-active-readout-softening-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-count-chip-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-topline-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-title-cluster-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-children-grouping-deflation-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-children-summary-preview-join-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-children-bridge-hint-retirement-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-children-tree-branch-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-children-summary-note-integration-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-child-active-grouping-deflation-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-child-active-summary-preview-join-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-child-tree-branch-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browse-group-child-lean-branch-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-browser-stage-board-first-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browser-stage-results-sheet-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-overview-stage479-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-overview-stage500-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-overview-button-stage479-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-overview-button-stage500-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-overview-badge-stage500-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-overview-badge-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-overview-note-stage500-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browse-overview-note-stage507-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-reopen-shelf-board-first-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-shelf-board-fusion-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-shelf-organizer-owned-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-shelf-unified-workbench-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-shelf-rail-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-shelf-direct-board-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-shelf-inline-strip-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-shelf-results-sheet-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-rail-layout')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-rail-layout-direct-board-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-rail-layout-inline-strip-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-rail-layout-results-sheet-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-rail-nearby-header')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-rail-nearby-header-direct-board-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-reopen-rail-nearby-header-results-sheet-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-lead-card-rail-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-lead-card-results-sheet-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-continue-list-rail-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-continue-list-inline-strip-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-continue-list-results-sheet-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-continue-row-rail-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-continue-row-results-sheet-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-board-first-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-board-fusion-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-organizer-owned-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-unified-workbench-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-board-top-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-direct-board-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-direct-start-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-board-dominant-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-results-sheet-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-selected-group-stage-tree-branch-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-stage-lane-header-board-top-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-stage-lane-header-direct-board-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-stage-lane-header-direct-start-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-stage-lane-header-board-dominant-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-stage-lane-header-results-sheet-reset')).toBeNull()
-  expect(document.querySelector('.recall-home-stage-lane-header-tree-branch-reset')).toBeNull()
-  expect(screen.queryByRole('region', { name: 'Saved library' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('region', { name: 'Saved library lanes' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('region', { name: 'Pinned reopen shelf' })).not.toBeInTheDocument()
-  expect(screen.queryByText('Older sources ready to reopen')).not.toBeInTheDocument()
+  expect(document.querySelector('.recall-home-control-seam')).toBeNull()
   expect(fetchRecallDocumentsMock).toHaveBeenCalled()
 })
 
-test('Recall home manual organizer mode exposes drag handles and batch move actions for active branch sources', async () => {
+test('Recall home keeps manual ordering behind the compact sort menu without reopening the old organizer chrome', async () => {
   renderRecallApp('/recall')
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Manual' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
   })
 
+  const browseStrip = screen.getByRole('complementary', { name: 'Home collection rail' })
+  const canvas = getHomeCanvas()
+  fireEvent.click(within(canvas).getByRole('button', { name: /Sort Home sources/i }))
   fireEvent.click(screen.getByRole('button', { name: 'Manual' }))
-  fireEvent.click(screen.getByRole('button', { name: /^Captures/ }))
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Drag Search target only in Captures' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Sort Home sources\. Current Manual/i })).toBeInTheDocument()
   })
 
-  const browseStrip = screen.getByRole('complementary', { name: 'Home browse strip' })
-  const savedLibrarySection = screen.getByRole('region', { name: 'Saved library' })
-  const sourceTargetRow = screen
-    .getByRole('button', { name: 'Open Reader stays here from organizer' })
-    .closest('.recall-home-browse-group-child-row-stage483-reset')
-
-  expect(sourceTargetRow).not.toBeNull()
-  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage511-reset')
-  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage513-reset')
-  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage515-reset')
-  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage517-reset')
-  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage519-reset')
-  expect(savedLibrarySection).toHaveClass('recall-home-selected-group-stage-stage521-reset')
-  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-primary-board-direct-main-stage511-reset')).not.toBeNull()
-  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-stage-lane-header-stage513-reset')).not.toBeNull()
-  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-source-stage513-reset')).not.toBeNull()
-  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-stage-source-summary-stage513-reset')).not.toBeNull()
-  expect((savedLibrarySection as HTMLElement).querySelector('.recall-home-library-section-count-stage513-reset')).not.toBeNull()
-  expect(browseStrip.querySelector('.recall-home-browse-group-children-stage509-reset')).not.toBeNull()
-  expect(browseStrip.querySelector('.recall-home-browse-group-child-row-stage509-reset')).not.toBeNull()
-  expect(browseStrip.querySelector('.recall-home-browse-group-child-stage509-reset')).not.toBeNull()
-  expect(browseStrip.querySelector('.recall-home-browse-group-child-marker-stage509-reset')).not.toBeNull()
-  expect(browseStrip.querySelector('.recall-home-browse-group-child-copy-stage509-reset')).not.toBeNull()
-  expect(browseStrip.querySelector('.recall-home-browse-group-child-title-stage509-reset')).not.toBeNull()
-  expect(browseStrip.querySelector('.recall-home-browse-group-child-meta-stage509-reset')).not.toBeNull()
-  expect(browseStrip.querySelector('.recall-home-browse-group-child-active-stage509-reset')).not.toBeNull()
-
-  const sourceDragData = createMockDataTransfer()
-  fireEvent.dragStart(screen.getByRole('button', { name: 'Drag Search target only in Captures' }), {
-    dataTransfer: sourceDragData,
-  })
-  fireEvent.dragOver(sourceTargetRow as HTMLElement, { dataTransfer: sourceDragData })
-  fireEvent.drop(sourceTargetRow as HTMLElement, { dataTransfer: sourceDragData })
-  fireEvent.dragEnd(screen.getByRole('button', { name: 'Drag Search target only in Captures' }), {
-    dataTransfer: sourceDragData,
-  })
-
-  await waitFor(() => {
-    const branchTitles = Array.from(
-      browseStrip.querySelectorAll('.recall-home-browse-group-child-title-lean-branch-reset'),
-    ).map((element) => element.textContent?.trim())
-    expect(branchTitles[1]).toBe('Search target only')
-  })
-
-  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only from organizer' }), { ctrlKey: true })
-  fireEvent.click(screen.getByRole('button', { name: 'Open Reader stays here from organizer' }), { ctrlKey: true })
-
-  const selectionBar = screen.getByRole('group', { name: 'Organizer selection bar' })
-  expect(within(selectionBar).getByText('2 items selected')).toBeInTheDocument()
-  expect(within(selectionBar).getByText('2 sources')).toBeInTheDocument()
-  expect(within(selectionBar).getByRole('button', { name: 'Move earlier' })).toBeInTheDocument()
-  expect(within(selectionBar).getByRole('button', { name: 'Move later' })).toBeInTheDocument()
+  expect(browseStrip).toBeInTheDocument()
+  expect(within(browseStrip).getByRole('button', { name: /^Captures/ })).toBeInTheDocument()
+  expect(within(browseStrip).getByRole('button', { name: 'Open Search target only from Captures' })).toBeInTheDocument()
+  expect(screen.queryByRole('group', { name: 'Organizer selection bar' })).not.toBeInTheDocument()
 })
 
-test('Recall home custom collections can be created from the organizer and filled from untagged sources', async () => {
+test('Recall home custom collections can still be created from organizer options without reopening the old assignment flow', async () => {
   renderRecallApp('/recall')
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'New collection' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
   })
 
-  const browseStrip = screen.getByRole('complementary', { name: 'Home browse strip' })
+  const browseStrip = screen.getByRole('complementary', { name: 'Home collection rail' })
 
-  fireEvent.click(within(browseStrip).getByRole('button', { name: 'New collection' }))
+  await openHomeOrganizerOptions(browseStrip as HTMLElement)
+
+  fireEvent.click(within(browseStrip).getByRole('button', { name: /Create collection|New collection/i }))
 
   await waitFor(() => {
     expect(within(browseStrip).getByRole('group', { name: 'Collection management' })).toBeInTheDocument()
   })
 
-  fireEvent.change(within(browseStrip).getByRole('textbox', { name: 'Collection name' }), {
+  const collectionManagement = within(browseStrip).getByRole('group', { name: 'Collection management' })
+
+  fireEvent.change(within(collectionManagement).getByRole('textbox', { name: 'Collection name' }), {
     target: { value: 'Pinned work' },
   })
-  fireEvent.click(within(browseStrip).getByRole('button', { name: 'Create collection' }))
+  fireEvent.click(within(collectionManagement).getByRole('button', { name: 'Create collection' }))
 
   await waitFor(() => {
     expect(within(browseStrip).getByRole('button', { name: /^Pinned work/i })).toBeInTheDocument()
@@ -1206,70 +1024,48 @@ test('Recall home custom collections can be created from the organizer and fille
   fireEvent.click(within(browseStrip).getByRole('button', { name: /^Untagged/i }))
 
   await waitFor(() => {
-    expect(within(browseStrip).getByRole('button', { name: 'Open Search target only from organizer' })).toBeInTheDocument()
-    expect(within(browseStrip).getByRole('button', { name: 'Open Reader stays here from organizer' })).toBeInTheDocument()
+    expect(within(browseStrip).getByRole('button', { name: 'Open Search target only from Untagged' })).toBeInTheDocument()
   })
 
-  fireEvent.click(within(browseStrip).getByRole('button', { name: 'Open Search target only from organizer' }), {
-    ctrlKey: true,
-  })
-  fireEvent.click(within(browseStrip).getByRole('button', { name: 'Open Reader stays here from organizer' }), {
-    ctrlKey: true,
-  })
-
-  const selectionBar = screen.getByRole('group', { name: 'Organizer selection bar' })
-  fireEvent.click(within(selectionBar).getByRole('button', { name: 'Add to collections' }))
-
-  await waitFor(() => {
-    expect(within(browseStrip).getByRole('group', { name: 'Collection assignment panel' })).toBeInTheDocument()
-  })
-
-  fireEvent.click(within(browseStrip).getByRole('button', { name: 'Add Pinned work' }))
   fireEvent.click(within(browseStrip).getByRole('button', { name: /^Pinned work/i }))
 
   await waitFor(() => {
-    expect(within(browseStrip).getByRole('button', { name: 'Open Search target only from organizer' })).toBeInTheDocument()
-    expect(within(browseStrip).getByRole('button', { name: 'Open Reader stays here from organizer' })).toBeInTheDocument()
+    expect(within(browseStrip).getByRole('button', { name: /^Pinned work/i })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  const savedLibrary = screen.getByRole('region', { name: 'Saved library' })
-  await waitFor(() => {
-    expect(within(savedLibrary).getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
-    expect(within(savedLibrary).getByRole('button', { name: 'Open Reader stays here' })).toBeInTheDocument()
-  })
+  expect(getHomeCanvas()).toBeInTheDocument()
 })
 
-test('Home can hide the organizer rail and keep compact controls in the seam', async () => {
+test('Home can hide the organizer rail and reopen it from the section launcher while compact controls stay available', async () => {
   renderRecallApp('/recall')
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Hide organizer' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Hide organizer' }))
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  expect(within(rail).getByRole('separator', { name: 'Resize Home organizer' })).toHaveClass(
+    'recall-home-browse-strip-resize-handle-stage696-reset',
+  )
+  fireEvent.click(within(rail).getByRole('button', { name: 'Hide organizer' }))
 
   await waitFor(() => {
-    expect(screen.queryByRole('complementary', { name: 'Home browse strip' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Home collection rail' })).not.toBeInTheDocument()
   })
 
-  expect(screen.getByRole('group', { name: 'Compact organizer controls' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Show organizer' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Collections' })).toHaveAttribute('aria-pressed', 'true')
-  expect(screen.getByRole('button', { name: 'Recent' })).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByRole('button', { name: 'Updated' })).toHaveAttribute('aria-pressed', 'true')
-  expect(screen.getByRole('button', { name: 'Created' })).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByRole('button', { name: 'Manual' })).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByRole('button', { name: 'Newest' })).toHaveAttribute('aria-pressed', 'true')
-  expect(screen.getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'true')
-  expect(document.querySelector('.recall-home-control-seam-organizer-hidden-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-compact-control-deck-organizer-control-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-compact-control-actions-stage467-reset')).not.toBeNull()
-  expect(document.querySelector('.recall-home-browser-workspace-organizer-hidden-reset')).not.toBeNull()
+  const canvas = getHomeCanvas()
+  expect(within(canvas).getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  expect(within(canvas).queryByRole('button', { name: 'Collections' })).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Home control seam')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Show home organizer' })).toHaveClass(
+    'recall-home-organizer-launcher-stage696',
+  )
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show organizer' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Show home organizer' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('complementary', { name: 'Home browse strip' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
   })
 })
 
@@ -1277,10 +1073,10 @@ test('Recall home keeps organizer resize state through hide and show before rese
   renderRecallApp('/recall')
 
   await waitFor(() => {
-    expect(screen.getByRole('complementary', { name: 'Home browse strip' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
   })
 
-  const browseStrip = screen.getByRole('complementary', { name: 'Home browse strip' })
+  const browseStrip = screen.getByRole('complementary', { name: 'Home collection rail' })
   const resizeHandle = within(browseStrip).getByRole('separator', { name: 'Resize Home organizer' })
 
   expect(browseStrip).toHaveStyle({ width: '268px' })
@@ -1291,19 +1087,19 @@ test('Recall home keeps organizer resize state through hide and show before rese
     expect(browseStrip).toHaveStyle({ width: '292px' })
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Hide organizer' }))
+  fireEvent.click(within(browseStrip).getByRole('button', { name: 'Hide organizer' }))
 
   await waitFor(() => {
-    expect(screen.queryByRole('complementary', { name: 'Home browse strip' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Home collection rail' })).not.toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show organizer' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Show home organizer' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('complementary', { name: 'Home browse strip' })).toHaveStyle({ width: '292px' })
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toHaveStyle({ width: '292px' })
   })
 
-  const restoredBrowseStrip = screen.getByRole('complementary', { name: 'Home browse strip' })
+  const restoredBrowseStrip = screen.getByRole('complementary', { name: 'Home collection rail' })
   fireEvent.doubleClick(within(restoredBrowseStrip).getByRole('separator', { name: 'Resize Home organizer' }))
 
   await waitFor(() => {
@@ -1356,24 +1152,20 @@ test('Recall retry recovers after a transient initial load failure', async () =>
 
   await waitFor(() => {
     expect(screen.queryByText(localServiceUnavailableMessage)).not.toBeInTheDocument()
-    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Primary saved source flow' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+    expect(getHomeCanvas()).toBeInTheDocument()
   })
 
   expect(screen.getByRole('tab', { name: 'Graph', selected: false })).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: 'Study', selected: false })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Collections' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
 })
 
 test('Recall global Search surfaces graph-aware hits from the Home workflow', async () => {
   renderRecallApp('/recall')
 
-  await waitFor(() => {
-    expect(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i })).toBeInTheDocument()
-  })
-
-  fireEvent.click(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i }))
+  fireEvent.keyDown(window, { ctrlKey: true, key: 'k' })
 
   await waitFor(() => {
     expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
@@ -1389,15 +1181,10 @@ test('Recall global Search surfaces graph-aware hits from the Home workflow', as
     expect(retrieveRecallMock).toHaveBeenCalledWith('Search sentence', 8)
   })
 
-  await waitFor(() => {
-    expect(within(searchDialog).getByRole('button', { name: /Knowledge Graphs/i })).toBeInTheDocument()
-  })
+  const recallHitsSection = within(searchDialog).getByRole('heading', { name: 'Recall hits', level: 3 }).closest('section')
+  expect(recallHitsSection).not.toBeNull()
 
-  fireEvent.click(within(searchDialog).getByRole('button', { name: /Knowledge Graphs/i }))
-
-  await waitFor(() => {
-    expect(within(searchDialog).getByRole('button', { name: 'Open in Graph' })).toBeInTheDocument()
-  })
+  expect(within(recallHitsSection as HTMLElement).getByRole('button', { name: /Knowledge Graphs/i })).toBeInTheDocument()
 })
 
 test('Recall graph browse mode opens a focused node detail and lets the user confirm an inferred edge', async () => {
@@ -1414,234 +1201,40 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   })
 
   const graphControlSeam = screen.getByLabelText('Graph control seam')
-  expect(within(graphControlSeam).getByRole('searchbox', { name: 'Search graph' })).toBeInTheDocument()
-  expect(within(graphControlSeam).getByRole('group', { name: 'Graph search navigation' })).toBeInTheDocument()
-  expect(within(graphControlSeam).queryByRole('list', { name: 'Graph metrics' })).toBeNull()
-  expect((graphControlSeam as HTMLElement).querySelector('.recall-graph-browser-control-overlay-primary')).not.toBeNull()
-  expect((graphControlSeam as HTMLElement).querySelector('.recall-graph-browser-control-overlay-primary-corner-reset')).not.toBeNull()
+  expect(within(graphControlSeam).getByRole('searchbox', { name: 'Search by title' })).toBeInTheDocument()
   expect((graphControlSeam as HTMLElement).querySelector('.recall-graph-browser-control-actions-overlay')).not.toBeNull()
   expect((graphControlSeam as HTMLElement).querySelector('.recall-graph-browser-control-actions-corner-reset')).not.toBeNull()
-  expect((graphControlSeam as HTMLElement).querySelector('.recall-graph-search-navigation')).not.toBeNull()
+  expect(within(graphControlSeam).queryByRole('group', { name: 'Graph search navigation' })).toBeNull()
   expect((graphControlSeam as HTMLElement).querySelector('.recall-graph-view-controls')).not.toBeNull()
-  expect((graphControlSeam as HTMLElement).querySelector('.recall-graph-browser-control-copy-inline')).toBeNull()
   const graphViewControls = within(graphControlSeam).getByRole('group', { name: 'Graph view controls' })
   expect(within(graphViewControls).getByRole('button', { name: 'Fit to view' })).toBeInTheDocument()
   expect(within(graphViewControls).getByRole('button', { name: 'Lock graph' })).toBeInTheDocument()
-  expect(graphControlSeam).toHaveTextContent('Explore default')
-  expect(screen.queryByText('Last focused source')).not.toBeInTheDocument()
-  expect(within(graphControlSeam).getByText('Explore')).toHaveClass('recall-graph-browser-control-state-chip')
-  expect(screen.queryByRole('complementary', { name: 'Graph settings sidebar' })).not.toBeInTheDocument()
-  expect(screen.queryByLabelText('Node detail dock')).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Graph', level: 2 })).toBeNull()
-  expect(screen.getByRole('button', { name: 'Show settings' })).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'Show all' })).toBeNull()
-  const graphFocusRail = screen.getByLabelText('Graph focus rail')
-  expect(graphFocusRail).toHaveClass('recall-graph-focus-rail-corner-reset')
-  expect((graphFocusRail as HTMLElement).querySelector('.recall-graph-focus-rail-kicker')).not.toBeNull()
-  expect(graphFocusRail).toHaveTextContent(/working trail|recent path|select a node to start|jump back into the last nodes/i)
-  expect(within(graphFocusRail).getByRole('list', { name: 'Graph focus context' })).toBeInTheDocument()
-  expect(within(graphFocusRail).getByText('Path')).toBeInTheDocument()
-  expect(document.querySelector('.recall-graph-focus-rail')).not.toBeNull()
-  const graphLegend = screen.getByRole('group', { name: 'Graph legend' })
-  expect(graphLegend).toHaveTextContent('Source groups')
-  expect(document.querySelector('.recall-graph-browser-legend')).not.toBeNull()
-  const knowledgeGraphsCanvasButton = screen.getByRole('button', { name: 'Select node Knowledge Graphs' })
-  expect((knowledgeGraphsCanvasButton as HTMLElement).querySelector('.recall-graph-node-button-shell')).not.toBeNull()
-  expect(within(knowledgeGraphsCanvasButton).queryByText(/concept/i)).toBeNull()
-
-  fireEvent.mouseEnter(knowledgeGraphsCanvasButton)
-
-  await waitFor(() => {
-    const graphHoverPreview = document.querySelector('.recall-graph-hover-preview')
-    expect(graphHoverPreview).not.toBeNull()
-    expect(graphHoverPreview).toHaveTextContent('Concept')
-    expect(graphHoverPreview).toHaveTextContent('Knowledge Graphs')
-    expect(graphHoverPreview).toHaveTextContent('Search target only')
-    expect(graphHoverPreview).toHaveTextContent('Captures')
-    expect(graphHoverPreview).toHaveTextContent('2 mentions · 1 source doc')
-  })
-
-  fireEvent.click(screen.getByRole('button', { name: 'Show settings' }))
-
-  const quickPickList = screen.getByRole('list', { name: 'Visible nodes' })
+  expect(graphControlSeam).not.toHaveTextContent('Find node titles')
+  expect(graphControlSeam).not.toHaveTextContent('Unlocked')
   const graphRail = screen.getByRole('complementary', { name: 'Graph settings sidebar' })
-  expect(graphRail).toContainElement(quickPickList)
-  expect(screen.getByRole('button', { name: 'Hide settings' })).toBeInTheDocument()
-  expect(within(graphRail).getByRole('button', { name: 'Compact' })).not.toBeDisabled()
-  expect(within(graphRail).getByRole('button', { name: 'Balanced' })).not.toBeDisabled()
-  expect(within(graphRail).getByRole('button', { name: 'Spread' })).not.toBeDisabled()
-  expect(screen.getByRole('complementary', { name: 'Graph settings sidebar' })).toHaveClass('recall-graph-browser-utility-strip')
-  expect(screen.getByRole('complementary', { name: 'Graph settings sidebar' })).toHaveClass('recall-graph-browser-utility-strip-attached')
-  expect(screen.getByRole('complementary', { name: 'Graph settings sidebar' })).toHaveClass('recall-graph-browser-utility-strip-drawer-reset')
-  expect((graphRail as HTMLElement).querySelector('.recall-graph-sidebar-search')).toBeNull()
-  expect((graphRail as HTMLElement).querySelector('.recall-graph-browser-utility-shell-drawer-reset')).not.toBeNull()
-  expect((graphRail as HTMLElement).querySelector('.recall-graph-browser-utility-shell-settings-reset')).not.toBeNull()
+  expect(graphRail).toBeInTheDocument()
+  expect(screen.queryByLabelText('Node detail dock')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Hide graph settings' })).toBeInTheDocument()
+  expect(screen.queryByLabelText('Graph focus tray')).not.toBeInTheDocument()
+  expect(document.querySelector('.recall-graph-canvas-count-pill-label')).not.toBeNull()
   expect(within(graphRail).getByLabelText('Graph settings panel')).toHaveTextContent(
-    /Save, update, rename, and reset graph views here while selected-node work stays in the trail and detail drawer\./,
+    /Tune presets, filters, and groups while the canvas stays in view\./i,
   )
   expect(within(graphRail).getByText('Presets', { selector: 'strong' })).toBeInTheDocument()
-  expect(within(graphRail).getByText('Saved views', { selector: 'strong' })).toBeInTheDocument()
-  expect(within(graphRail).getByText('Filter query', { selector: 'strong' })).toBeInTheDocument()
-  expect(within(graphRail).getByText('Visibility', { selector: 'strong' })).toBeInTheDocument()
-  expect(within(graphRail).getByText('Timeline', { selector: 'strong' })).toBeInTheDocument()
-  expect(within(graphRail).getByText('Content', { selector: 'strong' })).toBeInTheDocument()
+  expect(within(graphRail).getByText('Filters', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Groups', { selector: 'strong' })).toBeInTheDocument()
-  expect(within(graphRail).getByLabelText('Filter graph')).toBeInTheDocument()
-  const graphPresetNameInput = within(graphRail).getByLabelText('Graph preset name')
-  expect(graphPresetNameInput).toHaveValue('')
-  expect(within(graphRail).getByRole('button', { name: 'Explore' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByRole('button', { name: 'Connections' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByRole('button', { name: 'Timeline' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByText(/No saved views yet\./i)).toBeInTheDocument()
-  expect(within(graphRail).getByRole('button', { name: 'Timeline filter' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByRole('button', { name: 'Play timeline' })).toBeDisabled()
-  expect(within(graphRail).getByLabelText('Graph timeline')).toBeDisabled()
-  expect(within(graphRail).getByRole('button', { name: 'Source type' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByRole('button', { name: 'Node type' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByRole('button', { name: 'Concept' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByRole('button', { name: 'Unconnected' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByRole('button', { name: 'Leaf nodes' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByRole('button', { name: 'Reference content' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByText('View')).toBeInTheDocument()
-  expect(within(graphRail).getByText('Layout')).toBeInTheDocument()
-  expect(within(graphRail).getByText('Appearance')).toBeInTheDocument()
-  expect((graphRail as HTMLElement).querySelector('.recall-graph-sidebar-section-depth-reset')).not.toBeNull()
-  expect((graphRail as HTMLElement).querySelector('.recall-graph-sidebar-section-layout-reset')).not.toBeNull()
-  expect((graphRail as HTMLElement).querySelector('.recall-graph-sidebar-section-appearance-reset')).not.toBeNull()
-  expect(within(graphRail).getByText('Visible nodes')).toBeInTheDocument()
-  expect(within(graphRail).getByText(/Jump to visible nodes\.|Search keeps matching nodes in view\./)).toBeInTheDocument()
-  expect(within(graphRail).getByText(/Supports .*OR/i)).toBeInTheDocument()
-  expect(within(graphRail).queryByText('Inspect')).toBeNull()
-  expect(within(graphRail).queryByText('Grounded clue')).toBeNull()
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Connections' }))
-  fireEvent.change(graphPresetNameInput, { target: { value: 'Connection audit' } })
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Save new preset' }))
+  const graphTour = screen.getByLabelText('Graph View tour')
+  expect(graphTour).toHaveTextContent('Welcome to GraphView 2.0')
+  expect(graphTour).toHaveTextContent("Let's explore")
+  fireEvent.click(within(graphTour).getByRole('button', { name: 'Close Graph tour' }))
   await waitFor(() => {
-    expect(within(graphRail).getByRole('button', { name: /Connection audit/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByLabelText('Graph View tour')).toBeNull()
   })
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Explore' }))
-  fireEvent.click(within(graphRail).getByRole('button', { name: /Connection audit/i }))
-  await waitFor(() => {
-    expect(within(graphRail).getByRole('button', { name: '3+ hops' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(graphRail).getByRole('button', { name: 'Spread' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(graphRail).getByRole('button', { name: 'Hover focus' })).toHaveAttribute('aria-pressed', 'false')
-  })
-  fireEvent.change(graphPresetNameInput, { target: { value: 'Connection route' } })
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Rename preset' }))
-  await waitFor(() => {
-    expect(within(graphRail).getByRole('button', { name: /Connection route/i })).toHaveAttribute('aria-pressed', 'true')
-  })
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Reset to defaults' }))
-  await waitFor(() => {
-    expect(graphPresetNameInput).toHaveValue('')
-    expect(within(graphRail).getByRole('button', { name: 'Explore' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(graphRail).getByRole('button', { name: '2 hops' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(graphRail).getByRole('button', { name: 'Balanced' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(graphRail).getByRole('button', { name: 'Unconnected' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(graphRail).getByRole('button', { name: 'Leaf nodes' })).toHaveAttribute('aria-pressed', 'true')
-    expect(within(graphRail).getByRole('button', { name: 'Reference content' })).toHaveAttribute('aria-pressed', 'true')
-  })
-  const resizeHandle = within(graphRail).getByRole('separator', { name: 'Resize graph settings sidebar' })
-  expect(graphRail).toHaveStyle({ width: '244px' })
-  fireEvent.keyDown(resizeHandle, { key: 'ArrowRight' })
-  await waitFor(() => {
-    expect(graphRail).toHaveStyle({ width: '268px' })
-  })
-  fireEvent.doubleClick(resizeHandle)
-  await waitFor(() => {
-    expect(graphRail).toHaveStyle({ width: '244px' })
-  })
-  fireEvent.click(within(graphLegend).getByRole('button', { name: /Captures/i }))
-  await waitFor(() => {
-    expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'true')
-  })
-  fireEvent.click(within(graphLegend).getByRole('button', { name: /Captures/i }))
-  await waitFor(() => {
-    expect(within(graphRail).getByRole('button', { name: 'Captures' })).toHaveAttribute('aria-pressed', 'false')
-  })
-  expect(within(graphRail).getByRole('button', { name: '1 hop' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByRole('button', { name: '2 hops' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByRole('button', { name: '3+ hops' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByRole('button', { name: 'Compact' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByRole('button', { name: 'Balanced' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByRole('button', { name: 'Spread' })).toHaveAttribute('aria-pressed', 'false')
-  expect(within(graphRail).getByRole('button', { name: 'Hover focus' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByRole('button', { name: 'Show counts' })).toHaveAttribute('aria-pressed', 'true')
-  fireEvent.click(within(graphViewControls).getByRole('button', { name: 'Lock graph' }))
-  await waitFor(() => {
-    expect(within(graphViewControls).getByRole('button', { name: 'Unlock graph' })).toBeInTheDocument()
-  })
-  expect(within(graphRail).getByRole('button', { name: 'Compact' })).toBeDisabled()
-  expect(within(graphRail).getByRole('button', { name: 'Balanced' })).toBeDisabled()
-  expect(within(graphRail).getByRole('button', { name: 'Spread' })).toBeDisabled()
-  fireEvent.click(within(graphViewControls).getByRole('button', { name: 'Unlock graph' }))
-  await waitFor(() => {
-    expect(within(graphViewControls).getByRole('button', { name: 'Lock graph' })).toBeInTheDocument()
-  })
-  expect((graphRail as HTMLElement).querySelector('.recall-graph-browser-node-peek-selected-strip-drawer-reset')).toBeNull()
-  const knowledgeGraphsQuickPick = within(graphRail).getByRole('button', { name: /Knowledge Graphs/i })
-  const studyCardsQuickPick = within(graphRail).getByRole('button', { name: /Study Cards/i })
-  expect(knowledgeGraphsQuickPick).toHaveClass('recall-graph-quick-pick-row-reset')
-  expect(studyCardsQuickPick).toHaveClass('recall-graph-quick-pick-row-reset')
-  expect(knowledgeGraphsQuickPick).toHaveAttribute(
-    'title',
-    'Knowledge Graphs support Study Cards.',
-  )
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Timeline' }))
-  expect(within(graphRail).getByRole('button', { name: 'Timeline' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByRole('button', { name: 'Timeline filter' })).toHaveAttribute('aria-pressed', 'true')
-  expect(within(graphRail).getByRole('button', { name: 'Play timeline' })).not.toBeDisabled()
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Explore' }))
-  expect(within(graphRail).getByRole('button', { name: 'Explore' })).toHaveAttribute('aria-pressed', 'true')
-  expect(document.querySelector('.recall-graph-node-layer-hover-focus-reset')).not.toBeNull()
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Hover focus' }))
-  expect(document.querySelector('.recall-graph-node-layer-hover-focus-reset')).toBeNull()
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Show counts' }))
-  expect(document.querySelectorAll('.recall-graph-node-button-summary').length).toBe(0)
-  fireEvent.click(within(graphRail).getByRole('button', { name: '3+ hops' }))
-  expect(within(graphRail).getByRole('button', { name: '3+ hops' })).toHaveAttribute('aria-pressed', 'true')
-  fireEvent.click(within(graphRail).getByRole('button', { name: 'Spread' }))
-  expect(within(graphRail).getByRole('button', { name: 'Spread' })).toHaveAttribute('aria-pressed', 'true')
-  fireEvent.click(screen.getByRole('button', { name: 'Select node Knowledge Graphs' }), { ctrlKey: true })
-
-  await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeInTheDocument()
-  })
-
-  const pathSelectionRail = screen.getByLabelText('Graph focus rail')
-  expect(pathSelectionRail).toHaveTextContent('Path')
-  expect(pathSelectionRail).toHaveTextContent('Path selection')
-  expect(pathSelectionRail).toHaveTextContent(/Choose one more node/i)
-  expect(within(pathSelectionRail).queryByRole('button', { name: 'Find path' })).toBeNull()
-  expect(screen.queryByLabelText('Node detail dock')).not.toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Select node Study Cards' }), { ctrlKey: true })
-
-  await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Find path' })).toBeInTheDocument()
-  })
-
-  const pathReadyRail = screen.getByLabelText('Graph focus rail')
-  expect(pathReadyRail).toHaveTextContent(/Ready to find a path/i)
-  expect(pathReadyRail).toHaveTextContent('Knowledge Graphs')
-  expect(pathReadyRail).toHaveTextContent('Study Cards')
-  expect(pathReadyRail).toHaveTextContent('2 nodes selected')
-  expect(screen.queryByLabelText('Node detail dock')).not.toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Find path' }))
-
-  await waitFor(() => {
-    expect(screen.getByLabelText('Graph focus rail')).toHaveTextContent(/Shortest visible path/i)
-  })
-
-  const pathResultRail = screen.getByLabelText('Graph focus rail')
-  expect(pathResultRail).toHaveTextContent(/2 nodes across 1 step/i)
-  expect(pathResultRail).toHaveTextContent(/from Knowledge Graphs to Study Cards/i)
-  expect(document.querySelector('.recall-graph-edge-path-active')).not.toBeNull()
-  expect(document.querySelectorAll('.recall-graph-node-button-path-active').length).toBeGreaterThanOrEqual(2)
-  expect(screen.queryByLabelText('Node detail dock')).not.toBeInTheDocument()
-
+  expect(screen.getByRole('button', { name: 'Replay Graph tour' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Graph help' })).toBeInTheDocument()
+  const knowledgeGraphsCanvasButton = screen.getByRole('button', { name: 'Select node Knowledge Graphs' })
+  expect((knowledgeGraphsCanvasButton as HTMLElement).querySelector('.recall-graph-node-button-core')).not.toBeNull()
+  expect((knowledgeGraphsCanvasButton as HTMLElement).querySelector('.recall-graph-node-button-label-track')).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Select node Knowledge Graphs' }))
 
   await waitFor(() => {
@@ -1649,9 +1242,7 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   })
 
   const nodeDetailSection = screen.getByLabelText('Node detail dock')
-  const selectedGraphFocusRail = screen.getByLabelText('Graph focus rail')
-  const selectedGraphControlSeam = screen.getByLabelText('Graph control seam')
-  const selectedGraphRail = screen.getByRole('complementary', { name: 'Graph settings sidebar' })
+  const selectedGraphFocusRail = screen.getByLabelText('Graph focus tray')
   expect(document.querySelector('.recall-graph-node-layer-selected-focus-reset')).not.toBeNull()
   expect(nodeDetailSection).not.toBeNull()
   expect(nodeDetailSection).toHaveClass('recall-graph-detail-dock')
@@ -1670,18 +1261,7 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   expect(within(nodeDetailSection as HTMLElement).getByText('Grounded clue')).toBeInTheDocument()
   expect(within(nodeDetailSection as HTMLElement).queryByRole('button', { name: 'Focus source' })).toBeNull()
   expect(within(nodeDetailSection as HTMLElement).queryByText('Open source')).toBeNull()
-  expect(selectedGraphControlSeam).not.toHaveTextContent(/knowledge graphs/i)
-  expect(within(selectedGraphControlSeam).getByRole('button', { name: 'Show all' })).toBeInTheDocument()
   expect(within(nodeDetailSection as HTMLElement).getByRole('heading', { name: 'Knowledge Graphs', level: 3 })).toBeInTheDocument()
-  expect((selectedGraphControlSeam as HTMLElement).querySelector('.recall-graph-browser-control-selected-overlay')).toBeNull()
-  expect(
-    within(selectedGraphRail).getByRole('list', { name: 'Graph drawer status' }),
-  ).toHaveTextContent(/visible nodes/i)
-  expect(within(selectedGraphRail).queryByText('Focus mode')).toBeNull()
-  expect(within(selectedGraphRail).queryByText(/detail drawer open for knowledge graphs|focused on knowledge graphs/i)).toBeNull()
-  expect(within(selectedGraphRail).queryByText('Inspect')).toBeNull()
-  expect(within(selectedGraphRail).queryByText('Grounded clue')).toBeNull()
-  expect((selectedGraphRail as HTMLElement).querySelector('.recall-graph-browser-node-peek-selected-strip-drawer-reset')).toBeNull()
   expect(within(selectedGraphFocusRail).getByRole('list', { name: 'Graph focus context' })).toBeInTheDocument()
   expect(within(selectedGraphFocusRail).getByText('Focus')).toBeInTheDocument()
   expect(within(selectedGraphFocusRail).getByText('Focus mode')).toBeInTheDocument()
@@ -1690,7 +1270,6 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   expect(within(selectedGraphFocusRail).getByRole('button', { name: 'Focus source' })).toBeInTheDocument()
   expect(within(selectedGraphFocusRail).getByRole('button', { name: 'Open source' })).toBeInTheDocument()
   expect(within(selectedGraphFocusRail).getByRole('button', { name: 'Clear focus' })).toBeInTheDocument()
-  expect(within(selectedGraphFocusRail).getByRole('button', { name: 'Jump back' })).toBeInTheDocument()
   expect(
     within(within(selectedGraphFocusRail).getByRole('list', { name: 'Graph focus trail' })).getByRole('button', {
       name: 'Knowledge Graphs',
@@ -1778,7 +1357,7 @@ test('Recall keeps the active section through a hard refresh', async () => {
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review', level: 2 })).toBeInTheDocument()
   })
 })
 
@@ -1792,14 +1371,23 @@ test('Recall study queue shows an active card and records a review after reveali
   fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review', level: 2 })).toBeInTheDocument()
   })
 
-  expect(screen.queryByRole('heading', { name: 'Session', level: 2 })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Recall review', level: 2 })).not.toBeInTheDocument()
+  const studyHeader = screen.getByLabelText('Study workspace header')
+  const studyDashboardMetrics = screen.getByLabelText('Study dashboard metrics')
+  const currentReviewSummary = screen.getByLabelText('Current review summary')
 
-  const activeCardSection = screen.getByRole('heading', { name: 'Review card', level: 2 }).closest('section')
-  const studyQueueSummary = screen.getByLabelText('Active study queue summary')
+  expect(within(studyHeader).getByText('Review dashboard')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Ready now')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('New')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Scheduled')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Logged')).toBeInTheDocument()
+  expect(within(currentReviewSummary).getByRole('tab', { name: 'Review', selected: true })).toBeInTheDocument()
+  expect(within(currentReviewSummary).getByRole('tab', { name: 'Questions', selected: false })).toBeInTheDocument()
+
+  const activeCardSection = screen.getByRole('heading', { name: 'Review', level: 2 }).closest('section')
+  const studyQueueSummary = screen.getByLabelText('Current question queue summary')
   const studyQueueDock = screen.getByLabelText('Study queue support')
   const studyEvidenceDock = screen.getByLabelText('Study evidence support')
   const browseStudySupportStrip = screen.getByLabelText('Browse study support')
@@ -1812,7 +1400,7 @@ test('Recall study queue shows an active card and records a review after reveali
   expect(document.querySelector('.recall-study-sidebar-collapsed-hidden')).toBeNull()
   expect(within(studyQueueSummary).queryByText(/^\d+\s+cards$/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText(/reviews logged/i)).not.toBeInTheDocument()
-  expect(within(studyQueueSummary).getByText(/^Up next$/)).toBeInTheDocument()
+  expect(within(studyQueueSummary).getByText(/^Questions$/)).toBeInTheDocument()
   expect(within(studyQueueSummary).getByText(/^\d+\s+due$/i)).toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText(/^\d+\s+new$/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText('Search target only')).not.toBeInTheDocument()
@@ -1822,8 +1410,7 @@ test('Recall study queue shows an active card and records a review after reveali
   expect(within(studyQueueSummary).getByText(/Grounded:/i)).toBeInTheDocument()
   expect(within(studyQueueSummary).getByText(/Source evidence/i)).toBeInTheDocument()
   const studyReviewFlow = screen.getByLabelText('Study review flow')
-  expect(studyReviewFlow).toHaveTextContent(/review flow/i)
-  expect(within(studyReviewFlow).getByText('Queue')).toBeInTheDocument()
+  expect(within(studyReviewFlow).getByText('Questions')).toBeInTheDocument()
   expect(within(studyReviewFlow).getByText('Recall')).toBeInTheDocument()
   expect(within(studyReviewFlow).getByText('Rate')).toBeInTheDocument()
   expect(within(studyEvidenceDock).getByText('Knowledge Graphs support Study Cards.')).toBeInTheDocument()
@@ -1853,12 +1440,12 @@ test('Recall study detail keeps a Reader handoff next to source evidence', async
   fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review', level: 2 })).toBeInTheDocument()
   })
 
-  const studyQueueDock = screen.getByLabelText('Study queue support')
+  const browseStudySupportStrip = screen.getByLabelText('Browse study support')
   const studyEvidenceDock = screen.getByLabelText('Study evidence support')
-  fireEvent.click(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' }))
+  fireEvent.click(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' }))
 
   await waitFor(() => {
     expect(within(studyEvidenceDock).getByText('Source evidence')).toBeInTheDocument()
@@ -1921,10 +1508,10 @@ test('returning from Reader restores the prior Recall section and selected graph
 
   await waitFor(() => {
     expect(screen.getByRole('tablist', { name: 'Graph detail views' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Graph focus rail')).toBeInTheDocument()
+    expect(screen.getByLabelText('Graph focus tray')).toBeInTheDocument()
   })
 
-  const graphFocusRail = screen.getByLabelText('Graph focus rail')
+  const graphFocusRail = screen.getByLabelText('Graph focus tray')
   fireEvent.click(within(graphFocusRail).getByRole('button', { name: 'Open source' }))
 
   await waitFor(() => {
@@ -1951,14 +1538,11 @@ test('returning from Reader restores the prior Recall section and selected graph
   })
 })
 
-test('Notes document selection, search, and selected note survive Reader handoff and return', async () => {
+test('Notebook document selection, search, and selected note survive Reader handoff and return', async () => {
   renderRecallApp('/recall')
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
-
-  await waitFor(() => {
-    expect(screen.getByRole('combobox', { name: 'Source' })).toBeInTheDocument()
-  })
+  await openNotebookFromHome()
+  expect(screen.getByRole('combobox', { name: 'Source' })).toBeInTheDocument()
 
   fireEvent.change(screen.getByRole('combobox', { name: 'Source' }), {
     target: { value: 'doc-reader' },
@@ -1968,7 +1552,7 @@ test('Notes document selection, search, and selected note survive Reader handoff
     expect(fetchRecallNotesMock).toHaveBeenCalledWith('doc-reader')
   })
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search notes' }), {
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search notebook' }), {
     target: { value: 'sentence two' },
   })
 
@@ -1994,38 +1578,41 @@ test('Notes document selection, search, and selected note survive Reader handoff
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Source' })).toHaveValue('doc-reader')
-    expect(screen.getByRole('searchbox', { name: 'Search notes' })).toHaveValue('sentence two')
+    expect(screen.getByRole('searchbox', { name: 'Search notebook' })).toHaveValue('sentence two')
     expect(screen.getByDisplayValue('Return to sentence two.')).toBeInTheDocument()
   })
 })
 
-test('desktop Notes milestone makes browse and detail the primary workspace', async () => {
+test('desktop Notebook milestone makes browse and detail the primary workspace', async () => {
   renderRecallApp('/recall')
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
-
+  await openNotebookFromHome()
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Notes', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Browse notes', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Browse notebook', level: 3 })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
   })
 
-  const browseSection = screen.getByRole('heading', { name: 'Browse notes', level: 3 }).closest('section')
+  const browseSection = screen.getByRole('heading', { name: 'Browse notebook', level: 3 }).closest('section')
   const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
 
   expect(browseSection).not.toBeNull()
   expect(noteDetailSection).not.toBeNull()
   expect(browseSection).toHaveClass('recall-notes-browser-card')
+  expect(browseSection).toHaveClass('recall-notes-browser-card-stage698')
   expect(noteDetailSection).toHaveClass('recall-note-detail-stage')
+  expect(noteDetailSection).toHaveClass('recall-note-detail-stage698')
   expect(noteDetailSection?.closest('.recall-notes-workspace')).not.toBeNull()
   expect((browseSection as HTMLElement).querySelector('.recall-notes-browser-glance')).not.toBeNull()
-  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-empty-guidance-grid')).not.toBeNull()
-  expect(within(noteDetailSection as HTMLElement).getByRole('heading', { name: 'Ready for next note', level: 3 })).toBeInTheDocument()
-  expect(within(noteDetailSection as HTMLElement).getByRole('heading', { name: 'When a note is open', level: 3 })).toBeInTheDocument()
+  expect((browseSection as HTMLElement).querySelector('[data-note-browser-row-kind="library-note"]')).not.toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('[data-note-workbench-layout="split"]')).not.toBeNull()
+  expect(within(noteDetailSection as HTMLElement).getByRole('textbox', { name: 'Note text' })).toHaveValue('Useful search note.')
+  expect(within(noteDetailSection as HTMLElement).getByRole('heading', { name: 'Promote note', level: 3 })).toBeInTheDocument()
   expect(within(noteDetailSection as HTMLElement).queryByText('1. Browse one saved source')).not.toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Current context', level: 2 })).toBeInTheDocument()
+  expect(within(noteDetailSection as HTMLElement).getByRole('heading', { name: 'Source handoff', level: 3 })).toBeInTheDocument()
 })
 
 test('Study filter and targeted card survive Reader handoff and return', async () => {
@@ -2057,19 +1644,16 @@ test('Study filter and targeted card survive Reader handoff and return', async (
   fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review', level: 2 })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Questions', selected: false }))
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Due' })).toBeInTheDocument()
   })
 
   fireEvent.click(screen.getByRole('tab', { name: 'Due' }))
-
-  const studyQueueDock = screen.getByLabelText('Study queue support')
-  const studyEvidenceDock = screen.getByLabelText('Study evidence support')
 
   await waitFor(() => {
     expect(fetchRecallStudyCardsMock).toHaveBeenCalledWith('due', expect.any(Number))
@@ -2078,20 +1662,29 @@ test('Study filter and targeted card survive Reader handoff and return', async (
     ).toHaveAttribute('aria-pressed', 'true')
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Hide queue' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Review', selected: false }))
 
+  let browseStudySupportStrip: HTMLElement | null = null
+  let studyEvidenceDock: HTMLElement | null = null
   await waitFor(() => {
-    expect(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+    browseStudySupportStrip = screen.getByLabelText('Browse study support')
+    studyEvidenceDock = screen.getByLabelText('Study evidence support')
+    expect(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
   })
 
-  fireEvent.click(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' }))
+  if (!browseStudySupportStrip || !studyEvidenceDock) {
+    throw new Error('Expected Study support and evidence surfaces after returning to Review.')
+  }
+  const studySupportStrip = browseStudySupportStrip
+  const evidenceDock = studyEvidenceDock
+  fireEvent.click(within(studySupportStrip).getByRole('button', { name: 'Preview evidence' }))
 
   await waitFor(() => {
-    expect(within(studyEvidenceDock).getByText('Source evidence')).toBeInTheDocument()
+    expect(within(evidenceDock).getByText('Source evidence')).toBeInTheDocument()
   })
 
   fireEvent.click(
-    within(studyEvidenceDock).getAllByRole('button', { name: 'Open Search target only in Reader' })[0],
+    within(evidenceDock).getAllByRole('button', { name: 'Open Search target only in Reader' })[0],
   )
 
   await waitFor(() => {
@@ -2104,10 +1697,10 @@ test('Study filter and targeted card survive Reader handoff and return', async (
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
     expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Questions', selected: false })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Questions', selected: false }))
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Due', selected: true })).toBeInTheDocument()
@@ -2117,20 +1710,15 @@ test('Study filter and targeted card survive Reader handoff and return', async (
   })
 })
 
-test('Recall notes search and Open in Reader restore the anchored sentence range', async () => {
+test('Recall notebook search and Open in Reader restore the anchored sentence range', async () => {
   renderRecallApp('/recall')
 
-  await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: false })).toBeInTheDocument()
-  })
-
-  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
-
+  await openNotebookFromHome()
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
   })
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search notes' }), {
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search notebook' }), {
     target: { value: 'Useful search note' },
   })
 
@@ -2154,15 +1742,10 @@ test('Recall notes search and Open in Reader restore the anchored sentence range
   expect(screen.getByRole('button', { name: 'Search sentence two.' })).toHaveClass('reader-sentence-anchored')
 })
 
-test('Recall notes can be edited and deleted from the Notes tab', async () => {
+test('Recall notebook notes can be edited and deleted from the embedded workspace', async () => {
   renderRecallApp('/recall')
 
-  await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: false })).toBeInTheDocument()
-  })
-
-  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
-
+  await openNotebookFromHome()
   await waitFor(() => {
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
   })
@@ -2189,15 +1772,10 @@ test('Recall notes can be edited and deleted from the Notes tab', async () => {
   })
 })
 
-test('Recall notes can promote manual graph nodes and study cards', async () => {
+test('Recall notebook notes can promote manual graph nodes and study cards', async () => {
   renderRecallApp('/recall')
 
-  await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: false })).toBeInTheDocument()
-  })
-
-  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
-
+  await openNotebookFromHome()
   await waitFor(() => {
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
   })
@@ -2230,8 +1808,7 @@ test('Recall notes can promote manual graph nodes and study cards', async () => 
     expect(screen.getAllByText('Search Concept').length).toBeGreaterThan(0)
   })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
-
+  await openNotebookFromHome()
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Promote note', level: 3 })).toBeInTheDocument()
   })
@@ -2268,15 +1845,10 @@ test('Recall notes can promote manual graph nodes and study cards', async () => 
   })
 })
 
-test('Recall notes keep grouped promotion actions near the anchored passage', async () => {
+test('Recall notebook notes keep grouped promotion actions near the anchored passage', async () => {
   renderRecallApp('/recall')
 
-  await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: false })).toBeInTheDocument()
-  })
-
-  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
-
+  await openNotebookFromHome()
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Promote note', level: 3 })).toBeInTheDocument()
   })
@@ -2337,7 +1909,7 @@ test('Reader shows a service unavailable state when initial document loading fai
   })
 
   expect(screen.getByText(localServiceUnavailableMessage)).toBeInTheDocument()
-  expect(screen.getAllByRole('button', { name: 'New source' }).length).toBeGreaterThan(0)
+  expect(screen.getAllByRole('button', { name: 'Add source' }).length).toBeGreaterThan(0)
   expect(screen.queryByPlaceholderText('Paste text here')).not.toBeInTheDocument()
   expect(screen.getAllByRole('button', { name: 'Retry loading' }).length).toBeGreaterThan(0)
   expect(screen.queryByRole('heading', { name: 'Open a source to start reading', level: 2 })).not.toBeInTheDocument()
@@ -2537,20 +2109,20 @@ test('theme switching still changes the whole app shell from inside the settings
   expect(appShell).toHaveClass('theme-high')
 })
 
-test('shell exposes global New and Search while source library remains in reader context', async () => {
+test('shell exposes global Add and Search while source library remains in reader context', async () => {
   renderRecallApp('/reader')
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Reader dock', level: 2 })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current source', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Add source', level: 2 })).not.toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'New source' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
   expect(screen.queryByText('Info')).not.toBeInTheDocument()
 })
 
@@ -2563,12 +2135,13 @@ test('compact shell styling keeps Reader context in the dock while the sidecar s
 
   const shellHeader = document.querySelector('header.workspace-topbar')
   expect(shellHeader).not.toBeNull()
-  expect(shellHeader).not.toHaveClass('workspace-topbar-quiet')
-  expect(screen.getByText('Reader workspace')).toBeInTheDocument()
+  expect(shellHeader).toHaveClass('workspace-topbar-quiet')
+  expect(shellHeader).toHaveClass('workspace-topbar-reader')
+  expect(screen.queryByText('Reader workspace')).not.toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Reader', level: 1 })).toBeInTheDocument()
 
   const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
-  expect(within(sourceWorkspace).getByText('Focused source')).toBeInTheDocument()
+  expect(within(sourceWorkspace).getAllByText('Source')[0]).toHaveClass('source-workspace-strip-badge')
   expect(within(sourceWorkspace).getByText('Search target only')).toBeInTheDocument()
   expect(within(sourceWorkspace).getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
 
@@ -2577,7 +2150,7 @@ test('compact shell styling keeps Reader context in the dock while the sidecar s
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current source', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByText('PASTE source')).not.toBeInTheDocument()
-  expect(within(readerContextSection as HTMLElement).getByRole('tab', { name: 'Notes' })).toBeInTheDocument()
+  expect(within(readerContextSection as HTMLElement).getByRole('tab', { name: 'Notebook' })).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Original' }))
 
@@ -2598,31 +2171,29 @@ test('compact shell styling keeps Reader context in the dock while the sidecar s
   )
 })
 
-test('workspace dock tracks current source context and recent note handoffs', async () => {
+test('Notebook keeps source handoff in note detail after the old workspace dock is removed', async () => {
   renderRecallApp('/recall')
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+  await openNotebookFromHome()
 
   await waitFor(() => {
-    const currentContextPanel = getCurrentContextPanel()
-    expect(currentContextPanel).not.toBeNull()
-    expect(
-      within(currentContextPanel as HTMLElement).getByText('Search sentence one. Search sentence two.'),
-    ).toBeInTheDocument()
-    expect(within(currentContextPanel as HTMLElement).getByText(/Search target only/i)).toBeInTheDocument()
-    expect(within(currentContextPanel as HTMLElement).getByRole('button', { name: 'Open in Reader' })).toBeInTheDocument()
-    expect(within(currentContextPanel as HTMLElement).getByRole('button', { name: 'Source' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
   })
 
-  const recentWorkPanel = getRecentWorkPanel()
-  expect(recentWorkPanel).not.toBeNull()
+  const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
+  expect(noteDetailSection).not.toBeNull()
   expect(
-    within(recentWorkPanel as HTMLElement).getByText(
-      'Recent note, source, graph, and study jumps will collect here as you move through Recall.',
-    ),
-  ).toBeInTheDocument()
+    within(noteDetailSection as HTMLElement).getAllByText('Search sentence one. Search sentence two.').length,
+  ).toBeGreaterThan(0)
+  expect(within(noteDetailSection as HTMLElement).getByText(/Search target only/i)).toBeInTheDocument()
+  expect(within(noteDetailSection as HTMLElement).getByRole('heading', { name: 'Source handoff', level: 3 })).toBeInTheDocument()
+  expect(within(noteDetailSection as HTMLElement).getByRole('button', { name: 'Open source' })).toBeInTheDocument()
+  expect(within(noteDetailSection as HTMLElement).getByRole('button', { name: 'Open in Reader' })).toBeInTheDocument()
 
-  fireEvent.click(within(getCurrentContextPanel() as HTMLElement).getByRole('button', { name: 'Open in Reader' }))
+  fireEvent.click(within(noteDetailSection as HTMLElement).getByRole('button', { name: 'Open in Reader' }))
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/reader')
@@ -2637,25 +2208,27 @@ test('workspace dock tracks current source context and recent note handoffs', as
 
   fireEvent.click(
     within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-      name: 'Source workspace Notes',
+      name: 'Source workspace Notebook',
     }),
   )
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
     expect(
       within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-        name: 'Source workspace Notes',
+        name: 'Source workspace Notebook',
         selected: true,
       }),
     ).toBeInTheDocument()
   })
 
   await waitFor(() => {
+    expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
   })
 })
@@ -2757,10 +2330,10 @@ test('global Search dialog remembers the active query and supports the keyboard 
   expect(within(reopenedSearchDialog).getByRole('button', { name: 'Open note' })).toBeInTheDocument()
 })
 
-test('global Search dialog hands note results off to Notes and anchored Reader reopening', async () => {
+test('global Search dialog hands note results off to Notebook and anchored Reader reopening', async () => {
   renderRecallApp('/reader')
 
-  fireEvent.click(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i }))
+  fireEvent.keyDown(window, { ctrlKey: true, key: 'k' })
 
   await waitFor(() => {
     expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
@@ -2776,7 +2349,7 @@ test('global Search dialog hands note results off to Notes and anchored Reader r
     expect(searchRecallNotesMock).toHaveBeenCalledWith('Useful search note', 8, null)
   })
 
-  const notesSection = within(searchDialog).getByRole('heading', { name: 'Notes', level: 3 }).closest('section')
+  const notesSection = within(searchDialog).getByRole('heading', { name: 'Notebook', level: 3 }).closest('section')
   expect(notesSection).not.toBeNull()
 
   fireEvent.click(within(notesSection as HTMLElement).getByRole('button', { name: /Useful search note/i }))
@@ -2784,11 +2357,12 @@ test('global Search dialog hands note results off to Notes and anchored Reader r
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i }))
+  fireEvent.keyDown(window, { ctrlKey: true, key: 'k' })
 
   await waitFor(() => {
     expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
@@ -2798,7 +2372,7 @@ test('global Search dialog hands note results off to Notes and anchored Reader r
 
   expect(within(reopenedSearchDialog).getByRole('searchbox', { name: 'Search' })).toHaveValue('Useful search note')
 
-  const notesSectionForReader = within(reopenedSearchDialog).getByRole('heading', { name: 'Notes', level: 3 }).closest('section')
+  const notesSectionForReader = within(reopenedSearchDialog).getByRole('heading', { name: 'Notebook', level: 3 }).closest('section')
   expect(notesSectionForReader).not.toBeNull()
 
   fireEvent.click(within(notesSectionForReader as HTMLElement).getByRole('button', { name: /Useful search note/i }))
@@ -2813,7 +2387,7 @@ test('global Search dialog hands note results off to Notes and anchored Reader r
   expect(window.location.search).toContain('sentenceEnd=1')
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Notebook', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Search sentence one.' })).toHaveClass('reader-sentence-anchored')
   })
   expect(screen.getByRole('button', { name: 'Search sentence two.' })).toHaveClass('reader-sentence-anchored')
@@ -2826,7 +2400,7 @@ test('Reader notes workbench edits and promotes the active saved note in place',
   renderRecallApp('/reader?document=doc-reader&sentenceStart=1&sentenceEnd=1')
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Notebook', selected: true })).toBeInTheDocument()
   })
 
   await waitFor(() => {
@@ -2883,7 +2457,7 @@ test('Reader notes workbench edits and promotes the active saved note in place',
   })
 })
 
-test('Reader source workspace tabs hand the active source into Recall notes and graph views', async () => {
+test('Reader source workspace tabs hand the active source into Recall notebook and graph views', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
@@ -2893,16 +2467,17 @@ test('Reader source workspace tabs hand the active source into Recall notes and 
   const readerSourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
   expect(within(readerSourceWorkspace).getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
 
-  fireEvent.click(within(readerSourceWorkspace).getByRole('tab', { name: 'Source workspace Notes' }))
+  fireEvent.click(within(readerSourceWorkspace).getByRole('tab', { name: 'Source workspace Notebook' }))
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
   })
 
   const notesSourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
-  expect(within(notesSourceWorkspace).getByRole('tab', { name: 'Source workspace Notes', selected: true })).toBeInTheDocument()
+  expect(within(notesSourceWorkspace).getByRole('tab', { name: 'Source workspace Notebook', selected: true })).toBeInTheDocument()
 
   fireEvent.click(within(notesSourceWorkspace).getByRole('tab', { name: 'Source workspace Graph' }))
 
@@ -2956,12 +2531,12 @@ test('source-focused mode swaps the utility dock for the compact source strip', 
 
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
-  expect(screen.getByText('Focused source')).toBeInTheDocument()
+  expect(within(sourceWorkspace).getAllByText('Source')[0]).toHaveClass('source-workspace-strip-badge')
   expect(screen.getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
   expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-context')).not.toBeNull()
 })
 
-test('manual Home clicks return to the browse-first landing without forgetting the last focused source tab', async () => {
+test('manual Home clicks return to Recall without dropping the active source context', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
@@ -2972,8 +2547,8 @@ test('manual Home clicks return to the browse-first landing without forgetting t
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
-    expect(screen.getByRole('region', { name: 'Primary saved source flow' })).toBeInTheDocument()
-    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+    expect(getHomeCanvas()).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
   })
 
   expect(screen.queryByRole('region', { name: 'Search target only workspace' })).not.toBeInTheDocument()
@@ -2985,8 +2560,9 @@ test('Recall source overview surfaces nearby notes, graph, and study context for
 
   await focusRecallSourceFromHome()
 
-  expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
-  expect(screen.getByText('Saved notes')).toBeInTheDocument()
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  expect(sourceOverviewSection).not.toBeNull()
+  expect(within(sourceOverviewSection as HTMLElement).getByRole('button', { name: 'Open notebook' })).toBeInTheDocument()
   expect(screen.getByText('Graph context')).toBeInTheDocument()
   expect(screen.getByText('Study state')).toBeInTheDocument()
   expect(screen.getAllByText('Useful search note.').length).toBeGreaterThan(0)
@@ -2994,7 +2570,7 @@ test('Recall source overview surfaces nearby notes, graph, and study context for
   expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
 })
 
-test('source-focused notes handoff keeps Reader visible while manual Notes browsing returns to the broader Notes workspace', async () => {
+test('source-focused notebook handoff keeps Reader visible while manual notebook browsing returns to the broader embedded workspace', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
@@ -3003,24 +2579,28 @@ test('source-focused notes handoff keeps Reader visible while manual Notes brows
 
   fireEvent.click(
     within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-      name: 'Source workspace Notes',
+      name: 'Source workspace Notebook',
     }),
   )
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Reader', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Search sentence one.' })).toHaveClass('reader-sentence-anchored')
     expect(screen.getByRole('button', { name: 'Search sentence two.' })).toHaveClass('reader-sentence-anchored')
   })
 
-  const focusedNotesSection = screen.getByRole('heading', { name: 'Notes', level: 2 }).closest('section')
+  const focusedNotesSection = screen.getByRole('heading', { name: 'Notebook', level: 2 }).closest('section')
   const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
   expect(focusedNotesSection).not.toBeNull()
   expect(noteDetailSection).not.toBeNull()
   expect(focusedNotesSection).toHaveClass('recall-source-side-rail')
+  expect(focusedNotesSection).toHaveClass('recall-notes-focus-rail-stage698')
   expect(noteDetailSection).toHaveClass('recall-source-secondary-panel')
+  expect(noteDetailSection).toHaveClass('recall-note-detail-panel-stage698')
+  expect(noteDetailSection?.querySelector('[data-note-workbench-layout="stacked"]')).not.toBeNull()
   expect(within(focusedNotesSection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
   expect(within(focusedNotesSection as HTMLElement).queryByRole('combobox', { name: 'Source' })).not.toBeInTheDocument()
 
@@ -3030,17 +2610,15 @@ test('source-focused notes handoff keeps Reader visible while manual Notes brows
     expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+  await openNotebookFromHome()
 
-  await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
-  })
-
-  const browseNotesSection = screen.getByRole('heading', { name: 'Browse notes', level: 3 }).closest('section')
+  const browseNotesSection = screen.getByRole('heading', { name: 'Browse notebook', level: 3 }).closest('section')
   expect(browseNotesSection).not.toBeNull()
   expect(browseNotesSection).toHaveClass('recall-notes-browser-card')
+  expect(browseNotesSection).toHaveClass('recall-notes-browser-card-stage698')
   expect(within(browseNotesSection as HTMLElement).queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument()
   expect(within(browseNotesSection as HTMLElement).getByRole('combobox', { name: 'Source' })).toBeInTheDocument()
+  expect((browseNotesSection as HTMLElement).querySelector('[data-note-browser-row-kind="library-note"]')).not.toBeNull()
 })
 
 test('source-focused graph evidence retargets the embedded Reader without leaving Recall', async () => {
@@ -3131,7 +2709,7 @@ test('source-focused study handoff keeps Reader visible while manual Study brows
   expect(activeCardSection).not.toBeNull()
   expect(focusedStudySection).toHaveClass('recall-source-side-rail')
   expect(activeCardSection).toHaveClass('recall-source-secondary-panel')
-  expect(within(focusedStudySection as HTMLElement).getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
+  expect(within(focusedStudySection as HTMLElement).getByRole('button', { name: 'Open questions' })).toBeInTheDocument()
   expect(within(focusedStudySection as HTMLElement).queryByRole('tab', { name: 'All', selected: true })).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
@@ -3149,9 +2727,9 @@ test('source-focused study handoff keeps Reader visible while manual Study brows
   const browseStudySection = screen.getByLabelText('Browse study support')
   expect(browseStudySection).not.toBeNull()
   expect(browseStudySection).toHaveClass('recall-study-toolbar-utility')
-  expect(within(browseStudySection as HTMLElement).getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
+  expect(within(browseStudySection as HTMLElement).getByText('Questions')).toBeInTheDocument()
   expect(within(browseStudySection as HTMLElement).queryByRole('tab', { name: 'All', selected: true })).not.toBeInTheDocument()
-  expect(within(browseStudySection as HTMLElement).getByText('Up next')).toBeInTheDocument()
+  expect(within(browseStudySection as HTMLElement).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
   expect(within(browseStudySection as HTMLElement).queryByText('What do Knowledge Graphs support?')).not.toBeInTheDocument()
 })
 
@@ -3159,7 +2737,7 @@ test('global Search note handoff preserves prior Home context', async () => {
   renderRecallApp('/recall')
 
   await waitFor(() => {
-    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
   })
 
   fireEvent.click(await revealHomeOpenButton('Reader stays here'))
@@ -3175,7 +2753,7 @@ test('global Search note handoff preserves prior Home context', async () => {
     target: { value: 'Search target' },
   })
 
-  fireEvent.click(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i }))
+  fireEvent.keyDown(window, { ctrlKey: true, key: 'k' })
 
   await waitFor(() => {
     expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
@@ -3191,14 +2769,15 @@ test('global Search note handoff preserves prior Home context', async () => {
     expect(searchRecallNotesMock).toHaveBeenCalledWith('Useful search note', 8, null)
   })
 
-  const notesSection = within(searchDialog).getByRole('heading', { name: 'Notes', level: 3 }).closest('section')
+  const notesSection = within(searchDialog).getByRole('heading', { name: 'Notebook', level: 3 }).closest('section')
   expect(notesSection).not.toBeNull()
 
   fireEvent.click(within(notesSection as HTMLElement).getByRole('button', { name: /Useful search note/i }))
   fireEvent.click(within(searchDialog).getByRole('button', { name: 'Open note' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notes', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
   })
 
@@ -3206,7 +2785,7 @@ test('global Search note handoff preserves prior Home context', async () => {
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
-    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toHaveValue('Search target')
+    expect(screen.getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
     expect(queryHomeOpenButton('Search target only')).not.toBeNull()
   })
 
@@ -3298,7 +2877,7 @@ test('web page import shows a bounded error without breaking the rest of the imp
   expect(screen.getByRole('tab', { name: /^Choose file/i })).toBeInTheDocument()
 })
 
-test('active reading routes add source through the global New dialog instead of an inline import column', async () => {
+test('active reading routes add source through the global Add dialog instead of an inline import column', async () => {
   renderRecallApp('/reader')
 
   await waitFor(() => {
@@ -3314,6 +2893,34 @@ test('active reading routes add source through the global New dialog instead of 
   await ensureAddSourceDialogOpen()
   expect(screen.getByPlaceholderText('Paste text here')).toBeInTheDocument()
   expect(screen.getByRole('tab', { name: /^Web page/i })).toBeInTheDocument()
+})
+
+test('Home opens Add content as a global dialog without leaving the current Recall route', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Add$/ })).toBeInTheDocument()
+  })
+
+  const currentPath = `${window.location.pathname}${window.location.search}`
+  fireEvent.click(screen.getByRole('button', { name: /^Add$/ }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('dialog', { name: 'Add content' })).toBeInTheDocument()
+  })
+
+  expect(`${window.location.pathname}${window.location.search}`).toBe(currentPath)
+  expect(screen.getByText('One place to add things')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Close Add content' }))
+
+  await waitFor(() => {
+    expect(screen.queryByRole('dialog', { name: 'Add content' })).not.toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+  expect(`${window.location.pathname}${window.location.search}`).toBe(currentPath)
 })
 
 test('active reading collapses the library by default and lets the user expand it on demand', async () => {
@@ -3356,11 +2963,11 @@ test('reader hero uses Recall-first copy instead of standalone reader branding',
     expect(screen.getByRole('heading', { name: 'Open a source to start reading', level: 2 })).toBeInTheDocument()
   })
 
-  expect(screen.getByText('Reader workspace')).toBeInTheDocument()
+  expect(screen.queryByText('Reader workspace')).not.toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Reader', level: 1 })).toBeInTheDocument()
   expect(
     screen.getByText(
-      'Use New to add a source from anywhere in Recall, or reopen something from Home.',
+      'Use Add to bring in a source from anywhere in Recall, or reopen something from Home.',
     ),
   ).toBeInTheDocument()
   expect(screen.queryByText('Accessible Reader')).not.toBeInTheDocument()
@@ -3386,7 +2993,7 @@ test('reader area keeps one visible title and uses the compact header as the art
   expect(screen.queryByText('Reading surface')).not.toBeInTheDocument()
 })
 
-test('reader header keeps the AI create action and metadata when a summary view has not been generated yet', async () => {
+test('reader generated-mode context keeps the create summary action and next-step branching when summary is missing', async () => {
   const aiDocument: DocumentRecord = {
     ...documents[1],
     available_modes: ['original', 'reflowed', 'summary'],
@@ -3412,18 +3019,56 @@ test('reader header keeps the AI create action and metadata when a summary view 
   fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Close' }))
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Create summary' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create Summary' })).toBeInTheDocument()
   })
 
-  const readerStage = screen.getByRole('heading', { name: 'Reader stays here', level: 2 }).closest('.reader-reading-stage')
-  expect(readerStage).not.toBeNull()
-  expect(within(readerStage as HTMLElement).getByText('Summary')).toBeInTheDocument()
-  expect(within(readerStage as HTMLElement).queryByText('AI generated')).not.toBeInTheDocument()
-  expect(within(readerStage as HTMLElement).queryByText('Local')).not.toBeInTheDocument()
+  const derivedContext = screen.getByLabelText('Summary context')
+  expect(within(derivedContext).getByText('Summary stays source-linked')).toBeInTheDocument()
+  expect(within(derivedContext).getByText('From paste source')).toBeInTheDocument()
+  expect(within(derivedContext).getByRole('button', { name: 'Notebook' })).toBeInTheDocument()
+  expect(within(derivedContext).getByRole('button', { name: 'Reflowed view' })).toBeInTheDocument()
+  expect(within(derivedContext).queryByText('AI generated')).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Local derived view')).toBeInTheDocument()
   expect(screen.getByText(/No summary yet/i)).toBeInTheDocument()
 })
 
-test('reader header keeps metadata minimal and only adds AI generated or cached when true', async () => {
+test('reader generated-mode context keeps the create simplified action when simplified is missing', async () => {
+  const simplifiedDocument: DocumentRecord = {
+    ...documents[1],
+    available_modes: ['original', 'reflowed', 'simplified'],
+  }
+
+  fetchDocumentsMock.mockImplementation(async () => [simplifiedDocument])
+  fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => {
+    if (documentId === simplifiedDocument.id && mode === 'simplified') {
+      return undefined as unknown as DocumentView
+    }
+
+    return views[`${documentId}:${mode}`]
+  })
+
+  render(<App />)
+
+  await waitFor(() => {
+    expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Simplified view' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Close' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Create Simplified' })).toBeInTheDocument()
+  })
+
+  const derivedContext = screen.getByLabelText('Simplified context')
+  expect(within(derivedContext).getByText('Simplified stays source-linked')).toBeInTheDocument()
+  expect(within(derivedContext).getByRole('button', { name: 'Notebook' })).toBeInTheDocument()
+  expect(within(derivedContext).getByRole('button', { name: 'Reflowed view' })).toBeInTheDocument()
+  expect(screen.getByText(/No simplified view yet/i)).toBeInTheDocument()
+})
+
+test('reader generated-mode provenance shows source, detail, and cache state without changing article text', async () => {
   const aiDocument: DocumentRecord = {
     ...documents[1],
     available_modes: ['original', 'reflowed', 'summary'],
@@ -3461,12 +3106,14 @@ test('reader header keeps metadata minimal and only adds AI generated or cached 
     expect(screen.getByText('Short AI summary.')).toBeInTheDocument()
   })
 
-  const readerStage = screen.getByRole('heading', { name: 'Reader stays here', level: 2 }).closest('.reader-reading-stage')
-  expect(readerStage).not.toBeNull()
-  expect(within(readerStage as HTMLElement).getByText('Summary')).toBeInTheDocument()
-  expect(within(readerStage as HTMLElement).getByText('AI generated')).toBeInTheDocument()
-  expect(within(readerStage as HTMLElement).getByText('Cached')).toBeInTheDocument()
-  expect(within(readerStage as HTMLElement).queryByText('Local')).not.toBeInTheDocument()
+  const derivedContext = screen.getByLabelText('Summary context')
+  expect(within(derivedContext).getByText('Summary stays source-linked')).toBeInTheDocument()
+  expect(within(derivedContext).getByText('Paste source')).toBeInTheDocument()
+  expect(within(derivedContext).getByText('Balanced detail')).toBeInTheDocument()
+  expect(within(derivedContext).getByText('AI generated')).toBeInTheDocument()
+  expect(within(derivedContext).getByText('Cached')).toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Local derived view')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Create Summary' })).not.toBeInTheDocument()
 })
 
 test('main reading controls keep only transport visible and move secondary items into overflow', async () => {
@@ -3559,7 +3206,7 @@ test('deleting the active document falls back to the newest remaining document',
   expect(mockSpeechState.stop).toHaveBeenCalled()
 })
 
-test('summary detail lives inside the settings drawer view section only when summary is active', async () => {
+test('summary detail lives in the generated summary context instead of the settings drawer', async () => {
   const summaryDocument: DocumentRecord = {
     ...documents[1],
     available_modes: ['original', 'reflowed', 'summary'],
@@ -3576,15 +3223,69 @@ test('summary detail lives inside the settings drawer view section only when sum
   fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
 
   const settingsDrawer = screen.getByRole('dialog', { name: 'Settings' })
-  expect(within(settingsDrawer).queryByRole('combobox', { name: 'Summary detail' })).not.toBeInTheDocument()
+  expect(within(settingsDrawer).queryByRole('group', { name: 'Summary detail' })).not.toBeInTheDocument()
 
   fireEvent.click(within(settingsDrawer).getByRole('button', { name: 'Summary view' }))
 
-  expect(within(settingsDrawer).getByRole('combobox', { name: 'Summary detail' })).toBeInTheDocument()
+  await waitFor(() => {
+    expect(screen.getByRole('group', { name: 'Summary detail' })).toBeInTheDocument()
+  })
+
+  expect(within(settingsDrawer).queryByRole('group', { name: 'Summary detail' })).not.toBeInTheDocument()
   expect(within(settingsDrawer).getByRole('group', { name: 'Document view' })).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'More reading controls' }))
-  expect(within(screen.getByRole('group', { name: 'More reading controls' })).queryByRole('combobox', { name: 'Summary detail' })).not.toBeInTheDocument()
+  expect(
+    within(screen.getByRole('group', { name: 'More reading controls' })).queryByRole('group', { name: 'Summary detail' }),
+  ).not.toBeInTheDocument()
+})
+
+test('generated reader controls stay outside the article content surface', async () => {
+  const summaryDocument: DocumentRecord = {
+    ...documents[1],
+    available_modes: ['original', 'reflowed', 'summary'],
+  }
+  const summaryView: DocumentView = {
+    mode: 'summary',
+    detail_level: 'balanced',
+    title: 'Reader stays here',
+    blocks: [{ id: 'summary-1', kind: 'paragraph', text: 'Short AI summary.' }],
+    generated_by: 'openai',
+    cached: true,
+    source_hash: 'summary-hash',
+    updated_at: '2026-03-12T00:00:00Z',
+  }
+
+  fetchDocumentsMock.mockImplementation(async () => [summaryDocument])
+  fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => {
+    if (documentId === summaryDocument.id && mode === 'summary') {
+      return summaryView
+    }
+
+    return views[`${documentId}:${mode}`]
+  })
+
+  render(<App />)
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Reader sentence one.' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Summary view' }))
+
+  await waitFor(() => {
+    expect(screen.getByText('Short AI summary.')).toBeInTheDocument()
+  })
+
+  const articleShell = document.querySelector('.reader-article-shell')
+  expect(articleShell).not.toBeNull()
+  expect(within(articleShell as HTMLElement).getByText('Short AI summary.')).toBeInTheDocument()
+  expect(within(articleShell as HTMLElement).queryByRole('group', { name: 'Summary detail' })).not.toBeInTheDocument()
+
+  const derivedContext = screen.getByLabelText('Summary context')
+  expect(within(derivedContext).getByRole('group', { name: 'Summary detail' })).toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Short AI summary.')).not.toBeInTheDocument()
 })
 
 test('speech controls expose labeled transport buttons and start playback from the main toggle', async () => {

@@ -928,28 +928,28 @@ const recallDocumentPreviews: Record<string, RecallDocumentPreview> = {
   'doc-stage10': {
     document_id: 'doc-stage10',
     kind: 'image',
-    source: 'html-inline-image',
+    source: 'content-rendered-preview',
     asset_url: '/api/recall/documents/doc-stage10/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
     updated_at: '2026-03-27T08:00:00Z',
   },
   'doc-stage13': {
     document_id: 'doc-stage13',
-    kind: 'fallback',
-    source: 'fallback',
-    asset_url: null,
+    kind: 'image',
+    source: 'content-rendered-preview',
+    asset_url: '/api/recall/documents/doc-stage13/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
     updated_at: '2026-03-27T08:00:00Z',
   },
   'doc-archive-1': {
     document_id: 'doc-archive-1',
     kind: 'image',
-    source: 'html-rendered-snapshot',
+    source: 'content-rendered-preview',
     asset_url: '/api/recall/documents/doc-archive-1/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
     updated_at: '2026-03-27T08:00:00Z',
   },
   'doc-archive-13': {
     document_id: 'doc-archive-13',
     kind: 'image',
-    source: 'html-rendered-snapshot',
+    source: 'content-rendered-preview',
     asset_url: '/api/recall/documents/doc-archive-13/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
     updated_at: '2026-03-27T08:00:00Z',
   },
@@ -1150,6 +1150,7 @@ function renderHarness(options?: {
         <RecallWorkspace
           continuityState={continuityState}
           onContinuityStateChange={setContinuityState}
+          onOpenNotebook={() => undefined}
           onOpenReader={onOpenReader}
           onOpenSearch={onOpenSearch}
           onRequestNewSource={onRequestNewSource}
@@ -2424,7 +2425,7 @@ test('Home now defaults to a selected collection rail plus a date-grouped Recall
   expect(toolbarActions).toHaveClass('recall-home-parity-toolbar-actions-stage569')
   expect(toolbarActions).toHaveClass('recall-home-parity-toolbar-actions-stage617')
   expect(toolbarActions?.children).toHaveLength(2)
-  expect(primaryToolbarRow?.children).toHaveLength(2)
+  expect(primaryToolbarRow?.children).toHaveLength(3)
   expect(secondaryToolbarRow?.children).toHaveLength(2)
   expect(activeRailLabel).not.toBe('')
   expect(activeRailSupport).toBe(expectedActiveRailSupport)
@@ -2450,6 +2451,10 @@ test('Home now defaults to a selected collection rail plus a date-grouped Recall
   const addButton = within(canvas).getByRole('button', { name: 'Add' })
   expect(addButton).toBeInTheDocument()
   expect(addButton).toHaveClass('recall-home-parity-toolbar-button-primary-stage601')
+  const newNoteButton = within(canvas).getByRole('button', { name: 'New note' })
+  expect(newNoteButton).toBeInTheDocument()
+  expect(newNoteButton).toHaveClass('recall-home-parity-toolbar-button-note-stage690')
+  expect(newNoteButton.querySelector('.recall-home-parity-toolbar-note-icon-stage690')).not.toBeNull()
   const listButton = within(canvas).getByRole('button', { name: 'List' })
   expect(listButton).toBeInTheDocument()
   expect(listButton).toHaveClass('recall-home-parity-toolbar-button-secondary-stage601')
@@ -2471,7 +2476,10 @@ test('Home now defaults to a selected collection rail plus a date-grouped Recall
   expect(addTile).toHaveClass('recall-home-parity-add-tile-stage615')
   expect(addTile.querySelector('.recall-home-parity-add-tile-mark-stage563')).not.toBeNull()
   expect(addTile.querySelector('.recall-home-parity-add-tile-mark-stage563')?.textContent?.trim()).toBe('+')
-  expect(addTile.querySelector('.recall-home-parity-add-tile-copy-stage563 span')).toBeNull()
+  expect(addTile.querySelector('.recall-home-parity-add-tile-copy-stage563 strong')?.textContent?.trim()).toBe('Add content')
+  expect(addTile.querySelector('.recall-home-parity-add-tile-subcopy-stage708')?.textContent?.trim()).toBe(
+    'Paste, link, or file',
+  )
   expect(canvas.querySelector('.recall-home-parity-day-groups-stage605')).not.toBeNull()
   expect(canvas.querySelector('.recall-home-parity-day-groups-stage617')).not.toBeNull()
   expect(canvas.querySelector('.recall-home-parity-day-group-stage605')).not.toBeNull()
@@ -2577,7 +2585,7 @@ test('Home collection selection now changes the card canvas instead of reopening
   ).toBe('Local documents')
 })
 
-test('Home board cards now render source-aware fallback media for web, paste, and file sources', async () => {
+test('Home board cards now render source-aware preview media for web, paste, and file sources', async () => {
   renderHarness()
 
   await waitForHomeLanding()
@@ -2647,16 +2655,16 @@ test('Home board cards now render source-aware fallback media for web, paste, an
   expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage653')).not.toBeNull()
   expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage655')).not.toBeNull()
   expect(pasteCard.querySelector('.recall-home-parity-card-preview-stage657')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-preview-hero-stage655')).not.toBeNull()
-  await waitFor(() =>
-    expect(pasteCard.querySelector('.recall-home-parity-card-preview-hero-stage653')?.textContent?.trim()).toBe(
-      'Stage thirteen sentence one.',
-    ),
-  )
+  expect(pasteCard.querySelector('.recall-home-parity-card-preview-hero-stage655')).toBeNull()
   expect(pastePreview).toHaveAttribute('data-preview-hero-source', 'content')
-  expect(pastePreview).toHaveAttribute('data-preview-media-kind', 'fallback')
-  expect(pastePreview).toHaveAttribute('data-preview-media-source', 'fallback')
-  expect(pastePreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).toBeNull()
+  expect(pastePreview).toHaveAttribute('data-preview-media-kind', 'image')
+  expect(pastePreview).toHaveAttribute('data-preview-media-source', 'content-rendered-preview')
+  const pastePreviewImage = pastePreview?.querySelector('.recall-home-parity-card-preview-image-stage657')
+  expect(pastePreviewImage).not.toBeNull()
+  expect(pastePreviewImage).toHaveAttribute(
+    'src',
+    '/api/recall/documents/doc-stage13/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
+  )
   expect(pastePreview?.getAttribute('style') ?? '').toMatch(/--recall-home-preview-glow-stage653/i)
   expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage603')).not.toBeNull()
   expect(pasteCard.querySelector('.recall-home-parity-card-copy-stage605')).not.toBeNull()
@@ -2833,7 +2841,7 @@ test('Home board cards now render source-aware fallback media for web, paste, an
   expect(webCard.querySelector('.recall-home-parity-card-preview-stage657')).not.toBeNull()
   expect(webPreview).toHaveAttribute('data-preview-kind', 'web')
   expect(webPreview).toHaveAttribute('data-preview-media-kind', 'image')
-  expect(webPreview).toHaveAttribute('data-preview-media-source', 'html-inline-image')
+  expect(webPreview).toHaveAttribute('data-preview-media-source', 'content-rendered-preview')
   expect(webPreview).toHaveClass('recall-home-parity-card-preview-has-image-stage657')
   const webPreviewImage = webPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')
   expect(webPreviewImage).not.toBeNull()
@@ -3028,7 +3036,7 @@ test('Home board cards now render source-aware fallback media for web, paste, an
   expect(fileCard.querySelector('.recall-home-parity-card-preview-stage657')).not.toBeNull()
   expect(filePreview).toHaveAttribute('data-preview-kind', 'file')
   expect(filePreview).toHaveAttribute('data-preview-media-kind', 'image')
-  expect(filePreview).toHaveAttribute('data-preview-media-source', 'html-rendered-snapshot')
+  expect(filePreview).toHaveAttribute('data-preview-media-source', 'content-rendered-preview')
   const filePreviewImage = filePreview?.querySelector('.recall-home-parity-card-preview-image-stage657')
   expect(filePreviewImage).not.toBeNull()
   expect(filePreviewImage).toHaveAttribute(
@@ -3202,7 +3210,7 @@ test('Home fetches preview content and media for cards revealed past the initial
     const laterCard = within(canvas).getByRole('button', { name: 'Open Archived Reference 13' })
     const laterPreview = laterCard.querySelector('.recall-home-parity-card-preview-file-stage565')
     expect(laterPreview).toHaveAttribute('data-preview-media-kind', 'image')
-    expect(laterPreview).toHaveAttribute('data-preview-media-source', 'html-rendered-snapshot')
+    expect(laterPreview).toHaveAttribute('data-preview-media-source', 'content-rendered-preview')
     expect(laterPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).toHaveAttribute(
       'src',
       '/api/recall/documents/doc-archive-13/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
@@ -3219,7 +3227,7 @@ test('Home keeps slower rendered preview results when another card preview resol
       return {
         document_id: documentId,
         kind: 'image',
-        source: 'html-rendered-snapshot',
+        source: 'content-rendered-preview',
         asset_url: '/api/recall/documents/doc-archive-1/preview/asset?updated_at=2026-03-27T09%3A30%3A00Z',
         updated_at: '2026-03-27T09:30:00Z',
       }
@@ -3252,7 +3260,7 @@ test('Home keeps slower rendered preview results when another card preview resol
       const fileCard = within(canvas).getByRole('button', { name: 'Open Archived Reference 1' })
       const filePreview = fileCard.querySelector('.recall-home-parity-card-preview-file-stage565')
       expect(filePreview).toHaveAttribute('data-preview-media-kind', 'image')
-      expect(filePreview).toHaveAttribute('data-preview-media-source', 'html-rendered-snapshot')
+      expect(filePreview).toHaveAttribute('data-preview-media-source', 'content-rendered-preview')
       expect(filePreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).not.toBeNull()
     },
     { timeout: 3000 },
@@ -3316,15 +3324,19 @@ test('Home keeps advanced organizer controls available inside secondary options 
   const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
   const canvas = getHomeCanvas()
   const organizerTrigger = within(rail).getByRole('button', { name: 'Organizer options' })
+  const resizeHandle = within(rail).getByRole('separator', { name: 'Resize Home organizer' })
 
   expect(within(rail).queryByRole('group', { name: 'Organizer options' })).not.toBeInTheDocument()
   expect(within(canvas).getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
   expect(within(canvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: 'New note' })).toBeInTheDocument()
   expect(within(canvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
   expect(within(canvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
   expect(within(canvas).queryByRole('button', { name: 'Collections' })).not.toBeInTheDocument()
   expect(organizerTrigger).toBeInTheDocument()
   expect(organizerTrigger).toHaveTextContent('...')
+  expect(resizeHandle).toHaveClass('recall-home-browse-strip-resize-handle-stage696-reset')
+  expect(document.querySelector('.recall-home-parity-card-title-stage696')).not.toBeNull()
 
   await openHomeOrganizerOptions(rail as HTMLElement)
 
@@ -3337,7 +3349,7 @@ test('Home keeps advanced organizer controls available inside secondary options 
   expect(
     within(organizerUtilities).getByRole('button', { name: /Create collection|New collection/i }),
   ).toBeInTheDocument()
-  expect(within(organizerUtilities).getByRole('button', { name: 'Hide rail' })).toBeInTheDocument()
+  expect(within(rail).getByRole('button', { name: 'Hide organizer' })).toBeInTheDocument()
 })
 
 test('Home filter and rail controls still work from organizer options without undoing the structural reset', async () => {
@@ -3360,21 +3372,23 @@ test('Home filter and rail controls still work from organizer options without un
   })
 })
 
-test('Home can hide the collection rail and reopen it from the compact canvas control', async () => {
+test('Home can hide the collection rail and reopen it from the dedicated organizer launcher', async () => {
   renderHarness()
 
   await waitForHomeLanding()
 
   const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
-  await openHomeOrganizerOptions(rail as HTMLElement)
-  fireEvent.click(within(rail).getByRole('button', { name: 'Hide rail' }))
+  fireEvent.click(within(rail).getByRole('button', { name: 'Hide organizer' }))
 
   await waitFor(() => {
     expect(screen.queryByRole('complementary', { name: 'Home collection rail' })).not.toBeInTheDocument()
   })
 
-  const canvas = getHomeCanvas()
-  fireEvent.click(within(canvas).getByRole('button', { name: 'Collections' }))
+  expect(screen.getByRole('button', { name: 'Show home organizer' })).toHaveClass(
+    'recall-home-organizer-launcher-stage696',
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show home organizer' }))
 
   await waitFor(() => {
     expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
@@ -3400,7 +3414,7 @@ test('Home cards still open the focused overview and keep the Reader handoff int
   expect(onOpenReader).toHaveBeenCalledWith('doc-stage13')
 })
 
-test('graph browse mode now renders a graph-first canvas with quick picks instead of the old browse detail column', async () => {
+test.skip('graph browse mode now renders a graph-first canvas with quick picks instead of the old browse detail column', async () => {
   renderHarness({
     initialSection: 'graph',
     initialContinuityState: makeNoResumeHomeContinuityState(),
@@ -3942,26 +3956,230 @@ test('graph browse mode now renders a graph-first canvas with quick picks instea
   expect(within(graphDock).getByRole('list', { name: 'Selected node aliases' })).toHaveTextContent('Stage 13')
 }, 30000)
 
-test('study browse mode now lands summary-first while keeping the review card dominant', async () => {
+test('graph browse mode now opens settings by default, shows the guided tour, and keeps the canvas contextual until selection', async () => {
+  renderHarness({
+    initialSection: 'graph',
+    initialContinuityState: makeNoResumeHomeContinuityState(),
+  })
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Knowledge graph canvas' })).toBeInTheDocument()
+  })
+
+  const graphSurface = screen.getByRole('region', { name: 'Knowledge graph canvas' }).closest('.recall-graph-browser-surface')
+  const graphControlSeam = screen.getByLabelText('Graph control seam')
+  const graphRail = screen.getByRole('complementary', { name: 'Graph settings sidebar' })
+  const graphSearchBox = within(graphControlSeam).getByRole('searchbox', { name: 'Search by title' })
+  const graphViewControls = within(graphControlSeam).getByRole('group', { name: 'Graph view controls' })
+
+  expect(graphSurface).not.toBeNull()
+  expect(graphSurface).toHaveClass('recall-graph-browser-surface-unboxed')
+  expect(graphControlSeam).toHaveClass('recall-graph-browser-control-seam-corner-reset')
+  expect(graphRail).toBeInTheDocument()
+  expect(within(graphRail).getByText('Graph Settings', { selector: 'strong' })).toBeInTheDocument()
+  const graphRailText = graphRail.textContent ?? ''
+  expect(graphRailText.indexOf('Presets')).toBeGreaterThanOrEqual(0)
+  expect(graphRailText.indexOf('Filters')).toBeGreaterThan(graphRailText.indexOf('Presets'))
+  expect(graphRailText.indexOf('Groups')).toBeGreaterThan(graphRailText.indexOf('Filters'))
+  expect(within(graphRail).queryByLabelText('Graph drawer status')).toBeNull()
+  expect(within(graphRail).getByRole('button', { name: 'Save as preset' })).toBeInTheDocument()
+  expect(within(graphRail).getByRole('button', { name: /Saved views/i })).toHaveAttribute('aria-expanded', 'false')
+  expect(within(graphRail).queryByLabelText('Graph preset name')).toBeNull()
+  expect(within(graphRail).getByRole('button', { name: 'New group' })).toBeInTheDocument()
+  expect(within(graphRail).getByRole('list', { name: 'Graph legend items' })).toBeInTheDocument()
+  expect(within(graphRail).getByRole('button', { name: /Advanced filters/i })).toHaveAttribute('aria-expanded', 'false')
+  expect(within(graphRail).getByRole('button', { name: /Advanced layout/i })).toHaveAttribute('aria-expanded', 'false')
+  const visibleNodesDisclosure = within(graphRail)
+    .getAllByRole('button', { name: /Visible nodes/i })
+    .find((button) => button.getAttribute('aria-expanded') !== null && button.textContent?.trim().startsWith('Visible nodes'))
+  expect(visibleNodesDisclosure).toHaveAttribute('aria-expanded', 'false')
+  expect(within(graphControlSeam).queryByText('Find node titles')).toBeNull()
+  expect(within(graphControlSeam).queryByText('Unlocked')).toBeNull()
+  expect(graphSearchBox).toBeInTheDocument()
+  const fitToViewButton = within(graphViewControls).getByRole('button', { name: 'Fit to view' })
+  const lockGraphButton = within(graphViewControls).getByRole('button', { name: 'Lock graph' })
+  expect(fitToViewButton).toBeInTheDocument()
+  expect(lockGraphButton).toBeInTheDocument()
+  expect(fitToViewButton.textContent?.trim()).toBe('')
+  expect(lockGraphButton.textContent?.trim()).toBe('')
+  expect(fitToViewButton.querySelector('svg')).not.toBeNull()
+  expect(lockGraphButton.querySelector('svg')).not.toBeNull()
+  expect(graphSurface?.querySelector('.recall-graph-canvas-count-pill-label')).not.toBeNull()
+  expect(graphSurface?.querySelector('.recall-graph-canvas-utility-corners')).toHaveStyle({
+    '--recall-graph-left-utility-offset': '262px',
+  })
+  expect(screen.queryByLabelText('Graph focus tray')).toBeNull()
+  expect(screen.queryByLabelText('Node detail dock')).toBeNull()
+  expect(screen.queryByRole('group', { name: 'Graph help controls' })).toBeNull()
+
+  fireEvent.click(within(graphRail).getByRole('button', { name: 'Save as preset' }))
+
+  await waitFor(() => {
+    expect(within(graphRail).getByLabelText('Graph preset name')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(graphRail).getByRole('button', { name: 'Cancel' }))
+
+  await waitFor(() => {
+    expect(within(graphRail).queryByLabelText('Graph preset name')).toBeNull()
+  })
+
+  const graphTour = screen.getByLabelText('Graph View tour')
+  expect(graphTour).toHaveTextContent('Welcome to GraphView 2.0')
+  fireEvent.click(within(graphTour).getByRole('button', { name: 'Close Graph tour' }))
+
+  await waitFor(() => {
+    expect(screen.queryByLabelText('Graph View tour')).not.toBeInTheDocument()
+  })
+
+  const graphHelpControls = screen.getByRole('group', { name: 'Graph help controls' })
+  expect(within(graphHelpControls).getByRole('button', { name: 'Replay Graph tour' })).toBeInTheDocument()
+  expect(within(graphHelpControls).getByRole('button', { name: 'Graph help' })).toBeInTheDocument()
+
+  const graphViewportStage = graphSurface?.querySelector('.recall-graph-canvas-viewport-stage') as HTMLElement | null
+  expect(graphViewportStage).not.toBeNull()
+  expect(graphViewportStage).toHaveAttribute('data-graph-layout-lock', 'unlocked')
+
+  await waitFor(() => {
+    expect(graphViewportStage?.getAttribute('data-graph-scale')).not.toBe('1.00')
+  })
+  const initialGraphScale = graphViewportStage?.getAttribute('data-graph-scale')
+
+  fireEvent.wheel(screen.getByRole('region', { name: 'Knowledge graph canvas' }), {
+    clientX: 420,
+    clientY: 260,
+    deltaY: 120,
+  })
+
+  await waitFor(() => {
+    expect(graphViewportStage?.getAttribute('data-graph-scale')).not.toBe(initialGraphScale)
+  })
+
+  fireEvent.click(fitToViewButton)
+
+  await waitFor(() => {
+    expect(graphViewportStage?.getAttribute('data-graph-scale')).toBe(initialGraphScale)
+  })
+
+  fireEvent.change(graphSearchBox, { target: { value: 'Stage 10' } })
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Select node Stage 10 node' })).toHaveClass('recall-graph-node-button-search-current')
+  })
+  expect(within(graphControlSeam).queryByText('1 node by title')).toBeNull()
+  expect(within(graphControlSeam).queryByRole('group', { name: 'Graph search navigation' })).toBeNull()
+
+  fireEvent.change(graphSearchBox, { target: { value: 'Stage' } })
+
+  await waitFor(() => {
+    expect(within(graphControlSeam).getByRole('group', { name: 'Graph search navigation' })).toBeInTheDocument()
+  })
+
+  fireEvent.change(graphSearchBox, { target: { value: 'Stage 10' } })
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Select node Stage 10 node' })).toHaveClass('recall-graph-node-button-search-current')
+    expect(within(graphControlSeam).queryByRole('group', { name: 'Graph search navigation' })).toBeNull()
+  })
+
+  const stageTenNodeButton = screen.getByRole('button', { name: 'Select node Stage 10 node' })
+  expect(stageTenNodeButton).toHaveClass('recall-graph-node-button-search-match')
+  expect(stageTenNodeButton).toHaveClass('recall-graph-node-button-search-current')
+  expect((stageTenNodeButton as HTMLElement).querySelector('.recall-graph-node-button-core')).not.toBeNull()
+  expect((stageTenNodeButton as HTMLElement).querySelector('.recall-graph-node-button-label-track')).not.toBeNull()
+
+  fireEvent.mouseEnter(stageTenNodeButton)
+
+  await waitFor(() => {
+    const graphHoverPreview = graphSurface?.querySelector('.recall-graph-hover-preview') as HTMLElement | null
+    expect(graphHoverPreview).not.toBeNull()
+    expect(graphHoverPreview).toHaveTextContent('Stage 10 node')
+    expect(graphHoverPreview).toHaveTextContent('Stage 10 Debug Article')
+  })
+
+  const resizeHandle = within(graphRail).getByRole('separator', { name: 'Resize graph settings sidebar' })
+  expect(graphRail).toHaveStyle({ width: '244px' })
+  fireEvent.keyDown(resizeHandle, { key: 'ArrowRight' })
+  await waitFor(() => {
+    expect(graphRail).toHaveStyle({ width: '268px' })
+  })
+  fireEvent.doubleClick(resizeHandle)
+  await waitFor(() => {
+    expect(graphRail).toHaveStyle({ width: '244px' })
+  })
+
+  const graphLegend = within(graphRail).getByRole('list', { name: 'Graph legend items' })
+  const capturesLegendButton = within(graphLegend).getByRole('button', { name: /Captures/i })
+  fireEvent.click(capturesLegendButton)
+  await waitFor(() => {
+    expect(capturesLegendButton).toHaveAttribute('aria-pressed', 'true')
+  })
+  fireEvent.click(within(graphRail).getByRole('button', { name: 'Show all groups' }))
+  await waitFor(() => {
+    expect(capturesLegendButton).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  const currentStageTenNodeButton = screen.getByRole('button', { name: 'Select node Stage 10 node' })
+  fireEvent.click(currentStageTenNodeButton)
+
+  await waitFor(() => {
+    expect(screen.getByLabelText('Graph focus tray')).toBeInTheDocument()
+    expect(screen.getByLabelText('Node detail dock')).toBeInTheDocument()
+  })
+
+  expect(within(screen.getByLabelText('Graph focus tray')).getByRole('list', { name: 'Graph focus context' })).toBeInTheDocument()
+  expect(within(screen.getByLabelText('Graph focus tray')).getByRole('list', { name: 'Graph focus trail' })).toBeInTheDocument()
+  expect(within(screen.getByLabelText('Node detail dock')).getByText('Card drawer')).toBeInTheDocument()
+
+  fireEvent.click(within(graphHelpControls).getByRole('button', { name: 'Graph help' }))
+
+  await waitFor(() => {
+    expect(screen.getByLabelText('Graph View tour')).toHaveTextContent('Need help?')
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Close Graph tour' }))
+  await waitFor(() => {
+    expect(screen.queryByLabelText('Graph View tour')).not.toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Hide graph settings' }))
+  await waitFor(() => {
+    expect(screen.queryByRole('complementary', { name: 'Graph settings sidebar' })).not.toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show graph settings' }))
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Graph settings sidebar' })).toBeInTheDocument()
+  })
+}, 30000)
+
+test('study browse mode now lands on a review dashboard while keeping the review lane dominant', async () => {
   renderHarness({ initialSection: 'study' })
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Review card', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review', level: 2 })).toBeInTheDocument()
   })
 
-  expect(screen.queryByRole('heading', { name: 'Session', level: 2 })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Recall review', level: 2 })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
+  const studyHeader = screen.getByLabelText('Study workspace header')
+  const studyDashboardMetrics = screen.getByLabelText('Study dashboard metrics')
+  const currentReviewSummary = screen.getByLabelText('Current review summary')
+  expect(within(studyHeader).getByText('Review dashboard')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Ready now')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('New')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Scheduled')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Logged')).toBeInTheDocument()
+  expect(within(currentReviewSummary).getByRole('tab', { name: 'Review', selected: true })).toBeInTheDocument()
+  expect(within(currentReviewSummary).getByRole('tab', { name: 'Questions', selected: false })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Show answer' })).toBeInTheDocument()
-  const studyQueueSummary = screen.getByLabelText('Active study queue summary')
-  const activeCardSection = screen.getByRole('heading', { name: 'Review card', level: 2 }).closest('section')
+  const studyQueueSummary = screen.getByLabelText('Current question queue summary')
+  const activeCardSection = screen.getByRole('heading', { name: 'Review', level: 2 }).closest('section')
   const studyQueueDock = screen.getByLabelText('Study queue support')
   const studyEvidenceDock = screen.getByLabelText('Study evidence support')
   const browseStudySupportStrip = screen.getByLabelText('Browse study support')
   const studyReviewFlow = screen.getByLabelText('Study review flow')
   expect(within(studyQueueSummary).queryByText(/^\d+\s+cards$/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText(/reviews logged/i)).not.toBeInTheDocument()
-  expect(within(studyQueueSummary).getByText(/^Up next$/)).toBeInTheDocument()
+  expect(within(studyQueueSummary).getByText(/^Questions$/)).toBeInTheDocument()
   expect(within(studyQueueSummary).getByText(/^\d+\s+due$/i)).toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText(/^\d+\s+new$/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText('Stage 10 Debug Article')).not.toBeInTheDocument()
@@ -3975,14 +4193,13 @@ test('study browse mode now lands summary-first while keeping the review card do
   expect(browseStudySupportStrip).toHaveClass('recall-study-toolbar-utility')
   expect(studyQueueDock).toContainElement(browseStudySupportStrip)
   expect(document.querySelector('.recall-study-sidebar-collapsed-hidden')).toBeNull()
-  expect(studyReviewFlow).toHaveTextContent(/review flow/i)
-  expect(within(studyReviewFlow).getByText('Queue')).toBeInTheDocument()
+  expect(within(studyReviewFlow).getByText('Questions')).toBeInTheDocument()
   expect(within(studyReviewFlow).getByText('Recall')).toBeInTheDocument()
   expect(within(studyReviewFlow).getByText('Rate')).toBeInTheDocument()
   expect(within(activeCardSection as HTMLElement).queryByRole('button', { name: /Open .* in Reader/ })).toBeNull()
   expect(within(studyEvidenceDock).getByRole('button', { name: /Open .* in Reader/ })).toBeInTheDocument()
   expect(within(studyQueueSummary).getByText(/Grounded:/i)).toBeInTheDocument()
-  expect(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+  expect(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
   expect(within(studyQueueSummary).getByText(/Source evidence/i)).toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText('Hidden until needed.')).not.toBeInTheDocument()
   expect(within(studyEvidenceDock).getByText('Stage ten sentence three.')).toBeInTheDocument()
@@ -4004,20 +4221,20 @@ test('study browse mode now lands summary-first while keeping the review card do
 
 test('study browse can preview evidence before revealing the answer', async () => {
   renderHarness({ initialSection: 'study' })
-  const studyQueueDock = screen.getByLabelText('Study queue support')
+  const browseStudySupportStrip = screen.getByLabelText('Browse study support')
   const studyEvidenceDock = screen.getByLabelText('Study evidence support')
 
   await waitFor(() => {
-    expect(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+    expect(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
   })
 
-  fireEvent.click(within(studyQueueDock).getByRole('button', { name: 'Preview evidence' }))
+  fireEvent.click(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' }))
 
   await waitFor(() => {
     expect(within(studyEvidenceDock).getByRole('button', { name: 'Hide preview' })).toBeInTheDocument()
   })
 
-  expect(within(studyEvidenceDock).getByRole('heading', { name: 'Supporting evidence' })).toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByRole('heading', { name: 'Evidence' })).toBeInTheDocument()
   expect(within(studyEvidenceDock).getByText('Stage ten sentence three.')).toBeInTheDocument()
 })
 
@@ -4025,19 +4242,19 @@ test('study browse queue stays intentionally truncated until expanded', async ()
   renderHarness({ initialSection: 'study' })
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Show queue' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Questions', selected: false })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Questions', selected: false }))
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Show all 5 cards' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show all 5 questions' })).toBeInTheDocument()
   })
 
   expect(screen.queryByText('Which fallback flow stays source-grounded?')).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show all 5 cards' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Show all 5 questions' }))
 
   expect(screen.getByText('Which fallback flow stays source-grounded?')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Show fewer cards' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Show fewer questions' })).toBeInTheDocument()
 })

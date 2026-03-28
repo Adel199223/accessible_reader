@@ -51,6 +51,7 @@ export interface RecallDocumentPreview {
   kind: 'image' | 'fallback'
   source:
     | 'attachment-image'
+    | 'content-rendered-preview'
     | 'html-meta-image'
     | 'html-inline-image'
     | 'html-preload-image'

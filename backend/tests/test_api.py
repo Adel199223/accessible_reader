@@ -16,6 +16,8 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 import pytest
 
+from app.models import DocumentView, SourceDocument, ViewBlock
+
 
 def create_client(tmp_path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("ACCESSIBLE_READER_DATA_DIR", str(tmp_path / ".data"))
@@ -255,6 +257,44 @@ def build_low_information_preview_png_bytes(*, size: tuple[int, int] = (960, 540
     draw.rounded_rectangle((36, height - 92, 136, height - 28), radius=22, fill=(178, 184, 220))
     image.save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def build_preview_source_document(
+    *,
+    document_id: str = "preview-doc-1",
+    title: str = "Preview document",
+    source_type: str = "paste",
+    file_name: str | None = None,
+    source_locator: str | None = None,
+) -> SourceDocument:
+    return SourceDocument(
+        id=document_id,
+        title=title,
+        source_type=source_type,
+        file_name=file_name,
+        source_locator=source_locator,
+        content_hash=f"{document_id}-hash",
+        created_at="2026-03-27T00:00:00+00:00",
+        updated_at="2026-03-27T00:00:00+00:00",
+    )
+
+
+def build_preview_view(
+    *,
+    title: str,
+    blocks: list[ViewBlock],
+    mode: str = "reflowed",
+    source_hash: str = "preview-hash",
+) -> DocumentView:
+    return DocumentView(
+        mode=mode,
+        detail_level="default",
+        title=title,
+        blocks=blocks,
+        generated_by="local",
+        source_hash=source_hash,
+        updated_at="2026-03-27T00:00:00+00:00",
+    )
 
 
 def build_note_anchor(document_id: str, view_payload: dict, *, block_index: int = 0, sentence_start: int = 0, sentence_end: int = 0) -> dict:
@@ -697,15 +737,15 @@ def test_recall_document_preview_skips_remote_html_candidates_and_uses_rendered_
     assert preview["asset_url"]
 
 
-def test_recall_document_preview_falls_back_for_text_and_image_less_html(tmp_path, monkeypatch) -> None:
+def test_recall_document_preview_uses_content_rendered_preview_for_paste_and_txt_sources(tmp_path, monkeypatch) -> None:
     client = create_client(tmp_path, monkeypatch)
-    import app.main as main_module
-
-    monkeypatch.setattr(main_module.preview_service, "_load_rendered_html_snapshot_bytes", lambda stored_path: None)
 
     text_import_response = client.post(
         "/api/documents/import-text",
-        json={"title": "Fallback text", "text": "Fallback sentence one. Fallback sentence two."},
+        json={
+            "title": "Fallback text",
+            "text": "Fallback sentence one. Fallback sentence two. Fallback sentence three.",
+        },
     )
     assert text_import_response.status_code == 200
     text_document = text_import_response.json()
@@ -713,9 +753,360 @@ def test_recall_document_preview_falls_back_for_text_and_image_less_html(tmp_pat
     text_preview_response = client.get(f"/api/recall/documents/{text_document['id']}/preview")
     assert text_preview_response.status_code == 200
     text_preview = text_preview_response.json()
-    assert text_preview["kind"] == "fallback"
-    assert text_preview["source"] == "fallback"
-    assert text_preview["asset_url"] is None
+    assert text_preview["kind"] == "image"
+    assert text_preview["source"] == "content-rendered-preview"
+    assert text_preview["asset_url"]
+
+    text_asset_response = client.get(text_preview["asset_url"])
+    assert text_asset_response.status_code == 200
+    assert text_asset_response.headers["content-type"].startswith("image/jpeg")
+    with Image.open(BytesIO(text_asset_response.content)) as preview_image:
+        assert preview_image.size == (960, 540)
+
+    file_import_response = client.post(
+        "/api/documents/import-file",
+        files={
+            "file": (
+                "fallback-preview.txt",
+                b"Uploaded file sentence one. Uploaded file sentence two. Uploaded file sentence three.",
+                "text/plain",
+            )
+        },
+    )
+    assert file_import_response.status_code == 200
+    file_document = file_import_response.json()
+
+    file_preview_response = client.get(f"/api/recall/documents/{file_document['id']}/preview")
+    assert file_preview_response.status_code == 200
+    file_preview = file_preview_response.json()
+    assert file_preview["kind"] == "image"
+    assert file_preview["source"] == "content-rendered-preview"
+    assert file_preview["asset_url"]
+
+    file_asset_response = client.get(file_preview["asset_url"])
+    assert file_asset_response.status_code == 200
+    assert file_asset_response.headers["content-type"].startswith("image/jpeg")
+    with Image.open(BytesIO(file_asset_response.content)) as preview_image:
+        assert preview_image.size == (960, 540)
+
+
+def test_recall_document_preview_uses_content_rendered_preview_for_sparse_short_sentence_blocks(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module.preview_service, "_load_rendered_html_snapshot_bytes", lambda stored_path: None)
+
+    text_import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Sparse runtime",
+            "text": "Alpha sentence. Beta sentence. Gamma sentence.",
+        },
+    )
+    assert text_import_response.status_code == 200
+    text_document = text_import_response.json()
+
+    text_preview_response = client.get(f"/api/recall/documents/{text_document['id']}/preview")
+    assert text_preview_response.status_code == 200
+    text_preview = text_preview_response.json()
+    assert text_preview["kind"] == "image"
+    assert text_preview["source"] == "content-rendered-preview"
+    assert text_preview["asset_url"]
+
+    text_asset_response = client.get(text_preview["asset_url"])
+    assert text_asset_response.status_code == 200
+    assert text_asset_response.headers["content-type"].startswith("image/jpeg")
+    with Image.open(BytesIO(text_asset_response.content)) as preview_image:
+        assert preview_image.size == (960, 540)
+
+
+def test_content_rendered_layout_variant_uses_note_for_sparse_selector(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    document = build_preview_source_document(title="Sparse runtime", source_type="paste")
+    view = build_preview_view(
+        title="Sparse runtime",
+        source_hash=document.content_hash,
+        blocks=[
+            ViewBlock(
+                id="block-1",
+                kind="paragraph",
+                text="Alpha sentence. Beta sentence. Gamma sentence.",
+            )
+        ],
+    )
+
+    layout_variant = main_module.preview_service._select_content_rendered_layout_variant(
+        document,
+        view,
+        ["Alpha sentence. Beta sentence. Gamma sentence."],
+        used_sparse_selector=True,
+    )
+
+    assert layout_variant == "note"
+
+
+def test_content_rendered_layout_variant_uses_note_for_short_single_block_paste(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    document = build_preview_source_document(title="Quick capture", source_type="paste")
+    view = build_preview_view(
+        title="Quick capture",
+        source_hash=document.content_hash,
+        blocks=[
+            ViewBlock(
+                id="block-1",
+                kind="paragraph",
+                text="Debug import sentence one. Debug import sentence two.",
+            )
+        ],
+    )
+
+    layout_variant = main_module.preview_service._select_content_rendered_layout_variant(
+        document,
+        view,
+        ["Debug import sentence one.", "Debug import sentence two."],
+        used_sparse_selector=False,
+    )
+
+    assert layout_variant == "note"
+
+
+def test_content_rendered_layout_variant_keeps_sheet_for_structured_web_preview(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    document = build_preview_source_document(
+        document_id="preview-doc-web",
+        title="Stage10 Debug Article",
+        source_type="web",
+        source_locator="http://127.0.0.1/article",
+    )
+    view = build_preview_view(
+        title="Stage10 Debug Article",
+        source_hash=document.content_hash,
+        blocks=[
+            ViewBlock(id="heading-1", kind="heading", text="Stage10 Debug Article", level=1),
+            ViewBlock(
+                id="paragraph-1",
+                kind="paragraph",
+                text="Debug harness sentence alpha. Debug harness sentence beta. Recall note capture stays local.",
+            ),
+            ViewBlock(
+                id="list-1",
+                kind="list_item",
+                text="Grounded browser notes should reopen Reader on the anchor.",
+            ),
+        ],
+    )
+
+    layout_variant = main_module.preview_service._select_content_rendered_layout_variant(
+        document,
+        view,
+        [
+            "Debug harness sentence alpha.",
+            "Recall note capture stays local.",
+            "• Grounded browser notes should reopen Reader on the anchor.",
+        ],
+        used_sparse_selector=False,
+    )
+
+    assert layout_variant == "sheet"
+
+
+def test_content_rendered_sheet_variant_uses_article_for_structured_web_preview(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    document = build_preview_source_document(
+        document_id="preview-doc-web",
+        title="Stage10 Debug Article",
+        source_type="web",
+        source_locator="http://127.0.0.1/article",
+    )
+
+    sheet_variant = main_module.preview_service._select_content_rendered_sheet_variant(
+        document,
+        [
+            "Debug harness sentence alpha.",
+            "Debug harness sentence beta.",
+            "Recall note capture stays local.",
+            "Grounded browser notes should reopen Reader on the anchored sentence range.",
+        ],
+    )
+
+    assert sheet_variant == "article-sheet"
+
+
+def test_content_rendered_sheet_variant_uses_outline_for_structured_txt_preview(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    document = build_preview_source_document(
+        document_id="preview-doc-file",
+        title="Uploaded file sentence one. Uploaded file sentence two.",
+        source_type="txt",
+        file_name="accessible-reader-edge-import.txt",
+    )
+
+    sheet_variant = main_module.preview_service._select_content_rendered_sheet_variant(
+        document,
+        [
+            "Uploaded file sentence one.",
+            "Uploaded file sentence two.",
+        ],
+    )
+
+    assert sheet_variant == "outline-sheet"
+
+
+def test_content_rendered_sheet_variant_uses_outline_for_structured_paste_sheet_preview(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    document = build_preview_source_document(title="Stage13 Smoke 1773482254662", source_type="paste")
+
+    sheet_variant = main_module.preview_service._select_content_rendered_sheet_variant(
+        document,
+        [
+            "Stage 13 workflow smoke.",
+            "First sentence for Reader.",
+            "Second sentence for Search.",
+        ],
+    )
+
+    assert sheet_variant == "outline-sheet"
+
+
+def test_content_rendered_outline_sheet_variant_uses_document_for_txt_preview(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    document = build_preview_source_document(
+        document_id="preview-doc-file",
+        title="Uploaded file sentence one. Uploaded file sentence two.",
+        source_type="txt",
+        file_name="accessible-reader-edge-import.txt",
+    )
+
+    outline_variant = main_module.preview_service._select_content_rendered_outline_sheet_variant(
+        document,
+        [
+            "Uploaded file sentence one.",
+            "Uploaded file sentence two.",
+        ],
+    )
+
+    assert outline_variant == "document-outline"
+
+
+def test_content_rendered_outline_sheet_variant_uses_checklist_for_structured_paste_preview(
+    tmp_path, monkeypatch
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    document = build_preview_source_document(title="Stage13 Smoke 1773482254662", source_type="paste")
+
+    outline_variant = main_module.preview_service._select_content_rendered_outline_sheet_variant(
+        document,
+        [
+            "Stage 13 workflow smoke.",
+            "First sentence for Reader.",
+            "Second sentence for Search.",
+        ],
+    )
+
+    assert outline_variant == "checklist-outline"
+
+
+def test_content_rendered_note_variant_uses_focus_for_sparse_selector(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    note_variant = main_module.preview_service._select_content_rendered_note_variant(
+        ["Alpha sentence. Beta sentence. Gamma sentence."],
+        used_sparse_selector=True,
+    )
+
+    assert note_variant == "focus-note"
+
+
+def test_content_rendered_note_variant_uses_summary_for_short_multi_line_note(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    note_variant = main_module.preview_service._select_content_rendered_note_variant(
+        ["Debug import sentence one.", "Debug import sentence two."],
+        used_sparse_selector=False,
+    )
+
+    assert note_variant == "summary-note"
+
+
+def test_content_rendered_note_variant_uses_focus_for_single_short_line(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    note_variant = main_module.preview_service._select_content_rendered_note_variant(
+        ["Alpha sentence."],
+        used_sparse_selector=False,
+    )
+
+    assert note_variant == "focus-note"
+
+
+def test_content_rendered_summary_note_cues_extract_import_for_debug_capture(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    cues = main_module.preview_service._select_content_rendered_summary_note_cues(
+        "Stage13 Debug 1773482318378",
+        ["Debug import sentence one.", "Debug import sentence two."],
+    )
+
+    assert cues == ["IMPORT"]
+
+
+def test_content_rendered_summary_note_cues_extract_distinct_keywords_for_keep_after_delete(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    cues = main_module.preview_service._select_content_rendered_summary_note_cues(
+        "Keep after delete 1773391816129",
+        ["Keep sentence one 1773391816129.", "Delete me sentence two 1773391816129."],
+    )
+
+    assert cues == ["KEEP", "DELETE"]
+
+
+def test_content_rendered_summary_note_accent_seed_is_deterministic_and_bounded(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    first_seed = main_module.preview_service._select_content_rendered_summary_note_accent_seed(
+        "Stage13 Debug 1773482318378",
+        ["Debug import sentence one.", "Debug import sentence two."],
+    )
+    second_seed = main_module.preview_service._select_content_rendered_summary_note_accent_seed(
+        "Stage13 Debug 1773482318378",
+        ["Debug import sentence one.", "Debug import sentence two."],
+    )
+
+    assert first_seed == second_seed
+    assert 0 <= first_seed <= 2
+
+
+def test_recall_document_preview_uses_content_rendered_preview_when_html_has_no_image_candidate_or_snapshot(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module.preview_service, "_load_rendered_html_snapshot_bytes", lambda stored_path: None)
 
     image_less_html = b"""
     <html>
@@ -724,6 +1115,7 @@ def test_recall_document_preview_falls_back_for_text_and_image_less_html(tmp_pat
           <h1>Image-less article</h1>
           <p>Sentence one for the imported article.</p>
           <p>Sentence two for the imported article.</p>
+          <p>Sentence three for the imported article.</p>
         </article>
       </body>
     </html>
@@ -742,9 +1134,15 @@ def test_recall_document_preview_falls_back_for_text_and_image_less_html(tmp_pat
 
     assert html_preview_response.status_code == 200
     html_preview = html_preview_response.json()
-    assert html_preview["kind"] == "fallback"
-    assert html_preview["source"] == "fallback"
-    assert html_preview["asset_url"] is None
+    assert html_preview["kind"] == "image"
+    assert html_preview["source"] == "content-rendered-preview"
+    assert html_preview["asset_url"]
+
+    asset_response = client.get(html_preview["asset_url"])
+    assert asset_response.status_code == 200
+    assert asset_response.headers["content-type"].startswith("image/jpeg")
+    with Image.open(BytesIO(asset_response.content)) as preview_image:
+        assert preview_image.size == (960, 540)
 
 
 def test_recall_document_preview_uses_rendered_snapshot_when_html_has_no_image_candidate(tmp_path, monkeypatch) -> None:
@@ -803,7 +1201,10 @@ def test_recall_document_preview_uses_rendered_snapshot_when_html_has_no_image_c
     assert metadata["home_preview"]["source"] == "html-rendered-snapshot"
 
 
-def test_recall_document_preview_rejects_low_signal_rendered_snapshot_and_falls_back(tmp_path, monkeypatch) -> None:
+def test_recall_document_preview_rejects_low_signal_rendered_snapshot_and_uses_content_rendered_preview(
+    tmp_path,
+    monkeypatch,
+) -> None:
     client = create_client(tmp_path, monkeypatch)
     import app.main as main_module
 
@@ -838,9 +1239,15 @@ def test_recall_document_preview_rejects_low_signal_rendered_snapshot_and_falls_
 
     assert html_preview_response.status_code == 200
     html_preview = html_preview_response.json()
-    assert html_preview["kind"] == "fallback"
-    assert html_preview["source"] == "fallback"
-    assert html_preview["asset_url"] is None
+    assert html_preview["kind"] == "image"
+    assert html_preview["source"] == "content-rendered-preview"
+    assert html_preview["asset_url"]
+
+    asset_response = client.get(html_preview["asset_url"])
+    assert asset_response.status_code == 200
+    assert asset_response.headers["content-type"].startswith("image/jpeg")
+    with Image.open(BytesIO(asset_response.content)) as preview_image:
+        assert preview_image.size == (960, 540)
 
     with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
         row = connection.execute(
@@ -850,8 +1257,29 @@ def test_recall_document_preview_rejects_low_signal_rendered_snapshot_and_falls_
 
     assert row is not None
     metadata = json.loads(row[0] or "{}")
-    assert metadata["home_preview"]["kind"] == "fallback"
-    assert metadata["home_preview"]["source"] == "fallback"
+    assert metadata["home_preview"]["kind"] == "image"
+    assert metadata["home_preview"]["source"] == "content-rendered-preview"
+
+
+def test_recall_document_preview_keeps_fallback_when_content_is_too_sparse(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module.preview_service, "_load_rendered_html_snapshot_bytes", lambda stored_path: None)
+
+    text_import_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Sparse text", "text": "Tiny note."},
+    )
+    assert text_import_response.status_code == 200
+    text_document = text_import_response.json()
+
+    text_preview_response = client.get(f"/api/recall/documents/{text_document['id']}/preview")
+    assert text_preview_response.status_code == 200
+    text_preview = text_preview_response.json()
+    assert text_preview["kind"] == "fallback"
+    assert text_preview["source"] == "fallback"
+    assert text_preview["asset_url"] is None
 
 
 def test_recall_document_preview_cache_invalidates_when_preview_metadata_version_changes(tmp_path, monkeypatch) -> None:
@@ -926,7 +1354,7 @@ def test_recall_document_preview_cache_invalidates_when_preview_metadata_version
 
     assert row is not None
     metadata = json.loads(row[0] or "{}")
-    assert metadata["home_preview"]["version"] == 5
+    assert metadata["home_preview"]["version"] == 17
     assert metadata["home_preview"]["source"] == "html-rendered-snapshot"
 
 

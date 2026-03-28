@@ -24,8 +24,9 @@ test('SourceWorkspaceFrame adds the Reader-active chrome when Reader owns the so
   )
 
   expect(container.querySelector('.source-workspace-frame')).toHaveClass('source-workspace-frame-reader-active')
+  expect(screen.getByText('Source')).toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Source workspace Notes' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Source workspace Notebook' }))
 
   expect(onSelectTab).toHaveBeenCalledWith('notes')
 })

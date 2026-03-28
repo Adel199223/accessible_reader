@@ -1,5 +1,6 @@
 export type AppSection = 'recall' | 'reader'
 export type RecallSection = 'library' | 'graph' | 'study' | 'notes'
+export type RecallLibrarySurface = 'home' | 'notebook'
 export type RecallHomeOrganizerLens = 'collections' | 'recent'
 export type RecallHomeViewMode = 'board' | 'list'
 export type RecallLibrarySortDirection = 'asc' | 'desc'
@@ -52,9 +53,11 @@ export interface WorkspaceDockContext {
 export interface RecallWorkspaceFocusRequest {
   cardId?: string | null
   documentId?: string | null
+  librarySurface?: RecallLibrarySurface | null
   nodeId?: string | null
   noteId?: string | null
   section: RecallSection
+  sourceTab?: SourceWorkspaceTab | null
   token: number
 }
 
@@ -69,8 +72,11 @@ export interface RecallWorkspaceContinuityState {
     focusTrailNodeIds: string[]
     pathSelectedNodeIds: string[]
     selectedNodeId: string | null
+    tourDismissed: boolean
+    tourStep: number | null
   }
   library: {
+    activeSurface: RecallLibrarySurface
     filterQuery: string
     homeOrganizerLens: RecallHomeOrganizerLens
     homeOrganizerVisible: boolean
@@ -106,7 +112,7 @@ export interface AppRoute {
 
 export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuityState = {
   browseDrawers: {
-    graph: false,
+    graph: true,
     library: true,
     notes: true,
     study: false,
@@ -115,8 +121,11 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
     focusTrailNodeIds: [],
     pathSelectedNodeIds: [],
     selectedNodeId: null,
+    tourDismissed: false,
+    tourStep: 0,
   },
   library: {
+    activeSurface: 'home',
     filterQuery: '',
     homeOrganizerLens: 'collections',
     homeOrganizerVisible: true,
@@ -146,7 +155,7 @@ export function shouldOpenRecallBrowseDrawerByDefault(section: RecallSection, ha
   if (hasFocusedTarget) {
     return false
   }
-  return section === 'library' || section === 'notes'
+  return section === 'library' || section === 'graph' || section === 'notes'
 }
 
 
