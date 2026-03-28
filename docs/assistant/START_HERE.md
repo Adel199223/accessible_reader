@@ -11,6 +11,12 @@ This repo is a browser-first Recall workspace with a supported Microsoft Edge br
 5. `agent.md`
 6. `docs/assistant/INDEX.md`
 
+## Current Checkpoint
+
+- latest implementation checkpoint: Stage 708 `Add Content Modal Recall-Style Entry Reset After Stage 707`
+- latest completed audit: Stage 709 `Post-Stage-708 Add Content Modal Recall-Style Entry Audit`
+- no automatic next slice is queued; reopen a surface intentionally from that baseline
+
 ## Harness Inputs
 
 - `docs/assistant/HARNESS_PROFILE.json`

@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "last_updated": "2026-03-27",
+  "last_updated": "2026-03-28",
   "canonical": [
     "BUILD_BRIEF.md",
     "docs/ROADMAP.md",
     "docs/ROADMAP_ANCHOR.md",
     "docs/ux/recall_benchmark_matrix.md",
-    "docs/exec_plans/active/2026-03-27_stage663_preview_patch_integrity_and_api_base_asset_resolution_fix.md"
+    "docs/exec_plans/active/2026-03-28_stage708_add_content_modal_recall_style_entry_reset_after_stage707.md"
   ],
   "bridges": [
     "agent.md",
@@ -19,20 +19,20 @@
     {
       "id": "roadmap_continuation",
       "doc": "docs/assistant/workflows/ROADMAP_WORKFLOW.md",
-      "scope": "Roadmap-driven product work and milestone continuation.",
+      "scope": "Roadmap-driven product work, intentional surface reopens, and milestone continuation.",
       "primary_files": [
         "BUILD_BRIEF.md",
         "docs/ROADMAP.md",
         "docs/ROADMAP_ANCHOR.md",
         "docs/ux/recall_benchmark_matrix.md",
-        "docs/exec_plans/active/2026-03-27_stage663_preview_patch_integrity_and_api_base_asset_resolution_fix.md"
+        "docs/exec_plans/active/2026-03-28_stage708_add_content_modal_recall_style_entry_reset_after_stage707.md"
       ],
       "validation_commands": [
-        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git status --short --branch'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run lint'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'",
-        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'",
-        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -c \"from app.main import app; print(app.title)\"'"
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run python -c \"from app.main import app; print(app.title)\"'"
       ]
     },
     {
@@ -48,7 +48,7 @@
         "docs/assistant/INDEX.md"
       ],
       "validation_commands": [
-        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 - <<\"PY\"\nimport json\nfrom pathlib import Path\njson.loads(Path(\"docs/assistant/manifest.json\").read_text())\nprint(\"manifest ok\")\nPY'"
+        "wsl.exe bash -lc \"cd /home/fa507/dev/accessible_reader && python3 -c \\\"import json, pathlib; json.loads(pathlib.Path('docs/assistant/manifest.json').read_text()); print('manifest ok')\\\"\""
       ]
     },
     {
@@ -80,6 +80,7 @@
       ],
       "validation_commands": [
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/check_harness_profile.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json'",
+        "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/preview_harness_sync.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json --json'",
         "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/preview_harness_sync.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json --write-state docs/assistant/runtime/BOOTSTRAP_STATE.json'"
       ]
     }
@@ -88,7 +89,7 @@
     "repo_status": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git status --short --branch'",
     "frontend_dev": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run dev -- --host 127.0.0.1'",
     "backend_dev": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000'",
-    "backend_pytest": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'",
+    "backend_pytest": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest'",
     "harness_profile_check": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/check_harness_profile.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json'",
     "harness_preview": "wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && python3 tooling/preview_harness_sync.py --profile docs/assistant/HARNESS_PROFILE.json --registry docs/assistant/templates/BOOTSTRAP_ARCHETYPE_REGISTRY.json --write-state docs/assistant/runtime/BOOTSTRAP_STATE.json'"
   },
@@ -106,11 +107,11 @@
     "speech_path": "Browser-native speechSynthesis is the shipped read-aloud path for v1.",
     "local_tts_status": "Local TTS remains deferred and should be described as coming soon unless the user reprioritizes it.",
     "ai_scope": "AI is opt-in only and limited to Simplify and Summary.",
-    "reader_generated_content_lock": "In the current Recall-parity track, Reader is original-only and cosmetic-only. Do not change Reflowed, Simplified, Summary, generated-view UX, transform logic, generated placeholders, generated-view controls, or mode-routing unless the user explicitly reprioritizes generated-content work.",
+    "reader_generated_content_lock": "Reader shell and IA now span the shipped modes, but generated outputs, transform logic, cache semantics, generated placeholders, and generated-view routing remain frozen unless the user explicitly reprioritizes generated-content work.",
     "ux_priority": "Prefer the best Recall-quality workflow over preserving the current UI structure; preserve local-first behavior, routes, anchors, and reading continuity instead of freezing layout.",
     "validation_strategy": "Run targeted validation before broad checks; keep backend pytest targeted when backend code is untouched; for Recall shell or top-level UI work, require fresh screenshot artifacts, use targeted Vitest coverage first, and keep the broad App.test.tsx pass plus repo-owned Edge harnesses available for shell, route, and visual continuity checks. If App.test.tsx ever appears to stall again, inspect App-level callback identity churn and ReaderWorkspace effect dependencies before treating the file as an unreliable runner.",
     "push_policy": "Do not push unless the user explicitly asks.",
     "execplan_policy": "Major or multi-file work must start by creating or updating an ExecPlan in docs/exec_plans/active/.",
-    "desktop_first_queue_policy": "Keep one active desktop-first milestone at a time. The Stage 380 audit reset the current Recall-parity track to Graph, Home, and original-only Reader, and the repo has since carried that track through the completed local Stage 498-663 continuity ladder. Stage 662 is the latest completed audit, Stage 663 is the latest implementation checkpoint, and the queue is back in refreshed-baseline hold again: keep Graph, Home, and original-only Reader stable unless the user explicitly reopens product work or a direct regression forces a detour. If another bounded slice opens, Home remains the likeliest next target, now around richer screenshot-like or otherwise higher-fidelity preview generation for the sources that still fall back, especially paste/text or sources without usable saved image assets, rather than another shell, rail, toolbar, lower-card, metadata-only poster, or HTML-backed preview-framing micro-trim. Notes and Study remain parked regression baselines, generated-content Reader work stays locked, and docs/exec_plans/active/ may still contain older or pre-staged plans, so use docs/ROADMAP_ANCHOR.md, agent.md, and docs/assistant/INDEX.md to identify the current checkpoint."
+    "desktop_first_queue_policy": "The Stage 692-707 shared shell/Home/Notebook/Reader/Study ladder is complete. Stage 708 is the latest implementation checkpoint and Stage 709 the latest completed audit, both for the intentional Add Content reopen. There is no automatic next slice now: keep Graph, Home, embedded Notebook, Reader, and Study as regression baselines unless the user explicitly reopens a surface or a blocking regression forces a detour. Generated-content Reader work remains locked, and docs/exec_plans/active/ may contain older parked plans or pre-staged audits, so use docs/ROADMAP_ANCHOR.md, agent.md, and docs/assistant/INDEX.md to identify the current checkpoint."
   }
 }

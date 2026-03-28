@@ -12,5 +12,5 @@ Use the Recall benchmark workflow plus real Windows Edge validation when work to
 
 - `Home`
 - `Graph`
-- original-only `Reader`
+- `Reader`, with generated outputs still frozen unless explicitly reopened
 - browser companion handoff when extension-facing behavior changes

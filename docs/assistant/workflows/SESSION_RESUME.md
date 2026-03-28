@@ -15,4 +15,7 @@ Use this workflow when the user says `resume master plan`, `where did we leave o
 
 - `docs/ROADMAP_ANCHOR.md` is the live continuity file
 - do not assume the highest stage number is the current plan
-- keep `Graph`, `Home`, and original-only `Reader` as regression surfaces unless the user explicitly reopens another product slice
+- Stage 708 is the current implementation checkpoint and Stage 709 is the latest completed audit
+- there is no automatic next slice; reopen a surface intentionally from the current baseline
+- keep `Graph`, `Home`, embedded `Notebook`, `Reader`, and `Study` as regression surfaces unless the user explicitly reopens another product slice
+- keep Reader generated outputs, transform logic, and generated-view routing frozen unless the user explicitly reprioritizes generated-content work
