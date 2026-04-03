@@ -159,6 +159,30 @@ test('RecallShellFrame keeps Reader mode on the quieter topbar without the old e
   expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()
 })
 
+test('RecallShellFrame compacts the Reader topbar into actions only when a Reader document is open', () => {
+  renderShell({
+    activeSection: 'reader',
+    currentContext: null,
+    layoutMode: 'reader',
+    recentItems: [],
+    sourceWorkspace: {
+      ...sourceWorkspace,
+      activeTab: 'reader',
+      readerLayout: 'compact',
+    },
+  })
+
+  const shellHeader = document.querySelector('header.workspace-topbar')
+  expect(shellHeader).not.toBeNull()
+  expect(shellHeader).toHaveClass('workspace-topbar-quiet')
+  expect(shellHeader).toHaveClass('workspace-topbar-reader')
+  expect(shellHeader).toHaveClass('workspace-topbar-reader-compact')
+  expect(shellHeader).toHaveAttribute('aria-label', 'Reader workspace controls')
+  expect(screen.queryByRole('heading', { name: 'Reader', level: 1 })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()
+})
+
 test('RecallShellFrame hides the utility dock and shows the compact source strip in focused mode', () => {
   renderShell({
     activeSection: 'library',
@@ -173,4 +197,26 @@ test('RecallShellFrame hides the utility dock and shows the compact source strip
   expect(screen.getByRole('tab', { name: 'Source workspace Notebook', selected: true })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
+})
+
+test('RecallShellFrame forwards the compact Reader source-strip mode into the shell strip', () => {
+  renderShell({
+    activeSection: 'library',
+    currentContext: null,
+    layoutMode: 'default',
+    recentItems: [],
+    sourceWorkspace: {
+      ...sourceWorkspace,
+      activeTab: 'reader',
+      readerLayout: 'compact',
+      readerLineWidthCh: 72,
+    },
+  })
+
+  const sourceWorkspaceRegion = screen.getByRole('region', { name: 'Focused document workspace' })
+
+  expect(sourceWorkspaceRegion).toHaveClass('source-workspace-frame-reader-compact')
+  expect(sourceWorkspaceRegion).toHaveStyle('--reader-line-width: 72ch')
+  expect(screen.getByRole('button', { name: 'Open source workspace destinations' })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: 'Source workspace Notebook' })).not.toBeInTheDocument()
 })

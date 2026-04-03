@@ -11,7 +11,11 @@ interface LibraryPaneProps {
   hasAnyDocuments: boolean
   loading: boolean
   open: boolean
+  searchLabel?: string
   searchPlaceholder?: string
+  showHeader?: boolean
+  showSearchLabel?: boolean
+  showToggle?: boolean
   searchValue: string
   title?: string
   onDelete: (document: DocumentRecord) => Promise<void>
@@ -44,7 +48,11 @@ export function LibraryPane({
   hasAnyDocuments,
   loading,
   open,
+  searchLabel = 'Search',
   searchPlaceholder = 'Search Home',
+  showHeader = true,
+  showSearchLabel = true,
+  showToggle = true,
   searchValue,
   title = 'Home',
   onDelete,
@@ -63,6 +71,7 @@ export function LibraryPane({
   })
   const libraryCountLabel = documents.length === 1 ? '1 saved' : `${documents.length} saved`
   const libraryStatusLabel = loading ? 'Loading…' : errorMessage ? 'Unavailable' : hasAnyDocuments ? libraryCountLabel : null
+  const paneOpen = showToggle ? open : true
 
   useEffect(() => {
     if (!openActionsId) {
@@ -91,40 +100,61 @@ export function LibraryPane({
 
   return (
     <section
+      aria-label={!showHeader && title ? title : undefined}
       ref={rootRef}
       className={embedded ? 'stack-gap library-pane library-pane-embedded' : 'card card-compact stack-gap library-pane'}
     >
-      <div className="toolbar library-pane-toolbar">
-        <div className="section-header section-header-compact">
-          <h2>{title}</h2>
-          {libraryStatusLabel ? <p>{libraryStatusLabel}</p> : null}
+      {showHeader || showToggle ? (
+        <div className="toolbar library-pane-toolbar">
+          {showHeader ? (
+            <div className="section-header section-header-compact">
+              <h2>{title}</h2>
+              {libraryStatusLabel ? <p>{libraryStatusLabel}</p> : null}
+            </div>
+          ) : (
+            <div aria-hidden="true" />
+          )}
+          {showToggle ? (
+            <button
+              aria-expanded={paneOpen}
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                if (paneOpen) {
+                  setOpenActionsId(null)
+                }
+                onToggleOpen()
+              }}
+            >
+              {paneOpen ? 'Hide' : 'Show'}
+            </button>
+          ) : null}
         </div>
-        <button
-          aria-expanded={open}
-          className="ghost-button"
-          type="button"
-          onClick={() => {
-            if (open) {
-              setOpenActionsId(null)
-            }
-            onToggleOpen()
-          }}
-        >
-          {open ? 'Hide' : 'Show'}
-        </button>
-      </div>
+      ) : null}
 
-      {open ? (
+      {paneOpen ? (
         <>
-          <label className="field">
-            <span>Search</span>
-            <input
-              type="search"
-              placeholder={searchPlaceholder}
-              value={searchValue}
-              onChange={(event) => onSearchChange(event.target.value)}
-            />
-          </label>
+          {showSearchLabel ? (
+            <label className="field">
+              <span>{searchLabel}</span>
+              <input
+                type="search"
+                placeholder={searchPlaceholder}
+                value={searchValue}
+                onChange={(event) => onSearchChange(event.target.value)}
+              />
+            </label>
+          ) : (
+            <div className="field">
+              <input
+                aria-label={searchLabel}
+                type="search"
+                placeholder={searchPlaceholder}
+                value={searchValue}
+                onChange={(event) => onSearchChange(event.target.value)}
+              />
+            </div>
+          )}
 
           <div className="library-list" role="list">
             {loading ? <p className="small-note">Loading documents…</p> : null}

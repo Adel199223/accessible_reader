@@ -814,26 +814,72 @@ beforeEach(() => {
 })
 
 async function ensureLibraryOpen() {
+  const queryGlobalLibrarySearchControl = () =>
+    screen.queryByPlaceholderText('Search saved sources') ??
+    screen.queryByRole('searchbox', { name: 'Filter sources' }) ??
+    screen.queryByRole('searchbox', { name: 'Filter saved sources' }) ??
+    screen.queryByRole('searchbox', { name: 'Search saved sources' })
+  const hasLibrarySearchControl = (section: HTMLElement) =>
+    Boolean(
+      within(section).queryByPlaceholderText('Search saved sources') ??
+        within(section).queryByRole('searchbox', { name: 'Filter sources' }) ??
+        within(section).queryByRole('searchbox', { name: 'Filter saved sources' }) ??
+        within(section).queryByRole('searchbox', { name: 'Search saved sources' }),
+    )
+
   const getLibrarySection = () => {
     const librarySection =
       screen.queryByRole('heading', { name: 'Source library', level: 2 })?.closest('section') ??
       screen.queryByRole('heading', { name: 'Home', level: 2 })?.closest('section') ??
-      screen.queryByRole('region', { name: 'Primary saved source flow' })?.closest('.recall-library-landing')
-    expect(librarySection).not.toBeNull()
+      screen.queryByRole('region', { name: 'Primary saved source flow' })?.closest('.recall-library-landing') ??
+      screen.queryByRole('region', { name: / workspace$/i }) ??
+      screen.queryByRole('tab', { name: 'Source', selected: true })?.closest('section')
+    expect(librarySection).toBeTruthy()
     return librarySection as HTMLElement
   }
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const librarySection = getLibrarySection()
-    if (within(librarySection).queryByPlaceholderText('Search saved sources')) {
+    if (queryGlobalLibrarySearchControl()) {
       return
     }
-    const toggleButton = within(librarySection).getByRole('button', { name: /Show|Hide/ })
-    fireEvent.click(toggleButton)
+    const librarySection = getLibrarySection()
+    if (hasLibrarySearchControl(librarySection)) {
+      return
+    }
+    const sourceContextTab = screen.queryByRole('tab', { name: 'Source' })
+    if (sourceContextTab && !hasLibrarySearchControl(librarySection)) {
+      fireEvent.click(sourceContextTab)
+    }
+    if (!sourceContextTab && !hasLibrarySearchControl(librarySection)) {
+      const overflowTrigger = screen.queryByRole('button', { name: 'More reading controls' })
+      if (overflowTrigger) {
+        const notebookTrigger = screen.queryByRole('button', { name: 'Open nearby notebook notes' })
+        if (notebookTrigger) {
+          fireEvent.click(notebookTrigger)
+          const sourceTabAfterOpen = screen.queryByRole('tab', { name: 'Source' })
+          if (sourceTabAfterOpen) {
+            fireEvent.click(sourceTabAfterOpen)
+          }
+        }
+      }
+    }
+    if (queryGlobalLibrarySearchControl()) {
+      return
+    }
+    if (hasLibrarySearchControl(getLibrarySection())) {
+      return
+    }
+    const toggleButton = within(librarySection)
+      .getAllByRole('button', { name: /Show|Hide/ })
+      .find((button) => button.getAttribute('aria-expanded') !== null)
+    if (!toggleButton) {
+      continue
+    }
+    fireEvent.click(toggleButton as HTMLButtonElement)
   }
 
   await waitFor(() => {
-    expect(within(getLibrarySection()).getByPlaceholderText('Search saved sources')).toBeInTheDocument()
+    expect(queryGlobalLibrarySearchControl() ?? hasLibrarySearchControl(getLibrarySection())).toBeTruthy()
   })
 }
 
@@ -901,6 +947,56 @@ function renderRecallApp(path = '/') {
   render(<App />)
 }
 
+function openSourceWorkspaceDestination(container: HTMLElement, destination: 'Overview' | 'Reader' | 'Notebook' | 'Graph' | 'Study') {
+  const compactNavTrigger = within(container).queryByRole('button', { name: 'Open source workspace destinations' })
+  if (compactNavTrigger) {
+    fireEvent.click(compactNavTrigger)
+    fireEvent.click(within(container).getByRole('button', { name: `Open source workspace ${destination}` }))
+    return
+  }
+
+  fireEvent.click(within(container).getByRole('tab', { name: `Source workspace ${destination}` }))
+}
+
+function openReaderOverflow() {
+  const openOverflow = screen.queryByRole('group', { name: 'More reading controls' })
+  if (openOverflow) {
+    return openOverflow
+  }
+
+  fireEvent.click(screen.getByRole('button', { name: 'More reading controls' }))
+  return screen.getByRole('group', { name: 'More reading controls' })
+}
+
+function openReaderOverflowAction(action: 'Add note') {
+  fireEvent.click(within(openReaderOverflow()).getByRole('button', { name: action }))
+}
+
+function openReaderNotebookNotes() {
+  fireEvent.click(screen.getByRole('button', { name: 'Open nearby notebook notes' }))
+}
+
+function openReaderSupportPane(tab: 'Source' | 'Notebook') {
+  const visibleSupportTab = screen.queryByRole('tab', { name: tab })
+  if (visibleSupportTab) {
+    fireEvent.click(visibleSupportTab)
+    return
+  }
+
+  openReaderNotebookNotes()
+  if (tab === 'Source') {
+    fireEvent.click(screen.getByRole('tab', { name: 'Source' }))
+  }
+}
+
+function openReaderThemePanel() {
+  fireEvent.click(screen.getByRole('button', { name: 'Theme' }))
+}
+
+function selectReaderView(view: 'Original' | 'Reflowed' | 'Simplified' | 'Summary') {
+  fireEvent.click(screen.getByRole('tab', { name: view }))
+}
+
 async function openNotebookFromHome() {
   const notebookAlreadyOpen = () =>
     screen.queryByRole('heading', { name: 'Notebook', level: 2 }) ??
@@ -915,16 +1011,23 @@ async function openNotebookFromHome() {
       notebookAlreadyOpen() ??
       screen.queryByRole('button', { name: 'New note' }) ??
         screen.queryByRole('button', { name: 'Open notebook' }) ??
+        screen.queryByRole('button', { name: 'Open source workspace destinations' }) ??
         screen.queryByRole('tab', { name: 'Source workspace Notebook' }),
     ).not.toBeNull()
   })
 
   if (!screen.queryByRole('heading', { name: 'Notebook', level: 2 })) {
-    fireEvent.click(
-      screen.queryByRole('button', { name: 'New note' }) ??
-        screen.queryByRole('button', { name: 'Open notebook' }) ??
-        screen.getByRole('tab', { name: 'Source workspace Notebook' }),
-    )
+    const compactNavTrigger = screen.queryByRole('button', { name: 'Open source workspace destinations' })
+    if (compactNavTrigger) {
+      fireEvent.click(compactNavTrigger)
+      fireEvent.click(screen.getByRole('button', { name: 'Open source workspace Notebook' }))
+    } else {
+      fireEvent.click(
+        screen.queryByRole('button', { name: 'New note' }) ??
+          screen.queryByRole('button', { name: 'Open notebook' }) ??
+          screen.getByRole('tab', { name: 'Source workspace Notebook' }),
+      )
+    }
   }
 
   await waitFor(() => {
@@ -1884,10 +1987,10 @@ test('library selection updates the reader and search does not replace the activ
   })
 
   await ensureLibraryOpen()
-  const librarySection = screen.getByRole('heading', { name: 'Source library', level: 2 }).closest('section')
+  const librarySection = screen.getByRole('searchbox', { name: 'Search saved sources' }).closest('section')
   expect(librarySection).not.toBeNull()
 
-  fireEvent.change(within(librarySection as HTMLElement).getByRole('searchbox', { name: 'Search' }), {
+  fireEvent.change(within(librarySection as HTMLElement).getByRole('searchbox', { name: 'Search saved sources' }), {
     target: { value: 'Search target' },
   })
 
@@ -1919,10 +2022,12 @@ test('Reader note capture saves a source-linked note and keeps normal jump behav
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Add note' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Search sentence one.' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
+  selectReaderView('Reflowed')
+  openReaderOverflowAction('Add note')
+  expect(screen.getByRole('list', { name: 'Reader metadata' })).toHaveTextContent('Capture active')
   fireEvent.click(screen.getByRole('button', { name: 'Search sentence one.' }))
 
   expect(mockSpeechState.jumpTo).not.toHaveBeenCalled()
@@ -1949,47 +2054,41 @@ test('Reader note capture saves a source-linked note and keeps normal jump behav
   })
 
   await waitFor(() => {
-    expect(screen.getAllByText('2 notes').length).toBeGreaterThan(0)
-  })
-
-  await waitFor(() => {
     expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Second saved note.')
   })
+  expect(screen.queryByRole('list', { name: 'Reader metadata' })).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Search sentence one.' }))
 
   expect(mockSpeechState.jumpTo).toHaveBeenCalledWith(0)
 })
 
-test('settings stay off the page until the settings drawer is opened and default to Appearance without a document', async () => {
+test('theme controls stay off the page until the theme panel is opened without a document', async () => {
   fetchDocumentsMock.mockImplementation(async () => [])
 
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Theme' })).toBeInTheDocument()
   })
 
-  expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Appearance', level: 3 })).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Theme' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('group', { name: 'Reading theme' })).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+  openReaderThemePanel()
 
-  const settingsDrawer = screen.getByRole('dialog', { name: 'Settings' })
-  const sections = within(settingsDrawer).getByRole('tablist', { name: 'Settings sections' })
-  expect(within(sections).queryByRole('tab', { name: 'View' })).not.toBeInTheDocument()
-  expect(within(sections).getByRole('tab', { name: 'Appearance', selected: true })).toBeInTheDocument()
-  expect(within(sections).getByRole('tab', { name: 'Layout', selected: false })).toBeInTheDocument()
-  expect(within(settingsDrawer).getByRole('heading', { name: 'Appearance', level: 3 })).toBeInTheDocument()
-  expect(within(settingsDrawer).queryByRole('heading', { name: 'Layout', level: 3 })).not.toBeInTheDocument()
-  expect(within(settingsDrawer).getByRole('group', { name: 'App theme' })).toBeInTheDocument()
+  const themePanel = screen.getByRole('dialog', { name: 'Theme' })
+  const themeGroup = within(themePanel).getByRole('group', { name: 'Reading theme' })
+  expect(within(themeGroup).getByRole('button', { name: 'Light theme' })).toBeInTheDocument()
+  expect(within(themeGroup).getByRole('button', { name: 'Dark theme' })).toBeInTheDocument()
+  expect(within(themePanel).queryByRole('group', { name: 'Document view' })).not.toBeInTheDocument()
 })
 
 test('there is no standalone top appearance bar in either empty or active reading states', async () => {
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Theme' })).toBeInTheDocument()
   })
 
   expect(screen.queryByRole('heading', { name: 'App appearance', level: 2 })).not.toBeInTheDocument()
@@ -1999,7 +2098,7 @@ test('there is no standalone top appearance bar in either empty or active readin
   expect(screen.queryByRole('heading', { name: 'App and reading settings', level: 2 })).not.toBeInTheDocument()
 })
 
-test('settings drawer defaults to View when a document is open and changing view updates the reader immediately', async () => {
+test('reader mode changes stay on the visible tabs instead of a settings drawer', async () => {
   render(<App />)
 
   await waitFor(() => {
@@ -2016,32 +2115,24 @@ test('settings drawer defaults to View when a document is open and changing view
     expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+  expect(screen.queryByRole('dialog', { name: 'Theme' })).not.toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Reflowed', selected: true })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Original', selected: false })).toBeInTheDocument()
 
-  const settingsDrawer = screen.getByRole('dialog', { name: 'Settings' })
-  const sections = within(settingsDrawer).getByRole('tablist', { name: 'Settings sections' })
-
-  expect(within(sections).getByRole('tab', { name: 'View', selected: true })).toBeInTheDocument()
-  expect(within(sections).getByRole('tab', { name: 'Appearance', selected: false })).toBeInTheDocument()
-  expect(within(sections).getByRole('tab', { name: 'Layout', selected: false })).toBeInTheDocument()
-  expect(within(settingsDrawer).getByRole('heading', { name: 'View', level: 3 })).toBeInTheDocument()
-  expect(within(settingsDrawer).getByRole('group', { name: 'Document view' })).toBeInTheDocument()
-
-  fireEvent.click(within(settingsDrawer).getByRole('button', { name: 'Original view' }))
+  selectReaderView('Original')
 
   await waitFor(() => {
     expect(screen.getByText('Original reader sentence one.')).toBeInTheDocument()
   })
 
-  const readerStage = screen.getByRole('heading', { name: 'Reader stays here', level: 2 }).closest('.reader-reading-stage')
+  const readerStage = screen.getByRole('article', { name: 'Reader stays here' }).closest('.reader-reading-stage')
   expect(readerStage).not.toBeNull()
   expect(readerStage).toHaveClass('reader-reading-stage-original-parity')
-  expect((readerStage as HTMLElement).querySelector('.reader-stage-context')).toHaveClass(
-    'reader-stage-context-original-parity',
-  )
-  expect((readerStage as HTMLElement).querySelector('.reader-stage-utility')).toHaveClass(
-    'reader-stage-utility-original-parity',
-  )
+  expect(readerStage).not.toHaveClass('card')
+  expect(readerStage).not.toHaveClass('priority-surface-stage-shell')
+  expect((readerStage as HTMLElement).querySelector('.reader-stage-context')).toBeNull()
+  expect(screen.queryByRole('list', { name: 'Reader metadata' })).not.toBeInTheDocument()
+  expect((readerStage as HTMLElement).querySelector('.reader-stage-utility')).toBeNull()
   expect((readerStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
     'reader-stage-control-ribbon-original-parity',
   )
@@ -2055,50 +2146,50 @@ test('settings drawer defaults to View when a document is open and changing view
     'reader-support-dock-original-parity',
   )
   expect(within(readerStage as HTMLElement).getByText('Original')).toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'View', level: 3 })).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Theme' })).not.toBeInTheDocument()
 })
 
-test('theme labels show Sepia and Charcoal while persisting soft/high values', async () => {
+test('theme labels show Light and Dark while persisting soft/high values', async () => {
   fetchDocumentsMock.mockImplementation(async () => [])
 
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Theme' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+  openReaderThemePanel()
 
-  const appThemeGroup = within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('group', {
-    name: 'App theme',
+  const appThemeGroup = within(screen.getByRole('dialog', { name: 'Theme' })).getByRole('group', {
+    name: 'Reading theme',
   })
-  expect(within(appThemeGroup).getByRole('button', { name: 'Sepia app theme' })).toBeInTheDocument()
-  expect(within(appThemeGroup).getByRole('button', { name: 'Charcoal app theme' })).toBeInTheDocument()
+  expect(within(appThemeGroup).getByRole('button', { name: 'Light theme' })).toBeInTheDocument()
+  expect(within(appThemeGroup).getByRole('button', { name: 'Dark theme' })).toBeInTheDocument()
 
-  fireEvent.click(within(appThemeGroup).getByRole('button', { name: 'Charcoal app theme' }))
+  fireEvent.click(within(appThemeGroup).getByRole('button', { name: 'Dark theme' }))
 
   await waitFor(() => {
     expect(saveSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ contrast_theme: 'high' }))
   })
 })
 
-test('theme switching still changes the whole app shell from inside the settings drawer', async () => {
+test('theme switching still changes the whole app shell from inside the theme panel', async () => {
   fetchDocumentsMock.mockImplementation(async () => [])
 
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Theme' })).toBeInTheDocument()
   })
 
   const appShell = document.querySelector('.app-shell')
   expect(appShell).not.toBeNull()
   expect(appShell).toHaveClass('theme-soft')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+  openReaderThemePanel()
   fireEvent.click(
-    within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', {
-      name: 'Charcoal app theme',
+    within(screen.getByRole('dialog', { name: 'Theme' })).getByRole('button', {
+      name: 'Dark theme',
     }),
   )
 
@@ -2109,48 +2200,152 @@ test('theme switching still changes the whole app shell from inside the settings
   expect(appShell).toHaveClass('theme-high')
 })
 
-test('shell exposes global Add and Search while source library remains in reader context', async () => {
+test('active Reader keeps Light and Dark inside the overflow instead of a separate theme dialog', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  })
+
+  await focusRecallSourceFromHome('Reader stays here')
+  openSourceWorkspaceDestination(screen.getByRole('region', { name: 'Reader stays here workspace' }), 'Reader')
+
+  await waitFor(() => {
+    expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
+  })
+
+  const appShell = document.querySelector('.app-shell')
+  expect(appShell).not.toBeNull()
+  expect(appShell).toHaveClass('theme-soft')
+  expect(screen.queryByRole('dialog', { name: 'Theme' })).not.toBeInTheDocument()
+
+  const overflow = openReaderOverflow()
+  const themeGroup = within(overflow).getByRole('group', { name: 'Reading theme' })
+  const voiceField = within(overflow).getByRole('combobox', { name: 'Voice' }).closest('label')
+  const rateField = within(overflow).getByLabelText('Rate').closest('label')
+  expect(within(themeGroup).getByRole('button', { name: 'Light theme' })).toBeInTheDocument()
+  expect(within(themeGroup).getByRole('button', { name: 'Dark theme' })).toBeInTheDocument()
+  expect(themeGroup).toHaveClass('controls-overflow-theme')
+  expect(themeGroup.querySelector('.controls-overflow-section-label')).toHaveTextContent('Theme')
+  expect(voiceField).not.toBeNull()
+  expect(rateField).not.toBeNull()
+  expect(voiceField).toHaveClass('controls-overflow-field-inline')
+  expect(rateField).toHaveClass('controls-overflow-field-stack')
+
+  fireEvent.click(within(themeGroup).getByRole('button', { name: 'Dark theme' }))
+
+  await waitFor(() => {
+    expect(saveSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ contrast_theme: 'high' }))
+  })
+
+  expect(appShell).toHaveClass('theme-high')
+  expect(screen.queryByRole('dialog', { name: 'Theme' })).not.toBeInTheDocument()
+})
+
+test('shell exposes global Add and Search while source context stays compact until opened', async () => {
   renderRecallApp('/reader')
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More reading controls' })).toBeInTheDocument()
   })
 
   expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Reader dock', level: 2 })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Source library', level: 2 })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Reader dock', level: 2 })).not.toBeInTheDocument()
+  expect(screen.queryByText('Reading deck')).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current source', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Add source', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Add source' })).not.toBeInTheDocument()
   expect(screen.queryByText('Info')).not.toBeInTheDocument()
+
+  openReaderSupportPane('Source')
+
+  await waitFor(() => {
+    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+  })
+  expect(screen.queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
 })
 
-test('compact shell styling keeps Reader context in the dock while the sidecar stays lighter', async () => {
+test('compact shell styling keeps Reader support collapsed at rest and expandable on demand', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
     expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
   })
 
-  const shellHeader = document.querySelector('header.workspace-topbar')
-  expect(shellHeader).not.toBeNull()
-  expect(shellHeader).toHaveClass('workspace-topbar-quiet')
-  expect(shellHeader).toHaveClass('workspace-topbar-reader')
+  await waitFor(() => {
+    const shellHeader = document.querySelector('header.workspace-topbar')
+    expect(shellHeader).not.toBeNull()
+    expect(shellHeader).toHaveClass('workspace-topbar-quiet')
+    expect(shellHeader).toHaveClass('workspace-topbar-reader')
+    expect(shellHeader).toHaveClass('workspace-topbar-reader-compact')
+    expect(shellHeader).toHaveAttribute('aria-label', 'Reader workspace controls')
+  })
   expect(screen.queryByText('Reader workspace')).not.toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Reader', level: 1 })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Reader', level: 1 })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /^Add$/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i })).toBeInTheDocument()
 
   const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
-  expect(within(sourceWorkspace).getAllByText('Source')[0]).toHaveClass('source-workspace-strip-badge')
+  expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).toHaveClass(
+    'source-workspace-strip-badge',
+  )
   expect(within(sourceWorkspace).getByText('Search target only')).toBeInTheDocument()
-  expect(within(sourceWorkspace).getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
+  expect(within(sourceWorkspace).queryByText('2 views')).not.toBeInTheDocument()
+  expect(within(sourceWorkspace).queryByText(/saved notes?/i)).not.toBeInTheDocument()
+  expect(within(sourceWorkspace).getByText(/^\d+ notes?$/i)).toBeInTheDocument()
+  expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).toBeInTheDocument()
+  expect(within(sourceWorkspace).queryByRole('tab', { name: 'Source workspace Reader' })).not.toBeInTheDocument()
+  expect(sourceWorkspace).toHaveStyle('--reader-line-width: 72ch')
+  expect(within(sourceWorkspace).queryByText('Attached source context for the active document.')).not.toBeInTheDocument()
 
-  const readerContextSection = screen.getByRole('heading', { name: 'Reader dock', level: 2 }).closest('section')
-  expect(readerContextSection).not.toBeNull()
+  expect(document.querySelector('.reader-support-dock')).toBeNull()
+  expect(document.querySelector('.reader-inline-support')).toBeNull()
+  expect(screen.queryByRole('list', { name: 'Reader metadata' })).not.toBeInTheDocument()
+  await waitFor(() => {
+    expect(document.querySelector('.reader-reading-stage')).not.toBeNull()
+    expect(document.querySelector('.reader-article-field')).not.toBeNull()
+  })
+
+  const compactReaderStage = document.querySelector('.reader-reading-stage')
+  expect(compactReaderStage).not.toBeNull()
+  expect((compactReaderStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
+    'reader-stage-control-ribbon-compact',
+  )
+  expect((compactReaderStage as HTMLElement).querySelector('.reader-reading-deck-layout')).toHaveClass(
+    'reader-reading-deck-layout-compact',
+  )
+  const articleShell = document.querySelector('.reader-article-shell')
+  const articleField = document.querySelector('.reader-article-field')
+  expect(articleShell).not.toBeNull()
+  expect(articleField).not.toBeNull()
+  expect(articleShell as HTMLElement).toContainElement(articleField as HTMLElement)
+  expect(articleField).toHaveClass('reader-article-field-short-document')
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current source', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByText('PASTE source')).not.toBeInTheDocument()
-  expect(within(readerContextSection as HTMLElement).getByRole('tab', { name: 'Notebook' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Open nearby notebook notes' })).toHaveTextContent(/\d+ notes?/)
+
+  fireEvent.click(screen.getByRole('button', { name: 'More reading controls' }))
+  const overflow = screen.getByRole('group', { name: 'More reading controls' })
+  expect(within(overflow).queryByRole('button', { name: 'Notebook' })).not.toBeInTheDocument()
+  expect(within(overflow).queryByText('Capture ready')).not.toBeInTheDocument()
+  expect(within(overflow).queryByText('Support compact')).not.toBeInTheDocument()
+  expect(within(overflow).queryByText(/saved note/i)).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open nearby notebook notes' }))
+
+  await waitFor(() => {
+    const readerContextSection = document.querySelector('.reader-support-dock')
+    expect(readerContextSection).not.toBeNull()
+    expect(readerContextSection).toHaveClass('reader-support-dock-expanded')
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 3 })).toBeInTheDocument()
+  })
+  expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).toBeInTheDocument()
+  expect(within(sourceWorkspace).queryByRole('tab', { name: 'Source workspace Notebook' })).not.toBeInTheDocument()
+  expect(within(sourceWorkspace).queryByText('Local source')).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Original' }))
 
@@ -2158,17 +2353,63 @@ test('compact shell styling keeps Reader context in the dock while the sidecar s
     expect(screen.getByRole('tab', { name: 'Original', selected: true })).toBeInTheDocument()
   })
 
-  const originalReaderStage = screen
-    .getByRole('heading', { name: 'Search target only', level: 2 })
-    .closest('.reader-reading-stage')
+  fireEvent.click(screen.getByRole('tab', { name: 'Reflowed' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Reflowed', selected: true })).toBeInTheDocument()
+    expect(within(sourceWorkspace).queryByText('Reflowed view')).not.toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Original' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Original', selected: true })).toBeInTheDocument()
+  })
+
+  const originalReaderStage = document.querySelector('.reader-surface')?.closest('.reader-reading-stage')
   expect(originalReaderStage).not.toBeNull()
   expect(originalReaderStage).toHaveClass('reader-reading-stage-original-parity')
+  expect(originalReaderStage).not.toHaveClass('card')
+  expect(originalReaderStage).not.toHaveClass('priority-surface-stage-shell')
   expect((originalReaderStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
     'reader-stage-control-ribbon-original-parity',
   )
   expect((originalReaderStage as HTMLElement).querySelector('.reader-support-dock')).toHaveClass(
     'reader-support-dock-original-parity',
   )
+
+  let readerContextSection = document.querySelector('.reader-support-dock')
+  expect(readerContextSection).not.toBeNull()
+
+  fireEvent.click(within(readerContextSection as HTMLElement).getByRole('tab', { name: 'Source' }))
+
+  await waitFor(() => {
+    readerContextSection = document.querySelector('.reader-support-dock')
+    expect(readerContextSection).not.toBeNull()
+    expect(within(readerContextSection as HTMLElement).getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+  })
+  expect(screen.queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
+  expect(within(readerContextSection as HTMLElement).getAllByRole('button', { name: 'Hide' })).toHaveLength(1)
+  expect(within(readerContextSection as HTMLElement).queryByRole('button', { name: 'Show' })).not.toBeInTheDocument()
+  expect(within(readerContextSection as HTMLElement).queryByRole('list', { name: 'Reader dock summary' })).toBeNull()
+
+  fireEvent.click(within(readerContextSection as HTMLElement).getByRole('tab', { name: 'Notebook' }))
+
+  await waitFor(() => {
+    readerContextSection = document.querySelector('.reader-support-dock')
+    expect(readerContextSection).not.toBeNull()
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toBeInTheDocument()
+  })
+  expect(within(readerContextSection as HTMLElement).queryByRole('list', { name: 'Reader dock summary' })).toBeNull()
+
+  expect((originalReaderStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
+    'reader-stage-control-ribbon-expanded',
+  )
+  expect(screen.queryByText('Active source')).not.toBeInTheDocument()
+  expect(screen.queryByText('Support open')).not.toBeInTheDocument()
+  expect(screen.queryByText(/OPENAI_API_KEY/i)).not.toBeInTheDocument()
+  expect(screen.queryByRole('list', { name: 'Reader metadata' })).not.toBeInTheDocument()
+  expect((readerContextSection as HTMLElement).querySelector('.reader-support-glance')).toBeNull()
 })
 
 test('Notebook keeps source handoff in note detail after the old workspace dock is removed', async () => {
@@ -2198,19 +2439,9 @@ test('Notebook keeps source handoff in note detail after the old workspace dock 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/reader')
     expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
-    expect(
-      within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-        name: 'Source workspace Reader',
-        selected: true,
-      }),
-    ).toBeInTheDocument()
   })
 
-  fireEvent.click(
-    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-      name: 'Source workspace Notebook',
-    }),
-  )
+  openSourceWorkspaceDestination(screen.getByRole('region', { name: 'Search target only workspace' }), 'Notebook')
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
@@ -2240,11 +2471,7 @@ test('workspace dock surfaces graph and study focus with quick switching', async
     expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
   })
 
-  fireEvent.click(
-    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-      name: 'Source workspace Graph',
-    }),
-  )
+  openSourceWorkspaceDestination(screen.getByRole('region', { name: 'Search target only workspace' }), 'Graph')
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
@@ -2275,11 +2502,7 @@ test('workspace dock surfaces graph and study focus with quick switching', async
     ).toBeInTheDocument()
   })
 
-  fireEvent.click(
-    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-      name: 'Source workspace Graph',
-    }),
-  )
+  fireEvent.click(within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', { name: 'Source workspace Graph' }))
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
@@ -2406,6 +2629,15 @@ test('Reader notes workbench edits and promotes the active saved note in place',
   await waitFor(() => {
     expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Return to sentence two.')
   })
+  expect(screen.queryByRole('list', { name: 'Other saved notes' })).not.toBeInTheDocument()
+  expect(document.querySelector('.reader-saved-note[aria-pressed="true"]')).toBeNull()
+  const selectedNoteAnchor = document.querySelector('[aria-label="Selected note anchor"]')
+  expect(selectedNoteAnchor).not.toBeNull()
+  expect(within(selectedNoteAnchor as HTMLElement).getByText('1 anchored sentence')).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Selected note' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Edit the note text and promote grounded knowledge without leaving Reader.')).not.toBeInTheDocument()
+  expect(screen.queryByText('Export ready')).not.toBeInTheDocument()
+  expect(screen.queryByText('Highlighted passage')).not.toBeInTheDocument()
 
   fireEvent.change(screen.getByRole('textbox', { name: 'Note text' }), {
     target: { value: 'Updated in Reader.' },
@@ -2457,7 +2689,42 @@ test('Reader notes workbench edits and promotes the active saved note in place',
   })
 })
 
-test('Reader source workspace tabs hand the active source into Recall notebook and graph views', async () => {
+test('Reader saved-note switcher keeps nearby notes in a compact navigator treatment', async () => {
+  recallNotesByDocument['doc-reader'] = [
+    ...(recallNotesByDocument['doc-reader'] ?? []),
+    makeRecallNote(
+      'note-reader-2',
+      'doc-reader',
+      'variant-doc-reader-reflowed',
+      'reader-1',
+      0,
+      0,
+      0,
+      0,
+      'Reader sentence one.',
+      'Reader sentence one. Reader sentence two.',
+      'Remember the setup.',
+    ),
+  ]
+
+  renderRecallApp('/reader?document=doc-reader&sentenceStart=1&sentenceEnd=1')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Notebook', selected: true })).toBeInTheDocument()
+  })
+
+  const savedNotesList = await screen.findByRole('list', { name: 'Other saved notes' })
+  const nearbyNoteButton = within(savedNotesList).getByRole('button', { name: /Reader sentence one\./i })
+
+  expect(within(nearbyNoteButton).getByText('Reader sentence one.')).toBeInTheDocument()
+  expect(within(nearbyNoteButton).getByText('Remember the setup.')).toBeInTheDocument()
+  expect(within(nearbyNoteButton).queryByText('Reader sentence one. Reader sentence two.')).not.toBeInTheDocument()
+  expect(nearbyNoteButton.querySelector('small')).toBeNull()
+  expect(nearbyNoteButton.querySelector('strong')).not.toBeNull()
+  expect(nearbyNoteButton.querySelector('.reader-saved-note-secondary')).not.toBeNull()
+})
+
+test('Reader source workspace keeps cross-surface handoff available without a full stacked tab row', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
@@ -2465,9 +2732,12 @@ test('Reader source workspace tabs hand the active source into Recall notebook a
   })
 
   const readerSourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
-  expect(within(readerSourceWorkspace).getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
+  expect(within(readerSourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).toBeInTheDocument()
+  expect((readerSourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-heading .source-workspace-nav-trigger')).not.toBeNull()
+  expect(within(readerSourceWorkspace).queryByText(/^Open$/)).not.toBeInTheDocument()
+  expect(within(readerSourceWorkspace).queryByRole('tab', { name: 'Source workspace Reader' })).not.toBeInTheDocument()
 
-  fireEvent.click(within(readerSourceWorkspace).getByRole('tab', { name: 'Source workspace Notebook' }))
+  openSourceWorkspaceDestination(readerSourceWorkspace, 'Notebook')
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
@@ -2495,6 +2765,18 @@ test('Reader source workspace tabs hand the active source into Recall notebook a
   ).toBeInTheDocument()
 })
 
+test('Reader compact source strip hides the generic local-source fallback for paste documents', async () => {
+  renderRecallApp('/reader?document=doc-reader')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Reader stays here workspace' })).toBeInTheDocument()
+  })
+
+  expect(
+    within(screen.getByRole('region', { name: 'Reader stays here workspace' })).queryByText('Local source'),
+  ).not.toBeInTheDocument()
+})
+
 test('Recall source workspace tabs reopen Reader for the selected source', async () => {
   renderRecallApp('/recall')
 
@@ -2512,9 +2794,8 @@ test('Recall source workspace tabs reopen Reader for the selected source', async
   expect(window.location.search).toContain('document=doc-search')
   await waitFor(() => {
     expect(
-      within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-        name: 'Source workspace Reader',
-        selected: true,
+      within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('button', {
+        name: 'Open source workspace destinations',
       }),
     ).toBeInTheDocument()
   })
@@ -2531,8 +2812,12 @@ test('source-focused mode swaps the utility dock for the compact source strip', 
 
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
-  expect(within(sourceWorkspace).getAllByText('Source')[0]).toHaveClass('source-workspace-strip-badge')
-  expect(screen.getByRole('tab', { name: 'Source workspace Reader', selected: true })).toBeInTheDocument()
+  expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).toHaveClass(
+    'source-workspace-strip-badge',
+  )
+  expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-heading .source-workspace-nav-trigger')).not.toBeNull()
+  expect(within(sourceWorkspace).queryByText(/^Open$/)).not.toBeInTheDocument()
+  expect(within(sourceWorkspace).queryByRole('tab', { name: 'Source workspace Reader' })).not.toBeInTheDocument()
   expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-context')).not.toBeNull()
 })
 
@@ -2577,11 +2862,7 @@ test('source-focused notebook handoff keeps Reader visible while manual notebook
     expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
   })
 
-  fireEvent.click(
-    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-      name: 'Source workspace Notebook',
-    }),
-  )
+  openSourceWorkspaceDestination(screen.getByRole('region', { name: 'Search target only workspace' }), 'Notebook')
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
@@ -2628,11 +2909,7 @@ test('source-focused graph evidence retargets the embedded Reader without leavin
     expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
   })
 
-  fireEvent.click(
-    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-      name: 'Source workspace Graph',
-    }),
-  )
+  openSourceWorkspaceDestination(screen.getByRole('region', { name: 'Search target only workspace' }), 'Graph')
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/recall')
@@ -2690,11 +2967,7 @@ test('source-focused study handoff keeps Reader visible while manual Study brows
     expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
   })
 
-  fireEvent.click(
-    within(screen.getByRole('region', { name: 'Search target only workspace' })).getByRole('tab', {
-      name: 'Source workspace Study',
-    }),
-  )
+  openSourceWorkspaceDestination(screen.getByRole('region', { name: 'Search target only workspace' }), 'Study')
 
   await waitFor(() => {
     expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
@@ -2747,9 +3020,16 @@ test('global Search note handoff preserves prior Home context', async () => {
     expect(screen.getByRole('heading', { name: 'Reader stays here', level: 3 })).toBeInTheDocument()
   })
 
-  await ensureLibraryOpen()
+  const homeSection = screen.getByRole('heading', { name: 'Home', level: 2 }).closest('section')
+  expect(homeSection).not.toBeNull()
 
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Filter sources' }), {
+  fireEvent.click(within(homeSection as HTMLElement).getByRole('button', { name: 'Show' }))
+
+  await waitFor(() => {
+    expect(within(homeSection as HTMLElement).getByRole('searchbox', { name: 'Filter sources' })).toBeInTheDocument()
+  })
+
+  fireEvent.change(within(homeSection as HTMLElement).getByRole('searchbox', { name: 'Filter sources' }), {
     target: { value: 'Search target' },
   })
 
@@ -2930,9 +3210,9 @@ test('active reading collapses the library by default and lets the user expand i
     expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
   })
 
-  const librarySection = screen.getByRole('heading', { name: 'Source library', level: 2 }).closest('section')
+  const librarySection = screen.getByRole('region', { name: 'Search target only workspace' })
   expect(librarySection).not.toBeNull()
-  expect(within(librarySection as HTMLElement).getByRole('button', { name: 'Show' })).toBeInTheDocument()
+  expect(within(librarySection as HTMLElement).queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByPlaceholderText('Search saved sources')).not.toBeInTheDocument()
 
   await ensureLibraryOpen()
@@ -2948,7 +3228,7 @@ test('no-document mode shows a compact onboarding shell instead of full reader c
     expect(screen.getByRole('heading', { name: 'Open a source to start reading', level: 2 })).toBeInTheDocument()
   })
 
-  expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Theme' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'App and reading settings', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Read aloud', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByText('Current document')).not.toBeInTheDocument()
@@ -2974,7 +3254,7 @@ test('reader hero uses Recall-first copy instead of standalone reader branding',
   expect(screen.queryByText('Read clearly. Keep your place.')).not.toBeInTheDocument()
 })
 
-test('reader area keeps one visible title and uses the compact header as the article label', async () => {
+test('reader area keeps the source strip as the one visible title while the article keeps the same accessible label', async () => {
   renderRecallApp('/reader')
 
   await waitFor(() => {
@@ -2988,7 +3268,9 @@ test('reader area keeps one visible title and uses the compact header as the art
     expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
   })
 
+  expect(within(screen.getByRole('region', { name: 'Reader stays here workspace' })).getByRole('heading', { name: 'Reader stays here', level: 2 })).toBeInTheDocument()
   expect(screen.getAllByRole('heading', { name: 'Reader stays here' })).toHaveLength(1)
+  expect(document.querySelector('.reader-stage-heading')).toBeNull()
   expect(screen.queryByText('Current document')).not.toBeInTheDocument()
   expect(screen.queryByText('Reading surface')).not.toBeInTheDocument()
 })
@@ -3002,7 +3284,7 @@ test('reader generated-mode context keeps the create summary action and next-ste
   fetchDocumentsMock.mockImplementation(async () => [aiDocument])
   fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => {
     if (documentId === aiDocument.id && mode === 'summary') {
-      return undefined as unknown as DocumentView
+      throw new Error("'summary' is not available yet for this document.")
     }
 
     return views[`${documentId}:${mode}`]
@@ -3014,22 +3296,95 @@ test('reader generated-mode context keeps the create summary action and next-ste
     expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Summary view' }))
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Close' }))
+  selectReaderView('Summary')
 
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Create Summary' })).toBeInTheDocument()
   })
 
   const derivedContext = screen.getByLabelText('Summary context')
-  expect(within(derivedContext).getByText('Summary stays source-linked')).toBeInTheDocument()
+  const emptyState = within(derivedContext).getByLabelText('Summary empty state')
+  const headerRow = derivedContext.querySelector('.reader-derived-context-header-row')
+  expect(within(derivedContext).getByText('Summary')).toBeInTheDocument()
   expect(within(derivedContext).getByText('From paste source')).toBeInTheDocument()
-  expect(within(derivedContext).getByRole('button', { name: 'Notebook' })).toBeInTheDocument()
-  expect(within(derivedContext).getByRole('button', { name: 'Reflowed view' })).toBeInTheDocument()
+  expect(headerRow).not.toBeNull()
+  expect(within(headerRow as HTMLElement).getByRole('group', { name: 'Summary detail' })).toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Detail', { selector: '.reader-stage-strip-label' })).not.toBeInTheDocument()
+  expect(derivedContext.querySelector('.reader-derived-context-kicker')).toBeNull()
+  expect(within(derivedContext).queryByRole('button', { name: 'Notebook' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Reflowed view' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Graph' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Study' })).not.toBeInTheDocument()
+  expect(within(derivedContext).getByRole('button', { name: 'Create Summary' })).toBeInTheDocument()
   expect(within(derivedContext).queryByText('AI generated')).not.toBeInTheDocument()
-  expect(within(derivedContext).queryByText('Local derived view')).toBeInTheDocument()
-  expect(screen.getByText(/No summary yet/i)).toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Ready to generate')).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('list', { name: 'Summary provenance' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Compressed overview with adjustable detail, nearby Notebook access, and a quick return to Reflowed.')).not.toBeInTheDocument()
+  expect(within(emptyState).getByRole('heading', { name: 'No summary yet', level: 4 })).toBeInTheDocument()
+  expect(within(emptyState).getByText('Create one for a compressed overview of this source.')).toBeInTheDocument()
+  expect(derivedContext).toContainElement(emptyState)
+  expect(document.querySelector('.reader-document-shell > .reader-generated-empty-state')).toBeNull()
+  expect(document.querySelector('.reader-workspace > .inline-error')).toBeNull()
+  expect(screen.queryByText(/not available yet/i)).not.toBeInTheDocument()
+})
+
+test('loaded reflowed view starts directly with the article instead of a derived-context band', async () => {
+  renderRecallApp('/reader?document=doc-reader')
+
+  await waitFor(() => {
+    expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
+  })
+
+  selectReaderView('Reflowed')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Reflowed', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reader sentence one.' })).toBeInTheDocument()
+  })
+
+  expect(screen.queryByLabelText('Reflowed context')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Start read aloud' })).toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Reader stays here workspace' })).toBeInTheDocument()
+
+  openReaderNotebookNotes()
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Notebook', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toBeInTheDocument()
+  })
+})
+
+test('reader source strip retires the secondary locator line even for source-backed documents', async () => {
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('article', { name: 'Search target only' })).toBeInTheDocument()
+  })
+
+  const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
+  expect(within(sourceWorkspace).queryByText('https://example.com/search-target')).not.toBeInTheDocument()
+  expect(within(sourceWorkspace).getByText('Search target only')).toBeInTheDocument()
+
+  openReaderSupportPane('Source')
+
+  await waitFor(() => {
+    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+  })
+
+  expect(within(sourceWorkspace).queryByText('https://example.com/search-target')).not.toBeInTheDocument()
+})
+
+test('reader only shows visible mode tabs that the active document actually exposes', async () => {
+  render(<App />)
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Original' })).toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('tab', { name: 'Original' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Reflowed' })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: 'Simplified' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: 'Summary' })).not.toBeInTheDocument()
 })
 
 test('reader generated-mode context keeps the create simplified action when simplified is missing', async () => {
@@ -3053,19 +3408,67 @@ test('reader generated-mode context keeps the create simplified action when simp
     expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Simplified view' }))
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Close' }))
+  selectReaderView('Simplified')
 
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Create Simplified' })).toBeInTheDocument()
   })
 
   const derivedContext = screen.getByLabelText('Simplified context')
-  expect(within(derivedContext).getByText('Simplified stays source-linked')).toBeInTheDocument()
-  expect(within(derivedContext).getByRole('button', { name: 'Notebook' })).toBeInTheDocument()
-  expect(within(derivedContext).getByRole('button', { name: 'Reflowed view' })).toBeInTheDocument()
-  expect(screen.getByText(/No simplified view yet/i)).toBeInTheDocument()
+  const emptyState = within(derivedContext).getByLabelText('Simplified empty state')
+  expect(within(derivedContext).getByText('Simplified')).toBeInTheDocument()
+  expect(derivedContext.querySelector('.reader-derived-context-kicker')).toBeNull()
+  expect(within(derivedContext).queryByRole('button', { name: 'Notebook' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Reflowed view' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Graph' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Study' })).not.toBeInTheDocument()
+  expect(within(derivedContext).getByRole('button', { name: 'Create Simplified' })).toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Ready to generate')).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('list', { name: 'Simplified provenance' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Lighter wording stays attached to the saved source, with nearby Notebook access and a quick return to Reflowed.')).not.toBeInTheDocument()
+  expect(within(emptyState).getByRole('heading', { name: 'No simplified view yet', level: 4 })).toBeInTheDocument()
+  expect(within(emptyState).getByText('Create one for lighter wording that stays attached to this source.')).toBeInTheDocument()
+  expect(derivedContext).toContainElement(emptyState)
+  expect(document.querySelector('.reader-document-shell > .reader-generated-empty-state')).toBeNull()
+  expect(document.querySelector('.reader-workspace > .inline-error')).toBeNull()
+})
+
+test('reader generated-mode load failures stay inline with retry instead of reopening the old global alert slab', async () => {
+  const aiDocument: DocumentRecord = {
+    ...documents[1],
+    available_modes: ['original', 'reflowed', 'summary'],
+  }
+
+  fetchDocumentsMock.mockImplementation(async () => [aiDocument])
+  fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => {
+    if (documentId === aiDocument.id && mode === 'summary') {
+      throw new Error('Summary service timed out.')
+    }
+
+    return views[`${documentId}:${mode}`]
+  })
+
+  render(<App />)
+
+  await waitFor(() => {
+    expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
+  })
+
+  selectReaderView('Summary')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Retry loading' })).toBeInTheDocument()
+  })
+
+  const derivedContext = screen.getByLabelText('Summary context')
+  const emptyState = within(derivedContext).getByLabelText('Summary empty state')
+  expect(within(derivedContext).getByText('Unavailable')).toBeInTheDocument()
+  expect(within(emptyState).getByText('Summary is temporarily unavailable')).toBeInTheDocument()
+  expect(within(emptyState).getByText('Summary service timed out.')).toBeInTheDocument()
+  expect(within(derivedContext).getByRole('button', { name: 'Retry loading' })).toBeInTheDocument()
+  expect(derivedContext).toContainElement(emptyState)
+  expect(document.querySelector('.reader-workspace > .inline-error')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Create Summary' })).not.toBeInTheDocument()
 })
 
 test('reader generated-mode provenance shows source, detail, and cache state without changing article text', async () => {
@@ -3099,24 +3502,29 @@ test('reader generated-mode provenance shows source, detail, and cache state wit
     expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Summary view' }))
+  selectReaderView('Summary')
 
   await waitFor(() => {
     expect(screen.getByText('Short AI summary.')).toBeInTheDocument()
   })
 
   const derivedContext = screen.getByLabelText('Summary context')
-  expect(within(derivedContext).getByText('Summary stays source-linked')).toBeInTheDocument()
-  expect(within(derivedContext).getByText('Paste source')).toBeInTheDocument()
-  expect(within(derivedContext).getByText('Balanced detail')).toBeInTheDocument()
+  expect(derivedContext.querySelector('.reader-derived-context-kicker')).toBeNull()
+  expect(within(derivedContext).getByText('Summary')).toBeInTheDocument()
+  expect(within(derivedContext).getByText('From paste source')).toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Paste source')).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Balanced detail')).not.toBeInTheDocument()
   expect(within(derivedContext).getByText('AI generated')).toBeInTheDocument()
   expect(within(derivedContext).getByText('Cached')).toBeInTheDocument()
   expect(within(derivedContext).queryByText('Local derived view')).not.toBeInTheDocument()
+  expect(within(derivedContext).getByText('Compressed overview stays attached to this saved source.')).toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Notebook' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Reflowed view' })).not.toBeInTheDocument()
+  expect(derivedContext.querySelector('.reader-derived-context-actions')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Create Summary' })).not.toBeInTheDocument()
 })
 
-test('main reading controls keep only transport visible and move secondary items into overflow', async () => {
+test('main reading controls keep only the idle primary transport visible and move secondary items into overflow', async () => {
   render(<App />)
 
   await waitFor(() => {
@@ -3125,18 +3533,27 @@ test('main reading controls keep only transport visible and move secondary items
 
   expect(screen.queryByRole('heading', { name: 'View', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByRole('group', { name: 'Document view' })).not.toBeInTheDocument()
-  expect(screen.getByText('Sentence 1 of 3')).toBeInTheDocument()
+  expect(screen.queryByText('Sentence 1 of 3')).not.toBeInTheDocument()
+  expect(screen.queryByText('View')).not.toBeInTheDocument()
   expect(screen.queryByText('Tips')).not.toBeInTheDocument()
   expect(screen.queryByRole('combobox', { name: 'Voice' })).not.toBeInTheDocument()
   expect(screen.getByLabelText('Read aloud transport')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Start read aloud' })).toHaveTextContent('Read aloud')
+  expect(screen.queryByRole('button', { name: 'Previous sentence' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Next sentence' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Stop read aloud' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Theme' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Original view')).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: 'More reading controls' }))
-
-  const overflow = screen.getByRole('group', { name: 'More reading controls' })
-  expect(within(overflow).getByText('Sentence 1 of 3')).toBeInTheDocument()
+  const overflow = openReaderOverflow()
+  expect(within(overflow).queryByRole('button', { name: 'Theme' })).not.toBeInTheDocument()
+  const themeGroup = within(overflow).getByRole('group', { name: 'Reading theme' })
+  expect(within(themeGroup).getByRole('button', { name: 'Light theme' })).toBeInTheDocument()
+  expect(within(themeGroup).getByRole('button', { name: 'Dark theme' })).toBeInTheDocument()
+  expect(within(overflow).queryByRole('button', { name: 'Notebook' })).not.toBeInTheDocument()
   expect(within(overflow).getByRole('combobox', { name: 'Voice' })).toBeInTheDocument()
-  expect(within(overflow).getByText(/Shortcuts: Alt\+Left, Alt\+Right, or Space\./i)).toBeInTheDocument()
+  expect(within(overflow).queryByText('Sentence 1 of 3')).not.toBeInTheDocument()
+  expect(within(overflow).queryByText(/Shortcuts: Alt\+Left, Alt\+Right, or Space\./i)).not.toBeInTheDocument()
   expect(within(overflow).queryByRole('combobox', { name: 'Summary detail' })).not.toBeInTheDocument()
 })
 
@@ -3206,7 +3623,7 @@ test('deleting the active document falls back to the newest remaining document',
   expect(mockSpeechState.stop).toHaveBeenCalled()
 })
 
-test('summary detail lives in the generated summary context instead of the settings drawer', async () => {
+test('summary detail lives in the generated summary context instead of the theme panel', async () => {
   const summaryDocument: DocumentRecord = {
     ...documents[1],
     available_modes: ['original', 'reflowed', 'summary'],
@@ -3220,24 +3637,23 @@ test('summary detail lives in the generated summary context instead of the setti
     expect(screen.getByRole('button', { name: 'Reader sentence one.' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+  const overflow = openReaderOverflow()
+  expect(within(overflow).getByRole('group', { name: 'Reading theme' })).toBeInTheDocument()
+  expect(within(overflow).queryByRole('group', { name: 'Summary detail' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Theme' })).not.toBeInTheDocument()
 
-  const settingsDrawer = screen.getByRole('dialog', { name: 'Settings' })
-  expect(within(settingsDrawer).queryByRole('group', { name: 'Summary detail' })).not.toBeInTheDocument()
-
-  fireEvent.click(within(settingsDrawer).getByRole('button', { name: 'Summary view' }))
+  fireEvent.click(screen.getByRole('button', { name: 'More reading controls' }))
+  await waitFor(() => {
+    expect(screen.queryByRole('group', { name: 'More reading controls' })).not.toBeInTheDocument()
+  })
+  selectReaderView('Summary')
 
   await waitFor(() => {
     expect(screen.getByRole('group', { name: 'Summary detail' })).toBeInTheDocument()
   })
 
-  expect(within(settingsDrawer).queryByRole('group', { name: 'Summary detail' })).not.toBeInTheDocument()
-  expect(within(settingsDrawer).getByRole('group', { name: 'Document view' })).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'More reading controls' }))
-  expect(
-    within(screen.getByRole('group', { name: 'More reading controls' })).queryByRole('group', { name: 'Summary detail' }),
-  ).not.toBeInTheDocument()
+  const summaryOverflow = openReaderOverflow()
+  expect(within(summaryOverflow).queryByRole('group', { name: 'Summary detail' })).not.toBeInTheDocument()
 })
 
 test('generated reader controls stay outside the article content surface', async () => {
@@ -3271,21 +3687,98 @@ test('generated reader controls stay outside the article content surface', async
     expect(screen.getByRole('button', { name: 'Reader sentence one.' })).toBeInTheDocument()
   })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Summary view' }))
+  selectReaderView('Summary')
 
   await waitFor(() => {
     expect(screen.getByText('Short AI summary.')).toBeInTheDocument()
   })
 
   const articleShell = document.querySelector('.reader-article-shell')
+  const articleField = document.querySelector('.reader-article-field')
   expect(articleShell).not.toBeNull()
-  expect(within(articleShell as HTMLElement).getByText('Short AI summary.')).toBeInTheDocument()
+  expect(articleField).not.toBeNull()
+  expect(articleShell as HTMLElement).toContainElement(articleField as HTMLElement)
+  expect(articleField).toHaveClass('reader-article-field-short-document')
+  expect(within(articleField as HTMLElement).getByText('Short AI summary.')).toBeInTheDocument()
   expect(within(articleShell as HTMLElement).queryByRole('group', { name: 'Summary detail' })).not.toBeInTheDocument()
 
   const derivedContext = screen.getByLabelText('Summary context')
+  const headerRow = derivedContext.querySelector('.reader-derived-context-header-row')
   expect(within(derivedContext).getByRole('group', { name: 'Summary detail' })).toBeInTheDocument()
+  expect(headerRow).not.toBeNull()
+  expect(within(headerRow as HTMLElement).getByRole('group', { name: 'Summary detail' })).toBeInTheDocument()
+  expect(within(derivedContext).queryByText('Detail', { selector: '.reader-stage-strip-label' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Notebook' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Reflowed view' })).not.toBeInTheDocument()
+  expect(within(derivedContext).queryByRole('button', { name: 'Create Summary' })).not.toBeInTheDocument()
+  expect(derivedContext.querySelector('.reader-derived-context-actions')).toBeNull()
   expect(within(derivedContext).queryByText('Short AI summary.')).not.toBeInTheDocument()
+})
+
+test('reader keeps the taller article field for longer documents', async () => {
+  const longReaderDocument: DocumentRecord = {
+    ...documents[1],
+    available_modes: ['original', 'reflowed'],
+  }
+  const longOriginalParagraph = Array.from(
+    { length: 12 },
+    (_, index) => `Long original reader sentence ${index + 1} keeps the article field in its standard layout.`,
+  ).join(' ')
+  const longReflowedSentences = Array.from(
+    { length: 12 },
+    (_, index) => `Long reflowed reader sentence ${index + 1} keeps the article field in its standard layout.`,
+  )
+  const longViews: Record<string, DocumentView> = {
+    'doc-reader:original': {
+      mode: 'original',
+      detail_level: 'default',
+      title: 'Reader stays here',
+      blocks: [{ id: 'reader-original-long-1', kind: 'paragraph', text: longOriginalParagraph }],
+      generated_by: 'local',
+      cached: false,
+      source_hash: 'reader-original-long-hash',
+      updated_at: '2026-03-12T00:00:00Z',
+    },
+    'doc-reader:reflowed': {
+      mode: 'reflowed',
+      detail_level: 'default',
+      title: 'Reader stays here',
+      blocks: [
+        {
+          id: 'reader-long-1',
+          kind: 'paragraph',
+          text: longReflowedSentences.join(' '),
+          metadata: {
+            sentence_count: longReflowedSentences.length,
+            sentence_metadata_version: '1',
+            sentence_texts: longReflowedSentences,
+          },
+        },
+      ],
+      variant_metadata: {
+        sentence_metadata_version: '1',
+        variant_id: 'variant-doc-reader-reflowed-long',
+      },
+      generated_by: 'local',
+      cached: false,
+      source_hash: 'reader-reflowed-long-hash',
+      updated_at: '2026-03-12T00:00:00Z',
+    },
+  }
+
+  fetchDocumentsMock.mockImplementation(async () => [longReaderDocument])
+  fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => longViews[`${documentId}:${mode}`])
+  fetchRecallNotesMock.mockImplementation(async () => [])
+
+  render(<App />)
+
+  await waitFor(() => {
+    expect(screen.getByRole('article', { name: 'Reader stays here' })).toBeInTheDocument()
+  })
+
+  const articleField = document.querySelector('.reader-article-field')
+  expect(articleField).not.toBeNull()
+  expect(articleField).not.toHaveClass('reader-article-field-short-document')
 })
 
 test('speech controls expose labeled transport buttons and start playback from the main toggle', async () => {
@@ -3297,27 +3790,33 @@ test('speech controls expose labeled transport buttons and start playback from t
 
   const startButton = screen.getByRole('button', { name: 'Start read aloud' })
   expect(startButton).toHaveAttribute('title', 'Start read aloud')
-  expect(screen.getByRole('button', { name: 'Previous sentence' })).toHaveAttribute('title', 'Previous sentence')
-  expect(screen.getByRole('button', { name: 'Next sentence' })).toHaveAttribute('title', 'Next sentence')
-  expect(screen.getByRole('button', { name: 'Stop read aloud' })).toHaveAttribute('title', 'Stop read aloud')
+  expect(startButton).toHaveTextContent('Read aloud')
+  expect(screen.queryByRole('button', { name: 'Previous sentence' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Next sentence' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Stop read aloud' })).not.toBeInTheDocument()
 
   fireEvent.click(startButton)
 
   expect(mockSpeechState.start).toHaveBeenCalledTimes(1)
 })
 
-test('speech controls switch the main transport button to pause while playback is active', async () => {
+test('speech controls expand into the full transport cluster while playback is active', async () => {
   mockSpeechState.isSpeaking = true
 
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Search sentence one.' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pause read aloud' })).toBeInTheDocument()
   })
 
+  expect(screen.getByRole('button', { name: 'Previous sentence' })).toHaveAttribute('title', 'Previous sentence')
+  expect(screen.getByRole('button', { name: 'Next sentence' })).toHaveAttribute('title', 'Next sentence')
+  expect(screen.getByRole('button', { name: 'Stop read aloud' })).toHaveAttribute('title', 'Stop read aloud')
   fireEvent.click(screen.getByRole('button', { name: 'Pause read aloud' }))
 
-  expect(mockSpeechState.pause).toHaveBeenCalledTimes(1)
+  await waitFor(() => {
+    expect(mockSpeechState.pause).toHaveBeenCalledTimes(1)
+  })
 })
 
 test('reader progress saves include summary detail and accessibility snapshot metadata', async () => {

@@ -163,6 +163,61 @@ test('LibraryPane can render as embedded dock content without card chrome', () =
   expect(root).not.toHaveClass('card')
 })
 
+test('LibraryPane can stay open without rendering the disclosure toggle', () => {
+  render(
+    <LibraryPane
+      activeDocumentId="doc-1"
+      deletingDocumentId={null}
+      documents={documents}
+      embedded
+      hasAnyDocuments
+      loading={false}
+      open={false}
+      searchValue=""
+      showToggle={false}
+      onDelete={async () => undefined}
+      onSearchChange={() => undefined}
+      onSelect={() => undefined}
+      onToggleOpen={() => undefined}
+    />,
+  )
+
+  expect(screen.queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Show' })).not.toBeInTheDocument()
+  expect(screen.getByPlaceholderText('Search Home')).toBeInTheDocument()
+  expect(screen.getByTitle('Alpha document')).toBeInTheDocument()
+})
+
+test('LibraryPane can hide its visible header chrome while keeping search accessible', () => {
+  render(
+    <LibraryPane
+      activeDocumentId="doc-1"
+      deletingDocumentId={null}
+      documents={documents}
+      embedded
+      hasAnyDocuments
+      loading={false}
+      open
+      searchLabel="Search saved sources"
+      searchPlaceholder="Search saved sources"
+      searchValue=""
+      showHeader={false}
+      showSearchLabel={false}
+      showToggle={false}
+      title="Source library"
+      onDelete={async () => undefined}
+      onSearchChange={() => undefined}
+      onSelect={() => undefined}
+      onToggleOpen={() => undefined}
+    />,
+  )
+
+  expect(screen.queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
+  expect(screen.queryByText('2 saved')).not.toBeInTheDocument()
+  expect(screen.queryByText('Search')).not.toBeInTheDocument()
+  expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+})
+
 test('LibraryPane exposes delete through the row actions instead of a visible trash button', async () => {
   const onDelete = vi.fn(async () => undefined)
 

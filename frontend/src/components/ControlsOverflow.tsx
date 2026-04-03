@@ -1,19 +1,42 @@
 import { useEffect, useRef, useState } from 'react'
 
+import type { ReaderSettings } from '../types'
+
 interface VoiceChoice {
   id: string
   label: string
   name: string
 }
 
+interface ControlsOverflowAction {
+  label: string
+  onSelect: () => void
+}
+
 interface ControlsOverflowProps {
-  currentSentenceLabel: string
+  actions?: ControlsOverflowAction[]
+  contrastTheme: ReaderSettings['contrast_theme']
   preferredVoice: string
   speechRate: number
   voiceChoices: VoiceChoice[]
+  onContrastThemeChange: (value: ReaderSettings['contrast_theme']) => void
   onPreferredVoiceChange: (value: string) => void
   onSpeechRateChange: (value: number) => void
 }
+
+const contrastThemeOptions: Array<{
+  label: string
+  value: ReaderSettings['contrast_theme']
+}> = [
+  {
+    label: 'Light',
+    value: 'soft',
+  },
+  {
+    label: 'Dark',
+    value: 'high',
+  },
+]
 
 function MoreIcon() {
   return (
@@ -31,10 +54,12 @@ function MoreIcon() {
 }
 
 export function ControlsOverflow({
-  currentSentenceLabel,
+  actions = [],
+  contrastTheme,
   preferredVoice,
   speechRate,
   voiceChoices,
+  onContrastThemeChange,
   onPreferredVoiceChange,
   onSpeechRateChange,
 }: ControlsOverflowProps) {
@@ -81,8 +106,48 @@ export function ControlsOverflow({
 
       {open ? (
         <div className="controls-overflow-panel" role="group" aria-label="More reading controls">
-          <label className="field">
-            <span>Voice</span>
+          {actions.length ? (
+            <div className="controls-overflow-action-list" role="group" aria-label="Reader quick actions">
+              {actions.map((action) => (
+                <button
+                  key={action.label}
+                  className="ghost-button controls-overflow-action-button"
+                  type="button"
+                  onClick={() => {
+                    setOpen(false)
+                    action.onSelect()
+                  }}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="controls-overflow-theme" role="group" aria-label="Reading theme">
+            <span className="controls-overflow-section-label">Theme</span>
+            <div className="controls-overflow-theme-options">
+              {contrastThemeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  aria-label={`${option.label} theme`}
+                  aria-pressed={contrastTheme === option.value}
+                  className={
+                    contrastTheme === option.value
+                      ? 'controls-overflow-theme-button controls-overflow-theme-button-active'
+                      : 'controls-overflow-theme-button'
+                  }
+                  type="button"
+                  onClick={() => onContrastThemeChange(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="controls-overflow-field controls-overflow-field-inline">
+            <span className="controls-overflow-section-label">Voice</span>
             <select
               value={preferredVoice}
               onChange={(event) => onPreferredVoiceChange(event.target.value)}
@@ -95,12 +160,13 @@ export function ControlsOverflow({
             </select>
           </label>
 
-          <label className="field">
-            <div className="field-label-row">
-              <span>Rate</span>
-              <strong className="inline-value">{speechRate.toFixed(2)}x</strong>
+          <label className="controls-overflow-field controls-overflow-field-stack">
+            <div className="controls-overflow-field-head">
+              <span className="controls-overflow-section-label">Rate</span>
+              <strong className="controls-overflow-inline-value">{speechRate.toFixed(2)}x</strong>
             </div>
             <input
+              aria-label="Rate"
               type="range"
               min={0.7}
               max={1.4}
@@ -109,11 +175,6 @@ export function ControlsOverflow({
               onChange={(event) => onSpeechRateChange(Number(event.target.value))}
             />
           </label>
-
-          <div className="controls-overflow-meta stack-gap">
-            <span className="status-chip">{currentSentenceLabel}</span>
-            <p className="small-note">Shortcuts: Alt+Left, Alt+Right, or Space.</p>
-          </div>
         </div>
       ) : null}
     </div>

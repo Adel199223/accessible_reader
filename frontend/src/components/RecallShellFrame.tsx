@@ -96,10 +96,12 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
   const shellTitle = readerMode ? 'Reader' : 'Recall'
   const homeMode = layoutMode === 'home'
   const hideTopbar = homeMode
+  const compactReaderTopbar = readerMode && sourceFocused
   const showTopbarEyebrow = false
   const shellEyebrow = null
   const showSectionChip = !readerMode && (!sourceFocused && activeSection !== 'library')
   const quietTopbar = readerMode || (!showTopbarEyebrow && !showSectionChip)
+  const showSourceWorkspaceFrame = Boolean(sourceWorkspace) && !(readerMode && sourceWorkspace?.activeTab === 'reader')
 
   return (
     <div
@@ -147,21 +149,25 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
       <main className="workspace-shell-main">
         {!hideTopbar ? (
           <header
+            aria-label={compactReaderTopbar ? 'Reader workspace controls' : undefined}
             className={[
               'workspace-topbar',
               quietTopbar ? 'workspace-topbar-quiet' : '',
               readerMode ? 'workspace-topbar-reader' : '',
+              compactReaderTopbar ? 'workspace-topbar-reader-compact' : '',
             ]
               .filter(Boolean)
               .join(' ')}
           >
-            <div className="workspace-topbar-copy">
-              {showTopbarEyebrow && shellEyebrow ? <p className="workspace-topbar-eyebrow">{shellEyebrow}</p> : null}
-              <div className="workspace-topbar-heading-row">
-                <h1>{shellTitle}</h1>
-                {showSectionChip ? <span className="workspace-topbar-section-chip">{activeSectionLabel}</span> : null}
+            {!compactReaderTopbar ? (
+              <div className="workspace-topbar-copy">
+                {showTopbarEyebrow && shellEyebrow ? <p className="workspace-topbar-eyebrow">{shellEyebrow}</p> : null}
+                <div className="workspace-topbar-heading-row">
+                  <h1>{shellTitle}</h1>
+                  {showSectionChip ? <span className="workspace-topbar-section-chip">{activeSectionLabel}</span> : null}
+                </div>
               </div>
-            </div>
+            ) : null}
             {headerActions ? <div className="workspace-topbar-actions">{headerActions}</div> : null}
           </header>
         ) : null}
@@ -176,18 +182,21 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
               .join(' ')
           }
         >
-          {sourceFocused && sourceWorkspace ? (
-            <SourceWorkspaceFrame
-              activeTab={sourceWorkspace.activeTab}
-              counts={sourceWorkspace.counts}
-              description={sourceWorkspace.description}
-              document={sourceWorkspace.document}
-              onSelectTab={sourceWorkspace.onSelectTab}
-            />
-          ) : null}
-
           <div className="workspace-shell-layout">
-            <div className="workspace-shell-primary">{children}</div>
+            <div className={sourceFocused ? 'workspace-shell-primary workspace-shell-primary-source-focused' : 'workspace-shell-primary'}>
+              {showSourceWorkspaceFrame && sourceWorkspace ? (
+                <SourceWorkspaceFrame
+                  activeTab={sourceWorkspace.activeTab}
+                  counts={sourceWorkspace.counts}
+                  description={sourceWorkspace.description}
+                  document={sourceWorkspace.document}
+                  onSelectTab={sourceWorkspace.onSelectTab}
+                  readerLayout={sourceWorkspace.readerLayout}
+                  readerLineWidthCh={sourceWorkspace.readerLineWidthCh}
+                />
+              ) : null}
+              {children}
+            </div>
           </div>
         </div>
       </main>
