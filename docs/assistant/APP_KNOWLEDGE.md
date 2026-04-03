@@ -12,7 +12,7 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 
 ## Current Product Shape
 
-- Recall shell sections are `Home`, `Graph`, embedded `Notebook`, `Study`, and `Reader`.
+- Recall shell sections are `Home`, `Graph`, `Study`, and `Reader`, with `Notebook` embedded inside `Home` and saved-source workspaces rather than exposed as its own top-level rail entry.
 - `Home` and `Reader` share the same route-stable `Add content` modal with `Paste text`, `Web page`, and `Choose file` entry modes.
 - Imports cover pasted text, public article webpage snapshots, and local text/markdown/html/docx/pdf-style files.
 - Saved webpages reopen from local HTML snapshots instead of live refetch.
@@ -22,9 +22,9 @@ Bridge summary only. Canonical project status and policy live in `BUILD_BRIEF.md
 
 ## Current Continuity
 
-- Stage 708 is the latest implementation checkpoint: `Add Content Modal Recall-Style Entry Reset After Stage 707`.
-- Stage 709 is the latest completed audit: `Post-Stage-708 Add Content Modal Recall-Style Entry Audit`.
-- The Stage 706/707 cross-surface closeout baseline still sits underneath that intentional Add Content reopen.
+- Stage 790 is the latest implementation checkpoint: `Reader Document-Open Topbar Compaction After Stage 789`.
+- Stage 791 is the latest completed audit: `Post-Stage-790 Reader Document-Open Topbar Compaction Audit`.
+- The Stage 706/707 cross-surface closeout baseline still sits underneath the later intentional Add Content plus Reader reopen ladder, and the Stage 790/791 Reader topbar compaction checkpoint is the current resume surface.
 - There is no automatic next slice now; future product work should reopen a surface intentionally.
 - `Graph`, `Home`, embedded `Notebook`, `Reader`, and `Study` are the current regression baselines.
 

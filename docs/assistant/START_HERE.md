@@ -13,9 +13,9 @@ This repo is a browser-first Recall workspace with a supported Microsoft Edge br
 
 ## Current Checkpoint
 
-- latest implementation checkpoint: Stage 708 `Add Content Modal Recall-Style Entry Reset After Stage 707`
-- latest completed audit: Stage 709 `Post-Stage-708 Add Content Modal Recall-Style Entry Audit`
-- no automatic next slice is queued; reopen a surface intentionally from that baseline
+- latest implementation checkpoint: Stage 790 `Reader Document-Open Topbar Compaction After Stage 789`
+- latest completed audit: Stage 791 `Post-Stage-790 Reader Document-Open Topbar Compaction Audit`
+- no automatic next slice is queued; reopen a surface intentionally from the `post-Stage 791 Reader baseline`
 
 ## Harness Inputs
 

@@ -34,8 +34,8 @@ Instead use `docs/assistant/workflows/EDGE_SPEECH_VALIDATION_WORKFLOW.md`.
 ## Current Queue
 
 - The Stage 692-707 shared shell/Home/Notebook/Reader/Study ladder is complete.
-- Stage 708 is the latest implementation checkpoint and Stage 709 is the latest completed audit, both for the intentional `Add Content` reopen.
-- There is no automatic next slice after Stage 709; future product work should reopen a surface intentionally.
+- Stage 790 is the latest implementation checkpoint and Stage 791 is the latest completed audit, both for the intentional Reader document-open topbar compaction reopen.
+- There is no automatic next slice after Stage 791; future product work should reopen a surface intentionally.
 - `Graph`, `Home`, embedded `Notebook`, `Reader`, and `Study` are stable regression baselines unless a blocking regression or explicit user reprioritization reopens one.
 - Reader generated-output work remains locked unless the user explicitly reopens it.
 
