@@ -329,6 +329,46 @@ function makeRecallNote(
   }
 }
 
+function makeSourceRecallNote(id: string, documentId: string, sourceTitle: string, bodyText: string): RecallNoteRecord {
+  return {
+    id,
+    anchor: {
+      kind: 'source',
+      source_document_id: documentId,
+      variant_id: '',
+      block_id: `source:${documentId}`,
+      sentence_start: 0,
+      sentence_end: 0,
+      global_sentence_start: 0,
+      global_sentence_end: 0,
+      anchor_text: `Source note for ${sourceTitle}`,
+      excerpt_text: `Manual note attached to ${sourceTitle}.`,
+    },
+    body_text: bodyText,
+    created_at: '2026-03-13T00:05:00Z',
+    updated_at: '2026-03-13T00:05:00Z',
+  }
+}
+
+function getRecallDocumentTitle(documentId: string) {
+  return recallDocuments.find((document) => document.id === documentId)?.title ?? 'Saved note'
+}
+
+function getRecallNotePromotionEvidence(note: RecallNoteRecord, documentId: string) {
+  const sourceNote = note.anchor.kind === 'source'
+  const sourceTitle = getRecallDocumentTitle(documentId)
+  const bodyText = note.body_text?.trim() ?? ''
+  const sourceFallback = `${sourceTitle} personal note`
+  return {
+    anchorKind: note.anchor.kind ?? 'sentence',
+    anchorText: sourceNote ? sourceFallback : note.anchor.anchor_text,
+    chunkId: sourceNote ? null : `${documentId}:chunk:0`,
+    excerpt: sourceNote ? bodyText || sourceFallback : note.anchor.excerpt_text,
+    noteBody: bodyText || null,
+    sourceTitle,
+  }
+}
+
 const baseRecallNotesByDocument: Record<string, RecallNoteRecord[]> = {
   'doc-search': [
     makeRecallNote(
@@ -705,6 +745,7 @@ beforeEach(() => {
       throw new Error('Note not found.')
     }
     const nodeId = `node-promoted-${noteId}`
+    const evidence = getRecallNotePromotionEvidence(note, documentId)
     const promotedNode = {
       id: nodeId,
       label: payload.label,
@@ -723,13 +764,18 @@ beforeEach(() => {
         {
           id: `mention-${noteId}`,
           source_document_id: documentId,
-          document_title: recallDocuments.find((document) => document.id === documentId)?.title ?? 'Saved note',
+          document_title: evidence.sourceTitle,
           text: payload.label,
           entity_type: 'concept',
           confidence: 0.99,
           block_id: note.anchor.block_id,
-          chunk_id: `${documentId}:chunk:0`,
-          excerpt: note.anchor.excerpt_text,
+          chunk_id: evidence.chunkId,
+          excerpt: evidence.excerpt,
+          anchor_kind: evidence.anchorKind,
+          manual_source: 'note',
+          note_anchor_text: evidence.anchorText,
+          note_body: evidence.noteBody,
+          note_id: note.id,
         },
       ],
       outgoing_edges: [],
@@ -758,14 +804,31 @@ beforeEach(() => {
       throw new Error('Note not found.')
     }
     const cardId = `card-promoted-${noteId}`
+    const evidence = getRecallNotePromotionEvidence(note, documentId)
+    const sourceNote = evidence.anchorKind === 'source'
     const promotedCard: StudyCardRecord = {
       id: cardId,
       source_document_id: documentId,
-      document_title: recallDocuments.find((document) => document.id === documentId)?.title ?? 'Saved note',
+      document_title: evidence.sourceTitle,
       prompt: payload.prompt,
       answer: payload.answer,
       card_type: 'manual_note',
-      source_spans: [{ excerpt: note.anchor.excerpt_text, note_id: note.id }],
+      source_spans: [
+        {
+          anchor_kind: evidence.anchorKind,
+          anchor_text: evidence.anchorText,
+          block_id: note.anchor.block_id,
+          chunk_id: evidence.chunkId,
+          excerpt: evidence.excerpt,
+          global_sentence_end: sourceNote ? null : note.anchor.global_sentence_end,
+          global_sentence_start: sourceNote ? null : note.anchor.global_sentence_start,
+          note_body: evidence.noteBody,
+          note_id: note.id,
+          sentence_end: sourceNote ? null : note.anchor.sentence_end,
+          sentence_start: sourceNote ? null : note.anchor.sentence_start,
+          source_title: evidence.sourceTitle,
+        },
+      ],
       scheduling_state: { due_at: '2026-03-13T00:40:00Z', review_count: 0 },
       due_at: '2026-03-13T00:40:00Z',
       review_count: 0,
@@ -853,13 +916,14 @@ async function ensureLibraryOpen() {
     if (!sourceContextTab && !hasLibrarySearchControl(librarySection)) {
       const overflowTrigger = screen.queryByRole('button', { name: 'More reading controls' })
       if (overflowTrigger) {
-        const notebookTrigger = screen.queryByRole('button', { name: 'Open nearby notebook notes' })
-        if (notebookTrigger) {
-          fireEvent.click(notebookTrigger)
-          const sourceTabAfterOpen = screen.queryByRole('tab', { name: 'Source' })
-          if (sourceTabAfterOpen) {
-            fireEvent.click(sourceTabAfterOpen)
-          }
+        const overflowGroup = openReaderOverflow()
+        const addNoteAction = within(overflowGroup).queryByRole('button', { name: 'Add note' })
+        if (addNoteAction) {
+          fireEvent.click(addNoteAction)
+          await waitFor(() => {
+            expect(screen.queryByRole('tab', { name: 'Source' })).not.toBeNull()
+          })
+          fireEvent.click(screen.getByRole('tab', { name: 'Source' }))
         }
       }
     }
@@ -870,7 +934,7 @@ async function ensureLibraryOpen() {
       return
     }
     const toggleButton = within(librarySection)
-      .getAllByRole('button', { name: /Show|Hide/ })
+      .queryAllByRole('button', { name: /Show|Hide/ })
       .find((button) => button.getAttribute('aria-expanded') !== null)
     if (!toggleButton) {
       continue
@@ -983,9 +1047,21 @@ function openReaderSupportPane(tab: 'Source' | 'Notebook') {
     return
   }
 
+  const completionAction =
+    tab === 'Source'
+      ? screen.queryByRole('button', { name: 'Open Source from short document completion' })
+      : screen.queryByRole('button', { name: 'Open Notebook notes from short document completion' })
+  if (completionAction) {
+    fireEvent.click(completionAction)
+    return
+  }
+
   openReaderNotebookNotes()
   if (tab === 'Source') {
-    fireEvent.click(screen.getByRole('tab', { name: 'Source' }))
+    const sourceWorkspaceOverviewTab =
+      screen.queryByRole('tab', { name: 'Source workspace Overview' }) ??
+      screen.getByRole('tab', { name: 'Source' })
+    fireEvent.click(sourceWorkspaceOverviewTab)
   }
 }
 
@@ -997,7 +1073,7 @@ function selectReaderView(view: 'Original' | 'Reflowed' | 'Simplified' | 'Summar
   fireEvent.click(screen.getByRole('tab', { name: view }))
 }
 
-async function openNotebookFromHome() {
+async function openNotebookFromHome(options: { keepDraft?: boolean } = {}) {
   const notebookAlreadyOpen = () =>
     screen.queryByRole('heading', { name: 'Notebook', level: 2 }) ??
     screen.queryByRole('searchbox', { name: 'Search notebook' })
@@ -1034,6 +1110,16 @@ async function openNotebookFromHome() {
     expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
   })
+
+  if (!options.keepDraft) {
+    const draftWorkbench = screen.queryByRole('region', { name: 'New note draft' })
+    if (draftWorkbench) {
+      fireEvent.click(within(draftWorkbench).getByRole('button', { name: 'Cancel draft' }))
+      await waitFor(() => {
+        expect(screen.queryByRole('region', { name: 'New note draft' })).not.toBeInTheDocument()
+      })
+    }
+  }
 }
 
 function getHomeCanvas() {
@@ -1048,6 +1134,27 @@ async function openHomeOrganizerOptions(container?: HTMLElement) {
   })
 }
 
+async function closeHomeOrganizerOptions(container?: HTMLElement) {
+  const scope = container ? within(container) : screen
+  fireEvent.click(scope.getByRole('button', { name: 'Organizer options' }))
+  await waitFor(() => {
+    expect(scope.queryByRole('group', { name: 'Organizer options' })).not.toBeInTheDocument()
+  })
+}
+
+async function openHomeSortMenu() {
+  fireEvent.click(screen.getByRole('button', { name: /Sort Home sources/i }))
+  await waitFor(() => {
+    expect(screen.getByRole('group', { name: 'Memory filter' })).toBeInTheDocument()
+  })
+  return screen.getByRole('group', { name: 'Memory filter' })
+}
+
+async function selectHomeMemoryFilter(label: 'All' | 'Any' | 'Notes' | 'Graph' | 'Study') {
+  const memoryFilterGroup = await openHomeSortMenu()
+  fireEvent.click(within(memoryFilterGroup).getByRole('button', { name: label }))
+}
+
 test('app lands on Recall by default and normalizes the URL to /recall', async () => {
   renderRecallApp('/')
 
@@ -1058,7 +1165,10 @@ test('app lands on Recall by default and normalizes the URL to /recall', async (
   expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
   expect(screen.queryByRole('tab', { name: 'Notes' })).not.toBeInTheDocument()
   expect(screen.queryByLabelText('Home control seam')).not.toBeInTheDocument()
-  expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  const homeRail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  expect(homeRail).toBeInTheDocument()
+  expect(within(homeRail).getByText('Collections', { selector: 'strong' })).toBeInTheDocument()
+  expect(within(homeRail).getByRole('button', { name: 'Hide organizer' })).toBeInTheDocument()
   expect(getHomeCanvas()).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
@@ -1070,6 +1180,482 @@ test('app lands on Recall by default and normalizes the URL to /recall', async (
   expect(document.querySelector('.recall-home-primary-flow-header')).toBeNull()
   expect(document.querySelector('.recall-home-control-seam')).toBeNull()
   expect(fetchRecallDocumentsMock).toHaveBeenCalled()
+})
+
+test('open Home keeps the organizer-owned default board while applying the denser above-the-fold card grid', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  const activeRailItem = rail.querySelector('[data-home-organizer-active-item-stage838="true"]')
+  expect(activeRailItem).not.toBeNull()
+  expect(activeRailItem).toHaveClass('recall-home-parity-rail-item-active-stage838')
+  const activePreviewHandoff = activeRailItem?.querySelector('[data-home-organizer-active-preview-stage838="true"]')
+  expect(activePreviewHandoff).not.toBeNull()
+  expect(activePreviewHandoff).toHaveClass('recall-home-parity-rail-preview-attached-stage838')
+  expect(activePreviewHandoff).toHaveAccessibleName(/Open .* from /i)
+
+  const canvas = getHomeCanvas()
+  const directToolbarChild = Array.from(canvas.children).find(
+    (child) =>
+      child instanceof HTMLElement && child.classList.contains('recall-home-parity-toolbar-stage563'),
+  )
+  expect(directToolbarChild).toBeUndefined()
+
+  const leadBand = document.querySelector('[data-home-open-top-band-stage830="true"]')
+  expect(leadBand).not.toBeNull()
+  expect(
+    (leadBand as HTMLElement).querySelector('[data-home-open-toolbar-single-row-stage832="true"]'),
+  ).not.toBeNull()
+  expect(within(leadBand as HTMLElement).getByRole('heading', { level: 3 })).toBeInTheDocument()
+  expect(within(leadBand as HTMLElement).getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(within(leadBand as HTMLElement).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(within(leadBand as HTMLElement).getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  expect(within(leadBand as HTMLElement).getByRole('button', { name: 'List' })).toBeInTheDocument()
+  expect(within(leadBand as HTMLElement).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
+
+  const densityGrid = document.querySelector('[data-home-open-density-stage828="true"]')
+  expect(densityGrid).not.toBeNull()
+  expect(densityGrid).toHaveClass('recall-home-parity-grid-open-density-stage828')
+
+  const firstDayGroup = densityGrid?.closest('.recall-home-parity-day-group-stage563') as HTMLElement | null
+  expect(firstDayGroup).not.toBeNull()
+  expect(within(firstDayGroup as HTMLElement).getAllByRole('button').length).toBeGreaterThanOrEqual(3)
+
+  const addTile = within(firstDayGroup as HTMLElement).getByRole('button', { name: /Add content to/i })
+  expect(addTile).toHaveClass('recall-home-parity-add-tile-open-density-stage828')
+
+  const firstSourceTile = densityGrid?.querySelector('.recall-home-parity-card-open-density-stage828')
+  expect(firstSourceTile).not.toBeNull()
+  expect(firstSourceTile).toHaveAttribute('data-home-open-selected-card-stage836', 'true')
+  expect(firstSourceTile?.querySelector('.recall-home-parity-card-chip-stage651')).toBeNull()
+  const selectedMetaRow = firstSourceTile?.querySelector('[data-home-open-lower-meta-single-row-stage836="true"]')
+  expect(selectedMetaRow).not.toBeNull()
+  expect(firstSourceTile?.querySelector('[data-home-open-source-row-stage836="true"]')).not.toBeNull()
+  expect(firstSourceTile).toHaveTextContent('Local capture')
+  await waitFor(() => {
+    const refreshedFirstSourceTile = canvas.querySelector('.recall-home-parity-card-open-density-stage828')
+    const differentiatedPreview = refreshedFirstSourceTile?.querySelector('.recall-home-parity-card-preview-stage563')
+    expect(differentiatedPreview).toHaveAttribute('data-preview-display-mode', 'local-identity-poster')
+    expect(differentiatedPreview).toHaveAttribute('data-preview-weak-local-stage868', 'true')
+    expect(differentiatedPreview).toHaveAttribute('data-preview-local-identity-stage884', 'true')
+    expect(differentiatedPreview?.querySelector('.recall-home-parity-card-preview-excerpt-stage868')).not.toBeNull()
+    expect(differentiatedPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).not.toBeNull()
+  })
+  const initialDocumentTiles = canvas.querySelectorAll('.recall-home-parity-card-stage563')
+  expect(initialDocumentTiles.length).toBeGreaterThanOrEqual(2)
+  const initialDayGroups = canvas.querySelectorAll('.recall-home-parity-day-group-stage563')
+  expect(initialDayGroups.length).toBeGreaterThanOrEqual(1)
+  const footerButton = within(canvas).queryByRole('button', { name: 'Show all captures' })
+  if (footerButton) {
+    fireEvent.click(footerButton)
+
+    await waitFor(() => {
+      expect(within(canvas).getByRole('button', { name: 'Show fewer captures' })).toBeInTheDocument()
+    })
+
+    const expandedDocumentTiles = canvas.querySelectorAll('.recall-home-parity-card-stage563')
+    expect(expandedDocumentTiles.length).toBeGreaterThan(initialDocumentTiles.length)
+  }
+  expect(screen.getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Hide organizer' })).toBeInTheDocument()
+})
+
+test('open Home differentiates local capture previews while keeping meaningful rendered image previews', async () => {
+  fetchRecallDocumentsMock.mockImplementation(async () => [
+    {
+      id: 'doc-local-scan',
+      title: 'Local scanability example',
+      source_type: 'paste',
+      file_name: null,
+      source_locator: null,
+      created_at: '2026-03-14T00:00:00Z',
+      updated_at: '2026-03-14T00:00:01Z',
+      available_modes: ['original', 'reflowed'],
+      chunk_count: 4,
+    },
+    {
+      id: 'doc-local-question',
+      title: 'Local question example',
+      source_type: 'paste',
+      file_name: null,
+      source_locator: null,
+      created_at: '2026-03-14T00:00:00Z',
+      updated_at: '2026-03-14T00:00:04Z',
+      available_modes: ['original', 'reflowed'],
+      chunk_count: 3,
+    },
+    {
+      id: 'doc-web-scan',
+      title: 'Web scanability example',
+      source_type: 'web',
+      file_name: null,
+      source_locator: 'https://example.com/research/scanability',
+      created_at: '2026-03-14T00:00:00Z',
+      updated_at: '2026-03-14T00:00:02Z',
+      available_modes: ['original', 'reflowed'],
+      chunk_count: 5,
+    },
+    {
+      id: 'doc-file-scan',
+      title: 'Document scanability example',
+      source_type: 'pdf',
+      file_name: 'scanability-brief.pdf',
+      source_locator: null,
+      created_at: '2026-03-14T00:00:00Z',
+      updated_at: '2026-03-14T00:00:03Z',
+      available_modes: ['original', 'reflowed'],
+      chunk_count: 6,
+    },
+  ])
+  fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => {
+    const modeName = mode === 'reflowed' ? 'reflowed' : 'original'
+    const title =
+      documentId === 'doc-web-scan'
+        ? 'Web scanability example'
+        : documentId === 'doc-file-scan'
+          ? 'Document scanability example'
+          : documentId === 'doc-local-question'
+            ? 'Local question example'
+          : 'Local scanability example'
+    const text =
+      documentId === 'doc-web-scan'
+        ? 'The web article keeps its distinctive rendered image preview for quick recognition.'
+        : documentId === 'doc-file-scan'
+          ? 'The imported document keeps a visual preview asset when a document image is available.'
+          : documentId === 'doc-local-question'
+            ? 'Which saved insight should become a review prompt next? Question cards keep intent visible.'
+        : 'Saved cards now foreground useful document text instead of repeating the same thumbnail chrome.'
+    return {
+      mode: modeName,
+      detail_level: 'default',
+      title,
+      blocks: [
+        {
+          id: `${documentId}:${modeName}:block`,
+          kind: 'paragraph',
+          text,
+          metadata: {
+            sentence_count: 1,
+            sentence_metadata_version: '1',
+            sentence_texts: [text],
+          },
+        },
+      ],
+      generated_by: 'local',
+      cached: false,
+      source_hash: `${documentId}:${modeName}:hash`,
+      updated_at: '2026-03-14T00:00:00Z',
+    } as DocumentView
+  })
+  fetchRecallDocumentPreviewMock.mockImplementation(async (documentId: string) => ({
+    asset_url: `/api/recall/documents/${documentId}/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z`,
+    document_id: documentId,
+    kind: 'image',
+    source:
+      documentId === 'doc-web-scan'
+        ? 'html-rendered-snapshot'
+        : documentId === 'doc-file-scan'
+          ? 'attachment-image'
+          : 'content-rendered-preview',
+    updated_at: '2026-03-27T08:00:00Z',
+  }))
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Captures/ }))
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName('Captures collection canvas')
+  })
+  await waitFor(() => {
+    expect(
+      within(getHomeCanvas()).getByRole('button', { name: 'Open Local scanability example' }),
+    ).toBeInTheDocument()
+    expect(
+      within(getHomeCanvas()).getByRole('button', { name: 'Open Local question example' }),
+    ).toBeInTheDocument()
+  })
+  await waitFor(() => {
+    expect(fetchDocumentViewMock).toHaveBeenCalledWith('doc-local-scan', 'reflowed')
+    expect(fetchDocumentViewMock).toHaveBeenCalledWith('doc-local-question', 'reflowed')
+  })
+
+  await waitFor(() => {
+    const localCard = within(getHomeCanvas()).getByRole('button', {
+      name: 'Open Local scanability example',
+    })
+    const localPreview = localCard.querySelector('.recall-home-parity-card-preview-stage563')
+    expect(localPreview).toHaveAttribute('data-preview-display-mode', 'local-identity-poster')
+    expect(localPreview).toHaveAttribute('data-preview-weak-local-stage868', 'true')
+    expect(localPreview).toHaveAttribute('data-preview-local-identity-stage884', 'true')
+    expect(localPreview).toHaveAttribute('data-preview-local-identity-token-stage884', expect.stringMatching(/saved|foreground/i))
+    expect(localPreview).not.toHaveAttribute('data-preview-meaningful-rendered-stage870', 'true')
+    expect(localPreview?.querySelector('.recall-home-parity-card-preview-excerpt-stage868')).toHaveTextContent(
+      /foreground useful document text/i,
+    )
+    expect(localPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).not.toBeNull()
+  })
+  await waitFor(() => {
+    const firstLocalPreview = within(getHomeCanvas())
+      .getByRole('button', { name: 'Open Local scanability example' })
+      .querySelector('.recall-home-parity-card-preview-stage563')
+    const questionLocalPreview = within(getHomeCanvas())
+      .getByRole('button', { name: 'Open Local question example' })
+      .querySelector('.recall-home-parity-card-preview-stage563')
+    expect(questionLocalPreview).toHaveAttribute('data-preview-display-mode', 'local-identity-poster')
+    expect(questionLocalPreview).toHaveAttribute('data-preview-local-identity-stage884', 'true')
+    expect(questionLocalPreview).toHaveAttribute('data-preview-local-identity-variant-stage884', 'question')
+    expect(questionLocalPreview?.getAttribute('data-preview-local-identity-token-stage884')).not.toEqual(
+      firstLocalPreview?.getAttribute('data-preview-local-identity-token-stage884'),
+    )
+  })
+
+  fireEvent.click(within(rail).getByRole('button', { name: /^Web/ }))
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName('Web collection canvas')
+    expect(
+      within(getHomeCanvas()).getByRole('button', { name: 'Open Web scanability example' }),
+    ).toBeInTheDocument()
+  })
+
+  await waitFor(() => {
+    const webCard = within(getHomeCanvas()).getByRole('button', {
+      name: 'Open Web scanability example',
+    })
+    const webPreview = webCard.querySelector('.recall-home-parity-card-preview-stage563')
+    expect(webPreview).toHaveAttribute('data-preview-display-mode', 'rendered-image')
+    expect(webPreview).toHaveAttribute('data-preview-media-source', 'html-rendered-snapshot')
+    expect(webPreview).toHaveAttribute('data-preview-meaningful-rendered-stage870', 'true')
+    expect(webPreview).not.toHaveAttribute('data-preview-weak-local-stage868', 'true')
+    expect(webPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).not.toBeNull()
+  })
+
+  fireEvent.click(within(rail).getByRole('button', { name: /^Documents/ }))
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName('Documents collection canvas')
+    expect(
+      within(getHomeCanvas()).getByRole('button', { name: 'Open Document scanability example' }),
+    ).toBeInTheDocument()
+  })
+
+  await waitFor(() => {
+    expect(fetchDocumentViewMock).toHaveBeenCalledWith('doc-file-scan', 'reflowed')
+  })
+
+  await waitFor(() => {
+    const documentCard = within(getHomeCanvas()).getByRole('button', {
+      name: 'Open Document scanability example',
+    })
+    const documentPreview = documentCard.querySelector('.recall-home-parity-card-preview-stage563')
+    expect(documentPreview).toHaveAttribute('data-preview-display-mode', 'rendered-image')
+    expect(documentPreview).toHaveAttribute('data-preview-media-source', 'attachment-image')
+    expect(documentPreview).toHaveAttribute('data-preview-meaningful-rendered-stage870', 'true')
+    expect(documentPreview).not.toHaveAttribute('data-preview-weak-local-stage868', 'true')
+    expect(documentPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).not.toBeNull()
+  })
+})
+
+test('open Home keeps the fused top band scoped to board mode and restores the toolbar row in list mode', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+
+  const boardCanvas = getHomeCanvas()
+  const openLeadBand = document.querySelector('[data-home-open-top-band-stage830="true"]')
+  expect(openLeadBand).not.toBeNull()
+  expect(openLeadBand?.querySelector('[data-home-open-toolbar-single-row-stage832="true"]')).not.toBeNull()
+  expect(
+    Array.from(boardCanvas.children).some(
+      (child) =>
+        child instanceof HTMLElement && child.classList.contains('recall-home-parity-toolbar-stage563'),
+    ),
+  ).toBe(false)
+
+  fireEvent.click(screen.getByRole('button', { name: 'List' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  const listCanvas = getHomeCanvas()
+  expect(document.querySelector('[data-home-open-top-band-stage830="true"]')).toBeNull()
+  expect(
+    Array.from(listCanvas.children).some(
+      (child) =>
+        child instanceof HTMLElement && child.classList.contains('recall-home-parity-toolbar-stage563'),
+    ),
+  ).toBe(true)
+  expect(listCanvas.querySelector('[data-home-open-toolbar-single-row-stage832="true"]')).toBeNull()
+  expect(document.querySelector('.recall-home-parity-list-stage563')).not.toBeNull()
+})
+
+test('open Matches uses the same organizer-visible single-row board toolbar in board mode', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  await openHomeOrganizerOptions(rail as HTMLElement)
+  fireEvent.change(within(rail).getByRole('searchbox', { name: 'Filter saved sources' }), {
+    target: { value: 'Search target' },
+  })
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName(/results canvas$/i)
+  })
+
+  await closeHomeOrganizerOptions(rail as HTMLElement)
+
+  const resultsCanvas = getHomeCanvas()
+  const resultsLeadBand = resultsCanvas.querySelector('[data-home-open-top-band-stage830="true"]')
+  expect(resultsLeadBand).not.toBeNull()
+  expect(resultsLeadBand).toHaveAttribute('data-home-open-matches-lead-band-stage842', 'true')
+  expect((resultsLeadBand as HTMLElement).querySelector('[data-home-open-toolbar-single-row-stage832="true"]')).not.toBeNull()
+  expect(within(resultsLeadBand as HTMLElement).getByRole('heading', { name: 'Matches', level: 3 })).toBeInTheDocument()
+  expect((resultsLeadBand as HTMLElement).querySelector('.recall-home-open-matches-lead-count-stage842')).toHaveTextContent('1 match')
+  const matchesContext = within(rail).getByRole('group', { name: 'Matches context' })
+  expect(matchesContext).toBeInTheDocument()
+  expect(within(matchesContext).getByText('Search target')).toBeInTheDocument()
+  expect(within(matchesContext).getByText('1 match')).toBeInTheDocument()
+  expect(within(matchesContext).getByRole('button', { name: 'Clear search' })).toBeInTheDocument()
+  expect(within(rail).queryByRole('searchbox', { name: 'Filter saved sources' })).not.toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
+  expect(within(resultsCanvas).queryByRole('button', { name: /Add content to/i })).not.toBeInTheDocument()
+  expect(rail.querySelector('[data-home-organizer-active-item-stage838="true"]')).toBeNull()
+  expect(rail.querySelector('[data-home-organizer-active-preview-stage838="true"]')).toBeNull()
+  const resultsGrid =
+    resultsCanvas.querySelector('[data-home-open-density-stage828="true"]') ??
+    resultsCanvas.querySelector('.recall-home-parity-grid-stage563')
+  expect(resultsGrid?.firstElementChild).not.toBeNull()
+  expect(resultsGrid?.firstElementChild).toHaveClass('recall-home-parity-card-stage563')
+  expect(resultsCanvas.querySelector('[data-home-open-matches-day-divider-stage842="true"]')).toBeNull()
+  const firstResultsCard = resultsGrid?.querySelector('.recall-home-parity-card-stage563')
+  expect(firstResultsCard).not.toBeNull()
+  expect(firstResultsCard?.querySelector('.recall-home-parity-card-chip-stage651')).not.toBeNull()
+  expect(
+    Array.from(resultsCanvas.children).some(
+      (child) =>
+        child instanceof HTMLElement && child.classList.contains('recall-home-parity-toolbar-stage563'),
+      ),
+  ).toBe(false)
+  await openHomeOrganizerOptions(rail as HTMLElement)
+  expect(within(rail).getByRole('searchbox', { name: 'Filter saved sources' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Hide organizer' })).toBeInTheDocument()
+})
+
+test('open Matches keeps chronology through inline day dividers without restoring date-owned top headings', async () => {
+  fetchRecallDocumentsMock.mockImplementation(async () => [
+    ...recallDocuments,
+    {
+      id: 'doc-search-next',
+      title: 'Search target later',
+      source_type: 'paste',
+      file_name: null,
+      source_locator: 'https://example.com/search-target-later',
+      created_at: '2026-03-13T00:00:00Z',
+      updated_at: '2026-03-13T00:00:01Z',
+      available_modes: ['original', 'reflowed'],
+      chunk_count: 5,
+    },
+    {
+      id: 'doc-search-earlier',
+      title: 'Search target archive',
+      source_type: 'paste',
+      file_name: null,
+      source_locator: 'https://example.com/search-target-archive',
+      created_at: '2026-03-11T00:00:00Z',
+      updated_at: '2026-03-11T00:00:01Z',
+      available_modes: ['original', 'reflowed'],
+      chunk_count: 6,
+    },
+  ])
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  await openHomeOrganizerOptions(rail as HTMLElement)
+  fireEvent.change(within(rail).getByRole('searchbox', { name: 'Filter saved sources' }), {
+    target: { value: 'Search target' },
+  })
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName(/results canvas$/i)
+  })
+
+  await closeHomeOrganizerOptions(rail as HTMLElement)
+
+  const resultsCanvas = getHomeCanvas()
+  const resultsLeadBand = resultsCanvas.querySelector('[data-home-open-matches-lead-band-stage842="true"]')
+  expect(resultsLeadBand).not.toBeNull()
+  expect(within(resultsLeadBand as HTMLElement).getByRole('heading', { name: 'Matches', level: 3 })).toBeInTheDocument()
+  expect((resultsLeadBand as HTMLElement).querySelector('.recall-home-open-matches-lead-count-stage842')).toHaveTextContent('3 matches')
+  expect(within(resultsCanvas).getAllByRole('heading', { level: 3 })).toHaveLength(1)
+  const dayDividers = resultsCanvas.querySelectorAll('[data-home-open-matches-day-divider-stage842="true"]')
+  expect(dayDividers.length).toBe(3)
+  expect(dayDividers[0]?.textContent).toMatch(/Mar/i)
+})
+
+test('open Matches keeps zero-result filtered states compact and clear-search oriented', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  await openHomeOrganizerOptions(rail as HTMLElement)
+  const searchbox = within(rail).getByRole('searchbox', { name: 'Filter saved sources' })
+  fireEvent.change(searchbox, {
+    target: { value: 'zzzz impossible query' },
+  })
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName(/results canvas$/i)
+  })
+
+  await closeHomeOrganizerOptions(rail as HTMLElement)
+
+  const resultsCanvas = getHomeCanvas()
+  expect(screen.queryByLabelText('Home control seam')).not.toBeInTheDocument()
+  expect(document.querySelector('.recall-home-compact-control-deck')).toBeNull()
+  expect(within(rail).getByRole('group', { name: 'Matches context' })).toBeInTheDocument()
+  expect(within(rail).getByRole('button', { name: 'Clear search' })).toBeInTheDocument()
+  const resultsLeadBand = resultsCanvas.querySelector('[data-home-open-matches-lead-band-stage842="true"]')
+  expect(resultsLeadBand).not.toBeNull()
+  expect(within(resultsLeadBand as HTMLElement).getByRole('heading', { name: 'Matches', level: 3 })).toBeInTheDocument()
+  expect((resultsLeadBand as HTMLElement).querySelector('.recall-home-open-matches-lead-count-stage842')).toHaveTextContent('0 matches')
+  expect(within(resultsCanvas).getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
+  expect(resultsCanvas.querySelector('.recall-home-library-card-header-matches-empty-stage840')).toBeNull()
+  expect(within(resultsCanvas).getByText('No saved sources match that filter yet.')).toBeInTheDocument()
+  expect(within(resultsCanvas).queryByRole('button', { name: /Add content to/i })).not.toBeInTheDocument()
+  expect(within(resultsCanvas).queryByRole('button', { name: 'Add content' })).not.toBeInTheDocument()
+  expect(within(resultsCanvas).getByRole('button', { name: 'Clear search' })).toBeInTheDocument()
 })
 
 test('Recall home keeps manual ordering behind the compact sort menu without reopening the old organizer chrome', async () => {
@@ -1136,10 +1722,17 @@ test('Recall home custom collections can still be created from organizer options
     expect(within(browseStrip).getByRole('button', { name: /^Pinned work/i })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  expect(getHomeCanvas()).toBeInTheDocument()
+  const canvas = getHomeCanvas()
+  expect(canvas).toBeInTheDocument()
+  expect(screen.queryByLabelText('Home control seam')).not.toBeInTheDocument()
+  expect(document.querySelector('.recall-home-compact-control-deck')).toBeNull()
+  expect(within(canvas).getByRole('heading', { name: 'Pinned work', level: 3 })).toBeInTheDocument()
+  expect(
+    within(canvas).getByText('No sources are in this custom collection yet. Add them from any organizer branch.'),
+  ).toBeInTheDocument()
 })
 
-test('Home can hide the organizer rail and reopen it from the section launcher while compact controls stay available', async () => {
+test('Home can hide the organizer rail and reopen it from the section launcher while the board toolbar stays available', async () => {
   renderRecallApp('/recall')
 
   await waitFor(() => {
@@ -1158,9 +1751,20 @@ test('Home can hide the organizer rail and reopen it from the section launcher w
 
   const canvas = getHomeCanvas()
   expect(within(canvas).getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
   expect(within(canvas).getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
+  expect(within(canvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
   expect(within(canvas).queryByRole('button', { name: 'Collections' })).not.toBeInTheDocument()
-  expect(screen.getByLabelText('Home control seam')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Home control seam')).not.toBeInTheDocument()
+  expect(screen.queryByRole('group', { name: 'Compact organizer controls' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('searchbox', { name: 'Search saved sources' })).not.toBeInTheDocument()
+  const reopenStrip = within(canvas).getByRole('region', { name: 'Pinned reopen strip' })
+  expect(reopenStrip).toBeInTheDocument()
+  expect(within(reopenStrip).queryByRole('group', { name: 'Nearby sources' })).not.toBeInTheDocument()
+  expect(within(reopenStrip).queryByText('Nearby', { selector: 'strong' })).not.toBeInTheDocument()
+  expect(within(reopenStrip).getByRole('button', { name: /Resume|Open /i })).toBeInTheDocument()
+  expect(screen.queryByRole('separator', { name: 'Resize Home organizer' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Show home organizer' })).toHaveClass(
     'recall-home-organizer-launcher-stage696',
   )
@@ -1170,6 +1774,107 @@ test('Home can hide the organizer rail and reopen it from the section launcher w
   await waitFor(() => {
     expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
   })
+})
+
+test('Home hidden captures canvas retires the legacy organizer companion track', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Captures/ }))
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName('Captures collection canvas')
+  })
+
+  fireEvent.click(within(rail).getByRole('button', { name: 'Hide organizer' }))
+
+  await waitFor(() => {
+    expect(screen.queryByRole('complementary', { name: 'Home collection rail' })).not.toBeInTheDocument()
+  })
+
+  const hiddenCanvas = getHomeCanvas()
+  expect(hiddenCanvas).toHaveAccessibleName('Captures collection canvas')
+  expect(within(hiddenCanvas).getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(within(hiddenCanvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(within(hiddenCanvas).getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  expect(within(hiddenCanvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
+  expect(within(hiddenCanvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
+  expect(within(hiddenCanvas).getByRole('region', { name: 'Pinned reopen strip' })).toBeInTheDocument()
+  expect(screen.queryByLabelText('Home control seam')).not.toBeInTheDocument()
+  expect(screen.queryByRole('group', { name: 'Compact organizer controls' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('searchbox', { name: 'Search saved sources' })).not.toBeInTheDocument()
+  expect(document.querySelector('.recall-home-primary-flow-grid-organizer-hidden-reset')).toBeNull()
+  expect(document.querySelector('.recall-home-primary-flow-grid-organizer-hidden-stage820')).toBeNull()
+})
+
+test('Home hidden matches keep the board toolbar without reviving organizer controls', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  await openHomeOrganizerOptions(rail)
+  fireEvent.change(within(rail).getByRole('searchbox', { name: 'Filter saved sources' }), {
+    target: { value: 'Search target' },
+  })
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName(/results canvas$/i)
+  })
+
+  fireEvent.click(within(rail).getByRole('button', { name: 'Hide organizer' }))
+
+  await waitFor(() => {
+    expect(screen.queryByRole('complementary', { name: 'Home collection rail' })).not.toBeInTheDocument()
+  })
+
+  const hiddenCanvas = getHomeCanvas()
+  expect(hiddenCanvas).toHaveAccessibleName(/results canvas$/i)
+  expect(within(hiddenCanvas).getByRole('button', { name: 'Search saved sources' })).toBeInTheDocument()
+  expect(within(hiddenCanvas).getByRole('button', { name: 'Add' })).toBeInTheDocument()
+  expect(within(hiddenCanvas).getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  expect(within(hiddenCanvas).getByRole('button', { name: 'List' })).toBeInTheDocument()
+  expect(within(hiddenCanvas).getByRole('button', { name: /Sort Home sources/i })).toBeInTheDocument()
+  expect(within(hiddenCanvas).queryByRole('region', { name: 'Pinned reopen shelf' })).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Home control seam')).not.toBeInTheDocument()
+  expect(screen.queryByRole('group', { name: 'Compact organizer controls' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('searchbox', { name: 'Search saved sources' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Collections' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Recent' })).not.toBeInTheDocument()
+})
+
+test('Home hidden reopen strip expands nearby sources inline instead of showing the old shelf at rest', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('complementary', { name: 'Home collection rail' })).toBeInTheDocument()
+  })
+
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: 'Hide organizer' }))
+
+  await waitFor(() => {
+    expect(screen.queryByRole('complementary', { name: 'Home collection rail' })).not.toBeInTheDocument()
+  })
+
+  const strip = within(getHomeCanvas()).getByRole('region', { name: 'Pinned reopen strip' })
+  expect(within(strip).queryByRole('group', { name: 'Nearby sources' })).not.toBeInTheDocument()
+  expect(within(strip).queryByText('Nearby', { selector: 'strong' })).not.toBeInTheDocument()
+
+  fireEvent.click(within(strip).getByRole('button', { name: /Show \d+ nearby source(s)?/i }))
+
+  await waitFor(() => {
+    expect(within(strip).getByRole('group', { name: 'Nearby sources' })).toBeInTheDocument()
+  })
+
+  expect(within(strip).getByText('Nearby', { selector: 'strong' })).toBeInTheDocument()
+  expect(within(strip).getAllByRole('button', { name: /Open /i }).length).toBeGreaterThan(1)
 })
 
 test('Recall home keeps organizer resize state through hide and show before resetting cleanly', async () => {
@@ -1222,7 +1927,8 @@ test('Recall shows unavailable states when its initial API loads fail', async ()
     expect(screen.getByText(localServiceUnavailableMessage)).toBeInTheDocument()
   })
 
-  expect(screen.getByText('Reconnect the local service to reload saved sources.')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Home control seam')).not.toBeInTheDocument()
+  expect(document.querySelector('.recall-home-compact-control-deck')).toBeNull()
   expect(screen.getByText('Saved sources are unavailable until the local service reconnects.')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Graph' }))
@@ -1320,12 +2026,22 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   expect(screen.getByRole('button', { name: 'Hide graph settings' })).toBeInTheDocument()
   expect(screen.queryByLabelText('Graph focus tray')).not.toBeInTheDocument()
   expect(document.querySelector('.recall-graph-canvas-count-pill-label')).not.toBeNull()
-  expect(within(graphRail).getByLabelText('Graph settings panel')).toHaveTextContent(
-    /Tune presets, filters, and groups while the canvas stays in view\./i,
-  )
+  expect(within(graphRail).queryByText(/Tune presets, filters, and groups while the canvas stays in view\./i)).toBeNull()
   expect(within(graphRail).getByText('Presets', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Filters', { selector: 'strong' })).toBeInTheDocument()
   expect(within(graphRail).getByText('Groups', { selector: 'strong' })).toBeInTheDocument()
+  const graphPresetSummaryInline = (graphRail as HTMLElement).querySelector('.recall-graph-sidebar-preset-summary-inline')
+  expect(graphPresetSummaryInline).not.toBeNull()
+  expect(graphPresetSummaryInline).toHaveTextContent('Explore starter preset')
+  expect(graphPresetSummaryInline).toHaveTextContent('Active view: Explore')
+  const graphPresetSaveButton = within(graphRail).getByRole('button', { name: 'Save as preset' })
+  expect(graphPresetSaveButton).toHaveClass('recall-graph-sidebar-secondary-action')
+  expect(graphPresetSaveButton).not.toHaveClass('recall-graph-sidebar-primary-action')
+  const graphHelpControls = screen.getByRole('group', { name: 'Graph help controls' })
+  expect(within(graphHelpControls).getByRole('button', { name: 'Take Graph tour' })).toBeInTheDocument()
+  expect(within(graphHelpControls).getByRole('button', { name: 'Graph help' })).toBeInTheDocument()
+  expect(screen.queryByLabelText('Graph View tour')).toBeNull()
+  fireEvent.click(within(graphHelpControls).getByRole('button', { name: 'Take Graph tour' }))
   const graphTour = screen.getByLabelText('Graph View tour')
   expect(graphTour).toHaveTextContent('Welcome to GraphView 2.0')
   expect(graphTour).toHaveTextContent("Let's explore")
@@ -1361,7 +2077,7 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
   expect(within(nodeDetailSection as HTMLElement).queryByRole('button', { name: 'Confirm' })).toBeNull()
   expect(within(nodeDetailSection as HTMLElement).queryByRole('button', { name: 'Reject' })).toBeNull()
   expect((nodeDetailSection as HTMLElement).querySelector('.recall-graph-detail-card-leading-peek')).not.toBeNull()
-  expect(within(nodeDetailSection as HTMLElement).getByText('Grounded clue')).toBeInTheDocument()
+  expect(within(nodeDetailSection as HTMLElement).getByText('Chunk evidence')).toBeInTheDocument()
   expect(within(nodeDetailSection as HTMLElement).queryByRole('button', { name: 'Focus source' })).toBeNull()
   expect(within(nodeDetailSection as HTMLElement).queryByText('Open source')).toBeNull()
   expect(within(nodeDetailSection as HTMLElement).getByRole('heading', { name: 'Knowledge Graphs', level: 3 })).toBeInTheDocument()
@@ -1480,26 +2196,73 @@ test('Recall study queue shows an active card and records a review after reveali
   const studyHeader = screen.getByLabelText('Study workspace header')
   const studyDashboardMetrics = screen.getByLabelText('Study dashboard metrics')
   const currentReviewSummary = screen.getByLabelText('Current review summary')
+  const studyReviewWorkbench = screen.getByLabelText('Study review task workbench')
 
-  expect(within(studyHeader).getByText('Review dashboard')).toBeInTheDocument()
-  expect(within(studyDashboardMetrics).getByText('Ready now')).toBeInTheDocument()
+  expect(studyReviewWorkbench).toHaveClass('recall-study-review-task-workbench-stage882')
+  expect(studyReviewWorkbench).toHaveAttribute('data-study-review-task-workbench-stage882', 'true')
+  expect(studyHeader).toHaveClass('recall-study-review-lead-band')
+  expect(studyHeader).toHaveClass('recall-study-command-lead-stage858')
+  expect(studyHeader).toHaveClass('recall-study-review-lead-band-stage882')
+  expect(studyHeader).toHaveAttribute('data-study-lead-command-row-stage858', 'true')
+  expect(studyHeader).toHaveAttribute('data-study-review-dashboard-stage916', 'true')
+  expect(studyHeader).toHaveAttribute('data-study-review-command-inside-workbench-stage882', 'true')
+  expect(studyReviewWorkbench).toContainElement(studyHeader)
+  expect(studyHeader).not.toHaveClass('priority-surface-stage-shell')
+  expect(within(studyHeader).getByText('Review flow')).toBeInTheDocument()
+  expect(within(studyHeader).queryByText('Review dashboard')).not.toBeInTheDocument()
+  expect(currentReviewSummary).toHaveClass('recall-study-command-status-stage858')
+  expect(studyDashboardMetrics).toHaveAttribute('data-study-review-dashboard-buckets-stage916', 'true')
+  expect(within(studyDashboardMetrics).getByText('Due now')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('This week')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Upcoming')).toBeInTheDocument()
   expect(within(studyDashboardMetrics).getByText('New')).toBeInTheDocument()
-  expect(within(studyDashboardMetrics).getByText('Scheduled')).toBeInTheDocument()
-  expect(within(studyDashboardMetrics).getByText('Logged')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Reviewed')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Total')).toBeInTheDocument()
+  const studyMetricPills = within(studyDashboardMetrics).getAllByRole('listitem')
+  expect(studyMetricPills).toHaveLength(6)
+  studyMetricPills.forEach((metric) => {
+    expect(metric).toHaveClass('recall-study-dashboard-metric-stage858')
+    expect(metric).toHaveAttribute('data-study-lead-metric-pill-stage858', 'true')
+  })
+  expect(document.querySelector('[data-study-review-dashboard-source-breakdown-stage916="true"]')).not.toBeNull()
   expect(within(currentReviewSummary).getByRole('tab', { name: 'Review', selected: true })).toBeInTheDocument()
   expect(within(currentReviewSummary).getByRole('tab', { name: 'Questions', selected: false })).toBeInTheDocument()
+  expect(within(currentReviewSummary).queryByText('What do Knowledge Graphs support?')).not.toBeInTheDocument()
 
   const activeCardSection = screen.getByRole('heading', { name: 'Review', level: 2 }).closest('section')
+  const activeReviewSurface = screen.getByLabelText('Active review card')
   const studyQueueSummary = screen.getByLabelText('Current question queue summary')
   const studyQueueDock = screen.getByLabelText('Study queue support')
   const studyEvidenceDock = screen.getByLabelText('Study evidence support')
   const browseStudySupportStrip = screen.getByLabelText('Browse study support')
+  const studySupportDock = studyQueueDock.closest('.recall-study-support-dock')
   expect(activeCardSection).not.toBeNull()
   expect(studyQueueDock).not.toBeNull()
   expect(studyEvidenceDock).not.toBeNull()
+  expect(studySupportDock).not.toBeNull()
   expect(activeCardSection).toHaveClass('recall-study-review-stage')
+  expect(activeReviewSurface).toBe(activeCardSection)
+  expect(studyReviewWorkbench).toContainElement(activeReviewSurface)
+  expect(activeReviewSurface).toHaveClass('recall-study-review-single-surface-stage862')
+  expect(activeReviewSurface).toHaveClass('recall-study-review-stage-stage882')
+  expect(activeReviewSurface).toHaveAttribute('data-study-review-single-surface-stage862', 'true')
+  expect(activeReviewSurface).toHaveAttribute('data-study-review-active-card-panel-reduced-stage882', 'true')
+  expect(
+    activeReviewSurface.querySelector('[data-study-review-card-top-seam-stage862="true"]'),
+  ).not.toBeNull()
+  expect(studySupportDock).toHaveClass('recall-study-support-dock-stage860')
+  expect(studySupportDock).toHaveClass('recall-study-support-dock-stage882')
+  expect(studySupportDock).toHaveAttribute('data-study-support-single-rail-stage860', 'true')
+  expect(studySupportDock).toHaveAttribute('data-study-review-support-rail-stage882', 'true')
+  expect(studyQueueDock).toHaveClass('recall-study-queue-seam-stage860')
+  expect(studyQueueDock).toHaveClass('recall-study-queue-seam-stage882')
+  expect(studyQueueDock).toHaveAttribute('data-study-review-queue-attached-stage882', 'true')
+  expect(studyEvidenceDock).toHaveClass('recall-study-evidence-dock-stage860')
+  expect(studyEvidenceDock).toHaveClass('recall-study-evidence-attached-stage882')
+  expect(studyEvidenceDock).toHaveAttribute('data-study-review-grounding-attached-stage882', 'true')
   expect(browseStudySupportStrip).toHaveClass('recall-study-toolbar-utility')
   expect(studyQueueDock).toContainElement(browseStudySupportStrip)
+  expect(activeCardSection).toHaveAttribute('data-study-review-prompt-first-stage856', 'true')
   expect(document.querySelector('.recall-study-sidebar-collapsed-hidden')).toBeNull()
   expect(within(studyQueueSummary).queryByText(/^\d+\s+cards$/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText(/reviews logged/i)).not.toBeInTheDocument()
@@ -1509,20 +2272,40 @@ test('Recall study queue shows an active card and records a review after reveali
   expect(within(studyQueueSummary).queryByText('Search target only')).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText('What do Knowledge Graphs support?')).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText('Hidden until needed.')).not.toBeInTheDocument()
-  expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
-  expect(within(studyQueueSummary).getByText(/Grounded:/i)).toBeInTheDocument()
-  expect(within(studyQueueSummary).getByText(/Source evidence/i)).toBeInTheDocument()
-  const studyReviewFlow = screen.getByLabelText('Study review flow')
-  expect(within(studyReviewFlow).getByText('Questions')).toBeInTheDocument()
-  expect(within(studyReviewFlow).getByText('Recall')).toBeInTheDocument()
-  expect(within(studyReviewFlow).getByText('Rate')).toBeInTheDocument()
+  const upcomingQuestions = within(studyQueueDock).queryByLabelText('Upcoming questions')
+  expect(upcomingQuestions?.querySelectorAll('.recall-study-queue-preview-row').length ?? 0).toBeLessThanOrEqual(1)
+  const activePromptSurface = within(activeCardSection as HTMLElement).getByLabelText('Active review prompt')
+  expect(activePromptSurface).toHaveAttribute('data-study-review-prompt-surface-stage856', 'true')
+  expect(within(activePromptSurface).getByText('What do Knowledge Graphs support?')).toBeInTheDocument()
+  expect(screen.getAllByText('What do Knowledge Graphs support?')).toHaveLength(1)
+  expect(within(studyQueueSummary).queryByText(/Grounded:/i)).not.toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText(/Source evidence/i)).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Study review flow')).not.toBeInTheDocument()
+  expect((activeCardSection as HTMLElement).querySelector('.recall-study-review-glance')).toBeNull()
+  expect((activeCardSection as HTMLElement).querySelector('.recall-study-review-prompt-panel')).toBeNull()
+  expect((activeCardSection as HTMLElement).querySelector('.recall-study-review-prompt-card')).toBeNull()
+  expect((activeCardSection as HTMLElement).querySelector('.recall-study-review-reveal-band')).toBeNull()
+  expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Preview evidence' })).not.toBeInTheDocument()
+  expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Refresh cards' })).not.toBeInTheDocument()
+  expect(within(studyEvidenceDock).queryByText('Keep one source reminder nearby without breaking the review flow.')).not.toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
   expect(within(studyEvidenceDock).getByText('Knowledge Graphs support Study Cards.')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Show answer' }))
+  const showAnswerButton = within(activeReviewSurface).getByRole('button', { name: 'Show answer' })
+  expect(showAnswerButton.closest('[data-study-review-single-surface-stage862="true"]')).toBe(activeReviewSurface)
+  fireEvent.click(showAnswerButton)
 
   await waitFor(() => {
     expect(within(studyEvidenceDock).getByText('Source evidence')).toBeInTheDocument()
   })
 
+  expect(activeReviewSurface.querySelector('.recall-study-review-answer-panel')).toBeNull()
+  expect(activeReviewSurface.querySelector('.recall-study-review-rating-band')).toBeNull()
+  const attachedAnswer = activeReviewSurface.querySelector('[data-study-review-answer-attached-stage862="true"]')
+  const attachedRating = activeReviewSurface.querySelector('[data-study-review-rating-attached-stage862="true"]')
+  expect(attachedAnswer).not.toBeNull()
+  expect(attachedRating).not.toBeNull()
+  expect(attachedAnswer?.closest('[data-study-review-single-surface-stage862="true"]')).toBe(activeReviewSurface)
+  expect(attachedRating?.closest('[data-study-review-single-surface-stage862="true"]')).toBe(activeReviewSurface)
   expect(screen.getByText('Rate recall to schedule the next review.')).toBeInTheDocument()
   expect(within(studyEvidenceDock).getAllByText('Knowledge Graphs support Study Cards.').length).toBeGreaterThan(0)
   expect(screen.getByText('Study Cards')).toBeInTheDocument()
@@ -1530,6 +2313,318 @@ test('Recall study queue shows an active card and records a review after reveali
 
   await waitFor(() => {
     expect(reviewRecallStudyCardMock).toHaveBeenCalledWith('card-1', 'good')
+  })
+})
+
+test('Study review dashboard shows schedule buckets and source breakdown handoffs', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-dashboard-due',
+      prompt: 'Dashboard due prompt?',
+      due_at: '2026-03-12T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-12T00:20:00Z', review_count: 0 },
+      status: 'due',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-dashboard-new',
+      prompt: 'Dashboard new prompt?',
+      due_at: '2026-03-13T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-13T00:20:00Z', review_count: 0 },
+      status: 'new',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-dashboard-scheduled',
+      prompt: 'Dashboard scheduled prompt?',
+      due_at: '2026-03-14T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-14T00:20:00Z', review_count: 2 },
+      review_count: 2,
+      status: 'scheduled',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-dashboard-other',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      prompt: 'Dashboard other source prompt?',
+      due_at: '2026-03-12T00:10:00Z',
+      scheduling_state: { due_at: '2026-03-12T00:10:00Z', review_count: 0 },
+      status: 'due',
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall?section=study')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByLabelText('Study workspace header')).toHaveAttribute('data-study-review-dashboard-stage916', 'true')
+  })
+
+  const studyDashboardMetrics = screen.getByLabelText('Study dashboard metrics')
+  expect(studyDashboardMetrics).toHaveAttribute('data-study-review-dashboard-buckets-stage916', 'true')
+  for (const label of ['Due now', 'This week', 'Upcoming', 'New', 'Reviewed', 'Total']) {
+    expect(within(studyDashboardMetrics).getByText(label)).toBeInTheDocument()
+  }
+  expect(within(studyDashboardMetrics).getAllByRole('listitem')).toHaveLength(6)
+
+  const sourceBreakdown = document.querySelector(
+    '[data-study-review-dashboard-source-breakdown-stage916="true"]',
+  ) as HTMLElement | null
+  expect(sourceBreakdown).not.toBeNull()
+  const sourceRows = within(sourceBreakdown as HTMLElement).getAllByRole('listitem')
+  expect(sourceRows.length).toBeGreaterThanOrEqual(2)
+  expect(sourceRows[0]).toHaveTextContent('Search target only')
+  expect(sourceRows[0]).toHaveAttribute('data-study-review-dashboard-source-row-due-stage916', '1')
+  expect(sourceRows[0]).toHaveAttribute('data-study-review-dashboard-source-row-new-stage916', '1')
+
+  fireEvent.click(within(sourceRows[0]).getByRole('button', { name: 'Review' }))
+  await waitFor(() => {
+    expect(document.querySelector('[data-study-source-scoped-queue-stage914="true"]')).not.toBeNull()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+    expect(screen.getAllByText('Dashboard due prompt?').length).toBeGreaterThan(0)
+  })
+  expect(screen.queryByText('Dashboard other source prompt?')).not.toBeInTheDocument()
+
+  cleanup()
+  renderRecallApp('/recall?section=study')
+
+  await waitFor(() => {
+    expect(screen.getByLabelText('Study workspace header')).toHaveAttribute('data-study-review-dashboard-stage916', 'true')
+  })
+  const questionsSourceBreakdown = document.querySelector(
+    '[data-study-review-dashboard-source-breakdown-stage916="true"]',
+  ) as HTMLElement
+  const questionsSourceRows = within(questionsSourceBreakdown).getAllByRole('listitem')
+  fireEvent.click(within(questionsSourceRows[0]).getByRole('button', { name: 'Questions' }))
+  await waitFor(() => {
+    expect(document.querySelector('[data-study-source-scoped-question-search-stage914="true"]')).not.toBeNull()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+})
+
+test('Study dashboard schedule buckets drill into clearable Questions filters', async () => {
+  const dueThisWeekDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
+  const upcomingDate = new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString()
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-schedule-due',
+      prompt: 'Schedule due drilldown prompt?',
+      status: 'due',
+      due_at: '2026-03-13T00:20:00Z',
+      review_count: 0,
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-schedule-this-week',
+      prompt: 'Schedule this week needle prompt?',
+      answer: 'This answer keeps the week filter searchable.',
+      status: 'scheduled',
+      due_at: dueThisWeekDate,
+      review_count: 0,
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-schedule-upcoming',
+      prompt: 'Schedule upcoming drilldown prompt?',
+      status: 'scheduled',
+      due_at: upcomingDate,
+      review_count: 0,
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-schedule-reviewed',
+      prompt: 'Schedule reviewed drilldown prompt?',
+      status: 'new',
+      due_at: upcomingDate,
+      review_count: 2,
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall?section=study')
+
+  await waitFor(() => {
+    expect(screen.getByLabelText('Study workspace header')).toHaveAttribute('data-study-review-dashboard-stage916', 'true')
+  })
+
+  const dashboardMetrics = screen.getByLabelText('Study dashboard metrics')
+  expect(dashboardMetrics).toHaveAttribute('data-study-schedule-bucket-drilldowns-stage918', 'true')
+
+  fireEvent.click(within(dashboardMetrics).getByRole('button', { name: /Due now/i }))
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Questions', selected: true })).toBeInTheDocument()
+    expect(screen.getByLabelText('Active study schedule filter')).toHaveAttribute(
+      'data-study-schedule-filter-value-stage918',
+      'due-now',
+    )
+  })
+  let questionManager = screen.getByLabelText('Study questions manager')
+  expect(within(questionManager).getByRole('button', { name: /Schedule due drilldown prompt/i })).toBeInTheDocument()
+  expect(within(questionManager).queryByRole('button', { name: /Schedule upcoming drilldown prompt/i })).not.toBeInTheDocument()
+
+  fireEvent.click(within(screen.getByLabelText('Study dashboard metrics')).getByRole('button', { name: /This week/i }))
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active study schedule filter')).toHaveAttribute(
+      'data-study-schedule-filter-value-stage918',
+      'due-this-week',
+    )
+  })
+  questionManager = screen.getByLabelText('Study questions manager')
+  expect(within(questionManager).getByRole('button', { name: /Schedule this week needle prompt/i })).toBeInTheDocument()
+  expect(within(questionManager).queryByRole('button', { name: /Schedule upcoming drilldown prompt/i })).not.toBeInTheDocument()
+
+  const questionSearch = screen.getByRole('searchbox', { name: 'Search questions' })
+  fireEvent.change(questionSearch, { target: { value: 'needle' } })
+  await waitFor(() => {
+    expect(document.querySelectorAll('[data-study-question-search-result-stage914="true"]')).toHaveLength(1)
+  })
+
+  fireEvent.click(within(screen.getByLabelText('Study dashboard metrics')).getByRole('button', { name: /Upcoming/i }))
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active study schedule filter')).toHaveAttribute(
+      'data-study-schedule-filter-value-stage918',
+      'upcoming',
+    )
+  })
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search questions' }), { target: { value: '' } })
+  questionManager = screen.getByLabelText('Study questions manager')
+  expect(within(questionManager).getByRole('button', { name: /Schedule upcoming drilldown prompt/i })).toBeInTheDocument()
+  expect(within(questionManager).queryByRole('button', { name: /Schedule this week needle prompt/i })).not.toBeInTheDocument()
+
+  fireEvent.click(within(screen.getByLabelText('Study dashboard metrics')).getByRole('button', { name: /Reviewed/i }))
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active study schedule filter')).toHaveAttribute(
+      'data-study-schedule-filter-value-stage918',
+      'reviewed',
+    )
+  })
+  questionManager = screen.getByLabelText('Study questions manager')
+  expect(within(questionManager).getByRole('button', { name: /Schedule reviewed drilldown prompt/i })).toBeInTheDocument()
+  expect(within(questionManager).queryByRole('button', { name: /Schedule due drilldown prompt/i })).not.toBeInTheDocument()
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search questions' }), { target: { value: 'nothing-matches-this' } })
+  await waitFor(() => {
+    expect(document.querySelector('[data-study-schedule-empty-stage918="true"]')).not.toBeNull()
+  })
+  fireEvent.click(screen.getAllByRole('button', { name: 'Clear schedule' })[0])
+  await waitFor(() => {
+    expect(document.querySelector('[data-study-schedule-filter-chip-stage918="true"]')).toBeNull()
+  })
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search questions' }), { target: { value: '' } })
+  fireEvent.click(within(screen.getByLabelText('Study dashboard metrics')).getByRole('button', { name: /Due now/i }))
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active study schedule filter')).toHaveAttribute(
+      'data-study-schedule-filter-value-stage918',
+      'due-now',
+    )
+  })
+  fireEvent.click(screen.getByRole('tab', { name: 'New' }))
+  await waitFor(() => {
+    expect(document.querySelector('[data-study-schedule-filter-chip-stage918="true"]')).toBeNull()
+  })
+  questionManager = screen.getByLabelText('Study questions manager')
+  expect(within(questionManager).getByRole('button', { name: /Schedule reviewed drilldown prompt/i })).toBeInTheDocument()
+})
+
+test('Recall Study Questions view is canvas-owned while review handoff stays compact', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-question-primary',
+      prompt: 'What do Knowledge Graphs support?',
+      status: 'new',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-question-secondary',
+      prompt: 'Which card keeps Questions canvas-owned?',
+      status: 'due',
+      due_at: '2026-03-13T01:20:00Z',
+      review_count: 2,
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: false })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Review', level: 2 })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Questions', selected: false }))
+
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  const questionsLeadBand = screen.getByLabelText('Study workspace header')
+  const questionsLeadActions = screen.getByLabelText('Questions lead actions')
+  const reviewHandoff = screen.getByLabelText('Study review handoff')
+  const evidenceDock = screen.getByLabelText('Study evidence support')
+  const questionsSupportDock = reviewHandoff.closest('.recall-study-support-dock')
+
+  expect(questionsLeadBand).toHaveClass('recall-study-questions-lead-band')
+  expect(questionsLeadBand).toHaveClass('recall-study-command-lead-stage858')
+  expect(questionsLeadBand).toHaveAttribute('data-study-lead-command-row-stage858', 'true')
+  expect(questionsLeadActions).toHaveClass('recall-study-command-status-stage858')
+  expect(within(questionsLeadBand).getByRole('heading', { name: 'Questions', level: 2 })).toBeInTheDocument()
+  expect(screen.getAllByRole('heading', { name: 'Questions', level: 2 })).toHaveLength(1)
+  expect(within(questionsLeadActions).getByRole('tab', { name: 'Review', selected: false })).toBeInTheDocument()
+  expect(within(questionsLeadActions).getByRole('tab', { name: 'Questions', selected: true })).toBeInTheDocument()
+  expect(within(questionsLeadActions).getByRole('button', { name: 'Refresh cards' })).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: 'Refresh cards' })).toHaveLength(1)
+  expect(questionManager).toHaveClass('recall-study-questions-stage')
+  expect(questionManager).toHaveAttribute('data-study-questions-primary-canvas-stage852', 'true')
+  expect(questionManager).toHaveAttribute('data-study-questions-fused-stage854', 'true')
+  expect(within(questionManager).queryByRole('heading', { name: 'Questions', level: 2 })).not.toBeInTheDocument()
+  expect(within(questionManager).queryByLabelText('Selected question summary')).not.toBeInTheDocument()
+  expect(within(questionManager).queryByRole('button', { name: 'Refresh cards' })).not.toBeInTheDocument()
+  expect(within(questionManager).queryByRole('button', { name: 'Return to review' })).not.toBeInTheDocument()
+  expect(within(questionManager).getByRole('tab', { name: 'All', selected: true })).toBeInTheDocument()
+  expect(within(questionManager).getByRole('tab', { name: 'New' })).toBeInTheDocument()
+  expect(within(questionManager).getByRole('tab', { name: 'Due' })).toBeInTheDocument()
+  expect(within(questionManager).getByRole('tab', { name: 'Scheduled' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Review', level: 2 })).not.toBeInTheDocument()
+  expect(questionsSupportDock).not.toBeNull()
+  expect(questionsSupportDock).toHaveClass('recall-study-support-dock-stage860')
+  expect(questionsSupportDock).toHaveAttribute('data-study-support-single-rail-stage860', 'true')
+  expect(reviewHandoff).toHaveClass('recall-study-review-handoff-compact-stage860')
+  expect(within(reviewHandoff).queryByRole('list')).not.toBeInTheDocument()
+  expect(within(reviewHandoff).getByRole('button', { name: 'Return to review' })).toBeInTheDocument()
+  expect(within(reviewHandoff).queryByText('Keep the selected question ready, then return to Review when you want to answer.')).not.toBeInTheDocument()
+  expect(evidenceDock).toBeInTheDocument()
+  expect(evidenceDock).toHaveClass('recall-study-evidence-dock-stage860')
+
+  const activeQuestionRow = questionManager.querySelector('[data-study-questions-active-row-stage852="true"]')
+  expect(activeQuestionRow).not.toBeNull()
+  expect(activeQuestionRow).toHaveClass('recall-study-questions-row-active')
+
+  fireEvent.click(within(questionManager).getByRole('button', { name: /Which card keeps Questions canvas-owned\?/i }))
+
+  await waitFor(() => {
+    const updatedQuestionManager = screen.getByLabelText('Study questions manager')
+    expect(updatedQuestionManager).toBeInTheDocument()
+    expect(
+      within(updatedQuestionManager).getByRole('button', {
+        name: /Which card keeps Questions canvas-owned\?/i,
+      }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(within(screen.getByLabelText('Selected review handoff')).getByText('Which card keeps Questions canvas-owned?')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(reviewHandoff).getByRole('button', { name: 'Return to review' }))
+
+  await waitFor(() => {
+    expect(screen.queryByLabelText('Study questions manager')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review', level: 2 })).toBeInTheDocument()
   })
 })
 
@@ -1546,9 +2641,8 @@ test('Recall study detail keeps a Reader handoff next to source evidence', async
     expect(screen.getByRole('heading', { name: 'Review', level: 2 })).toBeInTheDocument()
   })
 
-  const browseStudySupportStrip = screen.getByLabelText('Browse study support')
   const studyEvidenceDock = screen.getByLabelText('Study evidence support')
-  fireEvent.click(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' }))
+  fireEvent.click(within(studyEvidenceDock).getByRole('button', { name: 'Preview evidence' }))
 
   await waitFor(() => {
     expect(within(studyEvidenceDock).getByText('Source evidence')).toBeInTheDocument()
@@ -1654,6 +2748,10 @@ test('Notebook document selection, search, and selected note survive Reader hand
   await waitFor(() => {
     expect(fetchRecallNotesMock).toHaveBeenCalledWith('doc-reader')
   })
+  await waitFor(() => {
+    expect(screen.getByRole('combobox', { name: 'Source' })).toHaveValue('doc-reader')
+  })
+  searchRecallNotesMock.mockClear()
 
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search notebook' }), {
     target: { value: 'sentence two' },
@@ -1667,10 +2765,9 @@ test('Notebook document selection, search, and selected note survive Reader hand
     expect(screen.getByDisplayValue('Return to sentence two.')).toBeInTheDocument()
   })
 
-  const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
-  expect(noteDetailSection).not.toBeNull()
+  const noteDetailSection = screen.getByRole('region', { name: 'Selected note workbench' })
 
-  fireEvent.click(within(noteDetailSection as HTMLElement).getByRole('button', { name: 'Open in Reader' }))
+  fireEvent.click(within(noteDetailSection).getByRole('button', { name: 'Open in Reader' }))
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/reader')
@@ -1696,26 +2793,640 @@ test('desktop Notebook milestone makes browse and detail the primary workspace',
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Browse notebook', level: 3 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected note workbench' })).toBeInTheDocument()
   })
 
   const browseSection = screen.getByRole('heading', { name: 'Browse notebook', level: 3 }).closest('section')
-  const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
+  const noteDetailSection = screen.getByRole('region', { name: 'Selected note workbench' })
+  const commandRow = screen.getByRole('region', { name: 'Notebook command row' })
 
   expect(browseSection).not.toBeNull()
   expect(noteDetailSection).not.toBeNull()
+  expect(commandRow).toHaveClass('recall-notes-command-row-stage872')
+  expect(commandRow).toHaveClass('recall-notes-command-row-stage886')
+  expect(commandRow).toHaveClass('recall-notes-command-row-stage888')
+  expect(commandRow).toHaveAttribute('data-notebook-selected-note-lead-band', 'fused')
   expect(browseSection).toHaveClass('recall-notes-browser-card')
   expect(browseSection).toHaveClass('recall-notes-browser-card-stage698')
+  expect(browseSection).toHaveClass('recall-notes-browser-card-stage872')
+  expect(browseSection).toHaveClass('recall-notes-browser-card-stage888')
   expect(noteDetailSection).toHaveClass('recall-note-detail-stage')
   expect(noteDetailSection).toHaveClass('recall-note-detail-stage698')
+  expect(noteDetailSection).toHaveClass('recall-note-detail-stage872')
+  expect(noteDetailSection).toHaveClass('recall-note-detail-stage886')
   expect(noteDetailSection?.closest('.recall-notes-workspace')).not.toBeNull()
-  expect((browseSection as HTMLElement).querySelector('.recall-notes-browser-glance')).not.toBeNull()
-  expect((browseSection as HTMLElement).querySelector('[data-note-browser-row-kind="library-note"]')).not.toBeNull()
-  expect((noteDetailSection as HTMLElement).querySelector('[data-note-workbench-layout="split"]')).not.toBeNull()
-  expect(within(noteDetailSection as HTMLElement).getByRole('textbox', { name: 'Note text' })).toHaveValue('Useful search note.')
+  expect(within(commandRow).getByRole('combobox', { name: 'Source' })).toBeInTheDocument()
+  expect(within(commandRow).getByRole('searchbox', { name: 'Search notebook' })).toBeInTheDocument()
+  expect(within(commandRow).getByRole('button', { name: 'Capture in Reader' })).toBeInTheDocument()
+  expect(within(commandRow).getByText('Search sentence one. Search sentence two.')).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Note detail', level: 2 })).not.toBeInTheDocument()
+  expect(document.querySelector('.recall-notes-stage-shell')).toBeNull()
+  expect((browseSection as HTMLElement).querySelector('.recall-notes-browser-glance')).toBeNull()
+  const activeBrowseRow = (browseSection as HTMLElement).querySelector('[data-note-browser-row-state="active"]')
+  expect(activeBrowseRow).not.toBeNull()
+  expect(activeBrowseRow).toHaveClass('recall-note-browser-row-stage888')
+  expect(activeBrowseRow).toHaveClass('recall-note-browser-row-active-stage888')
+  expect(activeBrowseRow?.querySelector('.recall-document-meta')).not.toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('[data-note-workbench-layout="fused"]')).not.toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelectorAll('.recall-note-workbench-pane-flat-stage886')).toHaveLength(2)
+  expect(within(noteDetailSection as HTMLElement).getByRole('heading', { name: 'Highlighted passage', level: 3 })).toBeInTheDocument()
+  expect(within(noteDetailSection as HTMLElement).getAllByText('Search sentence one. Search sentence two.').length).toBeGreaterThan(0)
+  expect((noteDetailSection as HTMLElement).querySelector('[data-notebook-highlight-panel="true"]')).not.toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('[data-notebook-source-context-panel="true"]')).toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-detail-dock')).toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-dock-card')).toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-promotion-card')).toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-source-handoff-inline-stage872')).not.toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-promote-inline-stage872')).not.toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-source-handoff-action-seam-stage886')).not.toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-promote-action-seam-stage886')).not.toBeNull()
+  await waitFor(() => {
+    expect(within(noteDetailSection as HTMLElement).getByRole('textbox', { name: 'Note text' })).toHaveValue(
+      'Useful search note.',
+    )
+  })
   expect(within(noteDetailSection as HTMLElement).getByRole('heading', { name: 'Promote note', level: 3 })).toBeInTheDocument()
   expect(within(noteDetailSection as HTMLElement).queryByText('1. Browse one saved source')).not.toBeInTheDocument()
   expect(within(noteDetailSection as HTMLElement).getByRole('heading', { name: 'Source handoff', level: 3 })).toBeInTheDocument()
+})
+
+test('Home New note opens a source-attached Notebook draft and saves it into the workbench', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'New note' }))
+
+  const draftWorkbench = await screen.findByRole('region', { name: 'New note draft' })
+  const commandRow = screen.getByRole('region', { name: 'Notebook command row' })
+
+  expect(commandRow).toHaveAttribute('data-notebook-new-note-draft-stage890', 'true')
+  expect(draftWorkbench).toHaveClass('recall-note-detail-stage888')
+  expect((draftWorkbench as HTMLElement).querySelector('.recall-note-draft-workbench-stage890')).not.toBeNull()
+  expect(within(commandRow).getByRole('combobox', { name: 'Source' })).toHaveValue('doc-search')
+  expect(within(commandRow).getByRole('button', { name: 'New note' })).toBeInTheDocument()
+  expect(within(commandRow).getByRole('button', { name: 'Capture in Reader' })).toBeInTheDocument()
+  expect(within(draftWorkbench).getByRole('button', { name: 'Save note' })).toBeDisabled()
+
+  fireEvent.change(within(draftWorkbench).getByRole('textbox', { name: 'New note text' }), {
+    target: { value: 'Notebook source draft.' },
+  })
+  fireEvent.click(within(draftWorkbench).getByRole('button', { name: 'Save note' }))
+
+  await waitFor(() => {
+    expect(createRecallNoteMock).toHaveBeenCalledWith(
+      'doc-search',
+      expect.objectContaining({
+        anchor: expect.objectContaining({
+          kind: 'source',
+          source_document_id: 'doc-search',
+          block_id: 'source:doc-search',
+          anchor_text: 'Source note for Search target only',
+        }),
+        body_text: 'Notebook source draft.',
+      }),
+    )
+  })
+
+  await waitFor(() => {
+    expect(screen.queryByRole('region', { name: 'New note draft' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected note workbench' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Notebook source draft.')
+  })
+
+  const selectedWorkbench = screen.getByRole('region', { name: 'Selected note workbench' })
+  expect(within(selectedWorkbench).getAllByText('Source note').length).toBeGreaterThan(0)
+  expect(within(selectedWorkbench).getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+  expect(within(selectedWorkbench).getAllByText('Search target only').length).toBeGreaterThan(0)
+  expect(within(selectedWorkbench).getByText(/Whole source context/)).toBeInTheDocument()
+  expect(within(selectedWorkbench).queryByRole('heading', { name: 'Highlighted passage', level: 3 })).not.toBeInTheDocument()
+  expect(within(selectedWorkbench).queryByText('Source note for Search target only')).not.toBeInTheDocument()
+  expect(within(selectedWorkbench).queryByText('Manual note attached to Search target only.')).not.toBeInTheDocument()
+  expect(within(selectedWorkbench).getByRole('button', { name: 'Open in Reader' })).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Personal notes' })).toBeInTheDocument()
+  })
+
+  const personalNotesLane = screen.getByRole('region', { name: 'Personal notes' })
+  expect(within(personalNotesLane).getByRole('heading', { name: 'Personal notes', level: 3 })).toBeInTheDocument()
+  expect(within(personalNotesLane).getByText('Notebook source draft.')).toBeInTheDocument()
+  expect(within(personalNotesLane).queryByText('Source note for Search target only')).not.toBeInTheDocument()
+  expect(within(personalNotesLane).queryByText('Manual note attached to Search target only.')).not.toBeInTheDocument()
+
+  const personalNotesOrganizer = document.querySelector('[data-home-personal-notes-organizer-section-stage898="true"]')
+  expect(personalNotesOrganizer).not.toBeNull()
+  expect(document.querySelectorAll('.recall-home-parity-card-stage563').length).toBeGreaterThan(0)
+  expect(document.querySelector('[data-home-personal-notes-board-stage898="true"]')).toBeNull()
+
+  fireEvent.click(within(personalNotesOrganizer as HTMLElement).getByRole('button', { name: /Personal notes/ }))
+
+  await waitFor(() => {
+    expect(document.querySelector('[data-home-personal-notes-board-stage898="true"]')).not.toBeNull()
+  })
+
+  const personalNotesBoard = document.querySelector('[data-home-personal-notes-board-stage898="true"]') as HTMLElement
+  expect(document.querySelector('[data-home-personal-notes-organizer-selected-stage898="true"]')).not.toBeNull()
+  expect(personalNotesBoard).toHaveTextContent('Notebook source draft.')
+  expect(personalNotesBoard).not.toHaveTextContent('Source note for Search target only')
+  expect(personalNotesBoard).not.toHaveTextContent('Manual note attached to Search target only.')
+  expect(personalNotesBoard.querySelector('[data-home-personal-note-board-preview-stage898="body"]')).not.toBeNull()
+
+  fireEvent.click(within(personalNotesBoard).getByRole('button', { name: 'Open personal note from Search target only' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Notebook source draft.')
+    expect(screen.getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
+  await waitFor(() => {
+    expect(document.querySelector('[data-home-personal-notes-board-stage898="true"]')).not.toBeNull()
+  })
+
+  await openHomeOrganizerOptions()
+  const homeSearchBox = await screen.findByRole('searchbox', { name: 'Filter saved sources' })
+  fireEvent.change(homeSearchBox, {
+    target: { value: 'Notebook source draft' },
+  })
+
+  await waitFor(() => {
+    expect(searchRecallNotesMock).toHaveBeenCalledWith('Notebook source draft', 8, null)
+    const searchedPersonalNotesLane = screen.getByRole('region', { name: 'Personal notes' })
+    expect(
+      within(searchedPersonalNotesLane).getByRole('heading', { name: 'Personal note matches', level: 3 }),
+    ).toBeInTheDocument()
+    expect(within(searchedPersonalNotesLane).getByText('Notebook source draft.')).toBeInTheDocument()
+  })
+
+  const searchedPersonalNotesLane = screen.getByRole('region', { name: 'Personal notes' })
+  fireEvent.click(
+    within(searchedPersonalNotesLane).getByRole('button', { name: 'Open personal note from Search target only' }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Notebook source draft.')
+  })
+
+  const reopenedWorkbench = screen.getByRole('region', { name: 'Selected note workbench' })
+
+  expect(within(reopenedWorkbench).getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+  expect(
+    within(reopenedWorkbench).queryByRole('heading', { name: 'Highlighted passage', level: 3 }),
+  ).not.toBeInTheDocument()
+
+  fireEvent.click(within(reopenedWorkbench).getByRole('button', { name: 'Open in Reader' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+  })
+
+  expect(window.location.search).toContain('document=doc-search')
+  expect(window.location.search).not.toContain('sentenceStart=')
+  expect(window.location.search).not.toContain('sentenceEnd=')
+})
+
+test('Home Personal notes board keeps source boards separate and opens Reader unanchored', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-source-home-board',
+        'doc-search',
+        'Search target only',
+        'Board source note preview.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+    expect(document.querySelector('[data-home-personal-notes-organizer-section-stage898="true"]')).not.toBeNull()
+  })
+
+  expect(document.querySelectorAll('.recall-home-parity-card-stage563').length).toBeGreaterThan(0)
+  expect(document.querySelector('[data-home-personal-notes-board-stage898="true"]')).toBeNull()
+
+  const personalNotesOrganizer = document.querySelector('[data-home-personal-notes-organizer-section-stage898="true"]')
+  fireEvent.click(within(personalNotesOrganizer as HTMLElement).getByRole('button', { name: /Personal notes/ }))
+
+  await waitFor(() => {
+    expect(document.querySelector('[data-home-personal-notes-board-stage898="true"]')).not.toBeNull()
+  })
+
+  const board = document.querySelector('[data-home-personal-notes-board-stage898="true"]') as HTMLElement
+  expect(board).toHaveTextContent('Board source note preview.')
+  expect(board).not.toHaveTextContent('Source note for Search target only')
+  expect(board).not.toHaveTextContent('Manual note attached to Search target only.')
+  expect(board.querySelector('[data-home-personal-note-board-preview-stage898="body"]')).not.toBeNull()
+
+  fireEvent.click(within(board).getByRole('button', { name: 'Open personal note from Search target only' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Board source note preview.')
+    expect(screen.getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
+  await waitFor(() => {
+    expect(document.querySelector('[data-home-personal-notes-board-stage898="true"]')).not.toBeNull()
+  })
+
+  const reopenedBoard = document.querySelector('[data-home-personal-notes-board-stage898="true"]') as HTMLElement
+  fireEvent.click(within(reopenedBoard).getByRole('button', { name: 'Open Search target only in Reader' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+  })
+
+  expect(window.location.search).toContain('document=doc-search')
+  expect(window.location.search).not.toContain('sentenceStart=')
+  expect(window.location.search).not.toContain('sentenceEnd=')
+})
+
+test('Home source cards and list rows show source-owned memory signals and open the source memory stack', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-source-home-memory-signal',
+        'doc-search',
+        'Search target only',
+        'Home source memory signal note.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    const searchCard = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    const cardSignal = searchCard.querySelector(
+      '[data-home-source-memory-signal-stage908="true"][data-home-source-memory-signal-surface-stage908="card"]',
+    ) as HTMLElement | null
+    expect(cardSignal).not.toBeNull()
+    expect(cardSignal).toHaveAttribute('data-home-source-memory-note-count-stage908', '1')
+    expect(cardSignal).toHaveAttribute('data-home-source-memory-graph-count-stage908', '2')
+    expect(cardSignal).toHaveAttribute('data-home-source-memory-study-count-stage908', '1')
+    expect(cardSignal).toHaveTextContent('Memory')
+    expect(cardSignal).toHaveTextContent('1 note')
+    expect(cardSignal).toHaveTextContent('2 graph nodes')
+    expect(cardSignal).toHaveTextContent('1 card')
+  })
+
+  const searchCard = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+  const cardSignal = searchCard.querySelector(
+    '[data-home-source-memory-signal-stage908="true"][data-home-source-memory-signal-surface-stage908="card"]',
+  ) as HTMLElement
+  fireEvent.click(cardSignal)
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+    expect(document.querySelector('[data-source-overview-memory-stack-stage906="true"]')).not.toBeNull()
+    expect(document.querySelector('[data-source-overview-memory-stack-kind-stage906="personal-note"]')).not.toBeNull()
+    expect(document.querySelector('[data-source-overview-memory-stack-kind-stage906="graph"]')).not.toBeNull()
+    expect(document.querySelector('[data-source-overview-memory-stack-kind-stage906="study"]')).not.toBeNull()
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'List' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'List' }))
+
+  await waitFor(() => {
+    const searchRow = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    expect(
+      searchRow.querySelector(
+        '[data-home-source-memory-signal-stage908="true"][data-home-source-memory-signal-surface-stage908="list"]',
+      ),
+    ).not.toBeNull()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'List' }))
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  await openHomeOrganizerOptions(rail as HTMLElement)
+  const homeSearchBox = within(rail).getByRole('searchbox', { name: 'Filter saved sources' })
+  fireEvent.change(homeSearchBox, {
+    target: { value: 'Search target' },
+  })
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName(/results canvas$/i)
+    expect(screen.getByRole('heading', { name: 'Matches' })).toBeInTheDocument()
+    const searchResult = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    expect(searchResult.querySelector('[data-home-source-memory-signal-stage908="true"]')).not.toBeNull()
+  })
+
+  expect(document.querySelectorAll('.recall-home-parity-card-stage563, .recall-home-parity-list-row-stage563').length).toBeGreaterThan(0)
+  expect(document.querySelector('[data-home-personal-note-board-item-stage898="true"]')).toBeNull()
+})
+
+test('Home review-ready signals appear on source cards, list rows, and Matches and open source-scoped Study', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-home-review-due',
+      prompt: 'Home due review prompt?',
+      due_at: '2026-03-12T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-12T00:20:00Z', review_count: 0 },
+      status: 'due',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-home-review-new',
+      prompt: 'Home new review prompt?',
+      due_at: '2026-03-13T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-13T00:20:00Z', review_count: 0 },
+      status: 'new',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-home-review-scheduled',
+      prompt: 'Home scheduled review prompt?',
+      due_at: '2026-03-14T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-14T00:20:00Z', review_count: 1 },
+      review_count: 1,
+      status: 'scheduled',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-home-review-other',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      prompt: 'Other source home review prompt?',
+      status: 'due',
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    const searchCard = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    const reviewSignal = searchCard.querySelector(
+      '[data-home-review-ready-signal-stage916="true"][data-home-review-ready-signal-surface-stage916="card"]',
+    ) as HTMLElement | null
+    expect(reviewSignal).not.toBeNull()
+    expect(reviewSignal).toHaveAttribute('data-home-review-ready-due-count-stage916', '1')
+    expect(reviewSignal).toHaveAttribute('data-home-review-ready-new-count-stage916', '1')
+    expect(reviewSignal).toHaveAttribute('data-home-review-ready-scheduled-count-stage916', '1')
+    expect(reviewSignal).toHaveAttribute('data-home-review-ready-total-stage916', '3')
+    expect(reviewSignal).toHaveTextContent('Review')
+    expect(reviewSignal).toHaveTextContent('1 due')
+    expect(reviewSignal).toHaveTextContent('1 new')
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'List' }))
+  await waitFor(() => {
+    const searchRow = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    expect(
+      searchRow.querySelector(
+        '[data-home-review-ready-signal-stage916="true"][data-home-review-ready-signal-surface-stage916="list"]',
+      ),
+    ).not.toBeNull()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'List' }))
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  await openHomeOrganizerOptions(rail as HTMLElement)
+  fireEvent.change(within(rail).getByRole('searchbox', { name: 'Filter saved sources' }), {
+    target: { value: 'Search target' },
+  })
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName(/results canvas$/i)
+    expect(screen.getByRole('heading', { name: 'Matches' })).toBeInTheDocument()
+    const searchResult = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    expect(searchResult.querySelector('[data-home-review-ready-signal-stage916="true"]')).not.toBeNull()
+    expect(document.querySelector('[data-home-personal-note-board-item-stage898="true"]')).toBeNull()
+  })
+
+  const searchResult = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+  const matchesReviewSignal = searchResult.querySelector('[data-home-review-ready-signal-stage916="true"]')
+  expect(matchesReviewSignal).not.toBeNull()
+  fireEvent.click(matchesReviewSignal as HTMLElement)
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+    expect(document.querySelector('[data-study-source-scoped-queue-stage914="true"]')).not.toBeNull()
+    expect(screen.getAllByText('Home due review prompt?').length).toBeGreaterThan(0)
+  })
+  expect(screen.queryByText('Other source home review prompt?')).not.toBeInTheDocument()
+})
+
+test('Home memory filters narrow source boards and Matches without changing Personal notes', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-source-home-memory-filter',
+        'doc-search',
+        'Search target only',
+        'Home memory filter source note.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+
+  let memoryFilterGroup = await openHomeSortMenu()
+  expect(memoryFilterGroup).toHaveAttribute('data-home-memory-filter-controls-stage910', 'true')
+  for (const label of ['All', 'Any', 'Notes', 'Graph', 'Study']) {
+    expect(within(memoryFilterGroup).getByRole('button', { name: label })).toBeInTheDocument()
+  }
+  fireEvent.click(within(memoryFilterGroup).getByRole('button', { name: 'Any' }))
+
+  await waitFor(() => {
+    const canvas = getHomeCanvas()
+    expect(canvas).toHaveAttribute('data-home-memory-filter-active-stage910', 'any')
+    expect(within(canvas).getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+    expect(within(canvas).queryByRole('button', { name: 'Open Reader stays here' })).not.toBeInTheDocument()
+  })
+
+  memoryFilterGroup = await openHomeSortMenu()
+  fireEvent.click(within(memoryFilterGroup).getByRole('button', { name: 'Notes' }))
+
+  await waitFor(() => {
+    const searchCard = within(getHomeCanvas()).getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    const signal = searchCard.querySelector('[data-home-source-memory-signal-stage908="true"]') as HTMLElement | null
+    expect(signal).not.toBeNull()
+    expect(signal).toHaveAttribute('data-home-source-memory-note-count-stage908', '1')
+  })
+
+  memoryFilterGroup = await openHomeSortMenu()
+  fireEvent.click(within(memoryFilterGroup).getByRole('button', { name: 'Graph' }))
+
+  await waitFor(() => {
+    const searchCard = within(getHomeCanvas()).getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    const signal = searchCard.querySelector('[data-home-source-memory-signal-stage908="true"]') as HTMLElement | null
+    expect(signal).not.toBeNull()
+    expect(signal).toHaveAttribute('data-home-source-memory-graph-count-stage908', '2')
+  })
+
+  memoryFilterGroup = await openHomeSortMenu()
+  fireEvent.click(within(memoryFilterGroup).getByRole('button', { name: 'Study' }))
+
+  await waitFor(() => {
+    const searchCard = within(getHomeCanvas()).getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    const signal = searchCard.querySelector('[data-home-source-memory-signal-stage908="true"]') as HTMLElement | null
+    expect(signal).not.toBeNull()
+    expect(signal).toHaveAttribute('data-home-source-memory-study-count-stage908', '1')
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'List' }))
+  await waitFor(() => {
+    const searchRow = within(getHomeCanvas()).getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    expect(
+      searchRow.querySelector(
+        '[data-home-source-memory-signal-stage908="true"][data-home-source-memory-signal-surface-stage908="list"]',
+      ),
+    ).not.toBeNull()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'List' }))
+  const rail = screen.getByRole('complementary', { name: 'Home collection rail' })
+  await openHomeOrganizerOptions(rail as HTMLElement)
+  fireEvent.change(within(rail).getByRole('searchbox', { name: 'Filter saved sources' }), {
+    target: { value: 'Search target' },
+  })
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName(/results canvas$/i)
+    const searchResult = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    expect(searchResult.querySelector('[data-home-source-memory-signal-stage908="true"]')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open Reader stays here' })).not.toBeInTheDocument()
+  })
+
+  fireEvent.click(within(rail).getByRole('button', { name: 'Clear search' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Clear Memory: Study filter' }))
+  fireEvent.click(within(rail).getByRole('button', { name: /Personal notes/ }))
+
+  await waitFor(() => {
+    expect(document.querySelector('[data-home-personal-notes-board-stage898="true"]')).not.toBeNull()
+    expect(document.querySelector('[data-home-personal-note-board-item-stage898="true"]')).not.toBeNull()
+  })
+})
+
+test('Home memory filter empty states can clear back to source boards', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+
+  await selectHomeMemoryFilter('Notes')
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAttribute('data-home-memory-filter-active-stage910', 'notes')
+    expect(screen.getByRole('button', { name: 'Clear memory filter' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open Search target only' })).not.toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Clear memory filter' }))
+
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAttribute('data-home-memory-filter-active-stage910', 'all')
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+})
+
+test('desktop Notebook empty states stay workbench-owned and hand off capture to Reader', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [],
+  }
+
+  renderRecallApp('/recall')
+
+  await openNotebookFromHome()
+
+  await waitFor(() => {
+    expect(fetchRecallNotesMock).toHaveBeenCalledWith('doc-search')
+    expect(screen.getByRole('region', { name: 'Notebook workbench' })).toBeInTheDocument()
+  })
+
+  const noteDetailSection = screen.getByRole('region', { name: 'Notebook workbench' })
+  const commandRow = screen.getByRole('region', { name: 'Notebook command row' })
+
+  expect(noteDetailSection).not.toBeNull()
+  expect(noteDetailSection).toHaveClass('recall-note-detail-stage888')
+  expect(screen.queryByRole('heading', { name: 'Note detail', level: 2 })).not.toBeInTheDocument()
+  expect(within(commandRow).getByRole('button', { name: 'Capture in Reader' })).toBeInTheDocument()
+
+  const emptyWorkbench = (noteDetailSection as HTMLElement).querySelector('.recall-note-empty-workbench-stage874')
+  expect(emptyWorkbench).not.toBeNull()
+  expect(emptyWorkbench).toHaveClass('recall-note-empty-workbench-stage888')
+  expect(emptyWorkbench).toHaveAttribute('data-notebook-empty-state-kind', 'source-empty')
+  expect(within(emptyWorkbench as HTMLElement).getByText('Capture from Reader')).toBeInTheDocument()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-empty-hero-stage698')).toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-empty-guidance-card-stage698')).toBeNull()
+  expect(within(noteDetailSection as HTMLElement).queryByText('Ready for next note')).not.toBeInTheDocument()
+
+  fireEvent.click(within(commandRow).getByRole('button', { name: 'Capture in Reader' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+  })
+  expect(window.location.search).toContain('document=doc-search')
+  expect(createRecallNoteMock).not.toHaveBeenCalled()
+})
+
+test('desktop Notebook search-empty state stays list-owned without reviving legacy guidance chrome', async () => {
+  renderRecallApp('/recall')
+
+  await openNotebookFromHome()
+  await waitFor(() => {
+    expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
+  })
+
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search notebook' }), {
+    target: { value: 'missing notebook phrase' },
+  })
+
+  await waitFor(() => {
+    expect(searchRecallNotesMock).toHaveBeenCalledWith('missing notebook phrase', 20, 'doc-search')
+  })
+
+  const noteDetailSection = screen.getByRole('region', { name: 'Notebook workbench' })
+  const browseSection = screen.getByRole('heading', { name: 'Browse notebook', level: 3 }).closest('section')
+  const commandRow = screen.getByRole('region', { name: 'Notebook command row' })
+
+  await waitFor(() => {
+    const emptyWorkbench = (noteDetailSection as HTMLElement).querySelector('.recall-note-empty-workbench-stage874')
+    expect(emptyWorkbench).not.toBeNull()
+    expect(emptyWorkbench).toHaveClass('recall-note-empty-workbench-stage888')
+    expect(emptyWorkbench).toHaveAttribute('data-notebook-empty-state-kind', 'search-empty')
+    expect(within(emptyWorkbench as HTMLElement).getByText('No matching notebook notes')).toBeInTheDocument()
+  })
+
+  expect(screen.queryByRole('heading', { name: 'Note detail', level: 2 })).not.toBeInTheDocument()
+  expect(within(commandRow).getByRole('combobox', { name: 'Source' })).toHaveValue('doc-search')
+  expect(within(commandRow).getByRole('button', { name: 'Capture in Reader' })).toBeInTheDocument()
+  expect((browseSection as HTMLElement).querySelector('.recall-notes-browser-empty-state')).not.toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-empty-hero-stage698')).toBeNull()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-empty-guidance-card-stage698')).toBeNull()
+  expect(within(noteDetailSection as HTMLElement).getByRole('button', { name: 'Clear search' })).toBeInTheDocument()
+
+  fireEvent.click(within(noteDetailSection as HTMLElement).getByRole('button', { name: 'Clear search' }))
+
+  await waitFor(() => {
+    expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
+  })
 })
 
 test('Study filter and targeted card survive Reader handoff and return', async () => {
@@ -1772,15 +3483,16 @@ test('Study filter and targeted card survive Reader handoff and return', async (
   await waitFor(() => {
     browseStudySupportStrip = screen.getByLabelText('Browse study support')
     studyEvidenceDock = screen.getByLabelText('Study evidence support')
-    expect(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+    expect(within(studyEvidenceDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+    expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Preview evidence' })).not.toBeInTheDocument()
+    expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Refresh cards' })).not.toBeInTheDocument()
   })
 
   if (!browseStudySupportStrip || !studyEvidenceDock) {
     throw new Error('Expected Study support and evidence surfaces after returning to Review.')
   }
-  const studySupportStrip = browseStudySupportStrip
   const evidenceDock = studyEvidenceDock
-  fireEvent.click(within(studySupportStrip).getByRole('button', { name: 'Preview evidence' }))
+  fireEvent.click(within(evidenceDock).getByRole('button', { name: 'Preview evidence' }))
 
   await waitFor(() => {
     expect(within(evidenceDock).getByText('Source evidence')).toBeInTheDocument()
@@ -1818,7 +3530,7 @@ test('Recall notebook search and Open in Reader restore the anchored sentence ra
 
   await openNotebookFromHome()
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected note workbench' })).toBeInTheDocument()
   })
 
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search notebook' }), {
@@ -1883,18 +3595,24 @@ test('Recall notebook notes can promote manual graph nodes and study cards', asy
     expect(screen.getByDisplayValue('Useful search note.')).toBeInTheDocument()
   })
 
-  const promotionCard = screen.getByRole('heading', { name: 'Promote note', level: 3 }).closest('.recall-note-promotion-card')
+  const promotionCard = screen.getByRole('heading', { name: 'Promote note', level: 3 }).closest('.recall-note-promote-inline-stage872')
 
   expect(promotionCard).not.toBeNull()
 
   fireEvent.click(within(promotionCard as HTMLElement).getByRole('tab', { name: 'Promote to Graph' }))
 
   const graphLabelInput = await within(promotionCard as HTMLElement).findByRole('textbox', { name: 'Graph label' })
+  const graphDescriptionInput = within(promotionCard as HTMLElement).getByRole('textbox', {
+    name: 'Graph description',
+  })
+
+  expect(graphLabelInput).toHaveValue('Search sentence one. Search sentence two.')
+  expect(graphDescriptionInput).toHaveValue('Useful search note.')
 
   fireEvent.change(graphLabelInput, {
     target: { value: 'Search Concept' },
   })
-  fireEvent.change(within(promotionCard as HTMLElement).getByRole('textbox', { name: 'Graph description' }), {
+  fireEvent.change(graphDescriptionInput, {
     target: { value: 'Manual graph note.' },
   })
   fireEvent.click(within(promotionCard as HTMLElement).getByRole('button', { name: 'Promote node' }))
@@ -1918,18 +3636,22 @@ test('Recall notebook notes can promote manual graph nodes and study cards', asy
 
   const studyPromotionCard = screen
     .getByRole('heading', { name: 'Promote note', level: 3 })
-    .closest('.recall-note-promotion-card')
+    .closest('.recall-note-promote-inline-stage872')
 
   expect(studyPromotionCard).not.toBeNull()
 
   fireEvent.click(within(studyPromotionCard as HTMLElement).getByRole('tab', { name: 'Create Study Card' }))
 
   const studyPromptInput = await within(studyPromotionCard as HTMLElement).findByRole('textbox', { name: 'Study prompt' })
+  const studyAnswerInput = within(studyPromotionCard as HTMLElement).getByRole('textbox', { name: 'Study answer' })
+
+  expect(studyPromptInput).toHaveValue('Useful search note.')
+  expect(studyAnswerInput).toHaveValue('Search sentence one. Search sentence two.')
 
   fireEvent.change(studyPromptInput, {
     target: { value: 'What should you remember from the search note?' },
   })
-  fireEvent.change(within(studyPromotionCard as HTMLElement).getByRole('textbox', { name: 'Study answer' }), {
+  fireEvent.change(studyAnswerInput, {
     target: { value: 'Search Concept' },
   })
   fetchRecallStudyCardsMock.mockImplementationOnce(async () => structuredClone(baseStudyCards))
@@ -1946,6 +3668,154 @@ test('Recall notebook notes can promote manual graph nodes and study cards', asy
     expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
     expect(screen.getAllByText('What should you remember from the search note?').length).toBeGreaterThan(0)
   })
+})
+
+test('Recall Notebook source notes promote to Graph with body-owned evidence', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-source-promote-graph',
+        'doc-search',
+        'Search target only',
+        'Source body insight. More detail for graph evidence.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await openNotebookFromHome()
+  await waitFor(() => {
+    expect(screen.getByDisplayValue('Source body insight. More detail for graph evidence.')).toBeInTheDocument()
+  })
+
+  const workbench = screen.getByRole('region', { name: 'Selected note workbench' })
+  expect(within(workbench).getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+  expect(within(workbench).queryByRole('heading', { name: 'Highlighted passage', level: 3 })).not.toBeInTheDocument()
+  expect(within(workbench).queryByText('Source note for Search target only')).not.toBeInTheDocument()
+  expect(within(workbench).queryByText('Manual note attached to Search target only.')).not.toBeInTheDocument()
+
+  const promotionCard = within(workbench)
+    .getByRole('heading', { name: 'Promote note', level: 3 })
+    .closest('.recall-note-promote-inline-stage872')
+
+  expect(promotionCard).not.toBeNull()
+
+  fireEvent.click(within(promotionCard as HTMLElement).getByRole('tab', { name: 'Promote to Graph' }))
+
+  const graphLabelInput = await within(promotionCard as HTMLElement).findByRole('textbox', { name: 'Graph label' })
+  const graphDescriptionInput = within(promotionCard as HTMLElement).getByRole('textbox', {
+    name: 'Graph description',
+  })
+
+  expect(graphLabelInput).toHaveValue('Source body insight.')
+  expect(graphDescriptionInput).toHaveValue('Source body insight. More detail for graph evidence.')
+  expect(promotionCard as HTMLElement).not.toHaveTextContent('Source note for Search target only')
+  expect(promotionCard as HTMLElement).not.toHaveTextContent('Manual note attached to Search target only.')
+
+  fireEvent.click(within(promotionCard as HTMLElement).getByRole('button', { name: 'Promote node' }))
+
+  await waitFor(() => {
+    expect(promoteRecallNoteToGraphNodeMock).toHaveBeenCalledWith('note-source-promote-graph', {
+      label: 'Source body insight.',
+      description: 'Source body insight. More detail for graph evidence.',
+    })
+  })
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getAllByText('Source note').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Personal note').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Source body insight. More detail for graph evidence.').length).toBeGreaterThan(0)
+  })
+  expect(screen.queryByText('Source note for Search target only')).not.toBeInTheDocument()
+  expect(screen.queryByText('Manual note attached to Search target only.')).not.toBeInTheDocument()
+})
+
+test('Recall Notebook source notes create Study cards with body evidence and unanchored Reader handoff', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-source-promote-study',
+        'doc-search',
+        'Search target only',
+        'Remember the source-owned study evidence.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await openNotebookFromHome()
+  await waitFor(() => {
+    expect(screen.getByDisplayValue('Remember the source-owned study evidence.')).toBeInTheDocument()
+  })
+
+  const workbench = screen.getByRole('region', { name: 'Selected note workbench' })
+  const promotionCard = within(workbench)
+    .getByRole('heading', { name: 'Promote note', level: 3 })
+    .closest('.recall-note-promote-inline-stage872')
+
+  expect(promotionCard).not.toBeNull()
+
+  fireEvent.click(within(promotionCard as HTMLElement).getByRole('tab', { name: 'Create Study Card' }))
+
+  const studyPromptInput = await within(promotionCard as HTMLElement).findByRole('textbox', { name: 'Study prompt' })
+  const studyAnswerInput = within(promotionCard as HTMLElement).getByRole('textbox', { name: 'Study answer' })
+
+  expect(studyPromptInput).toHaveValue('What should you remember from this source note?')
+  expect(studyAnswerInput).toHaveValue('Remember the source-owned study evidence.')
+  expect(promotionCard as HTMLElement).not.toHaveTextContent('Source note for Search target only')
+  expect(promotionCard as HTMLElement).not.toHaveTextContent('Manual note attached to Search target only.')
+
+  fireEvent.click(within(promotionCard as HTMLElement).getByRole('button', { name: 'Create card' }))
+
+  await waitFor(() => {
+    expect(promoteRecallNoteToStudyCardMock).toHaveBeenCalledWith('note-source-promote-study', {
+      prompt: 'What should you remember from this source note?',
+      answer: 'Remember the source-owned study evidence.',
+    })
+  })
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getAllByText('Source note').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Personal note').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Remember the source-owned study evidence.').length).toBeGreaterThan(0)
+  })
+  expect(screen.queryByText('Source note for Search target only')).not.toBeInTheDocument()
+  expect(screen.queryByText('Manual note attached to Search target only.')).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
+
+  const studyEvidence = await screen.findByLabelText('Study evidence support')
+  fireEvent.click(within(studyEvidence).getByRole('button', { name: 'Open note' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Remember the source-owned study evidence.')
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
+
+  const reopenedStudyEvidence = await screen.findByLabelText('Study evidence support')
+  fireEvent.click(within(reopenedStudyEvidence).getByRole('button', { name: 'Open Search target only in Reader' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+  })
+  expect(window.location.search).toContain('document=doc-search')
+  expect(window.location.search).not.toContain('sentenceStart=')
+  expect(window.location.search).not.toContain('sentenceEnd=')
 })
 
 test('Recall notebook notes keep grouped promotion actions near the anchored passage', async () => {
@@ -2126,6 +3996,7 @@ test('reader mode changes stay on the visible tabs instead of a settings drawer'
   })
 
   const readerStage = screen.getByRole('article', { name: 'Reader stays here' }).closest('.reader-reading-stage')
+  const sourceWorkspace = screen.getByLabelText('Reader stays here workspace')
   expect(readerStage).not.toBeNull()
   expect(readerStage).toHaveClass('reader-reading-stage-original-parity')
   expect(readerStage).not.toHaveClass('card')
@@ -2133,7 +4004,8 @@ test('reader mode changes stay on the visible tabs instead of a settings drawer'
   expect((readerStage as HTMLElement).querySelector('.reader-stage-context')).toBeNull()
   expect(screen.queryByRole('list', { name: 'Reader metadata' })).not.toBeInTheDocument()
   expect((readerStage as HTMLElement).querySelector('.reader-stage-utility')).toBeNull()
-  expect((readerStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
+  expect((readerStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toBeNull()
+  expect((sourceWorkspace as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
     'reader-stage-control-ribbon-original-parity',
   )
   expect((readerStage as HTMLElement).querySelector('.reader-reading-deck-layout')).toHaveClass(
@@ -2145,7 +4017,7 @@ test('reader mode changes stay on the visible tabs instead of a settings drawer'
   expect((readerStage as HTMLElement).querySelector('.reader-support-dock')).toHaveClass(
     'reader-support-dock-original-parity',
   )
-  expect(within(readerStage as HTMLElement).getByText('Original')).toBeInTheDocument()
+  expect(within(sourceWorkspace).getByRole('tab', { name: 'Original', selected: true })).toBeInTheDocument()
   expect(screen.queryByRole('dialog', { name: 'Theme' })).not.toBeInTheDocument()
 })
 
@@ -2250,7 +4122,7 @@ test('shell exposes global Add and Search while source context stays compact unt
   })
 
   expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Reader dock', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByText('Reading deck')).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
@@ -2262,8 +4134,9 @@ test('shell exposes global Add and Search while source context stays compact unt
   openReaderSupportPane('Source')
 
   await waitFor(() => {
-    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Source workspace Overview', selected: true })).toBeInTheDocument()
   })
+  expect(screen.getByLabelText('Active source summary')).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
 })
 
@@ -2281,14 +4154,18 @@ test('compact shell styling keeps Reader support collapsed at rest and expandabl
     expect(shellHeader).toHaveClass('workspace-topbar-reader')
     expect(shellHeader).toHaveClass('workspace-topbar-reader-compact')
     expect(shellHeader).toHaveAttribute('aria-label', 'Reader workspace controls')
+    expect(document.querySelector('.workspace-topbar-actions')).toHaveClass('workspace-topbar-actions-reader-compact')
   })
   expect(screen.queryByText('Reader workspace')).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Reader', level: 1 })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: /^Add$/ })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /^Search$/ })).toBeInTheDocument()
 
   const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
   expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).toHaveClass(
+    'source-workspace-nav-trigger-inline',
+  )
+  expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).not.toHaveClass(
     'source-workspace-strip-badge',
   )
   expect(within(sourceWorkspace).getByText('Search target only')).toBeInTheDocument()
@@ -2299,6 +4176,25 @@ test('compact shell styling keeps Reader support collapsed at rest and expandabl
   expect(within(sourceWorkspace).queryByRole('tab', { name: 'Source workspace Reader' })).not.toBeInTheDocument()
   expect(sourceWorkspace).toHaveStyle('--reader-line-width: 72ch')
   expect(within(sourceWorkspace).queryByText('Attached source context for the active document.')).not.toBeInTheDocument()
+  const compactSourceMeta = sourceWorkspace.querySelector('.source-workspace-strip-heading .source-workspace-meta-inline')
+  expect(compactSourceMeta).not.toBeNull()
+  expect(compactSourceMeta?.querySelector('.status-chip')).toBeNull()
+  expect(sourceWorkspace.querySelector('.source-workspace-strip-context')).toBeNull()
+  expect(sourceWorkspace).toHaveClass('source-workspace-frame-reader-compact-actions')
+  expect(within(sourceWorkspace).queryByText('PASTE')).not.toBeInTheDocument()
+  const compactNoteTrigger = within(sourceWorkspace).getByRole('button', { name: 'Open nearby notebook notes' })
+  expect(compactNoteTrigger).toHaveClass('source-workspace-meta-inline-button')
+  expect(compactNoteTrigger).toHaveTextContent(/^\d+ notes?$/i)
+  expect((sourceWorkspace as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
+    'reader-stage-control-ribbon-embedded-compact',
+  )
+  expect(within(sourceWorkspace).getByRole('tab', { name: 'Original' })).toBeInTheDocument()
+  expect(within(sourceWorkspace).getByRole('tab', { name: 'Reflowed', selected: true })).toBeInTheDocument()
+  const compactStartButton = within(sourceWorkspace).getByRole('button', { name: 'Start read aloud' })
+  expect(compactStartButton).toBeInTheDocument()
+  expect(compactStartButton).toHaveTextContent('Read aloud')
+  expect(compactStartButton.querySelector('.transport-icon-read-aloud-start')).not.toBeNull()
+  expect(within(sourceWorkspace).getByRole('button', { name: 'More reading controls' })).toBeInTheDocument()
 
   expect(document.querySelector('.reader-support-dock')).toBeNull()
   expect(document.querySelector('.reader-inline-support')).toBeNull()
@@ -2310,9 +4206,8 @@ test('compact shell styling keeps Reader support collapsed at rest and expandabl
 
   const compactReaderStage = document.querySelector('.reader-reading-stage')
   expect(compactReaderStage).not.toBeNull()
-  expect((compactReaderStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
-    'reader-stage-control-ribbon-compact',
-  )
+  expect(compactReaderStage).toHaveClass('reader-reading-stage-header-fused')
+  expect((compactReaderStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toBeNull()
   expect((compactReaderStage as HTMLElement).querySelector('.reader-reading-deck-layout')).toHaveClass(
     'reader-reading-deck-layout-compact',
   )
@@ -2322,20 +4217,52 @@ test('compact shell styling keeps Reader support collapsed at rest and expandabl
   expect(articleField).not.toBeNull()
   expect(articleShell as HTMLElement).toContainElement(articleField as HTMLElement)
   expect(articleField).toHaveClass('reader-article-field-short-document')
+  expect(articleField).toHaveClass('reader-article-field-short-document-content-fit-stage864')
+  expect(articleField).toHaveAttribute('data-reader-short-document-content-fit-stage864', 'true')
+  const completionStrip = screen.getByRole('region', { name: 'Short document completion' })
+  expect(completionStrip).toHaveClass('reader-short-document-completion-strip-stage876')
+  expect(completionStrip).toHaveAttribute('data-reader-short-document-completion-strip-stage876', 'true')
+  expect(within(completionStrip).getByText('Short source complete')).toBeInTheDocument()
+  expect(within(completionStrip).getByRole('button', { name: 'Open Source from short document completion' })).toBeInTheDocument()
+  expect(within(completionStrip).getByRole('button', { name: 'Open Notebook notes from short document completion' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Current source', level: 3 })).not.toBeInTheDocument()
   expect(screen.queryByText('PASTE source')).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Open nearby notebook notes' })).toHaveTextContent(/\d+ notes?/)
 
-  fireEvent.click(screen.getByRole('button', { name: 'More reading controls' }))
+  fireEvent.click(within(sourceWorkspace).getByRole('tab', { name: 'Original' }))
+
+  await waitFor(() => {
+    expect(within(sourceWorkspace).getByRole('tab', { name: 'Original', selected: true })).toBeInTheDocument()
+  })
+  expect((sourceWorkspace as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
+    'reader-stage-control-ribbon-embedded-compact',
+  )
+  const compactOriginalStartButton = within(sourceWorkspace).getByRole('button', { name: 'Start read aloud' })
+  expect(compactOriginalStartButton).toBeInTheDocument()
+  expect(compactOriginalStartButton.querySelector('.transport-icon-read-aloud-start')).not.toBeNull()
+  expect(within(sourceWorkspace).getByRole('button', { name: 'More reading controls' })).toBeInTheDocument()
+  const compactOriginalArticleField = document.querySelector('.reader-article-field')
+  expect(compactOriginalArticleField).toHaveClass('reader-article-field-short-document-content-fit-stage864')
+  expect(compactOriginalArticleField).toHaveAttribute('data-reader-short-document-content-fit-stage864', 'true')
+  expect(screen.getByRole('region', { name: 'Short document completion' })).toBeInTheDocument()
+  expect((document.querySelector('.reader-reading-stage') as HTMLElement).querySelector('.reader-stage-control-ribbon')).toBeNull()
+
+  fireEvent.click(within(sourceWorkspace).getByRole('tab', { name: 'Reflowed' }))
+
+  await waitFor(() => {
+    expect(within(sourceWorkspace).getByRole('tab', { name: 'Reflowed', selected: true })).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(sourceWorkspace).getByRole('button', { name: 'More reading controls' }))
   const overflow = screen.getByRole('group', { name: 'More reading controls' })
   expect(within(overflow).queryByRole('button', { name: 'Notebook' })).not.toBeInTheDocument()
   expect(within(overflow).queryByText('Capture ready')).not.toBeInTheDocument()
   expect(within(overflow).queryByText('Support compact')).not.toBeInTheDocument()
   expect(within(overflow).queryByText(/saved note/i)).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Open nearby notebook notes' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Open Notebook notes from short document completion' }))
 
   await waitFor(() => {
     const readerContextSection = document.querySelector('.reader-support-dock')
@@ -2343,6 +4270,15 @@ test('compact shell styling keeps Reader support collapsed at rest and expandabl
     expect(readerContextSection).toHaveClass('reader-support-dock-expanded')
     expect(screen.getByRole('heading', { name: 'Notebook', level: 3 })).toBeInTheDocument()
   })
+  const expandedShortArticleField = document.querySelector('.reader-article-field')
+  expect(expandedShortArticleField).toHaveClass('reader-article-field-short-document')
+  expect(expandedShortArticleField).toHaveClass('reader-article-field-short-document-content-fit-stage864')
+  expect(expandedShortArticleField).toHaveAttribute('data-reader-short-document-content-fit-stage864', 'true')
+  expect(screen.queryByRole('region', { name: 'Short document completion' })).not.toBeInTheDocument()
+  expect(document.querySelector('.reader-reading-deck-layout')).toHaveClass(
+    'reader-reading-deck-layout-short-support-open-stage866',
+  )
+  expect(sourceWorkspace).toHaveClass('source-workspace-frame-reader-compact')
   expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).toBeInTheDocument()
   expect(within(sourceWorkspace).queryByRole('tab', { name: 'Source workspace Notebook' })).not.toBeInTheDocument()
   expect(within(sourceWorkspace).queryByText('Local source')).not.toBeInTheDocument()
@@ -2369,14 +4305,15 @@ test('compact shell styling keeps Reader support collapsed at rest and expandabl
   const originalReaderStage = document.querySelector('.reader-surface')?.closest('.reader-reading-stage')
   expect(originalReaderStage).not.toBeNull()
   expect(originalReaderStage).toHaveClass('reader-reading-stage-original-parity')
+  expect(originalReaderStage).toHaveClass('reader-reading-stage-header-fused')
+  expect(originalReaderStage).not.toHaveClass('reader-reading-stage-compact-leading')
   expect(originalReaderStage).not.toHaveClass('card')
   expect(originalReaderStage).not.toHaveClass('priority-surface-stage-shell')
-  expect((originalReaderStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
-    'reader-stage-control-ribbon-original-parity',
-  )
+  expect((originalReaderStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toBeNull()
   expect((originalReaderStage as HTMLElement).querySelector('.reader-support-dock')).toHaveClass(
     'reader-support-dock-original-parity',
   )
+  expect(sourceWorkspace).toHaveClass('source-workspace-frame-reader-compact')
 
   let readerContextSection = document.querySelector('.reader-support-dock')
   expect(readerContextSection).not.toBeNull()
@@ -2388,6 +4325,12 @@ test('compact shell styling keeps Reader support collapsed at rest and expandabl
     expect(readerContextSection).not.toBeNull()
     expect(within(readerContextSection as HTMLElement).getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
   })
+  const sourceOpenShortArticleField = document.querySelector('.reader-article-field')
+  expect(sourceOpenShortArticleField).toHaveClass('reader-article-field-short-document-content-fit-stage864')
+  expect(sourceOpenShortArticleField).toHaveAttribute('data-reader-short-document-content-fit-stage864', 'true')
+  expect(document.querySelector('.reader-reading-deck-layout')).toHaveClass(
+    'reader-reading-deck-layout-short-support-open-stage866',
+  )
   expect(screen.queryByRole('heading', { name: 'Source library', level: 2 })).not.toBeInTheDocument()
   expect(within(readerContextSection as HTMLElement).getAllByRole('button', { name: 'Hide' })).toHaveLength(1)
   expect(within(readerContextSection as HTMLElement).queryByRole('button', { name: 'Show' })).not.toBeInTheDocument()
@@ -2401,15 +4344,49 @@ test('compact shell styling keeps Reader support collapsed at rest and expandabl
     expect(screen.getByRole('textbox', { name: 'Note text' })).toBeInTheDocument()
   })
   expect(within(readerContextSection as HTMLElement).queryByRole('list', { name: 'Reader dock summary' })).toBeNull()
-
-  expect((originalReaderStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toHaveClass(
-    'reader-stage-control-ribbon-expanded',
+  expect(document.querySelector('.reader-reading-deck-layout')).toHaveClass(
+    'reader-reading-deck-layout-short-support-open-stage866',
   )
+  expect((originalReaderStage as HTMLElement).querySelector('.reader-stage-control-ribbon')).toBeNull()
   expect(screen.queryByText('Active source')).not.toBeInTheDocument()
   expect(screen.queryByText('Support open')).not.toBeInTheDocument()
   expect(screen.queryByText(/OPENAI_API_KEY/i)).not.toBeInTheDocument()
   expect(screen.queryByRole('list', { name: 'Reader metadata' })).not.toBeInTheDocument()
   expect((readerContextSection as HTMLElement).querySelector('.reader-support-glance')).toBeNull()
+})
+
+test('Reader short-document completion strip opens existing Source and Notebook handoffs', async () => {
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Short document completion' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open Source from short document completion' }))
+
+  await waitFor(() => {
+    expect(document.querySelector('.reader-support-dock')).not.toBeNull()
+    expect(screen.getByRole('searchbox', { name: 'Search saved sources' })).toBeInTheDocument()
+  })
+  expect(screen.queryByRole('region', { name: 'Short document completion' })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Short document completion' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open Notebook notes from short document completion' }))
+
+  await waitFor(() => {
+    expect(document.querySelector('.reader-support-dock')).not.toBeNull()
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 3 })).toBeInTheDocument()
+  })
+  expect(screen.queryByRole('region', { name: 'Short document completion' })).not.toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: 'Note text' })).toBeInTheDocument()
 })
 
 test('Notebook keeps source handoff in note detail after the old workspace dock is removed', async () => {
@@ -2419,22 +4396,22 @@ test('Notebook keeps source handoff in note detail after the old workspace dock 
 
   await waitFor(() => {
     expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Note detail', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected note workbench' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
   })
 
-  const noteDetailSection = screen.getByRole('heading', { name: 'Note detail', level: 2 }).closest('section')
-  expect(noteDetailSection).not.toBeNull()
+  const noteDetailSection = screen.getByRole('region', { name: 'Selected note workbench' })
   expect(
-    within(noteDetailSection as HTMLElement).getAllByText('Search sentence one. Search sentence two.').length,
+    within(noteDetailSection).getAllByText('Search sentence one. Search sentence two.').length,
   ).toBeGreaterThan(0)
-  expect(within(noteDetailSection as HTMLElement).getByText(/Search target only/i)).toBeInTheDocument()
-  expect(within(noteDetailSection as HTMLElement).getByRole('heading', { name: 'Source handoff', level: 3 })).toBeInTheDocument()
-  expect(within(noteDetailSection as HTMLElement).getByRole('button', { name: 'Open source' })).toBeInTheDocument()
-  expect(within(noteDetailSection as HTMLElement).getByRole('button', { name: 'Open in Reader' })).toBeInTheDocument()
+  expect(within(noteDetailSection).getByText(/Search target only/i)).toBeInTheDocument()
+  expect(within(noteDetailSection).getByRole('heading', { name: 'Source handoff', level: 3 })).toBeInTheDocument()
+  expect((noteDetailSection as HTMLElement).querySelector('.recall-note-source-handoff-action-seam-stage886')).not.toBeNull()
+  expect(within(noteDetailSection).getByRole('button', { name: 'Open source' })).toBeInTheDocument()
+  expect(within(noteDetailSection).getByRole('button', { name: 'Open in Reader' })).toBeInTheDocument()
 
-  fireEvent.click(within(noteDetailSection as HTMLElement).getByRole('button', { name: 'Open in Reader' }))
+  fireEvent.click(within(noteDetailSection).getByRole('button', { name: 'Open in Reader' }))
 
   await waitFor(() => {
     expect(window.location.pathname).toBe('/reader')
@@ -2519,7 +4496,7 @@ test('workspace dock surfaces graph and study focus with quick switching', async
 test('global Search dialog remembers the active query and supports the keyboard shortcut', async () => {
   renderRecallApp('/reader')
 
-  fireEvent.click(screen.getByRole('button', { name: /Search\s*Ctrl\+K/i }))
+  fireEvent.click(screen.getByRole('button', { name: 'Search' }))
 
   await waitFor(() => {
     expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
@@ -2617,6 +4594,79 @@ test('global Search dialog hands note results off to Notebook and anchored Reade
   await waitFor(() => {
     expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Useful search note.')
   })
+})
+
+test('global Search dialog treats source notes as Notebook-first results with unanchored Reader handoff', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-source-search',
+        'doc-search',
+        'Search target only',
+        'Workspace source body preview.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/reader')
+
+  fireEvent.keyDown(window, { ctrlKey: true, key: 'k' })
+
+  await waitFor(() => {
+    expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
+  })
+
+  const searchDialog = screen.getByRole('dialog', { name: 'Search your workspace' })
+  fireEvent.change(within(searchDialog).getByRole('searchbox', { name: 'Search' }), {
+    target: { value: 'Workspace source body preview' },
+  })
+
+  await waitFor(() => {
+    expect(searchRecallNotesMock).toHaveBeenCalledWith('Workspace source body preview', 8, null)
+  })
+
+  const notesSection = within(searchDialog).getByRole('heading', { name: 'Notebook', level: 3 }).closest('section')
+  expect(notesSection).not.toBeNull()
+  expect(within(notesSection as HTMLElement).getByRole('button', { name: /Search target only personal note/i })).toBeInTheDocument()
+  expect(within(searchDialog).getByText('Workspace source body preview.')).toBeInTheDocument()
+  expect(within(searchDialog).queryByText('Source note for Search target only')).not.toBeInTheDocument()
+  expect(within(searchDialog).queryByText('Manual note attached to Search target only.')).not.toBeInTheDocument()
+
+  fireEvent.click(within(notesSection as HTMLElement).getByRole('button', { name: /Search target only personal note/i }))
+  expect(within(searchDialog).getByText('Source note')).toBeInTheDocument()
+  fireEvent.click(within(searchDialog).getByRole('button', { name: 'Open note' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Workspace source body preview.')
+  })
+  expect(screen.queryByRole('heading', { name: 'Highlighted passage', level: 3 })).not.toBeInTheDocument()
+
+  fireEvent.keyDown(window, { ctrlKey: true, key: 'k' })
+
+  await waitFor(() => {
+    expect(screen.getByRole('dialog', { name: 'Search your workspace' })).toBeInTheDocument()
+  })
+
+  const reopenedSearchDialog = screen.getByRole('dialog', { name: 'Search your workspace' })
+  const reopenedNotesSection = within(reopenedSearchDialog)
+    .getByRole('heading', { name: 'Notebook', level: 3 })
+    .closest('section')
+  expect(reopenedNotesSection).not.toBeNull()
+
+  fireEvent.click(within(reopenedNotesSection as HTMLElement).getByRole('button', { name: /Search target only personal note/i }))
+  fireEvent.click(within(reopenedSearchDialog).getByRole('button', { name: 'Open in Reader' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+  })
+  expect(window.location.search).toContain('document=doc-search')
+  expect(window.location.search).not.toContain('sentenceStart=')
+  expect(window.location.search).not.toContain('sentenceEnd=')
 })
 
 test('Reader notes workbench edits and promotes the active saved note in place', async () => {
@@ -2777,6 +4827,244 @@ test('Reader compact source strip hides the generic local-source fallback for pa
   ).not.toBeInTheDocument()
 })
 
+test('compact Reader keeps informative imported-source type labels when the source is not paste-backed', async () => {
+  const importedHtmlDocument: DocumentRecord = {
+    id: 'doc-html-source',
+    title: 'Imported HTML article',
+    source_type: 'html',
+    created_at: '2026-03-14T00:00:00Z',
+    updated_at: '2026-03-14T00:00:01Z',
+    available_modes: ['original', 'reflowed'],
+    progress_by_mode: {},
+  }
+
+  fetchDocumentsMock.mockImplementation(async (query = '') => {
+    const readerDocuments = [importedHtmlDocument, ...documents]
+    return query
+      ? readerDocuments.filter((document) => document.title.toLowerCase().includes(query.toLowerCase()))
+      : readerDocuments
+  })
+  fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => {
+    if (documentId === importedHtmlDocument.id && (mode === 'original' || mode === 'reflowed')) {
+      return {
+        mode: mode as 'original' | 'reflowed',
+        detail_level: 'default',
+        title: importedHtmlDocument.title,
+        blocks: [
+          {
+            id: `imported-html-${mode}-paragraph`,
+            kind: 'paragraph',
+            text: 'Imported HTML sentence one. Imported HTML sentence two.',
+          },
+        ],
+        generated_by: 'local',
+        cached: false,
+        source_hash: `imported-html-${mode}-hash`,
+        updated_at: '2026-03-14T00:00:01Z',
+      }
+    }
+    return views[`${documentId}:${mode}`]
+  })
+
+  renderRecallApp('/reader?document=doc-html-source')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Imported HTML article workspace' })).toBeInTheDocument()
+  })
+
+  const importedSourceWorkspace = screen.getByRole('region', { name: 'Imported HTML article workspace' })
+  expect(within(importedSourceWorkspace).getByText('HTML')).toBeInTheDocument()
+  expect(within(importedSourceWorkspace).getByRole('button', { name: 'Open nearby notebook notes' })).toHaveTextContent(
+    /^\d+ notes?$/i,
+  )
+})
+
+test('compact Reader retires the source-strip title when the article already starts with the same heading', async () => {
+  const duplicateTitleDocument: DocumentRecord = {
+    id: 'doc-web-duplicate-title',
+    title: 'Imported web article',
+    source_type: 'web',
+    created_at: '2026-03-13T00:00:00Z',
+    updated_at: '2026-03-13T00:00:01Z',
+    available_modes: ['original', 'reflowed'],
+    progress_by_mode: {},
+  }
+
+  fetchDocumentsMock.mockImplementation(async (query = '') => {
+    const readerDocuments = [duplicateTitleDocument, ...documents]
+    return query
+      ? readerDocuments.filter((document) => document.title.toLowerCase().includes(query.toLowerCase()))
+      : readerDocuments
+  })
+  fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => {
+    if (documentId === 'doc-web-duplicate-title' && (mode === 'original' || mode === 'reflowed')) {
+      return {
+        mode: mode as 'original' | 'reflowed',
+        detail_level: 'default',
+        title: 'Imported web article',
+        blocks: [
+          { id: `duplicate-title-${mode}-heading`, kind: 'heading', level: 1, text: 'Imported web article' },
+          {
+            id: `duplicate-title-${mode}-body`,
+            kind: 'paragraph',
+            text: 'Imported web sentence one. Imported web sentence two.',
+          },
+        ],
+        generated_by: 'local',
+        cached: false,
+        source_hash: `duplicate-title-${mode}-hash`,
+        updated_at: '2026-03-13T00:00:01Z',
+      }
+    }
+    return views[`${documentId}:${mode}`]
+  })
+
+  renderRecallApp('/reader?document=doc-web-duplicate-title')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Imported web article workspace' })).toBeInTheDocument()
+  })
+
+  const sourceWorkspace = screen.getByRole('region', { name: 'Imported web article workspace' })
+  await waitFor(() => {
+    const article = document.querySelector('.reader-article-field article')
+    expect(article).not.toBeNull()
+    expect(within(article as HTMLElement).getByRole('heading', { name: 'Imported web article', level: 1 })).toBeInTheDocument()
+    expect(within(sourceWorkspace).queryByRole('heading', { name: 'Imported web article', level: 2 })).not.toBeInTheDocument()
+    expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-heading')).toHaveClass(
+      'source-workspace-strip-heading-title-hidden',
+    )
+  })
+
+  expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).toBeInTheDocument()
+  expect(within(sourceWorkspace).getByText('WEB')).toBeInTheDocument()
+
+  openReaderSupportPane('Source')
+
+  await waitFor(() => {
+    expect(within(sourceWorkspace).getByRole('heading', { name: 'Imported web article', level: 2 })).toBeInTheDocument()
+    expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-heading')).not.toHaveClass(
+      'source-workspace-strip-heading-title-hidden',
+    )
+  })
+})
+
+test('compact Reader also retires the source-strip title when only an ordered heading prefix differs', async () => {
+  const orderedPrefixDocument: DocumentRecord = {
+    id: 'doc-web-prefix-title',
+    title: 'Short answer',
+    source_type: 'web',
+    created_at: '2026-03-13T00:00:00Z',
+    updated_at: '2026-03-13T00:00:01Z',
+    available_modes: ['original', 'reflowed'],
+    progress_by_mode: {},
+  }
+
+  fetchDocumentsMock.mockImplementation(async (query = '') => {
+    const readerDocuments = [orderedPrefixDocument, ...documents]
+    return query
+      ? readerDocuments.filter((document) => document.title.toLowerCase().includes(query.toLowerCase()))
+      : readerDocuments
+  })
+  fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => {
+    if (documentId === 'doc-web-prefix-title' && (mode === 'original' || mode === 'reflowed')) {
+      return {
+        mode: mode as 'original' | 'reflowed',
+        detail_level: 'default',
+        title: 'Short answer',
+        blocks: [
+          { id: `prefix-title-${mode}-heading`, kind: 'heading', level: 1, text: '1. Short answer' },
+          {
+            id: `prefix-title-${mode}-body`,
+            kind: 'paragraph',
+            text: 'Prefixed heading sentence one. Prefixed heading sentence two.',
+          },
+        ],
+        generated_by: 'local',
+        cached: false,
+        source_hash: `prefix-title-${mode}-hash`,
+        updated_at: '2026-03-13T00:00:01Z',
+      }
+    }
+    return views[`${documentId}:${mode}`]
+  })
+
+  renderRecallApp('/reader?document=doc-web-prefix-title')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Short answer workspace' })).toBeInTheDocument()
+  })
+
+  const sourceWorkspace = screen.getByRole('region', { name: 'Short answer workspace' })
+  await waitFor(() => {
+    const article = document.querySelector('.reader-article-field article')
+    expect(article).not.toBeNull()
+    expect(within(article as HTMLElement).getByRole('heading', { name: '1. Short answer', level: 1 })).toBeInTheDocument()
+    expect(within(sourceWorkspace).queryByRole('heading', { name: 'Short answer', level: 2 })).not.toBeInTheDocument()
+    expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-heading')).toHaveClass(
+      'source-workspace-strip-heading-title-hidden',
+    )
+  })
+})
+
+test('compact Reader keeps the source-strip title when a heading-first article starts differently', async () => {
+  const distinctHeadingDocument: DocumentRecord = {
+    id: 'doc-web-distinct-heading',
+    title: 'Imported web article',
+    source_type: 'web',
+    created_at: '2026-03-13T00:00:00Z',
+    updated_at: '2026-03-13T00:00:01Z',
+    available_modes: ['original', 'reflowed'],
+    progress_by_mode: {},
+  }
+
+  fetchDocumentsMock.mockImplementation(async (query = '') => {
+    const readerDocuments = [distinctHeadingDocument, ...documents]
+    return query
+      ? readerDocuments.filter((document) => document.title.toLowerCase().includes(query.toLowerCase()))
+      : readerDocuments
+  })
+  fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => {
+    if (documentId === 'doc-web-distinct-heading' && (mode === 'original' || mode === 'reflowed')) {
+      return {
+        mode: mode as 'original' | 'reflowed',
+        detail_level: 'default',
+        title: 'Imported web article',
+        blocks: [
+          { id: `distinct-title-${mode}-heading`, kind: 'heading', level: 1, text: 'Short answer' },
+          {
+            id: `distinct-title-${mode}-body`,
+            kind: 'paragraph',
+            text: 'Distinct heading sentence one. Distinct heading sentence two.',
+          },
+        ],
+        generated_by: 'local',
+        cached: false,
+        source_hash: `distinct-title-${mode}-hash`,
+        updated_at: '2026-03-13T00:00:01Z',
+      }
+    }
+    return views[`${documentId}:${mode}`]
+  })
+
+  renderRecallApp('/reader?document=doc-web-distinct-heading')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Imported web article workspace' })).toBeInTheDocument()
+  })
+
+  const sourceWorkspace = screen.getByRole('region', { name: 'Imported web article workspace' })
+  await waitFor(() => {
+    const article = document.querySelector('.reader-article-field article')
+    expect(article).not.toBeNull()
+    expect(within(article as HTMLElement).getByRole('heading', { name: 'Short answer', level: 1 })).toBeInTheDocument()
+    expect(within(sourceWorkspace).getByRole('heading', { name: 'Imported web article', level: 2 })).toBeInTheDocument()
+    expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-heading')).not.toHaveClass(
+      'source-workspace-strip-heading-title-hidden',
+    )
+  })
+})
+
 test('Recall source workspace tabs reopen Reader for the selected source', async () => {
   renderRecallApp('/recall')
 
@@ -2813,12 +5101,20 @@ test('source-focused mode swaps the utility dock for the compact source strip', 
   expect(screen.queryByRole('heading', { name: 'Current context', level: 2 })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Recent work', level: 2 })).not.toBeInTheDocument()
   expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).toHaveClass(
+    'source-workspace-nav-trigger-inline',
+  )
+  expect(within(sourceWorkspace).getByRole('button', { name: 'Open source workspace destinations' })).not.toHaveClass(
     'source-workspace-strip-badge',
   )
   expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-heading .source-workspace-nav-trigger')).not.toBeNull()
+  const compactSourceMeta = (sourceWorkspace as HTMLElement).querySelector(
+    '.source-workspace-strip-heading .source-workspace-meta-inline',
+  )
+  expect(compactSourceMeta).not.toBeNull()
+  expect(compactSourceMeta?.querySelector('.status-chip')).toBeNull()
   expect(within(sourceWorkspace).queryByText(/^Open$/)).not.toBeInTheDocument()
   expect(within(sourceWorkspace).queryByRole('tab', { name: 'Source workspace Reader' })).not.toBeInTheDocument()
-  expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-context')).not.toBeNull()
+  expect((sourceWorkspace as HTMLElement).querySelector('.source-workspace-strip-context')).toBeNull()
 })
 
 test('manual Home clicks return to Recall without dropping the active source context', async () => {
@@ -2848,11 +5144,636 @@ test('Recall source overview surfaces nearby notes, graph, and study context for
   const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
   expect(sourceOverviewSection).not.toBeNull()
   expect(within(sourceOverviewSection as HTMLElement).getByRole('button', { name: 'Open notebook' })).toBeInTheDocument()
+  expect(
+    (sourceOverviewSection as HTMLElement).querySelector('[data-source-overview-personal-notes-panel-stage900="true"]'),
+  ).not.toBeNull()
+  expect(
+    (sourceOverviewSection as HTMLElement).querySelector('[data-source-overview-memory-stack-stage906="true"]'),
+  ).not.toBeNull()
+  expect(
+    (sourceOverviewSection as HTMLElement).querySelector(
+      '[data-source-overview-memory-stack-kind-stage906="sentence-note"]',
+    ),
+  ).not.toBeNull()
+  expect(
+    (sourceOverviewSection as HTMLElement).querySelector('[data-source-overview-memory-stack-kind-stage906="graph"]'),
+  ).not.toBeNull()
+  expect(
+    (sourceOverviewSection as HTMLElement).querySelector('[data-source-overview-memory-stack-kind-stage906="study"]'),
+  ).not.toBeNull()
   expect(screen.getByText('Graph context')).toBeInTheDocument()
   expect(screen.getByText('Study state')).toBeInTheDocument()
   expect(screen.getAllByText('Useful search note.').length).toBeGreaterThan(0)
-  expect(screen.getByText('Knowledge Graphs support Study Cards.')).toBeInTheDocument()
+  expect(screen.getAllByText('Knowledge Graphs support Study Cards.').length).toBeGreaterThan(0)
   expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
+})
+
+test('Recall source overview memory stack opens focused Graph and Study items', async () => {
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  expect(sourceOverviewSection).not.toBeNull()
+  fireEvent.click(
+    within(sourceOverviewSection as HTMLElement).getByRole('button', {
+      name: 'Open Knowledge Graphs graph memory for Search target only',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+    expect(screen.getAllByText('Knowledge Graphs').length).toBeGreaterThan(0)
+  })
+})
+
+test('Recall source overview memory stack opens focused Study cards', async () => {
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  expect(sourceOverviewSection).not.toBeNull()
+  fireEvent.click(
+    within(sourceOverviewSection as HTMLElement).getByRole('button', {
+      name: 'Open What do Knowledge Graphs support? study memory for Search target only',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+    expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
+  })
+})
+
+test('Source overview review panel opens a source-scoped due-first Study queue', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-other-source',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader source only',
+      prompt: 'Other source prompt should stay outside scope',
+      answer: 'Other source answer',
+      due_at: '2026-03-12T00:10:00Z',
+      scheduling_state: { due_at: '2026-03-12T00:10:00Z', review_count: 0 },
+      status: 'due',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-source-scheduled',
+      prompt: 'Scheduled source follow-up?',
+      answer: 'Scheduled answer from the source.',
+      due_at: '2026-03-14T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-14T00:20:00Z', review_count: 0 },
+      status: 'scheduled',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-source-due',
+      prompt: 'Due source review prompt?',
+      answer: 'Due source answer.',
+      due_at: '2026-03-12T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-12T00:20:00Z', review_count: 0 },
+      source_spans: [
+        {
+          excerpt: 'Due source evidence needle.',
+          global_sentence_end: 2,
+          global_sentence_start: 2,
+          sentence_end: 2,
+          sentence_start: 2,
+        },
+      ],
+      status: 'due',
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  expect(sourceOverviewSection).not.toBeNull()
+  const reviewPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-review-panel-stage914="true"]',
+  )?.closest('.recall-detail-panel') as HTMLElement
+  expect(reviewPanel).not.toBeNull()
+  expect(reviewPanel.querySelector('[data-source-overview-review-counts-stage914="true"]')).toHaveTextContent('1 due')
+  expect(reviewPanel).toHaveTextContent('1 scheduled')
+
+  fireEvent.click(
+    reviewPanel.querySelector('[data-source-overview-review-due-handoff-stage914="true"]') as HTMLElement,
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+    expect(document.querySelector('[data-study-source-scoped-queue-stage914="true"]')).not.toBeNull()
+    expect(screen.getAllByText('Due source review prompt?').length).toBeGreaterThan(0)
+  })
+  expect(screen.queryByText('Other source prompt should stay outside scope')).not.toBeInTheDocument()
+})
+
+test('Source overview Questions handoff searches source-scoped prompts and evidence', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-source-search',
+      prompt: 'Which source question has a search needle?',
+      answer: 'The answer names source-scoped review.',
+      source_spans: [
+        {
+          excerpt: 'Source scoped evidence needle for Study question search.',
+          global_sentence_end: 2,
+          global_sentence_start: 2,
+          sentence_end: 2,
+          sentence_start: 2,
+        },
+      ],
+      status: 'due',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-other-source-search',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader source only',
+      prompt: 'Other source search needle should stay hidden',
+      answer: 'Other source answer',
+      status: 'due',
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  const reviewPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-review-panel-stage914="true"]',
+  )?.closest('.recall-detail-panel') as HTMLElement
+  fireEvent.click(
+    reviewPanel.querySelector('[data-source-overview-review-questions-handoff-stage914="true"]') as HTMLElement,
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search questions' })).toBeInTheDocument()
+    expect(document.querySelector('[data-study-source-scoped-question-search-stage914="true"]')).not.toBeNull()
+  })
+
+  const questionSearch = screen.getByRole('searchbox', { name: 'Search questions' })
+  fireEvent.change(questionSearch, { target: { value: 'Which source question' } })
+  expect(screen.getAllByText('Which source question has a search needle?').length).toBeGreaterThan(0)
+
+  fireEvent.change(questionSearch, { target: { value: 'Source scoped evidence needle' } })
+  await waitFor(() => {
+    expect(document.querySelector('[data-study-question-search-result-stage914="true"]')).not.toBeNull()
+    expect(screen.getAllByText('Which source question has a search needle?').length).toBeGreaterThan(0)
+  })
+  expect(screen.queryByText('Other source search needle should stay hidden')).not.toBeInTheDocument()
+
+  fireEvent.change(questionSearch, { target: { value: 'missing source question' } })
+  expect(screen.getByText('No source-scoped questions match that search.')).toBeInTheDocument()
+  fireEvent.click(screen.getAllByRole('button', { name: 'Clear search' }).at(-1) as HTMLElement)
+  expect(questionSearch).toHaveValue('')
+})
+
+test('Study source-scoped review stays in source after rating and advances to the next source card', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-source-first',
+      prompt: 'First source review prompt?',
+      answer: 'First source answer.',
+      due_at: '2026-03-12T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-12T00:20:00Z', review_count: 0 },
+      status: 'due',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-source-next',
+      prompt: 'Next source review prompt?',
+      answer: 'Next source answer.',
+      due_at: '2026-03-13T00:20:00Z',
+      scheduling_state: { due_at: '2026-03-13T00:20:00Z', review_count: 0 },
+      status: 'new',
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-review-other-source',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader source only',
+      prompt: 'Other source review prompt?',
+      answer: 'Other source answer.',
+      status: 'due',
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  const reviewPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-review-panel-stage914="true"]',
+  )?.closest('.recall-detail-panel') as HTMLElement
+  fireEvent.click(
+    reviewPanel.querySelector('[data-source-overview-review-due-handoff-stage914="true"]') as HTMLElement,
+  )
+
+  await waitFor(() => {
+    expect(screen.getAllByText('First source review prompt?').length).toBeGreaterThan(0)
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: /Show answer|Reveal answer/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Good' }))
+
+  await waitFor(() => {
+    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith('card-source-first', 'good')
+    expect(document.querySelector('[data-study-source-scoped-queue-stage914="true"]')).not.toBeNull()
+    expect(screen.getAllByText('Next source review prompt?').length).toBeGreaterThan(0)
+  })
+  expect(screen.queryByText('Other source review prompt?')).not.toBeInTheDocument()
+})
+
+test('Source overview source memory search finds notes, graph, study, and source text', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-source-memory-search',
+        'doc-search',
+        'Search target only',
+        'Stage 912 memory body needle.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  let sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  let sourceMemoryPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-personal-notes-panel-stage900="true"]',
+  ) as HTMLElement
+  let sourceMemorySearch = within(sourceMemoryPanel).getByRole('searchbox', { name: 'Search source memory' })
+  expect(sourceMemoryPanel.querySelector('[data-source-memory-search-controls-stage912="true"]')).not.toBeNull()
+
+  fireEvent.change(sourceMemorySearch, { target: { value: 'Stage 912 memory body needle' } })
+
+  await waitFor(() => {
+    expect(
+      sourceMemoryPanel.querySelector('[data-source-memory-search-result-stage912="personal-note"]'),
+    ).not.toBeNull()
+    expect(sourceMemoryPanel).toHaveTextContent('Stage 912 memory body needle.')
+  })
+
+  fireEvent.click(within(sourceMemoryPanel).getByRole('button', { name: 'Open source memory note from Search target only' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Selected note workbench' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Stage 912 memory body needle.')
+  })
+
+  fireEvent.click(within(screen.getByRole('region', { name: 'Selected note workbench' })).getByRole('button', { name: 'Open source' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+  })
+
+  sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  sourceMemoryPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-personal-notes-panel-stage900="true"]',
+  ) as HTMLElement
+  sourceMemorySearch = within(sourceMemoryPanel).getByRole('searchbox', { name: 'Search source memory' })
+  fireEvent.change(sourceMemorySearch, { target: { value: 'Knowledge Graphs' } })
+
+  await waitFor(() => {
+    expect(sourceMemoryPanel.querySelector('[data-source-memory-search-result-stage912="graph"]')).not.toBeNull()
+  })
+
+  fireEvent.click(within(sourceMemoryPanel).getByRole('button', { name: 'Open Knowledge Graphs graph memory for Search target only' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  openSourceWorkspaceDestination(screen.getByRole('region', { name: 'Search target only workspace' }), 'Overview')
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+  })
+
+  sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  sourceMemoryPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-personal-notes-panel-stage900="true"]',
+  ) as HTMLElement
+  sourceMemorySearch = within(sourceMemoryPanel).getByRole('searchbox', { name: 'Search source memory' })
+  fireEvent.change(sourceMemorySearch, { target: { value: 'What do Knowledge Graphs support' } })
+
+  await waitFor(() => {
+    expect(sourceMemoryPanel.querySelector('[data-source-memory-search-result-stage912="study"]')).not.toBeNull()
+  })
+
+  fireEvent.click(
+    within(sourceMemoryPanel).getByRole('button', {
+      name: 'Open What do Knowledge Graphs support? study memory for Search target only',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  openSourceWorkspaceDestination(screen.getByRole('region', { name: 'Search target only workspace' }), 'Overview')
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+  })
+
+  sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  sourceMemoryPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-personal-notes-panel-stage900="true"]',
+  ) as HTMLElement
+  sourceMemorySearch = within(sourceMemoryPanel).getByRole('searchbox', { name: 'Search source memory' })
+  fireEvent.change(sourceMemorySearch, { target: { value: 'Search sentence two' } })
+
+  await waitFor(() => {
+    expect(sourceMemoryPanel.querySelector('[data-source-memory-search-result-stage912="source-text"]')).not.toBeNull()
+  })
+
+  fireEvent.click(within(sourceMemoryPanel).getByRole('button', { name: 'Open source text match in Reader for Search target only' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+  })
+
+  expect(window.location.search).toContain('document=doc-search')
+  expect(window.location.search).toContain('sentenceStart=1')
+  expect(window.location.search).toContain('sentenceEnd=1')
+})
+
+test('Source overview source memory search empty state clears back to the memory stack', async () => {
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  const sourceMemoryPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-personal-notes-panel-stage900="true"]',
+  ) as HTMLElement
+  const sourceMemorySearch = within(sourceMemoryPanel).getByRole('searchbox', { name: 'Search source memory' })
+  fireEvent.change(sourceMemorySearch, { target: { value: 'no stage 912 source memory match' } })
+
+  await waitFor(() => {
+    expect(sourceMemoryPanel.querySelector('[data-source-memory-search-empty-state-stage912="true"]')).not.toBeNull()
+    expect(sourceMemoryPanel).toHaveTextContent('No source memory matches')
+  })
+
+  fireEvent.click(sourceMemoryPanel.querySelector('[data-source-memory-search-clear-stage912="true"]') as HTMLButtonElement)
+
+  await waitFor(() => {
+    expect(within(sourceMemoryPanel).getByRole('searchbox', { name: 'Search source memory' })).toHaveValue('')
+    expect(sourceMemoryPanel.querySelector('[data-source-overview-memory-stack-stage906="true"]')).not.toBeNull()
+  })
+})
+
+test('Reader source memory find opens Source overview with source memory search focused', async () => {
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
+  fireEvent.click(within(sourceWorkspace).getByRole('button', { name: 'Find source memory' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+  })
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  const sourceMemoryPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-personal-notes-panel-stage900="true"]',
+  ) as HTMLElement
+  const sourceMemorySearch = within(sourceMemoryPanel).getByRole('searchbox', { name: 'Search source memory' })
+  await waitFor(() => {
+    expect(sourceMemorySearch).toBe(document.activeElement)
+  })
+})
+
+test('Recall source overview renders source memory notes as body-owned Notebook items', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-source-overview-memory',
+        'doc-search',
+        'Search target only',
+        'Source overview body preview.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  expect(sourceOverviewSection).not.toBeNull()
+  const sourceMemoryPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-personal-notes-panel-stage900="true"]',
+  ) as HTMLElement
+
+  expect(sourceMemoryPanel).not.toBeNull()
+  await waitFor(() => {
+    expect(sourceMemoryPanel).toHaveTextContent('Source memory')
+    expect(sourceMemoryPanel).toHaveTextContent('Source overview body preview.')
+    expect(sourceMemoryPanel).not.toHaveTextContent('Source note for Search target only')
+    expect(sourceMemoryPanel).not.toHaveTextContent('Manual note attached to Search target only.')
+    expect(sourceMemoryPanel.querySelector('[data-source-overview-memory-item-kind="source"]')).not.toBeNull()
+    expect(sourceMemoryPanel.querySelector('[data-source-overview-memory-stack-kind-stage906="personal-note"]')).not.toBeNull()
+    expect(sourceMemoryPanel.querySelector('[data-source-overview-memory-preview-stage900="body"]')).not.toBeNull()
+  })
+
+  fireEvent.click(
+    within(sourceMemoryPanel).getByRole('button', { name: 'Open source memory note from Search target only' }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Selected note workbench' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Source overview body preview.')
+    expect(screen.getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+  })
+
+  const selectedWorkbench = screen.getByRole('region', { name: 'Selected note workbench' })
+  fireEvent.click(within(selectedWorkbench).getByRole('button', { name: 'Open source' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+  })
+
+  const reopenedOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  const reopenedMemoryPanel = (reopenedOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-personal-notes-panel-stage900="true"]',
+  ) as HTMLElement
+  fireEvent.click(
+    within(reopenedMemoryPanel).getByRole('button', { name: 'Open Search target only source note in Reader' }),
+  )
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+  })
+
+  expect(window.location.search).toContain('document=doc-search')
+  expect(window.location.search).not.toContain('sentenceStart=')
+  expect(window.location.search).not.toContain('sentenceEnd=')
+})
+
+test('Source overview New note creates source-attached memory and refreshes the overview list', async () => {
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  const sourceMemoryPanel = (sourceOverviewSection as HTMLElement).querySelector(
+    '[data-source-overview-personal-notes-panel-stage900="true"]',
+  ) as HTMLElement
+
+  fireEvent.click(within(sourceMemoryPanel).getByRole('button', { name: 'New note' }))
+
+  const draftWorkbench = await screen.findByRole('region', { name: 'New note draft' })
+  fireEvent.change(within(draftWorkbench).getByRole('textbox', { name: 'New note text' }), {
+    target: { value: 'Source overview draft memory.' },
+  })
+  fireEvent.click(within(draftWorkbench).getByRole('button', { name: 'Save note' }))
+
+  await waitFor(() => {
+    expect(createRecallNoteMock).toHaveBeenCalledWith(
+      'doc-search',
+      expect.objectContaining({
+        anchor: expect.objectContaining({
+          kind: 'source',
+          source_document_id: 'doc-search',
+          block_id: 'source:doc-search',
+          anchor_text: 'Source note for Search target only',
+        }),
+        body_text: 'Source overview draft memory.',
+      }),
+    )
+  })
+
+  await waitFor(() => {
+    expect(screen.queryByRole('region', { name: 'New note draft' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected note workbench' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Source overview draft memory.')
+    expect(screen.getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+  })
+
+  const selectedWorkbench = screen.getByRole('region', { name: 'Selected note workbench' })
+  fireEvent.click(within(selectedWorkbench).getByRole('button', { name: 'Open source' }))
+
+  await waitFor(() => {
+    const refreshedOverview = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+    expect(refreshedOverview).not.toBeNull()
+    const refreshedMemoryPanel = (refreshedOverview as HTMLElement).querySelector(
+      '[data-source-overview-personal-notes-panel-stage900="true"]',
+    ) as HTMLElement
+    expect(refreshedMemoryPanel).toHaveTextContent('Source overview draft memory.')
+    expect(refreshedMemoryPanel).not.toHaveTextContent('Source note for Search target only')
+    expect(refreshedMemoryPanel).not.toHaveTextContent('Manual note attached to Search target only.')
+  })
+})
+
+test('Reader nearby Notebook continuity hides source-note synthetic anchors and opens embedded Notebook', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-reader-source-memory',
+        'doc-search',
+        'Search target only',
+        'Reader source memory body.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
+  const nearbyNotesButton = within(sourceWorkspace).getByRole('button', { name: 'Open nearby notebook notes' })
+  expect(nearbyNotesButton).toHaveTextContent(/\d+ notes?/)
+  fireEvent.click(nearbyNotesButton)
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Note text' })).toHaveValue('Reader source memory body.')
+    expect(screen.getByRole('heading', { name: 'Source context', level: 3 })).toBeInTheDocument()
+  })
+})
+
+test('Reader source memory graph count opens focused Graph', async () => {
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
+  await waitFor(() => {
+    expect(within(sourceWorkspace).getByRole('button', { name: 'Open source graph memory' })).toHaveTextContent(
+      /[1-9]\d* graph nodes?/,
+    )
+  })
+  fireEvent.click(within(sourceWorkspace).getByRole('button', { name: 'Open source graph memory' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+    expect(screen.getAllByText('Knowledge Graphs').length).toBeGreaterThan(0)
+  })
+})
+
+test('Reader source memory study count opens focused Study', async () => {
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+
+  const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
+  await waitFor(() => {
+    expect(within(sourceWorkspace).getByRole('button', { name: 'Open source study memory' })).toHaveTextContent(
+      /[1-9]\d* study cards?/,
+    )
+  })
+  fireEvent.click(within(sourceWorkspace).getByRole('button', { name: 'Open source study memory' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+    expect(document.querySelector('[data-study-source-scoped-queue-stage914="true"]')).not.toBeNull()
+    expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
+  })
 })
 
 test('source-focused notebook handoff keeps Reader visible while manual notebook browsing returns to the broader embedded workspace', async () => {
@@ -2894,11 +5815,15 @@ test('source-focused notebook handoff keeps Reader visible while manual notebook
   await openNotebookFromHome()
 
   const browseNotesSection = screen.getByRole('heading', { name: 'Browse notebook', level: 3 }).closest('section')
+  const notebookCommandRow = screen.getByRole('region', { name: 'Notebook command row' })
   expect(browseNotesSection).not.toBeNull()
   expect(browseNotesSection).toHaveClass('recall-notes-browser-card')
   expect(browseNotesSection).toHaveClass('recall-notes-browser-card-stage698')
+  expect(browseNotesSection).toHaveClass('recall-notes-browser-card-stage872')
+  expect(browseNotesSection).toHaveClass('recall-notes-browser-card-stage888')
   expect(within(browseNotesSection as HTMLElement).queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument()
-  expect(within(browseNotesSection as HTMLElement).getByRole('combobox', { name: 'Source' })).toBeInTheDocument()
+  expect(within(notebookCommandRow).getByRole('combobox', { name: 'Source' })).toBeInTheDocument()
+  expect(within(notebookCommandRow).getByRole('searchbox', { name: 'Search notebook' })).toBeInTheDocument()
   expect((browseNotesSection as HTMLElement).querySelector('[data-note-browser-row-kind="library-note"]')).not.toBeNull()
 })
 
@@ -2998,11 +5923,13 @@ test('source-focused study handoff keeps Reader visible while manual Study brows
   })
 
   const browseStudySection = screen.getByLabelText('Browse study support')
+  const studyEvidenceDock = screen.getByLabelText('Study evidence support')
   expect(browseStudySection).not.toBeNull()
   expect(browseStudySection).toHaveClass('recall-study-toolbar-utility')
   expect(within(browseStudySection as HTMLElement).getByText('Questions')).toBeInTheDocument()
   expect(within(browseStudySection as HTMLElement).queryByRole('tab', { name: 'All', selected: true })).not.toBeInTheDocument()
-  expect(within(browseStudySection as HTMLElement).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+  expect(within(browseStudySection as HTMLElement).queryByRole('button', { name: 'Preview evidence' })).not.toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
   expect(within(browseStudySection as HTMLElement).queryByText('What do Knowledge Graphs support?')).not.toBeInTheDocument()
 })
 
@@ -3192,6 +6119,17 @@ test('Home opens Add content as a global dialog without leaving the current Reca
 
   expect(`${window.location.pathname}${window.location.search}`).toBe(currentPath)
   expect(screen.getByText('One place to add things')).toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Add content capture gateway' })).toHaveAttribute(
+    'data-add-content-command-row-stage880',
+    'true',
+  )
+  expect(screen.getByLabelText('Selected import workbench')).toHaveAttribute(
+    'data-add-content-primary-workbench-stage880',
+    'true',
+  )
+  expect(screen.getByLabelText('Import support')).toHaveAttribute('data-add-content-support-seam-stage880', 'true')
+  expect(document.querySelector('.import-panel-entry-hero')).toBeNull()
+  expect(document.querySelector('.import-panel-support-inline')).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Close Add content' }))
 
@@ -3349,7 +6287,8 @@ test('loaded reflowed view starts directly with the article instead of a derived
   openReaderNotebookNotes()
 
   await waitFor(() => {
-    expect(screen.getByRole('tab', { name: 'Notebook', selected: true })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Note text' })).toBeInTheDocument()
   })
 })
@@ -3538,7 +6477,9 @@ test('main reading controls keep only the idle primary transport visible and mov
   expect(screen.queryByText('Tips')).not.toBeInTheDocument()
   expect(screen.queryByRole('combobox', { name: 'Voice' })).not.toBeInTheDocument()
   expect(screen.getByLabelText('Read aloud transport')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Start read aloud' })).toHaveTextContent('Read aloud')
+  const compactStartButton = screen.getByRole('button', { name: 'Start read aloud' })
+  expect(compactStartButton).toHaveTextContent('Read aloud')
+  expect(compactStartButton.querySelector('.transport-icon-read-aloud-start')).not.toBeNull()
   expect(screen.queryByRole('button', { name: 'Previous sentence' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Next sentence' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Stop read aloud' })).not.toBeInTheDocument()
@@ -3699,6 +6640,9 @@ test('generated reader controls stay outside the article content surface', async
   expect(articleField).not.toBeNull()
   expect(articleShell as HTMLElement).toContainElement(articleField as HTMLElement)
   expect(articleField).toHaveClass('reader-article-field-short-document')
+  expect(articleField).not.toHaveClass('reader-article-field-short-document-content-fit-stage864')
+  expect(articleField).not.toHaveAttribute('data-reader-short-document-content-fit-stage864')
+  expect(screen.queryByRole('region', { name: 'Short document completion' })).not.toBeInTheDocument()
   expect(within(articleField as HTMLElement).getByText('Short AI summary.')).toBeInTheDocument()
   expect(within(articleShell as HTMLElement).queryByRole('group', { name: 'Summary detail' })).not.toBeInTheDocument()
 
@@ -3779,6 +6723,17 @@ test('reader keeps the taller article field for longer documents', async () => {
   const articleField = document.querySelector('.reader-article-field')
   expect(articleField).not.toBeNull()
   expect(articleField).not.toHaveClass('reader-article-field-short-document')
+  expect(articleField).not.toHaveAttribute('data-reader-short-document-content-fit-stage864')
+  expect(screen.queryByRole('region', { name: 'Short document completion' })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open nearby notebook notes' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(screen.getByRole('heading', { name: 'Notebook', level: 2 })).toBeInTheDocument()
+  })
+
+  expect(screen.queryByRole('region', { name: 'Short document completion' })).not.toBeInTheDocument()
 })
 
 test('speech controls expose labeled transport buttons and start playback from the main toggle', async () => {
@@ -3791,6 +6746,7 @@ test('speech controls expose labeled transport buttons and start playback from t
   const startButton = screen.getByRole('button', { name: 'Start read aloud' })
   expect(startButton).toHaveAttribute('title', 'Start read aloud')
   expect(startButton).toHaveTextContent('Read aloud')
+  expect(startButton.querySelector('.transport-icon-read-aloud-start')).not.toBeNull()
   expect(screen.queryByRole('button', { name: 'Previous sentence' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Next sentence' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Stop read aloud' })).not.toBeInTheDocument()
@@ -3800,23 +6756,90 @@ test('speech controls expose labeled transport buttons and start playback from t
   expect(mockSpeechState.start).toHaveBeenCalledTimes(1)
 })
 
-test('speech controls expand into the full transport cluster while playback is active', async () => {
+test('speech controls render a compact active Listen seam while playback is active', async () => {
   mockSpeechState.isSpeaking = true
 
   render(<App />)
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Pause read aloud' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pause read aloud' })).toBeEnabled()
   })
 
-  expect(screen.getByRole('button', { name: 'Previous sentence' })).toHaveAttribute('title', 'Previous sentence')
-  expect(screen.getByRole('button', { name: 'Next sentence' })).toHaveAttribute('title', 'Next sentence')
-  expect(screen.getByRole('button', { name: 'Stop read aloud' })).toHaveAttribute('title', 'Stop read aloud')
-  fireEvent.click(screen.getByRole('button', { name: 'Pause read aloud' }))
+  const listenSeam = screen.getByRole('region', { name: 'Active read aloud' })
+  expect(listenSeam).toHaveClass('reader-active-listen-seam-stage878')
+  expect(listenSeam).toHaveAttribute('data-reader-active-listen-seam-stage878', 'true')
+  expect(within(listenSeam).getByText('Listening')).toBeInTheDocument()
+  expect(within(listenSeam).getByText('Sentence 1 of 3')).toBeInTheDocument()
+  expect(within(listenSeam).getByText(/Search sentence one\./)).toBeInTheDocument()
+  expect(within(listenSeam).queryByText('Read aloud')).not.toBeInTheDocument()
+
+  const previousButton = within(listenSeam).getByRole('button', { name: 'Previous sentence' })
+  const pauseButton = within(listenSeam).getByRole('button', { name: 'Pause read aloud' })
+  const nextButton = within(listenSeam).getByRole('button', { name: 'Next sentence' })
+  const stopButton = within(listenSeam).getByRole('button', { name: 'Stop read aloud' })
+  expect(previousButton).toHaveAttribute('title', 'Previous sentence')
+  expect(pauseButton).toHaveTextContent('Pause')
+  expect(nextButton).toHaveAttribute('title', 'Next sentence')
+  expect(stopButton).toHaveAttribute('title', 'Stop read aloud')
+
+  fireEvent.click(previousButton)
+  fireEvent.click(nextButton)
+  fireEvent.click(pauseButton)
+  fireEvent.click(stopButton)
 
   await waitFor(() => {
+    expect(mockSpeechState.previous).toHaveBeenCalledTimes(1)
+    expect(mockSpeechState.next).toHaveBeenCalledTimes(1)
     expect(mockSpeechState.pause).toHaveBeenCalledTimes(1)
+    expect(mockSpeechState.stop).toHaveBeenCalledTimes(1)
   })
+})
+
+test('speech controls keep the regular transport family for resume while the idle start button stays speech-specific', async () => {
+  mockSpeechState.isPaused = true
+
+  render(<App />)
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Resume read aloud' })).toBeEnabled()
+  })
+
+  const listenSeam = screen.getByRole('region', { name: 'Active read aloud' })
+  expect(within(listenSeam).getByText('Paused')).toBeInTheDocument()
+  expect(within(listenSeam).getByText('Sentence 1 of 3')).toBeInTheDocument()
+  const resumeButton = screen.getByRole('button', { name: 'Resume read aloud' })
+  expect(resumeButton.querySelector('.transport-icon-read-aloud-start')).toBeNull()
+  expect(resumeButton).toHaveTextContent('Resume')
+  expect(resumeButton).not.toHaveTextContent('Read aloud')
+
+  fireEvent.click(resumeButton)
+
+  await waitFor(() => {
+    expect(mockSpeechState.resume).toHaveBeenCalledTimes(1)
+  })
+})
+
+test('short-document completion strip yields to active listening and returns at rest', async () => {
+  mockSpeechState.isSpeaking = true
+
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Active read aloud' })).toBeInTheDocument()
+  })
+  expect(screen.queryByRole('region', { name: 'Short document completion' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Pause read aloud' })).toHaveTextContent('Pause')
+
+  cleanup()
+  mockSpeechState.isSpeaking = false
+  mockSpeechState.isPaused = false
+
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Short document completion' })).toBeInTheDocument()
+  })
+  expect(screen.queryByRole('region', { name: 'Active read aloud' })).not.toBeInTheDocument()
 })
 
 test('reader progress saves include summary detail and accessibility snapshot metadata', async () => {

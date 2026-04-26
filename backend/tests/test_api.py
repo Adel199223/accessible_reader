@@ -319,6 +319,19 @@ def build_note_anchor(document_id: str, view_payload: dict, *, block_index: int 
     }
 
 
+def build_source_note_anchor(document_id: str, *, title: str = "Notes guide") -> dict:
+    return {
+        "kind": "source",
+        "source_document_id": document_id,
+        "variant_id": "source-note-draft",
+        "block_id": "source-note-draft",
+        "sentence_start": 99,
+        "sentence_end": 99,
+        "anchor_text": f"Source note for {title}",
+        "excerpt_text": f"Manual note attached to {title}.",
+    }
+
+
 def test_import_text_and_restore_reflow_view(tmp_path, monkeypatch) -> None:
     client = create_client(tmp_path, monkeypatch)
 
@@ -2054,6 +2067,106 @@ def test_recall_notes_create_list_update_delete_and_change_events(tmp_path, monk
             (created_note["id"],),
         ).fetchall()
         assert [row[0] for row in rows] == ["created", "updated", "deleted"]
+
+
+def test_recall_notes_create_source_anchor_and_preserve_sentence_validation(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Source draft guide",
+            "text": "Alpha source sentence. Beta source sentence.",
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    source_anchor = build_source_note_anchor(document["id"], title="Source draft guide")
+    create_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={"anchor": source_anchor, "body_text": "A manual source-level note."},
+    )
+    assert create_response.status_code == 200
+    created_note = create_response.json()
+    assert created_note["anchor"]["kind"] == "source"
+    assert created_note["anchor"]["variant_id"] != "source-note-draft"
+    assert created_note["anchor"]["block_id"] == f"source:{document['id']}"
+    assert created_note["anchor"]["global_sentence_start"] == 0
+    assert created_note["anchor"]["global_sentence_end"] == 0
+    assert created_note["anchor"]["anchor_text"] == "Source note for Source draft guide"
+
+    list_response = client.get(f"/api/recall/documents/{document['id']}/notes")
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["anchor"]["kind"] == "source"
+
+    search_response = client.get("/api/recall/notes/search", params={"query": "manual source-level"})
+    assert search_response.status_code == 200
+    assert search_response.json()[0]["id"] == created_note["id"]
+    assert search_response.json()[0]["anchor"]["kind"] == "source"
+
+    update_response = client.patch(
+        f"/api/recall/notes/{created_note['id']}",
+        json={"body_text": "Updated source-level note."},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["body_text"] == "Updated source-level note."
+
+    graph_response = client.post(
+        f"/api/recall/notes/{created_note['id']}/promote/graph-node",
+        json={"label": "Source Draft", "description": "Source-level note promotion."},
+    )
+    assert graph_response.status_code == 200
+    graph_detail = graph_response.json()
+    assert graph_detail["node"]["label"] == "Source Draft"
+    source_note_mention = graph_detail["mentions"][0]
+    assert source_note_mention["anchor_kind"] == "source"
+    assert source_note_mention["manual_source"] == "note"
+    assert source_note_mention["note_id"] == created_note["id"]
+    assert source_note_mention["chunk_id"] is None
+    assert source_note_mention["excerpt"] == "Updated source-level note."
+    assert source_note_mention["note_body"] == "Updated source-level note."
+    assert source_note_mention["note_anchor_text"] == "Source draft guide personal note"
+    assert "Source note for Source draft guide" not in source_note_mention["excerpt"]
+
+    graph_snapshot_response = client.get("/api/recall/graph")
+    assert graph_snapshot_response.status_code == 200
+    assert any(node["id"] == graph_detail["node"]["id"] for node in graph_snapshot_response.json()["nodes"])
+
+    study_response = client.post(
+        f"/api/recall/notes/{created_note['id']}/promote/study-card",
+        json={"prompt": "What kind of note was created?", "answer": "A source-attached note."},
+    )
+    assert study_response.status_code == 200
+    source_note_span = study_response.json()["source_spans"][0]
+    assert source_note_span["anchor_kind"] == "source"
+    assert source_note_span["note_id"] == created_note["id"]
+    assert source_note_span["chunk_id"] is None
+    assert source_note_span["global_sentence_start"] is None
+    assert source_note_span["global_sentence_end"] is None
+    assert source_note_span["sentence_start"] is None
+    assert source_note_span["sentence_end"] is None
+    assert source_note_span["anchor_text"] == "Source draft guide personal note"
+    assert source_note_span["excerpt"] == "Updated source-level note."
+    assert source_note_span["note_body"] == "Updated source-level note."
+    assert source_note_span["source_title"] == "Source draft guide"
+    assert "Source note for Source draft guide" not in source_note_span["excerpt"]
+
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    invalid_sentence_anchor = build_note_anchor(document["id"], view_response.json())
+    invalid_sentence_anchor["kind"] = "sentence"
+    invalid_sentence_anchor["sentence_end"] = 99
+    invalid_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={"anchor": invalid_sentence_anchor, "body_text": "Should still fail."},
+    )
+    assert invalid_response.status_code == 400
+
+    delete_response = client.delete(f"/api/recall/notes/{created_note['id']}")
+    assert delete_response.status_code == 204
 
 
 def test_recall_note_promotions_survive_refresh_and_manual_card_regeneration(tmp_path, monkeypatch) -> None:

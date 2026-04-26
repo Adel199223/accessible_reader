@@ -21,6 +21,14 @@ test('can hide the internal heading when the dialog frame already provides the t
 
   expect(screen.queryByRole('heading', { name: 'Import', level: 2 })).not.toBeInTheDocument()
   expect(screen.getByRole('tab', { name: /Paste text/i })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByRole('region', { name: 'Add content capture gateway' })).toHaveAttribute(
+    'data-add-content-command-row-stage880',
+    'true',
+  )
+  expect(screen.getByLabelText('Selected import workbench')).toHaveAttribute(
+    'data-add-content-primary-workbench-stage880',
+    'true',
+  )
 })
 
 test('switches import modes without relying on a duplicated modal heading', () => {
@@ -57,6 +65,9 @@ test('surfaces the active import guidance and support points for the selected mo
   expect(screen.getByText('Paste something you already have')).toBeInTheDocument()
   expect(screen.getByText('Works well for')).toBeInTheDocument()
   expect(screen.getByText(/Quick notes or copied passages/i)).toBeInTheDocument()
+  expect(screen.getByLabelText('Import support')).toHaveAttribute('data-add-content-support-seam-stage880', 'true')
+  expect(document.querySelector('.import-panel-entry-hero')).toBeNull()
+  expect(document.querySelector('.import-panel-support-inline')).toBeNull()
 
   fireEvent.click(screen.getAllByRole('tab', { name: /Choose file/i })[0])
 

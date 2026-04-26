@@ -178,6 +178,7 @@ test('RecallShellFrame compacts the Reader topbar into actions only when a Reade
   expect(shellHeader).toHaveClass('workspace-topbar-reader')
   expect(shellHeader).toHaveClass('workspace-topbar-reader-compact')
   expect(shellHeader).toHaveAttribute('aria-label', 'Reader workspace controls')
+  expect(document.querySelector('.workspace-topbar-actions')).toHaveClass('workspace-topbar-actions-reader-compact')
   expect(screen.queryByRole('heading', { name: 'Reader', level: 1 })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument()

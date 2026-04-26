@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -22,6 +23,7 @@ import {
   decideRecallGraphNode,
   fetchDocumentView,
   fetchRecallDocumentPreview,
+  createRecallNote,
   fetchRecallNotes,
   fetchRecallDocument,
   fetchRecallDocuments,
@@ -38,6 +40,7 @@ import {
 } from '../api'
 import type {
   ReaderAnchorRange,
+  RecallHomeMemoryFilter,
   RecallHomeOrganizerLens,
   RecallHomeViewMode,
   RecallLibrarySurface,
@@ -48,6 +51,7 @@ import type {
   WorkspaceDockAction,
   WorkspaceDockContext,
   RecallStudyFilter,
+  RecallStudyScheduleDrilldown,
   RecallWorkspaceContinuityState,
   RecallWorkspaceFocusRequest,
 } from '../lib/appRoute'
@@ -63,6 +67,7 @@ import type {
   DocumentView,
   KnowledgeEdgeRecord,
   KnowledgeGraphSnapshot,
+  KnowledgeMentionRecord,
   KnowledgeNodeDetail,
   KnowledgeNodeRecord,
   RecallDocumentPreview,
@@ -72,7 +77,6 @@ import type {
   RecallNoteSearchHit,
   ReaderSettings,
   StudyCardRecord,
-  StudyCardStatus,
   RecallNoteStudyPromotionRequest,
   StudyOverview,
   StudyReviewRating,
@@ -92,7 +96,7 @@ interface RecallWorkspaceProps {
   continuityState: RecallWorkspaceContinuityState
   focusRequest?: RecallWorkspaceFocusRequest | null
   onContinuityStateChange: Dispatch<SetStateAction<RecallWorkspaceContinuityState>>
-  onOpenNotebook: (options?: { documentId?: string | null; noteId?: string | null }) => void
+  onOpenNotebook: (options?: { documentId?: string | null; newNote?: boolean | null; noteId?: string | null }) => void
   onShellContextChange: (context: WorkspaceDockContext | null) => void
   onSectionChange: (section: RecallSection) => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
@@ -102,6 +106,8 @@ interface RecallWorkspaceProps {
   onOpenReader: (
     documentId: string,
     options?: {
+      returnNoteId?: string | null
+      returnToNotebook?: boolean | null
       sentenceEnd?: number | null
       sentenceStart?: number | null
     },
@@ -111,6 +117,16 @@ interface RecallWorkspaceProps {
 }
 type LoadState = 'idle' | 'loading' | 'success' | 'error'
 
+interface SourceMemoryTextMatch {
+  id: string
+  preview: string
+  sentenceEnd: number | null
+  sentenceStart: number | null
+}
+
+function isWorkspaceDockAction(action: WorkspaceDockAction | null): action is WorkspaceDockAction {
+  return action !== null
+}
 
 function formatModeLabel(mode: string) {
   return mode.slice(0, 1).toUpperCase() + mode.slice(1)
@@ -202,7 +218,7 @@ function clampHomeOrganizerRailWidth(width: number) {
 }
 
 
-function formatStudyStatus(status: StudyCardStatus) {
+function formatStudyStatus(status: string) {
   return status.slice(0, 1).toUpperCase() + status.slice(1)
 }
 
@@ -313,6 +329,16 @@ function formatSentenceSpanLabel(start: number | null | undefined, end: number |
   return `${sentenceCount} ${sentenceCount === 1 ? 'anchored sentence' : 'anchored sentences'}`
 }
 
+function getNoteAnchorScopeLabel(note: RecallNoteRecord | RecallNoteSearchHit) {
+  if (note.anchor.kind === 'source') {
+    return 'Source note'
+  }
+  return formatSentenceSpanLabel(
+    note.anchor.global_sentence_start ?? note.anchor.sentence_start,
+    note.anchor.global_sentence_end ?? note.anchor.sentence_end,
+  )
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
@@ -325,7 +351,17 @@ function removeNoteRecord<T extends { id: string }>(items: T[], noteId: string) 
   return items.filter((item) => item.id !== noteId)
 }
 
+function isSourceAttachedNote(note: RecallNoteRecord | RecallNoteSearchHit) {
+  return note.anchor.kind === 'source'
+}
+
 function buildReaderAnchorOptions(note: RecallNoteRecord | RecallNoteSearchHit) {
+  if (note.anchor.kind === 'source') {
+    return {
+      sentenceEnd: null,
+      sentenceStart: null,
+    }
+  }
   return {
     sentenceEnd: note.anchor.global_sentence_end ?? note.anchor.sentence_end,
     sentenceStart: note.anchor.global_sentence_start ?? note.anchor.sentence_start,
@@ -467,8 +503,45 @@ function getHomeDocumentPreviewMonogram(value: string, fallback: string) {
 }
 
 interface HomeDocumentPreviewContent {
+  excerptLines: string[]
   heroText: string
 }
+
+interface HomeLocalPreviewIdentityStage884 {
+  lead: string
+  lines: string[]
+  token: string
+  variant: 'brief' | 'data' | 'question' | 'stack'
+}
+
+const HOME_LOCAL_PREVIEW_STOP_WORDS_STAGE884 = new Set([
+  'about',
+  'after',
+  'also',
+  'because',
+  'before',
+  'being',
+  'between',
+  'cards',
+  'could',
+  'document',
+  'documents',
+  'from',
+  'have',
+  'into',
+  'local',
+  'note',
+  'notes',
+  'only',
+  'source',
+  'that',
+  'their',
+  'there',
+  'these',
+  'this',
+  'with',
+  'would',
+])
 
 function hashHomePreviewSeed(value: string) {
   let hash = 0
@@ -488,6 +561,80 @@ function truncateHomePreviewText(value: string, maxLength = 48) {
     return normalized
   }
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`
+}
+
+function toHomePreviewTitleCaseStage884(value: string) {
+  if (!value) {
+    return value
+  }
+  return `${value.slice(0, 1).toUpperCase()}${value.slice(1).toLowerCase()}`
+}
+
+function getHomeLocalPreviewTokenStage884(lines: string[], fallback: string) {
+  const words = normalizeHomePreviewText(lines.join(' '))
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .split(/\s+/)
+    .map((word) => word.trim().replace(/^-+|-+$/g, ''))
+    .filter((word) => word.length >= 4 && !HOME_LOCAL_PREVIEW_STOP_WORDS_STAGE884.has(word.toLowerCase()))
+
+  const uniqueWords: string[] = []
+  for (const word of words) {
+    if (!uniqueWords.some((candidate) => candidate.localeCompare(word, undefined, { sensitivity: 'base' }) === 0)) {
+      uniqueWords.push(word)
+    }
+    if (uniqueWords.length >= 2) {
+      break
+    }
+  }
+
+  if (uniqueWords.length > 0) {
+    return uniqueWords.map(toHomePreviewTitleCaseStage884).join(' ')
+  }
+
+  const compactFallback = normalizeHomePreviewText(fallback)
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(toHomePreviewTitleCaseStage884)
+    .join(' ')
+
+  return compactFallback || 'Capture'
+}
+
+function getHomeLocalPreviewIdentityStage884(
+  document: RecallDocumentRecord,
+  previewContent: HomeDocumentPreviewContent | null,
+  fallbackLines: string[],
+): HomeLocalPreviewIdentityStage884 | null {
+  const contentLines =
+    previewContent?.excerptLines
+      .map((line) => normalizeHomePreviewText(line))
+      .filter((line) => line.length >= 10) ?? []
+  const lines = contentLines.length > 0 ? contentLines : fallbackLines.map((line) => normalizeHomePreviewText(line)).filter(Boolean)
+
+  if (lines.length === 0 || !previewContent) {
+    return null
+  }
+
+  const combinedText = lines.join(' ')
+  const seed = hashHomePreviewSeed(`${document.id}:${combinedText}`)
+  const variant: HomeLocalPreviewIdentityStage884['variant'] = /\?/.test(combinedText)
+    ? 'question'
+    : /\b\d/.test(combinedText)
+      ? 'data'
+      : lines.length >= 3
+        ? 'stack'
+        : seed % 2 === 0
+          ? 'brief'
+          : 'stack'
+
+  return {
+    lead: truncateHomePreviewText(lines[0] ?? previewContent.heroText, 64),
+    lines: lines.slice(1, 3).map((line) => truncateHomePreviewText(line, 54)),
+    token: truncateHomePreviewText(getHomeLocalPreviewTokenStage884(lines, previewContent.heroText), 24),
+    variant,
+  }
 }
 
 function splitHomePreviewSentences(text: string) {
@@ -572,7 +719,7 @@ function getHomeDocumentPreviewContentFromView(document: RecallDocumentRecord, v
     .map((value) => normalizeHomePreviewText(value).toLowerCase())
     .filter(Boolean)
 
-  const candidate = collectHomePreviewViewLines(view).find((line) => {
+  const contentLines = collectHomePreviewViewLines(view).filter((line) => {
     const normalized = line.toLowerCase()
     if (normalized.length < 12) {
       return false
@@ -584,12 +731,14 @@ function getHomeDocumentPreviewContentFromView(document: RecallDocumentRecord, v
       return normalized !== blocked && !normalized.includes(blocked) && !blocked.includes(normalized)
     })
   })
+  const candidate = contentLines[0]
 
   if (!candidate) {
     return null
   }
 
   return {
+    excerptLines: contentLines.slice(0, 3).map((line) => truncateHomePreviewText(line, 78)),
     heroText: truncateHomePreviewText(candidate, 50),
   }
 }
@@ -725,6 +874,7 @@ type StaticLibraryBrowseSectionKey =
   | 'collection:web'
   | 'collection:captures'
   | 'collection:documents'
+  | 'collection:personal-notes'
   | 'recent:today'
   | 'recent:this-week'
   | 'recent:earlier'
@@ -732,6 +882,7 @@ type StaticLibraryBrowseSectionKey =
 type CustomCollectionSectionKey = `collection:custom:${string}`
 type LibraryBrowseSectionKey = StaticLibraryBrowseSectionKey | CustomCollectionSectionKey | 'collection:untagged'
 type HomeOrganizerSelectionKey = string
+const HOME_PERSONAL_NOTES_SECTION_KEY = 'collection:personal-notes' as const
 
 interface HomeOrganizerSelectionDescriptor {
   documentId?: string
@@ -763,12 +914,61 @@ interface HomeCollectionDraftState {
   seedDocumentIds?: string[]
 }
 
+interface HomePersonalNoteItem {
+  key: string
+  note: RecallNoteRecord | RecallNoteSearchHit
+  preview: string
+  searchResult: boolean
+  sourceDocument: RecallDocumentRecord | null
+  sourceTitle: string
+  sourceTypeLabel: string
+  updatedAt: string
+}
+
+interface HomeSourceMemorySummary {
+  accessibleLabel: string
+  graphNodeCount: number
+  labels: string[]
+  personalNoteCount: number
+  studyCardCount: number
+  totalCount: number
+}
+
+interface SourceStudyReviewSummary {
+  dueCount: number
+  dueThisWeekCount: number
+  newCount: number
+  nextDueAt: string | null
+  reviewedCount: number
+  scheduledCount: number
+  totalCount: number
+  upcomingCount: number
+}
+
+interface StudySourceScheduleRow extends SourceStudyReviewSummary {
+  document: RecallDocumentRecord | null
+  documentId: string
+  title: string
+}
+
+const HOME_MEMORY_FILTER_OPTIONS: Array<{
+  key: RecallHomeMemoryFilter
+  label: string
+}> = [
+  { key: 'all', label: 'All' },
+  { key: 'any', label: 'Any' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'graph', label: 'Graph' },
+  { key: 'study', label: 'Study' },
+]
+
 interface LibraryBrowseSection {
   description: string
   documents: RecallDocumentRecord[]
   key: LibraryBrowseSectionKey
   label: string
   lens: RecallHomeOrganizerLens
+  sectionKind?: 'sources' | 'personal-notes'
 }
 
 function buildHomeSectionSelectionKey(sectionKey: LibraryBrowseSectionKey): HomeOrganizerSelectionKey {
@@ -811,6 +1011,40 @@ function parseHomeOrganizerSelectionKey(
   }
 
   return null
+}
+
+function buildHomeSourceMemorySummaryLabels(summary: Pick<
+  HomeSourceMemorySummary,
+  'graphNodeCount' | 'personalNoteCount' | 'studyCardCount'
+>) {
+  return [
+    summary.personalNoteCount > 0 ? formatCountLabel(summary.personalNoteCount, 'note', 'notes') : null,
+    summary.graphNodeCount > 0 ? formatCountLabel(summary.graphNodeCount, 'graph node', 'graph nodes') : null,
+    summary.studyCardCount > 0 ? formatCountLabel(summary.studyCardCount, 'card', 'cards') : null,
+  ].filter((label): label is string => Boolean(label))
+}
+
+function getHomeMemoryFilterLabel(filter: RecallHomeMemoryFilter) {
+  return HOME_MEMORY_FILTER_OPTIONS.find((option) => option.key === filter)?.label ?? 'All'
+}
+
+function sourceMatchesHomeMemoryFilter(summary: HomeSourceMemorySummary | undefined, filter: RecallHomeMemoryFilter) {
+  if (filter === 'all') {
+    return true
+  }
+  if (!summary) {
+    return false
+  }
+  if (filter === 'any') {
+    return summary.totalCount > 0
+  }
+  if (filter === 'notes') {
+    return summary.personalNoteCount > 0
+  }
+  if (filter === 'graph') {
+    return summary.graphNodeCount > 0
+  }
+  return summary.studyCardCount > 0
 }
 
 function buildHomeCustomCollectionSectionKey(collectionId: string): CustomCollectionSectionKey {
@@ -1271,6 +1505,10 @@ function isCollectionCaptureSection(sectionKey: LibraryBrowseSection['key']) {
   return sectionKey === 'collection:captures'
 }
 
+function isHomePersonalNotesSection(sectionKey: LibraryBrowseSection['key']) {
+  return sectionKey === HOME_PERSONAL_NOTES_SECTION_KEY
+}
+
 function getLibrarySectionDisplayLimit(sectionKey: LibraryBrowseSection['key']) {
   if (isRecentTodaySection(sectionKey)) {
     return 3
@@ -1285,6 +1523,9 @@ function getLibrarySectionDisplayLimit(sectionKey: LibraryBrowseSection['key']) 
 }
 
 function getHomeWorkspaceSectionDisplayLimit(sectionKey: LibraryBrowseSection['key']) {
+  if (isHomePersonalNotesSection(sectionKey)) {
+    return 12
+  }
   if (isRecentTodaySection(sectionKey)) {
     return 3
   }
@@ -1312,6 +1553,9 @@ function shouldKeepGroupedOverviewCompactMetaSourceType(
 }
 
 function getHomeBrowseBranchDisplayLimit(sectionKey: LibraryBrowseSection['key'], viewMode: RecallHomeViewMode) {
+  if (isHomePersonalNotesSection(sectionKey)) {
+    return 0
+  }
   const baseLimit = isRecentTodaySection(sectionKey)
     ? 4
     : isRecentThisWeekSection(sectionKey)
@@ -1685,7 +1929,109 @@ function getNoteRowPreview(note: RecallNoteRecord | RecallNoteSearchHit) {
   if (trimmedBody) {
     return trimmedBody
   }
+  if (note.anchor.kind === 'source') {
+    return 'Source-level note attached to this saved source.'
+  }
   return note.anchor.excerpt_text
+}
+
+function getSourceNoteBodyPreview(note: RecallNoteRecord | RecallNoteSearchHit) {
+  return note.body_text?.trim() || 'Personal note attached to this saved source.'
+}
+
+function clipPromotionLabel(value: string, limit = 72) {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= limit) {
+    return normalized
+  }
+  return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
+}
+
+function getFirstMeaningfulNoteSentence(value: string) {
+  const firstLine = value
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .find(Boolean)
+  if (!firstLine) {
+    return ''
+  }
+  const firstSentence = firstLine.match(/^(.+?[.!?])(?:\s|$)/)?.[1]
+  return firstSentence?.trim() || firstLine
+}
+
+function buildNotePromotionDefaults(
+  note: RecallNoteRecord | RecallNoteSearchHit,
+  documentTitleById: Map<string, string>,
+  fallbackTitle?: string | null,
+) {
+  const bodyText = note.body_text?.trim() ?? ''
+  const displayTitle = getNoteDisplayTitle(note, documentTitleById, fallbackTitle)
+  if (note.anchor.kind !== 'source') {
+    return {
+      graphDescription: bodyText,
+      graphLabel: displayTitle,
+      studyAnswer: displayTitle,
+      studyPrompt: bodyText || 'What should you remember from this note?',
+    }
+  }
+
+  const sourceTitle = getNoteDocumentTitle(note, documentTitleById, fallbackTitle)
+  const fallback = `${sourceTitle} personal note`
+  const bodyLabel = getFirstMeaningfulNoteSentence(bodyText)
+  const graphLabel = clipPromotionLabel(bodyLabel || fallback)
+  return {
+    graphDescription: bodyText || fallback,
+    graphLabel,
+    studyAnswer: bodyText || fallback,
+    studyPrompt: 'What should you remember from this source note?',
+  }
+}
+
+function sourceNoteMatchesSearchContext(
+  note: RecallNoteRecord | RecallNoteSearchHit,
+  query: string,
+  sourceDocument?: RecallDocumentRecord | null,
+) {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) {
+    return true
+  }
+  const contextValues = [
+    note.body_text ?? '',
+    'document_title' in note ? note.document_title : '',
+    sourceDocument?.title ?? '',
+    sourceDocument?.source_type ?? '',
+    sourceDocument?.source_locator ?? '',
+    sourceDocument?.file_name ?? '',
+  ]
+  return contextValues.some((value) => value.toLowerCase().includes(normalizedQuery))
+}
+
+function getNoteDisplayTitle(
+  note: RecallNoteRecord | RecallNoteSearchHit,
+  documentTitleById: Map<string, string>,
+  fallbackTitle?: string | null,
+) {
+  if (note.anchor.kind !== 'source') {
+    return note.anchor.anchor_text
+  }
+  return `${getNoteDocumentTitle(note, documentTitleById, fallbackTitle)} source note`
+}
+
+function buildSourceAttachedNoteAnchor(document: RecallDocumentRecord) {
+  const sourceTitle = document.title.trim() || 'Saved source'
+  return {
+    kind: 'source' as const,
+    source_document_id: document.id,
+    variant_id: '',
+    block_id: `source:${document.id}`,
+    sentence_start: 0,
+    sentence_end: 0,
+    global_sentence_start: 0,
+    global_sentence_end: 0,
+    anchor_text: `Source note for ${sourceTitle}`,
+    excerpt_text: `Manual note attached to ${sourceTitle}.`,
+  }
 }
 
 function getRecordStringValue(record: Record<string, unknown>, key: string) {
@@ -1698,7 +2044,43 @@ function getRecordNumberValue(record: Record<string, unknown>, key: string) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function isSourceNoteSourceSpan(sourceSpan?: Record<string, unknown> | null) {
+  return Boolean(sourceSpan && getRecordStringValue(sourceSpan, 'note_id') && getRecordStringValue(sourceSpan, 'anchor_kind') === 'source')
+}
+
+function isGraphMentionFromNote(mention: KnowledgeMentionRecord) {
+  return Boolean(mention.note_id || mention.manual_source === 'note')
+}
+
+function isGraphMentionFromSourceNote(mention: KnowledgeMentionRecord) {
+  return Boolean(mention.note_id && mention.anchor_kind === 'source')
+}
+
+function getGraphMentionEvidenceLabel(mention: KnowledgeMentionRecord) {
+  if (isGraphMentionFromSourceNote(mention)) {
+    return 'Source note'
+  }
+  if (isGraphMentionFromNote(mention)) {
+    return 'Personal note'
+  }
+  return mention.entity_type
+}
+
+function getGraphMentionEvidenceKindLabel(mention: KnowledgeMentionRecord) {
+  if (isGraphMentionFromSourceNote(mention)) {
+    return 'Personal note'
+  }
+  if (isGraphMentionFromNote(mention)) {
+    return 'Anchored note'
+  }
+  return mention.text
+}
+
 function getStudyCardPreview(card: StudyCardRecord) {
+  const sourceNoteSpan = card.source_spans.find(isSourceNoteSourceSpan)
+  if (sourceNoteSpan) {
+    return `Source note from ${card.document_title}: ${getStudyEvidenceExcerpt(sourceNoteSpan)}`
+  }
   const promotedFromNote = card.source_spans.some((span) => Boolean(getRecordStringValue(span, 'note_id')))
   if (promotedFromNote) {
     return `Promoted from a saved note in ${card.document_title}.`
@@ -1721,8 +2103,151 @@ function buildStudyQueuePreview(cards: StudyCardRecord[], activeCardId: string |
   return [activeCard, ...preview.slice(0, Math.max(0, limit - 1))]
 }
 
+function getStudyReviewPriority(status: string) {
+  if (status === 'due') {
+    return 0
+  }
+  if (status === 'new') {
+    return 1
+  }
+  if (status === 'scheduled') {
+    return 2
+  }
+  return 3
+}
+
+function orderStudyCardsForReviewQueue(cards: StudyCardRecord[]) {
+  return [...cards].sort((left, right) => {
+    const priorityDelta = getStudyReviewPriority(left.status) - getStudyReviewPriority(right.status)
+    if (priorityDelta !== 0) {
+      return priorityDelta
+    }
+    const leftDueAt = new Date(left.due_at).getTime()
+    const rightDueAt = new Date(right.due_at).getTime()
+    if (Number.isFinite(leftDueAt) && Number.isFinite(rightDueAt) && leftDueAt !== rightDueAt) {
+      return leftDueAt - rightDueAt
+    }
+    return left.prompt.localeCompare(right.prompt)
+  })
+}
+
+function buildStudyScopeOverview(cards: StudyCardRecord[]): StudyOverview {
+  const nextDueAt = cards
+    .map((card) => new Date(card.due_at).getTime())
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right)[0]
+  return {
+    due_count: cards.filter((card) => card.status === 'due').length,
+    new_count: cards.filter((card) => card.status === 'new').length,
+    scheduled_count: cards.filter((card) => card.status === 'scheduled').length,
+    review_event_count: cards.reduce((total, card) => total + card.review_count, 0),
+    next_due_at: Number.isFinite(nextDueAt) ? new Date(nextDueAt).toISOString() : null,
+  }
+}
+
+function buildSourceStudyReviewSummary(cards: StudyCardRecord[], now = new Date()): SourceStudyReviewSummary {
+  const nowTime = now.getTime()
+  const weekEndTime = nowTime + 7 * 24 * 60 * 60 * 1000
+  const scheduledCards = cards.filter((card) => card.status === 'scheduled')
+  const nextDueAt = cards
+    .map((card) => new Date(card.due_at).getTime())
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right)[0]
+  const dueThisWeekCount = scheduledCards.filter((card) => {
+    const dueAt = new Date(card.due_at).getTime()
+    return Number.isFinite(dueAt) && dueAt > nowTime && dueAt <= weekEndTime
+  }).length
+
+  return {
+    dueCount: cards.filter((card) => card.status === 'due').length,
+    dueThisWeekCount,
+    newCount: cards.filter((card) => card.status === 'new').length,
+    nextDueAt: Number.isFinite(nextDueAt) ? new Date(nextDueAt).toISOString() : null,
+    reviewedCount: cards.filter((card) => card.review_count > 0).length,
+    scheduledCount: scheduledCards.length,
+    totalCount: cards.length,
+    upcomingCount: scheduledCards.length - dueThisWeekCount,
+  }
+}
+
+function isStudyCardDueThisWeek(card: StudyCardRecord, now = new Date()) {
+  if (card.status !== 'scheduled') {
+    return false
+  }
+  const dueAt = new Date(card.due_at).getTime()
+  if (!Number.isFinite(dueAt)) {
+    return false
+  }
+  const nowTime = now.getTime()
+  return dueAt > nowTime && dueAt <= nowTime + 7 * 24 * 60 * 60 * 1000
+}
+
+function studyCardMatchesScheduleDrilldown(
+  card: StudyCardRecord,
+  drilldown: RecallStudyScheduleDrilldown,
+  now = new Date(),
+) {
+  if (drilldown === 'all') {
+    return true
+  }
+  if (drilldown === 'due-now') {
+    return card.status === 'due'
+  }
+  if (drilldown === 'due-this-week') {
+    return isStudyCardDueThisWeek(card, now)
+  }
+  if (drilldown === 'upcoming') {
+    return card.status === 'scheduled' && !isStudyCardDueThisWeek(card, now)
+  }
+  if (drilldown === 'new') {
+    return card.status === 'new'
+  }
+  return card.review_count > 0
+}
+
+function formatStudyScheduleDrilldownLabel(drilldown: RecallStudyScheduleDrilldown) {
+  if (drilldown === 'due-now') {
+    return 'Due now'
+  }
+  if (drilldown === 'due-this-week') {
+    return 'This week'
+  }
+  if (drilldown === 'upcoming') {
+    return 'Upcoming'
+  }
+  if (drilldown === 'new') {
+    return 'New'
+  }
+  if (drilldown === 'reviewed') {
+    return 'Reviewed'
+  }
+  return 'All'
+}
+
+function sortStudySourceScheduleRows(left: StudySourceScheduleRow, right: StudySourceScheduleRow) {
+  if (left.dueCount !== right.dueCount) {
+    return right.dueCount - left.dueCount
+  }
+  if (left.newCount !== right.newCount) {
+    return right.newCount - left.newCount
+  }
+  const leftNextDue = left.nextDueAt ? new Date(left.nextDueAt).getTime() : Number.POSITIVE_INFINITY
+  const rightNextDue = right.nextDueAt ? new Date(right.nextDueAt).getTime() : Number.POSITIVE_INFINITY
+  if (leftNextDue !== rightNextDue) {
+    return leftNextDue - rightNextDue
+  }
+  return left.title.localeCompare(right.title)
+}
+
+function getNextStudyCardForQueue(cards: StudyCardRecord[], currentCardId?: string | null) {
+  return orderStudyCardsForReviewQueue(cards.filter((card) => card.id !== currentCardId))[0] ?? null
+}
+
 function getStudyEvidenceLabel(sourceSpan: Record<string, unknown>) {
   if (getRecordStringValue(sourceSpan, 'note_id')) {
+    if (isSourceNoteSourceSpan(sourceSpan)) {
+      return 'Source note'
+    }
     return 'Saved note'
   }
   if (getRecordStringValue(sourceSpan, 'edge_id')) {
@@ -1736,6 +2261,13 @@ function getStudyEvidenceLabel(sourceSpan: Record<string, unknown>) {
 
 function getStudyEvidenceExcerpt(sourceSpan: Record<string, unknown>) {
   return getRecordStringValue(sourceSpan, 'excerpt') ?? getRecordStringValue(sourceSpan, 'anchor_text') ?? 'No excerpt saved.'
+}
+
+function getStudyEvidenceNoteKindLabel(sourceSpan: Record<string, unknown>) {
+  if (!getRecordStringValue(sourceSpan, 'note_id')) {
+    return null
+  }
+  return isSourceNoteSourceSpan(sourceSpan) ? 'Personal note' : 'Anchored note'
 }
 
 function buildOpenReaderLabel(documentTitle: string) {
@@ -1760,6 +2292,144 @@ function buildAnchorTextCandidates(...values: Array<string | null | undefined>) 
   return candidates
 }
 
+function normalizeSourceMemorySearchText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+function sourceMemoryTextMatches(values: Array<string | null | undefined>, normalizedQuery: string) {
+  if (!normalizedQuery) {
+    return true
+  }
+  return values.some((value) => normalizeSourceMemorySearchText(value ?? '').includes(normalizedQuery))
+}
+
+function noteMatchesSourceMemorySearch(
+  note: RecallNoteRecord,
+  normalizedQuery: string,
+  documentTitleById: Map<string, string>,
+  fallbackTitle?: string | null,
+) {
+  if (!normalizedQuery) {
+    return true
+  }
+  const title = getNoteDocumentTitle(note, documentTitleById, fallbackTitle)
+  if (note.anchor.kind === 'source') {
+    return sourceMemoryTextMatches([note.body_text, title], normalizedQuery)
+  }
+  return sourceMemoryTextMatches(
+    [note.body_text, title, note.anchor.anchor_text, note.anchor.excerpt_text],
+    normalizedQuery,
+  )
+}
+
+function graphNodeMatchesSourceMemorySearch(node: KnowledgeNodeRecord, normalizedQuery: string) {
+  if (!normalizedQuery) {
+    return true
+  }
+  return sourceMemoryTextMatches(
+    [node.label, node.description, node.node_type, node.status, ...node.aliases],
+    normalizedQuery,
+  )
+}
+
+function studyCardMatchesSourceMemorySearch(card: StudyCardRecord, normalizedQuery: string) {
+  if (!normalizedQuery) {
+    return true
+  }
+  return sourceMemoryTextMatches(
+    [
+      card.prompt,
+      card.answer,
+      card.status,
+      card.card_type,
+      ...card.source_spans.flatMap((sourceSpan) => [
+        getStudyEvidenceExcerpt(sourceSpan),
+        getStudyEvidenceLabel(sourceSpan),
+        getRecordStringValue(sourceSpan, 'anchor_text'),
+      ]),
+    ],
+    normalizedQuery,
+  )
+}
+
+function studyCardMatchesQuestionSearch(card: StudyCardRecord, normalizedQuery: string) {
+  if (!normalizedQuery) {
+    return true
+  }
+  return sourceMemoryTextMatches(
+    [
+      card.prompt,
+      card.answer,
+      card.document_title,
+      card.status,
+      formatStudyStatus(card.status),
+      card.card_type,
+      getStudyCardPreview(card),
+      ...card.source_spans.flatMap((sourceSpan) => [
+        getStudyEvidenceExcerpt(sourceSpan),
+        getStudyEvidenceLabel(sourceSpan),
+        getStudyEvidenceNoteKindLabel(sourceSpan),
+        getRecordStringValue(sourceSpan, 'anchor_text'),
+      ]),
+    ],
+    normalizedQuery,
+  )
+}
+
+function getSourceMemoryBlockSentenceTexts(block: DocumentView['blocks'][number]) {
+  const blockMetadata =
+    block.metadata && typeof block.metadata === 'object' ? (block.metadata as Record<string, unknown>) : null
+  const sentenceTexts = Array.isArray(blockMetadata?.sentence_texts)
+    ? blockMetadata.sentence_texts.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : []
+  return sentenceTexts.length > 0 ? sentenceTexts : splitHomePreviewSentences(block.text)
+}
+
+function buildSourceMemoryTextMatches(view: DocumentView | null, query: string, limit = 3): SourceMemoryTextMatch[] {
+  const normalizedQuery = normalizeSourceMemorySearchText(query)
+  if (!view || !normalizedQuery) {
+    return []
+  }
+
+  const matches: SourceMemoryTextMatch[] = []
+  let globalSentenceIndex = 0
+
+  for (const block of view.blocks) {
+    const sentenceTexts = getSourceMemoryBlockSentenceTexts(block)
+    let blockHadSentenceMatch = false
+    for (const sentenceText of sentenceTexts) {
+      const normalizedSentence = normalizeSourceMemorySearchText(sentenceText)
+      if (normalizedSentence.includes(normalizedQuery)) {
+        matches.push({
+          id: `text:${block.id}:${globalSentenceIndex}`,
+          preview: truncateHomePreviewText(sentenceText, 110),
+          sentenceEnd: globalSentenceIndex,
+          sentenceStart: globalSentenceIndex,
+        })
+        blockHadSentenceMatch = true
+      }
+      globalSentenceIndex += 1
+      if (matches.length >= limit) {
+        return matches
+      }
+    }
+
+    if (!blockHadSentenceMatch && normalizeSourceMemorySearchText(block.text).includes(normalizedQuery)) {
+      matches.push({
+        id: `text:${block.id}:block`,
+        preview: truncateHomePreviewText(block.text, 110),
+        sentenceEnd: null,
+        sentenceStart: null,
+      })
+      if (matches.length >= limit) {
+        return matches
+      }
+    }
+  }
+
+  return matches
+}
+
 function mapRecallSectionToSourceTab(section: RecallSection): SourceWorkspaceTab {
   if (section === 'library') {
     return 'overview'
@@ -1769,6 +2439,9 @@ function mapRecallSectionToSourceTab(section: RecallSection): SourceWorkspaceTab
 
 function buildReaderOptionsFromSourceSpan(sourceSpan?: Record<string, unknown>) {
   if (!sourceSpan) {
+    return undefined
+  }
+  if (isSourceNoteSourceSpan(sourceSpan)) {
     return undefined
   }
   const sentenceStart =
@@ -1794,7 +2467,10 @@ function areReaderAnchorsEqual(left: ReaderAnchorRange | null | undefined, right
   return left.sentenceStart === right.sentenceStart && left.sentenceEnd === right.sentenceEnd
 }
 
-function buildReaderAnchorRangeFromNote(note: RecallNoteRecord | RecallNoteSearchHit): ReaderAnchorRange {
+function buildReaderAnchorRangeFromNote(note: RecallNoteRecord | RecallNoteSearchHit): ReaderAnchorRange | null {
+  if (note.anchor.kind === 'source') {
+    return null
+  }
   return {
     sentenceEnd: note.anchor.global_sentence_end ?? note.anchor.sentence_end,
     sentenceStart: note.anchor.global_sentence_start ?? note.anchor.sentence_start,
@@ -1838,6 +2514,8 @@ export function RecallWorkspace({
   const [detailStatus, setDetailStatus] = useState<LoadState>('idle')
   const [detailError, setDetailError] = useState<string | null>(null)
   const [sourceWorkspaceStatus, setSourceWorkspaceStatus] = useState<LoadState>('idle')
+  const [sourceMemorySearchView, setSourceMemorySearchView] = useState<DocumentView | null>(null)
+  const [sourceMemorySearchViewStatus, setSourceMemorySearchViewStatus] = useState<LoadState>('idle')
   const [graphSnapshot, setGraphSnapshot] = useState<KnowledgeGraphSnapshot | null>(null)
   const [graphStatus, setGraphStatus] = useState<LoadState>('loading')
   const [graphError, setGraphError] = useState<string | null>(null)
@@ -1886,6 +2564,7 @@ export function RecallWorkspace({
   const graphSettingsDrawerResizeSessionRef = useRef<GraphSettingsDrawerResizeSession | null>(null)
   const graphNodeDragSuppressClickRef = useRef(false)
   const graphLastHandledFitRequestKeyRef = useRef(0)
+  const sourceMemorySearchInputRef = useRef<HTMLInputElement | null>(null)
   const [graphViewport, setGraphViewport] = useState<GraphCanvasViewportState>({
     offsetX: 0,
     offsetY: 0,
@@ -1909,6 +2588,11 @@ export function RecallWorkspace({
   const [documentNotes, setDocumentNotes] = useState<RecallNoteRecord[]>([])
   const [sourceWorkspaceNotes, setSourceWorkspaceNotes] = useState<RecallNoteRecord[]>([])
   const [sourceWorkspaceNotesStatus, setSourceWorkspaceNotesStatus] = useState<LoadState>('idle')
+  const [homeSourceNotesByDocumentId, setHomeSourceNotesByDocumentId] = useState<Record<string, RecallNoteRecord[]>>({})
+  const [homeSourceNotesStatus, setHomeSourceNotesStatus] = useState<LoadState>('idle')
+  const [homeSourceNoteSearchResults, setHomeSourceNoteSearchResults] = useState<RecallNoteSearchHit[]>([])
+  const [homeSourceNoteSearchStatus, setHomeSourceNoteSearchStatus] = useState<LoadState>('idle')
+  const [homeSourceNoteSearchError, setHomeSourceNoteSearchError] = useState<string | null>(null)
   const [selectedDocumentNoteCount, setSelectedDocumentNoteCount] = useState<number | null>(null)
   const [selectedDocumentNoteCountStatus, setSelectedDocumentNoteCountStatus] = useState<LoadState>('idle')
   const [notesStatus, setNotesStatus] = useState<LoadState>('idle')
@@ -1917,6 +2601,8 @@ export function RecallWorkspace({
   const [noteSearchStatus, setNoteSearchStatus] = useState<LoadState>('idle')
   const [noteSearchError, setNoteSearchError] = useState<string | null>(null)
   const [noteDraftBody, setNoteDraftBody] = useState('')
+  const [newNoteDraftOpen, setNewNoteDraftOpen] = useState(false)
+  const [newNoteDraftBody, setNewNoteDraftBody] = useState('')
   const [notePromotionMode, setNotePromotionMode] = useState<'graph' | 'study' | null>(null)
   const [noteGraphDraft, setNoteGraphDraft] = useState<RecallNoteGraphPromotionRequest>({
     label: '',
@@ -1947,6 +2633,7 @@ export function RecallWorkspace({
   const [homeCollectionAssignmentPanelOpen, setHomeCollectionAssignmentPanelOpen] = useState(false)
   const [homeStage567RailMenuOpen, setHomeStage567RailMenuOpen] = useState(false)
   const [homeStage563SortMenuOpen, setHomeStage563SortMenuOpen] = useState(false)
+  const [homeHiddenReopenDisclosureOpen, setHomeHiddenReopenDisclosureOpen] = useState(false)
   const homeOrganizerRailResizeSessionRef = useRef<HomeOrganizerRailResizeSession | null>(null)
   const homeStage567RailMenuRef = useRef<HTMLDivElement | null>(null)
   const homeStage563SortMenuRef = useRef<HTMLDivElement | null>(null)
@@ -1983,8 +2670,11 @@ export function RecallWorkspace({
     mode: 'updated',
   })
   const previousActiveSourceDocumentIdRef = useRef<string | null>(null)
+  const lastNewNoteFocusTokenRef = useRef<number | null>(null)
+  const requestedHomeSourceNoteDocumentIdsRef = useRef<Set<string>>(new Set())
   const libraryActiveSurface = continuityState.library.activeSurface ?? 'home'
   const libraryFilterQuery = continuityState.library.filterQuery
+  const homeMemoryFilter = continuityState.library.homeMemoryFilter ?? 'all'
   const homeOrganizerLens = continuityState.library.homeOrganizerLens
   const homeOrganizerVisible = continuityState.library.homeOrganizerVisible
   const homeSortDirection = continuityState.library.homeSortDirection
@@ -1998,6 +2688,9 @@ export function RecallWorkspace({
   const graphTourStep = continuityState.graph.tourStep
   const studyFilter = continuityState.study.filter
   const activeCardId = continuityState.study.activeCardId
+  const studyQuestionSearchQuery = continuityState.study.questionSearchQuery ?? ''
+  const studyScheduleDrilldown = continuityState.study.scheduleDrilldown ?? 'all'
+  const studySourceScopeDocumentId = continuityState.study.sourceScopeDocumentId ?? null
   const selectedNotesDocumentId = continuityState.notes.selectedDocumentId
   const noteSearchQuery = continuityState.notes.searchQuery
   const selectedNoteId = continuityState.notes.selectedNoteId
@@ -2005,6 +2698,9 @@ export function RecallWorkspace({
   const activeSourceTab = continuityState.sourceWorkspace.activeTab
   const activeSourceMode = continuityState.sourceWorkspace.mode
   const activeSourceReaderAnchor = continuityState.sourceWorkspace.readerAnchor
+  const sourceMemorySearchFocusToken = continuityState.sourceWorkspace.memorySearchFocusToken
+  const sourceMemorySearchQuery = continuityState.sourceWorkspace.memorySearchQuery
+  const deferredSourceMemorySearchQuery = useDeferredValue(sourceMemorySearchQuery)
   const libraryBrowseDrawerOpen = continuityState.browseDrawers.library
   const graphBrowseDrawerOpen = continuityState.browseDrawers.graph
   const notesBrowseDrawerOpen = continuityState.browseDrawers.notes
@@ -2026,6 +2722,7 @@ export function RecallWorkspace({
   const deferredGraphFilter = useDeferredValue(graphFilterQuery)
   const deferredGraphSearch = useDeferredValue(graphSearchQuery)
   const deferredNoteSearch = useDeferredValue(noteSearchQuery)
+  const deferredStudyQuestionSearch = useDeferredValue(studyQuestionSearchQuery)
 
   const updateContinuityState = useCallback((updater: (current: RecallWorkspaceContinuityState) => RecallWorkspaceContinuityState) => {
     onContinuityStateChange(updater)
@@ -2052,6 +2749,17 @@ export function RecallWorkspace({
     }))
   }, [updateContinuityState])
 
+  const setStudyQuestionSearchQuery = useCallback((nextQuery: string) => {
+    updateStudyState((current) =>
+      current.questionSearchQuery === nextQuery
+        ? current
+        : {
+            ...current,
+            questionSearchQuery: nextQuery,
+          },
+    )
+  }, [updateStudyState])
+
   const updateNotesState = useCallback((updater: (current: RecallWorkspaceContinuityState['notes']) => RecallWorkspaceContinuityState['notes']) => {
     updateContinuityState((current) => ({
       ...current,
@@ -2073,6 +2781,17 @@ export function RecallWorkspace({
         : {
             ...current,
             readerAnchor: nextAnchor,
+        },
+    )
+  }, [updateSourceWorkspaceState])
+
+  const setSourceMemorySearchQuery = useCallback((nextQuery: string) => {
+    updateSourceWorkspaceState((current) =>
+      current.memorySearchQuery === nextQuery
+        ? current
+        : {
+            ...current,
+            memorySearchQuery: nextQuery,
           },
     )
   }, [updateSourceWorkspaceState])
@@ -2135,6 +2854,17 @@ export function RecallWorkspace({
         : {
             ...current,
             homeSortDirection: nextSortDirection,
+      },
+    )
+  }, [updateLibraryState])
+
+  const setHomeMemoryFilter = useCallback((nextMemoryFilter: RecallHomeMemoryFilter) => {
+    updateLibraryState((current) =>
+      current.homeMemoryFilter === nextMemoryFilter
+        ? current
+        : {
+            ...current,
+            homeMemoryFilter: nextMemoryFilter,
           },
     )
   }, [updateLibraryState])
@@ -2254,9 +2984,96 @@ export function RecallWorkspace({
     [],
   )
 
-  const activeStudyCard = studyCards.find((card) => card.id === activeCardId) ?? studyCards[0] ?? null
   const documentById = useMemo(() => new Map(documents.map((document) => [document.id, document])), [documents])
   const documentTitleById = useMemo(() => new Map(documents.map((document) => [document.id, document.title])), [documents])
+  const studySourceScopeDocument =
+    studySourceScopeDocumentId ? documentById.get(studySourceScopeDocumentId) ?? null : null
+  const scopedStudyCards = useMemo(
+    () =>
+      orderStudyCardsForReviewQueue(
+        studySourceScopeDocumentId
+          ? studyCards.filter((card) => card.source_document_id === studySourceScopeDocumentId)
+          : studyCards,
+      ),
+    [studyCards, studySourceScopeDocumentId],
+  )
+  const filteredStudyCards = useMemo(
+    () =>
+      studyFilter === 'all'
+        ? scopedStudyCards
+        : scopedStudyCards.filter((card) => card.status === studyFilter),
+    [scopedStudyCards, studyFilter],
+  )
+  const studyScheduleDrilldownActive = studyScheduleDrilldown !== 'all'
+  const scheduleFilteredStudyQuestionCards = useMemo(
+    () =>
+      studyScheduleDrilldownActive
+        ? scopedStudyCards.filter((card) => studyCardMatchesScheduleDrilldown(card, studyScheduleDrilldown))
+        : filteredStudyCards,
+    [filteredStudyCards, scopedStudyCards, studyScheduleDrilldown, studyScheduleDrilldownActive],
+  )
+  const normalizedStudyQuestionSearchQuery = normalizeSourceMemorySearchText(deferredStudyQuestionSearch)
+  const studyQuestionSearchActive = normalizedStudyQuestionSearchQuery.length > 0
+  const visibleStudyQuestionCards = useMemo(
+    () =>
+      studyQuestionSearchActive
+        ? scheduleFilteredStudyQuestionCards.filter((card) =>
+            studyCardMatchesQuestionSearch(card, normalizedStudyQuestionSearchQuery),
+          )
+        : scheduleFilteredStudyQuestionCards,
+    [normalizedStudyQuestionSearchQuery, scheduleFilteredStudyQuestionCards, studyQuestionSearchActive],
+  )
+  const scopedStudyCardCount = scopedStudyCards.length
+  const filteredStudyCardCount = filteredStudyCards.length
+  const scheduleFilteredStudyQuestionCount = scheduleFilteredStudyQuestionCards.length
+  const studyQuestionResultCount = visibleStudyQuestionCards.length
+  const studyScheduleDrilldownLabel = formatStudyScheduleDrilldownLabel(studyScheduleDrilldown)
+  const activeStudyCard =
+    filteredStudyCards.find((card) => card.id === activeCardId) ??
+    scopedStudyCards.find((card) => card.id === activeCardId) ??
+    filteredStudyCards[0] ??
+    scopedStudyCards[0] ??
+    null
+  const studyScopeOverview = useMemo(
+    () => (studySourceScopeDocumentId ? buildStudyScopeOverview(scopedStudyCards) : studyOverview),
+    [scopedStudyCards, studyOverview, studySourceScopeDocumentId],
+  )
+  const studyReviewSummaryByDocumentId = useMemo(() => {
+    const cardsByDocumentId = new Map<string, StudyCardRecord[]>()
+    for (const card of studyCards) {
+      const cards = cardsByDocumentId.get(card.source_document_id) ?? []
+      cards.push(card)
+      cardsByDocumentId.set(card.source_document_id, cards)
+    }
+    return new Map(
+      Array.from(cardsByDocumentId.entries())
+        .map(([documentId, cards]) => [documentId, buildSourceStudyReviewSummary(cards)] as const)
+        .filter(([, summary]) => summary.totalCount > 0),
+    )
+  }, [studyCards])
+  const studyScheduleSummary = useMemo(() => buildSourceStudyReviewSummary(scopedStudyCards), [scopedStudyCards])
+  const studyDashboardSourceRows = useMemo(() => {
+    const rowDocumentIds = studySourceScopeDocumentId
+      ? [studySourceScopeDocumentId]
+      : Array.from(studyReviewSummaryByDocumentId.keys())
+    return rowDocumentIds
+      .map((documentId) => {
+        const summary = studyReviewSummaryByDocumentId.get(documentId)
+        const document = documentById.get(documentId) ?? null
+        if (!summary) {
+          return null
+        }
+        return {
+          ...summary,
+          document,
+          documentId,
+          title: document?.title ?? 'Saved source',
+        } satisfies StudySourceScheduleRow
+      })
+      .filter((row): row is StudySourceScheduleRow => Boolean(row))
+      .sort(sortStudySourceScheduleRows)
+      .slice(0, 6)
+  }, [documentById, studyReviewSummaryByDocumentId, studySourceScopeDocumentId])
   const homeCustomCollectionNamesByDocumentId = useMemo(() => {
     const collectionNamesByDocumentId = new Map<string, Set<string>>()
     for (const collection of homeCustomCollections) {
@@ -2274,18 +3091,69 @@ export function RecallWorkspace({
       Array.from(collectionNamesByDocumentId.entries()).map(([documentId, names]) => [documentId, Array.from(names)]),
     )
   }, [homeCustomCollections])
+  const homeSourceMemorySummaryByDocumentId = useMemo(() => {
+    const summaries = new Map<string, Omit<HomeSourceMemorySummary, 'accessibleLabel' | 'labels' | 'totalCount'>>()
+    const ensureSummary = (documentId: string) => {
+      const existing = summaries.get(documentId)
+      if (existing) {
+        return existing
+      }
+      const summary = {
+        graphNodeCount: 0,
+        personalNoteCount: 0,
+        studyCardCount: 0,
+      }
+      summaries.set(documentId, summary)
+      return summary
+    }
+
+    for (const [documentId, notes] of Object.entries(homeSourceNotesByDocumentId)) {
+      const personalNoteCount = notes.filter(isSourceAttachedNote).length
+      if (personalNoteCount > 0) {
+        ensureSummary(documentId).personalNoteCount = personalNoteCount
+      }
+    }
+
+    for (const node of graphSnapshot?.nodes ?? []) {
+      for (const documentId of new Set(node.source_document_ids)) {
+        ensureSummary(documentId).graphNodeCount += 1
+      }
+    }
+
+    for (const card of studyCards) {
+      ensureSummary(card.source_document_id).studyCardCount += 1
+    }
+
+    return new Map(
+      Array.from(summaries.entries())
+        .map(([documentId, summary]) => {
+          const totalCount = summary.personalNoteCount + summary.graphNodeCount + summary.studyCardCount
+          const labels = buildHomeSourceMemorySummaryLabels(summary)
+          return [
+            documentId,
+            {
+              ...summary,
+              accessibleLabel: `Source memory: ${labels.join(', ')}`,
+              labels,
+              totalCount,
+            },
+          ] as const
+        })
+        .filter(([, summary]) => summary.totalCount > 0),
+    )
+  }, [graphSnapshot?.nodes, homeSourceNotesByDocumentId, studyCards])
   const filteredVisibleDocuments = useMemo(() => {
     const normalized = deferredLibraryFilter.trim().toLowerCase()
-    if (!normalized) {
-      return documents
-    }
-    return documents.filter((document) =>
-      [document.title, document.source_type, document.source_locator ?? '', document.file_name ?? '']
-        .join(' ')
-        .toLowerCase()
-        .includes(normalized),
-    )
-  }, [deferredLibraryFilter, documents])
+    return documents.filter((document) => {
+      const textMatches =
+        !normalized ||
+        [document.title, document.source_type, document.source_locator ?? '', document.file_name ?? '']
+          .join(' ')
+          .toLowerCase()
+          .includes(normalized)
+      return textMatches && sourceMatchesHomeMemoryFilter(homeSourceMemorySummaryByDocumentId.get(document.id), homeMemoryFilter)
+    })
+  }, [deferredLibraryFilter, documents, homeMemoryFilter, homeSourceMemorySummaryByDocumentId])
   const automaticallySortedVisibleDocuments = useMemo(
     () =>
       sortRecallDocumentsForHome(
@@ -2333,6 +3201,35 @@ export function RecallWorkspace({
   const libraryBrowseSections = useMemo(
     () => (libraryFilterActive ? [] : orderedLibraryBrowseSections),
     [libraryFilterActive, orderedLibraryBrowseSections],
+  )
+  const homeKnownSourceAttachedNoteCount = useMemo(
+    () =>
+      Object.values(homeSourceNotesByDocumentId).reduce(
+        (count, notes) => count + notes.filter(isSourceAttachedNote).length,
+        0,
+      ),
+    [homeSourceNotesByDocumentId],
+  )
+  const homePersonalNotesCollectionSection = useMemo<LibraryBrowseSection | null>(() => {
+    if (libraryFilterActive || homeKnownSourceAttachedNoteCount === 0) {
+      return null
+    }
+
+    return {
+      description: 'Source-attached Notebook notes saved as personal memory.',
+      documents: [],
+      key: HOME_PERSONAL_NOTES_SECTION_KEY,
+      label: 'Personal notes',
+      lens: homeOrganizerLens,
+      sectionKind: 'personal-notes',
+    }
+  }, [homeKnownSourceAttachedNoteCount, homeOrganizerLens, libraryFilterActive])
+  const orderedLibraryBrowseSectionsWithPersonalNotes = useMemo(
+    () =>
+      homePersonalNotesCollectionSection
+        ? [...orderedLibraryBrowseSections, homePersonalNotesCollectionSection]
+        : orderedLibraryBrowseSections,
+    [homePersonalNotesCollectionSection, orderedLibraryBrowseSections],
   )
 
   const moveHomeBrowseSections = useCallback(
@@ -2446,7 +3343,7 @@ export function RecallWorkspace({
         if (!descriptor) {
           return false
         }
-        const section = rawLibraryBrowseSections.find((entry) => entry.key === descriptor.sectionKey)
+        const section = orderedLibraryBrowseSectionsWithPersonalNotes.find((entry) => entry.key === descriptor.sectionKey)
         if (!section) {
           return false
         }
@@ -2456,13 +3353,16 @@ export function RecallWorkspace({
         return section.documents.some((document) => document.id === descriptor.documentId)
       }),
     )
-  }, [rawLibraryBrowseSections])
+  }, [orderedLibraryBrowseSectionsWithPersonalNotes])
 
   useEffect(() => {
-    if (homeSelectedSectionKey && !orderedLibraryBrowseSections.some((section) => section.key === homeSelectedSectionKey)) {
+    if (
+      homeSelectedSectionKey &&
+      !orderedLibraryBrowseSectionsWithPersonalNotes.some((section) => section.key === homeSelectedSectionKey)
+    ) {
       setHomeSelectedSectionKey(null)
     }
-  }, [homeSelectedSectionKey, orderedLibraryBrowseSections])
+  }, [homeSelectedSectionKey, orderedLibraryBrowseSectionsWithPersonalNotes])
 
   useEffect(() => {
     if (!homeOrganizerSelectionKeys.length) {
@@ -2516,8 +3416,18 @@ export function RecallWorkspace({
     !(showingNoteSearch ? noteSearchStatus === 'error' : notesStatus === 'error')
   const showFocusedNotesDrawerOpenEmptyDetailPanel = showFocusedNotesDrawerOpenEmptyState
   const activeNoteId = activeNote?.id ?? null
-  const activeNoteAnchorText = activeNote?.anchor.anchor_text ?? ''
-  const activeNoteBodyText = activeNote?.body_text ?? ''
+  const activeNotePromotionDefaults = activeNote
+    ? buildNotePromotionDefaults(activeNote, documentTitleById, selectedDocument?.title ?? null)
+    : {
+        graphDescription: '',
+        graphLabel: '',
+        studyAnswer: '',
+        studyPrompt: '',
+      }
+  const activeNotePromotionGraphLabel = activeNotePromotionDefaults.graphLabel
+  const activeNotePromotionGraphDescription = activeNotePromotionDefaults.graphDescription
+  const activeNotePromotionStudyPrompt = activeNotePromotionDefaults.studyPrompt
+  const activeNotePromotionStudyAnswer = activeNotePromotionDefaults.studyAnswer
   const activeSourceGraphNodes = useMemo(
     () =>
       activeSourceDocumentId && graphSnapshot
@@ -2528,18 +3438,18 @@ export function RecallWorkspace({
   const activeSourceStudyCards = useMemo(
     () =>
       activeSourceDocumentId
-        ? studyCards.filter((card) => card.source_document_id === activeSourceDocumentId)
+        ? orderStudyCardsForReviewQueue(studyCards.filter((card) => card.source_document_id === activeSourceDocumentId))
         : [],
     [activeSourceDocumentId, studyCards],
   )
   const visibleStudyQueueCards = useMemo(
     () =>
       showFocusedStudySplitView || studyQueueExpanded || studyStatus === 'error'
-        ? studyCards
-        : buildStudyQueuePreview(studyCards, activeStudyCard?.id ?? null, 4),
-    [activeStudyCard?.id, showFocusedStudySplitView, studyCards, studyQueueExpanded, studyStatus],
+        ? filteredStudyCards
+        : buildStudyQueuePreview(filteredStudyCards, activeStudyCard?.id ?? null, 4),
+    [activeStudyCard?.id, filteredStudyCards, showFocusedStudySplitView, studyQueueExpanded, studyStatus],
   )
-  const hiddenStudyQueueCount = Math.max(0, studyCards.length - visibleStudyQueueCards.length)
+  const hiddenStudyQueueCount = Math.max(0, filteredStudyCards.length - visibleStudyQueueCards.length)
   const showStudySidebar =
     showFocusedStudySplitView || studyBrowseDrawerOpen || studyStatus === 'error'
   const sourceWorkspaceNoteCountLabel =
@@ -2560,6 +3470,7 @@ export function RecallWorkspace({
           : `${selectedDocumentNoteCount ?? 0} notes`
   const selectedNotesDocumentTitle =
     (selectedNotesDocumentId ? documentTitleById.get(selectedNotesDocumentId) : null) ?? selectedDocument?.title ?? null
+  const selectedNotesDocument = selectedNotesDocumentId ? documentById.get(selectedNotesDocumentId) ?? null : null
   const selectedNotesCountLabel =
     notesStatus === 'loading'
       ? 'Loading notes…'
@@ -3437,9 +4348,11 @@ export function RecallWorkspace({
       )
       if (matchingMention) {
         return {
+          anchorKind: matchingMention.anchor_kind ?? null,
           documentId: activeSourceDocumentId,
           excerpt: matchingMention.excerpt,
           key: focusedGraphEvidenceKey,
+          noteId: matchingMention.note_id ?? null,
         }
       }
     }
@@ -3449,9 +4362,11 @@ export function RecallWorkspace({
     )
     if (primaryMention) {
       return {
+        anchorKind: primaryMention.anchor_kind ?? null,
         documentId: activeSourceDocumentId,
         excerpt: primaryMention.excerpt,
         key: `mention:${primaryMention.id}`,
+        noteId: primaryMention.note_id ?? null,
       }
     }
 
@@ -3460,9 +4375,11 @@ export function RecallWorkspace({
       return null
     }
     return {
+      anchorKind: null,
       documentId: activeSourceDocumentId,
       excerpt: primaryEdge.excerpt ?? selectedNodeDetail.node.description ?? primaryEdge.target_label,
       key: `edge:${primaryEdge.id}`,
+      noteId: null,
     }
   }, [activeSourceDocumentId, focusedGraphEvidenceKey, selectedNodeDetail, selectedNodeEdges])
   const focusedStudySourceSpan = activeStudySourceSpans[focusedStudySourceSpanIndex] ?? activeStudySourceSpans[0] ?? null
@@ -3474,12 +4391,21 @@ export function RecallWorkspace({
     focusedStudyGroundingExcerpt.trim() !== focusedStudyEvidenceExcerpt.trim()
   const focusedReaderAnchorCandidates = useMemo(() => {
     if (notebookSectionActive && activeNote) {
+      if (activeNote.anchor.kind === 'source') {
+        return []
+      }
       return buildAnchorTextCandidates(activeNote.anchor.anchor_text, activeNote.anchor.excerpt_text)
     }
     if (section === 'graph' && focusedGraphEvidence) {
+      if (focusedGraphEvidence.anchorKind === 'source') {
+        return []
+      }
       return buildAnchorTextCandidates(focusedGraphEvidence.excerpt)
     }
     if (section === 'study' && focusedStudySourceSpan) {
+      if (isSourceNoteSourceSpan(focusedStudySourceSpan)) {
+        return []
+      }
       return buildAnchorTextCandidates(
         getRecordStringValue(focusedStudySourceSpan, 'anchor_text'),
         getRecordStringValue(focusedStudySourceSpan, 'excerpt'),
@@ -3487,7 +4413,6 @@ export function RecallWorkspace({
     }
     return []
   }, [activeNote, focusedGraphEvidence, focusedStudySourceSpan, notebookSectionActive, section])
-  const sourceWorkspacePrimaryNote = sourceWorkspaceNotes[0] ?? null
   const sourceWorkspacePrimaryNode = activeSourceGraphNodes[0] ?? null
   const sourceWorkspacePrimaryStudyCard = activeSourceStudyCards[0] ?? null
   const sourceWorkspaceCounts = useMemo(
@@ -3567,16 +4492,18 @@ export function RecallWorkspace({
     if (notebookSectionActive) {
       if (activeNote) {
         const noteDocumentTitle = getNoteDocumentTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)
+        const noteDisplayTitle = getNoteDisplayTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)
+        const noteReaderAnchorOptions = buildReaderAnchorOptions(activeNote)
+        const activeNoteIsSourceAttached = isSourceAttachedNote(activeNote)
         return {
           actions: [
             {
               key: `notes-reader:${activeNote.id}`,
-              label: 'Open in Reader',
+              label: activeNoteIsSourceAttached ? 'Open source in Reader' : 'Open in Reader',
               target: {
                 documentId: activeNote.anchor.source_document_id,
                 section: 'reader',
-                sentenceEnd: activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
-                sentenceStart: activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
+                ...noteReaderAnchorOptions,
               },
             },
             {
@@ -3590,24 +4517,21 @@ export function RecallWorkspace({
           ],
           badge: 'Notebook',
           key: `note:${activeNote.id}`,
-          meta: activeNote.body_text?.trim() || activeNote.anchor.excerpt_text,
+          meta: getNoteRowPreview(activeNote),
           recentItem: {
-            badge: 'Note',
+            badge: activeNoteIsSourceAttached ? 'Source note' : 'Note',
             key: `note:${activeNote.id}`,
-            subtitle: noteDocumentTitle,
+            subtitle: activeNoteIsSourceAttached ? `${noteDocumentTitle} · Personal note` : noteDocumentTitle,
             target: {
               documentId: activeNote.anchor.source_document_id,
               noteId: activeNote.id,
               section: 'library',
             },
-            title: activeNote.anchor.anchor_text,
+            title: activeNoteIsSourceAttached ? `${noteDocumentTitle} personal note` : noteDisplayTitle,
           },
           section: 'library',
-          subtitle: `${noteDocumentTitle} · ${formatSentenceSpanLabel(
-            activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
-            activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
-          )}`,
-          title: activeNote.anchor.anchor_text,
+          subtitle: `${noteDocumentTitle} · ${getNoteAnchorScopeLabel(activeNote)}`,
+          title: noteDisplayTitle,
         }
       }
 
@@ -3649,8 +4573,19 @@ export function RecallWorkspace({
       }
 
       const primaryMention = selectedNodeDetail.mentions[0]
-      const graphActions: WorkspaceDockAction[] = primaryMention
+      const graphActionCandidates: Array<WorkspaceDockAction | null> = primaryMention
         ? [
+            primaryMention.note_id
+              ? {
+                  key: `graph-note:${selectedNodeDetail.node.id}:${primaryMention.note_id}`,
+                  label: 'Open note',
+                  target: {
+                    documentId: primaryMention.source_document_id,
+                    noteId: primaryMention.note_id,
+                    section: 'notes',
+                  },
+                }
+              : null,
             {
               key: `graph-source:${selectedNodeDetail.node.id}`,
               label: 'Open source',
@@ -3669,6 +4604,7 @@ export function RecallWorkspace({
             },
           ]
         : []
+      const graphActions = graphActionCandidates.filter(isWorkspaceDockAction)
 
       return {
         actions: graphActions,
@@ -3704,8 +4640,20 @@ export function RecallWorkspace({
 
       const primarySourceSpan = activeStudySourceSpans[0]
       const readerOptions = buildReaderOptionsFromSourceSpan(primarySourceSpan)
-      return {
-        actions: [
+      const primarySourceSpanNoteId = getRecordStringValue(primarySourceSpan ?? {}, 'note_id')
+      const studyActions: WorkspaceDockAction[] = (
+        [
+          primarySourceSpanNoteId
+            ? {
+                key: `study-note:${activeStudyCard.id}:${primarySourceSpanNoteId}`,
+                label: 'Open note',
+                target: {
+                  documentId: activeStudyCard.source_document_id,
+                  noteId: primarySourceSpanNoteId,
+                  section: 'notes',
+                },
+              }
+            : null,
           {
             key: `study-reader:${activeStudyCard.id}`,
             label: 'Open in Reader',
@@ -3724,7 +4672,10 @@ export function RecallWorkspace({
               section: 'library',
             },
           },
-        ],
+        ] as Array<WorkspaceDockAction | null>
+      ).filter(isWorkspaceDockAction)
+      return {
+        actions: studyActions,
         badge: 'Study',
         key: `card:${activeStudyCard.id}`,
         meta: getStudyEvidenceExcerpt(primarySourceSpan),
@@ -3847,16 +4798,19 @@ export function RecallWorkspace({
     libraryFilterActive,
   ])
   const homeSelectedBrowseSection = useMemo(() => {
-    if (orderedLibraryBrowseSections.length === 0) {
+    if (orderedLibraryBrowseSectionsWithPersonalNotes.length === 0) {
       return null
     }
 
     if (!homeSelectedSectionKey) {
-      return orderedLibraryBrowseSections[0] ?? null
+      return orderedLibraryBrowseSectionsWithPersonalNotes[0] ?? null
     }
 
-    return orderedLibraryBrowseSections.find((section) => section.key === homeSelectedSectionKey) ?? null
-  }, [homeSelectedSectionKey, orderedLibraryBrowseSections])
+    return orderedLibraryBrowseSectionsWithPersonalNotes.find((section) => section.key === homeSelectedSectionKey) ?? null
+  }, [homeSelectedSectionKey, orderedLibraryBrowseSectionsWithPersonalNotes])
+  useEffect(() => {
+    setHomeHiddenReopenDisclosureOpen(false)
+  }, [homeContinueDocuments.length, homeLeadDocument?.id, homeOrganizerVisible, homeSelectedBrowseSection?.key, libraryFilterActive])
   const homeSelectedCustomCollection = useMemo(() => {
     const collectionId = homeSelectedBrowseSection ? getHomeCustomCollectionIdFromSectionKey(homeSelectedBrowseSection.key) : null
     if (!collectionId) {
@@ -3868,11 +4822,17 @@ export function RecallWorkspace({
     if (!homeSelectedBrowseSection) {
       return null
     }
+    if (isHomePersonalNotesSection(homeSelectedBrowseSection.key)) {
+      return homeSelectedBrowseSection
+    }
 
     return homeWorkspaceLibrarySections.find((section) => section.key === homeSelectedBrowseSection.key) ?? null
   }, [homeSelectedBrowseSection, homeWorkspaceLibrarySections])
   const homeSelectedSectionDocuments = useMemo(() => {
     if (!homeSelectedBrowseSection) {
+      return []
+    }
+    if (isHomePersonalNotesSection(homeSelectedBrowseSection.key)) {
       return []
     }
 
@@ -3885,10 +4845,16 @@ export function RecallWorkspace({
 
     return homeSelectedWorkspaceSection?.documents ?? []
   }, [homeSelectedBrowseSection, homeSelectedWorkspaceSection])
+  const homeOpenBoardContinuationCarry = homeSelectedBrowseSection
+    ? isRecentEarlierSection(homeSelectedBrowseSection.key)
+      ? 20
+      : isCollectionCaptureSection(homeSelectedBrowseSection.key)
+        ? 18
+        : 16
+    : 0
   const homeSelectedSectionDisplayLimit = homeSelectedBrowseSection
     ? getHomeWorkspaceSectionDisplayLimit(homeSelectedBrowseSection.key) +
-      (homeViewMode === 'list' ? 4 : 0) +
-      (isRecentEarlierSection(homeSelectedBrowseSection.key) ? 16 : 8)
+      (homeViewMode === 'list' ? 4 : homeOpenBoardContinuationCarry)
     : 0
   const visibleHomeSelectedSectionDocuments = useMemo(() => {
     if (!homeSelectedBrowseSection) {
@@ -3912,6 +4878,9 @@ export function RecallWorkspace({
     if (!homeSelectedBrowseSection) {
       return []
     }
+    if (isHomePersonalNotesSection(homeSelectedBrowseSection.key)) {
+      return []
+    }
     return homeSelectedBrowseSection.documents
   }, [homeSelectedBrowseSection, libraryFilterActive, visibleDocuments])
   const visibleHomeCanvasDocuments = useMemo(() => {
@@ -3929,6 +4898,101 @@ export function RecallWorkspace({
     homeSelectedSectionDisplayLimit,
     libraryFilterActive,
   ])
+  const homeSourceNotePrefetchDocumentIds = useMemo(() => {
+    const orderedDocumentIds: string[] = []
+    const rememberDocument = (document: RecallDocumentRecord | null | undefined) => {
+      if (!document || orderedDocumentIds.includes(document.id)) {
+        return
+      }
+      orderedDocumentIds.push(document.id)
+    }
+
+    for (const document of visibleHomeCanvasDocuments) {
+      rememberDocument(document)
+    }
+    for (const document of visibleDocuments.slice(0, 36)) {
+      rememberDocument(document)
+    }
+    rememberDocument(homeLeadDocument)
+    for (const document of homeContinueDocuments) {
+      rememberDocument(document)
+    }
+    if (selectedLibraryDocumentId) {
+      rememberDocument(documentById.get(selectedLibraryDocumentId))
+    }
+    if (activeSourceDocumentId) {
+      rememberDocument(documentById.get(activeSourceDocumentId))
+    }
+
+    return orderedDocumentIds.slice(0, 48)
+  }, [
+    activeSourceDocumentId,
+    documentById,
+    homeContinueDocuments,
+    homeLeadDocument,
+    selectedLibraryDocumentId,
+    visibleDocuments,
+    visibleHomeCanvasDocuments,
+  ])
+  const homeSourceNoteSearchActive = libraryFilterActive && deferredLibraryFilter.trim().length > 0
+  const homeCachedPersonalNoteBoardItems = useMemo<HomePersonalNoteItem[]>(
+    () =>
+      Object.values(homeSourceNotesByDocumentId)
+        .flatMap((notes) => notes)
+        .filter(isSourceAttachedNote)
+        .map((note) => {
+          const sourceDocument = documentById.get(note.anchor.source_document_id) ?? null
+          return {
+            key: `personal-note:${note.id}`,
+            note,
+            preview: getSourceNoteBodyPreview(note),
+            searchResult: false,
+            sourceDocument,
+            sourceTitle: getNoteDocumentTitle(note, documentTitleById, sourceDocument?.title ?? null),
+            sourceTypeLabel: sourceDocument?.source_type.toUpperCase() ?? 'SOURCE',
+            updatedAt: note.updated_at,
+          }
+        })
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+        .slice(0, 48),
+    [documentById, documentTitleById, homeSourceNotesByDocumentId],
+  )
+  const homeCachedPersonalNoteLaneItems = homeCachedPersonalNoteBoardItems.slice(0, 3)
+  const homeSearchPersonalNoteItems = useMemo<HomePersonalNoteItem[]>(
+    () =>
+      homeSourceNoteSearchResults
+        .filter(isSourceAttachedNote)
+        .map((note) => {
+          const sourceDocument = documentById.get(note.anchor.source_document_id) ?? null
+          return {
+            key: `personal-note-search:${note.id}`,
+            note,
+            preview: getSourceNoteBodyPreview(note),
+            searchResult: true,
+            sourceDocument,
+            sourceTitle: getNoteDocumentTitle(note, documentTitleById, sourceDocument?.title ?? null),
+            sourceTypeLabel: sourceDocument?.source_type.toUpperCase() ?? 'SOURCE',
+            updatedAt: note.updated_at,
+          }
+        })
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+        .slice(0, 3),
+    [documentById, documentTitleById, homeSourceNoteSearchResults],
+  )
+  const homePersonalNoteLaneItems = homeSourceNoteSearchActive
+    ? homeSearchPersonalNoteItems
+    : homeCachedPersonalNoteLaneItems
+  const homePersonalNotesBoardSelected =
+    homeSelectedBrowseSection ? isHomePersonalNotesSection(homeSelectedBrowseSection.key) : false
+  const homePersonalNotesBoardDisplayLimit =
+    homeViewMode === 'list' ? getHomeWorkspaceSectionDisplayLimit(HOME_PERSONAL_NOTES_SECTION_KEY) + 12 : 18
+  const visibleHomePersonalNoteBoardItems =
+    homePersonalNotesBoardSelected && expandedLibrarySectionKeys[HOME_PERSONAL_NOTES_SECTION_KEY]
+      ? homeCachedPersonalNoteBoardItems
+      : homeCachedPersonalNoteBoardItems.slice(0, homePersonalNotesBoardDisplayLimit)
+  const homeMemoryFilterActive = homeMemoryFilter !== 'all'
+  const homeMemoryFilterLabel = getHomeMemoryFilterLabel(homeMemoryFilter)
+  const homeMemoryFilterStatusLabel = homeMemoryFilterActive ? `Memory: ${homeMemoryFilterLabel}` : 'Memory: All'
   const homeDayHeadingFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(undefined, {
@@ -3967,11 +5031,20 @@ export function RecallWorkspace({
         label: group.label,
       }))
   }, [homeDayHeadingFormatter, visibleHomeCanvasDocuments])
-  const homeVisibleCanvasCountLabel = formatCountLabel(homeCanvasDocuments.length, 'source', 'sources')
-  const homeCanvasHeading = libraryFilterActive ? 'Search results' : homeSelectedBrowseSection?.label ?? 'Saved sources'
+  const homeVisibleCanvasCountLabel = homePersonalNotesBoardSelected
+    ? formatCountLabel(homeCachedPersonalNoteBoardItems.length, 'note', 'notes')
+    : formatCountLabel(homeCanvasDocuments.length, 'source', 'sources')
+  const activeLibraryFilterQuery = deferredLibraryFilter.trim() || libraryFilterQuery.trim()
+  const homeCanvasHeading = libraryFilterActive
+    ? 'Search results'
+    : homePersonalNotesBoardSelected
+      ? 'Personal notes'
+      : homeSelectedBrowseSection?.label ?? 'Saved sources'
   const homeCanvasSummary = libraryFilterActive
     ? formatCountLabel(visibleDocuments.length, 'match', 'matches')
-    : homeSelectedBrowseSection
+    : homePersonalNotesBoardSelected
+      ? formatCountLabel(homeCachedPersonalNoteBoardItems.length, 'source note', 'source notes')
+      : homeSelectedBrowseSection
       ? homeVisibleCanvasCountLabel
       : `${documents.length} ready`
   const homeCanvasAriaLabel = libraryFilterActive ? `${homeCanvasHeading} canvas` : `${homeCanvasHeading} collection canvas`
@@ -3980,18 +5053,155 @@ export function RecallWorkspace({
       ? `Show fewer ${homeSelectedBrowseSection.label.toLowerCase()}`
       : `Show all ${homeSelectedBrowseSection.label.toLowerCase()}`
     : ''
-  const homeFooterAccessibleTotalLabel = `${homeCanvasDocuments.length} total ${homeCanvasDocuments.length === 1 ? 'source' : 'sources'}`
+  const homeFooterAccessibleTotalLabel = homePersonalNotesBoardSelected
+    ? `${homeCachedPersonalNoteBoardItems.length} total ${
+        homeCachedPersonalNoteBoardItems.length === 1 ? 'personal note' : 'personal notes'
+      }`
+    : `${homeCanvasDocuments.length} total ${homeCanvasDocuments.length === 1 ? 'source' : 'sources'}`
   const homeCanvasEmptyNote =
     documentsStatus === 'error'
       ? 'Saved sources are unavailable until the local service reconnects.'
       : libraryFilterActive
-        ? 'No saved sources match that filter yet.'
+        ? homeMemoryFilterActive
+          ? `No saved sources match "${activeLibraryFilterQuery}" with ${homeMemoryFilterLabel.toLowerCase()} memory.`
+          : 'No saved sources match that filter yet.'
+        : homePersonalNotesBoardSelected
+          ? homeSourceNotesStatus === 'loading'
+            ? 'Personal notes are still loading.'
+            : 'No source-attached personal notes are known yet.'
+        : homeMemoryFilterActive
+          ? `No sources in this board have ${homeMemoryFilterLabel.toLowerCase()} memory yet.`
         : homeSelectedBrowseSection
           ? isHomeCustomCollectionSection(homeSelectedBrowseSection.key)
           ? 'This collection is empty. Add or assign sources to start filling the board.'
           : 'No sources are in this lane yet.'
         : 'No saved sources are ready for Home yet.'
-  const showHomeStage563Canvas = homeUsesStructuralParityStage563 && Boolean(homeSelectedBrowseSection || libraryFilterActive)
+  const showHomeStage563Canvas =
+    homeUsesStructuralParityStage563 && Boolean(homeSelectedBrowseSection || libraryFilterActive || homeMemoryFilterActive)
+
+  useEffect(() => {
+    requestedHomeSourceNoteDocumentIdsRef.current.clear()
+    setHomeSourceNotesByDocumentId({})
+    setHomeSourceNotesStatus('idle')
+    setHomeSourceNoteSearchResults([])
+    setHomeSourceNoteSearchStatus('idle')
+    setHomeSourceNoteSearchError(null)
+  }, [reloadToken])
+
+  useEffect(() => {
+    if (section !== 'library' || documentsStatus !== 'success' || homeSourceNotePrefetchDocumentIds.length === 0) {
+      return
+    }
+
+    const missingDocumentIds = homeSourceNotePrefetchDocumentIds.filter(
+      (documentId) => !requestedHomeSourceNoteDocumentIdsRef.current.has(documentId),
+    )
+    if (missingDocumentIds.length === 0) {
+      setHomeSourceNotesStatus('success')
+      return
+    }
+
+    for (const documentId of missingDocumentIds) {
+      requestedHomeSourceNoteDocumentIdsRef.current.add(documentId)
+    }
+
+    let active = true
+    setHomeSourceNotesStatus('loading')
+    void Promise.all(
+      missingDocumentIds.map(async (documentId) => ({
+        documentId,
+        notes: await fetchRecallNotes(documentId),
+      })),
+    )
+      .then((entries) => {
+        if (!active) {
+          return
+        }
+        setHomeSourceNotesByDocumentId((current) => {
+          const nextNotesByDocumentId = { ...current }
+          for (const entry of entries) {
+            nextNotesByDocumentId[entry.documentId] = entry.notes.filter(isSourceAttachedNote)
+          }
+          return nextNotesByDocumentId
+        })
+        setHomeSourceNotesStatus('success')
+      })
+      .catch(() => {
+        if (!active) {
+          return
+        }
+        for (const documentId of missingDocumentIds) {
+          requestedHomeSourceNoteDocumentIdsRef.current.delete(documentId)
+        }
+        setHomeSourceNotesStatus('error')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [documentsStatus, homeSourceNotePrefetchDocumentIds, section])
+
+  useEffect(() => {
+    const query = deferredLibraryFilter.trim()
+    if (section !== 'library' || query.length === 0) {
+      setHomeSourceNoteSearchResults([])
+      setHomeSourceNoteSearchStatus('idle')
+      setHomeSourceNoteSearchError(null)
+      return
+    }
+
+    let active = true
+    setHomeSourceNoteSearchStatus('loading')
+    setHomeSourceNoteSearchError(null)
+    void searchRecallNotes(query, 8, null)
+      .then((hits) => {
+        if (!active) {
+          return
+        }
+        const sourceNoteHits = hits.filter(
+          (note) =>
+            isSourceAttachedNote(note) &&
+            sourceNoteMatchesSearchContext(note, query, documentById.get(note.anchor.source_document_id) ?? null),
+        )
+        setHomeSourceNoteSearchResults(sourceNoteHits)
+        setHomeSourceNotesByDocumentId((current) => {
+          let changed = false
+          const nextNotesByDocumentId = { ...current }
+          for (const hit of sourceNoteHits) {
+            const documentId = hit.anchor.source_document_id
+            const existingNotes = nextNotesByDocumentId[documentId] ?? []
+            if (existingNotes.some((note) => note.id === hit.id)) {
+              continue
+            }
+            changed = true
+            nextNotesByDocumentId[documentId] = [
+              {
+                anchor: hit.anchor,
+                body_text: hit.body_text,
+                created_at: hit.created_at,
+                id: hit.id,
+                updated_at: hit.updated_at,
+              },
+              ...existingNotes,
+            ]
+          }
+          return changed ? nextNotesByDocumentId : current
+        })
+        setHomeSourceNoteSearchStatus('success')
+      })
+      .catch((loadError: Error) => {
+        if (!active) {
+          return
+        }
+        setHomeSourceNoteSearchResults([])
+        setHomeSourceNoteSearchStatus('error')
+        setHomeSourceNoteSearchError(getErrorMessage(loadError, 'Could not search personal notes.'))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [deferredLibraryFilter, documentById, section])
 
   useEffect(() => {
     if (!showHomeStage563Canvas || homeViewMode !== 'board') {
@@ -4088,12 +5298,13 @@ export function RecallWorkspace({
       : activeSourceDocumentId) ?? null
   const homeBrowseSectionEntries = useMemo(
     () =>
-      orderedLibraryBrowseSections.map((section) => {
+      orderedLibraryBrowseSectionsWithPersonalNotes.map((section) => {
         const sectionActive = section.key === homeSelectedBrowseSection?.key
+        const personalNotesSection = isHomePersonalNotesSection(section.key)
         const branchDisplayLimit = getHomeBrowseBranchDisplayLimit(section.key, homeViewMode)
         const branchExpanded = expandedHomeBrowseBranchKeys[section.key]
         const previewDocuments =
-          !homeBrowsePreviewsCollapsed && sectionActive
+          !personalNotesSection && !homeBrowsePreviewsCollapsed && sectionActive
             ? branchExpanded
               ? section.documents
               : section.documents.slice(0, branchDisplayLimit)
@@ -4102,20 +5313,21 @@ export function RecallWorkspace({
         return {
           branchDisplayLimit,
           branchExpanded,
-          count: section.documents.length,
+          count: personalNotesSection ? homeCachedPersonalNoteBoardItems.length : section.documents.length,
           description: section.description,
           key: section.key,
           label: section.label,
-          previewLeadDocument: section.documents[0] ?? null,
+          previewLeadDocument: personalNotesSection ? null : section.documents[0] ?? null,
           previewDocuments,
         }
       }),
     [
       expandedHomeBrowseBranchKeys,
+      homeCachedPersonalNoteBoardItems.length,
       homeBrowsePreviewsCollapsed,
       homeSelectedBrowseSection?.key,
       homeViewMode,
-      orderedLibraryBrowseSections,
+      orderedLibraryBrowseSectionsWithPersonalNotes,
     ],
   )
   const homeSelectedGroupHeading = homeSelectedBrowseSection?.label ?? 'Selected group'
@@ -4161,8 +5373,34 @@ export function RecallWorkspace({
     showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
   const homeOverviewUsesFooterCountRetirementStage561 =
     showHomeBoardOverview && homeOrganizerLens === 'collections' && homeViewMode === 'board'
+  const homeOpenBoardUsesDensityLiftStage828 =
+    showHomeStage563Canvas &&
+    homeOrganizerVisible &&
+    Boolean(homeSelectedBrowseSection) &&
+    !libraryFilterActive &&
+    homeViewMode === 'board'
+  const homeOpenSelectedBoardUsesLowerMetaCompactionStage836 = homeOpenBoardUsesDensityLiftStage828
+  const homeOpenBoardUsesPreviewDifferentiationStage868 =
+    showHomeStage563Canvas && homeOrganizerVisible && !libraryFilterActive && homeViewMode === 'board'
+  const homeOpenBoardUsesMixedPreviewBalanceStage870 = homeOpenBoardUsesPreviewDifferentiationStage868
+  const homeOpenBoardUsesLocalPreviewFidelityStage884 = homeOpenBoardUsesPreviewDifferentiationStage868
+  const homeOpenOrganizerUsesListRhythmConvergenceStage838 =
+    showHomeStage563Canvas &&
+    homeOrganizerVisible &&
+    Boolean(homeSelectedBrowseSection) &&
+    !libraryFilterActive &&
+    homeViewMode === 'board'
+  const homeOpenBoardUsesTopBandFusionStage830 =
+    showHomeStage563Canvas &&
+    homeOrganizerVisible &&
+    homeViewMode === 'board' &&
+    Boolean(homeSelectedBrowseSection || libraryFilterActive)
+  const homeOpenMatchesUsesSingleRowToolbarStage832 =
+    homeOrganizerVisible && libraryFilterActive && homeViewMode === 'board'
   const homeSelectedGroupSummary = homeSelectedBrowseSection
-    ? homeSelectedSectionDocuments.length > 0
+    ? homePersonalNotesBoardSelected
+      ? `${formatCountLabel(homeCachedPersonalNoteBoardItems.length, 'source-attached personal note', 'source-attached personal notes')} open Notebook first.`
+      : homeSelectedSectionDocuments.length > 0
       ? homeOrganizerVisible
         ? `${homeSelectedBrowseSection.description} Direct picks stay attached nearby.`
         : `${homeSelectedBrowseSection.label} still drives the ${homeViewModePhrase} while the organizer is hidden.`
@@ -4174,7 +5412,9 @@ export function RecallWorkspace({
     : `Pick a group from the organizer to focus the library ${homeViewModePhrase}.`
   const homeSelectedGroupEmptyNote = !homeSelectedBrowseSection
     ? ''
-    : isHomeCustomCollectionSection(homeSelectedBrowseSection.key)
+    : homePersonalNotesBoardSelected
+      ? 'No source-attached personal notes are known yet. Save a New note from Home or Notebook to fill this board.'
+      : isHomeCustomCollectionSection(homeSelectedBrowseSection.key)
       ? 'No sources are in this custom collection yet. Add them from any organizer branch.'
       : isHomeUntaggedSection(homeSelectedBrowseSection.key)
         ? 'Every saved source already belongs to a custom collection.'
@@ -4182,17 +5422,38 @@ export function RecallWorkspace({
   const homeManualModeActive = homeSortMode === 'manual'
   const homeSortModeShortLabel = getLibrarySortModeShortLabel(homeSortMode)
   const homeSortDirectionShortLabel = getLibrarySortDirectionShortLabel(homeSortMode, homeSortDirection)
-  const homeSortMenuLabel = `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel}`
+  const homeSortMenuLabel = homeMemoryFilterActive
+    ? `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel} · ${homeMemoryFilterStatusLabel}`
+    : `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel}`
+  const clearHomeLibraryFilter = () => updateLibraryState((current) => ({ ...current, filterQuery: '' }))
+  const clearHomeMemoryFilter = () => setHomeMemoryFilter('all')
   const homeOrganizerToggleLabel = homeOrganizerVisible ? 'Hide organizer' : 'Show organizer'
   const homeOrganizerToggleCompactLabel = homeOrganizerVisible ? 'Hide rail' : 'Show rail'
+  const homeDocumentsLoaded = documentsStatus !== 'loading' && documentsStatus !== 'error'
+  const homeOrganizerVisibleUsesLegacyFallbackChromeStage844 =
+    homeOrganizerVisible && !homeUsesStructuralParityStage563
+  const showOpenMatchesBoardToolbar =
+    homeOrganizerVisible && libraryFilterActive && homeDocumentsLoaded
+  const showHiddenHomeBoardToolbar = !homeOrganizerVisible && homeDocumentsLoaded && documents.length > 0
   const showHomeCompactControls =
-    documentsStatus !== 'loading' && documentsStatus !== 'error' && documents.length > 0 && (!homeOrganizerVisible || visibleDocuments.length === 0)
-  const showHomeControlSeam =
-    showHomeCompactControls ||
-    documentsStatus === 'loading' ||
-    documentsStatus === 'error' ||
-    documents.length === 0 ||
+    homeOrganizerVisibleUsesLegacyFallbackChromeStage844 &&
+    homeDocumentsLoaded &&
+    documents.length > 0 &&
     visibleDocuments.length === 0
+  const homeOpenMatchesUsesResultsFirstStage840 =
+    homeOrganizerVisible && libraryFilterActive && homeViewMode === 'board'
+  const homeOpenMatchesUsesSearchOwnedLeadBandStage842 = homeOpenMatchesUsesResultsFirstStage840
+  const homeOpenMatchesQuerySummaryStage840 = activeLibraryFilterQuery || 'Current search'
+  const homeOpenMatchesCountSummaryStage840 = formatCountLabel(visibleDocuments.length, 'match', 'matches')
+  const homeOpenMatchesUsesInlineDayDividersStage842 =
+    homeOpenMatchesUsesSearchOwnedLeadBandStage842 && homeCanvasDayGroups.length > 1
+  const showHomeControlSeam =
+    homeOrganizerVisibleUsesLegacyFallbackChromeStage844 &&
+    (showHomeCompactControls ||
+      documentsStatus === 'loading' ||
+      documentsStatus === 'error' ||
+      documents.length === 0 ||
+      visibleDocuments.length === 0)
   const homeCompactControlsHeading = !homeOrganizerVisible ? 'Compact organizer controls' : `${homeOrganizerLensLabel} controls`
   const homeControlSeamEyebrow = libraryFilterActive
     ? 'Search'
@@ -4212,7 +5473,9 @@ export function RecallWorkspace({
   const homeControlSeamLeadStatus = libraryFilterActive
     ? `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'match' : 'matches'}`
     : homeSavedSourceLabel
-  const homeWorkingSetStatus = `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel} · ${homeViewModeLabel}`
+  const homeWorkingSetStatus = homeMemoryFilterActive
+    ? `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel} · ${homeViewModeLabel} · ${homeMemoryFilterStatusLabel}`
+    : `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel} · ${homeViewModeLabel}`
   const homeOverviewRowStateLabel = homeSelectedBrowseSection ? 'Reset' : 'Overview'
   const homeOverviewRowSummary = homeSelectedBrowseSection
     ? `Reset to grouped ${homeViewModePhrase}.`
@@ -4292,7 +5555,9 @@ export function RecallWorkspace({
   const homeBrowseStripStatus = libraryFilterActive
     ? formatCountLabel(visibleDocuments.length, 'match', 'matches')
     : homeSelectedBrowseSection
-      ? formatCountLabel(homeSelectedBrowseSection.documents.length, 'source', 'sources')
+      ? homePersonalNotesBoardSelected
+        ? formatCountLabel(homeCachedPersonalNoteBoardItems.length, 'personal note', 'personal notes')
+        : formatCountLabel(homeSelectedBrowseSection.documents.length, 'source', 'sources')
       : homeSavedSourceLabel
   const homeBrowseStripGuide = libraryFilterActive
     ? `Matches open · ${homeWorkingSetStatus}`
@@ -4411,6 +5676,41 @@ export function RecallWorkspace({
       ? `${formatCountLabel(homeSelectedOrganizerDocumentIds.length, 'selected source', 'selected sources')} can move into or out of custom collections.`
       : 'Select sources in the organizer to assign them into custom collections.'
 
+  const rememberHomeSourceNotesForDocument = useCallback((documentId: string, notes: RecallNoteRecord[]) => {
+    setHomeSourceNotesByDocumentId((current) => ({
+      ...current,
+      [documentId]: notes.filter(isSourceAttachedNote),
+    }))
+  }, [])
+
+  const upsertHomeSourceNote = useCallback((note: RecallNoteRecord) => {
+    if (!isSourceAttachedNote(note)) {
+      return
+    }
+    const documentId = note.anchor.source_document_id
+    setHomeSourceNotesByDocumentId((current) => {
+      const existingNotes = current[documentId] ?? []
+      return {
+        ...current,
+        [documentId]: [note, ...existingNotes.filter((candidate) => candidate.id !== note.id)],
+      }
+    })
+  }, [])
+
+  const removeHomeSourceNote = useCallback((note: RecallNoteRecord | RecallNoteSearchHit) => {
+    const documentId = note.anchor.source_document_id
+    setHomeSourceNotesByDocumentId((current) => {
+      const existingNotes = current[documentId]
+      if (!existingNotes?.some((candidate) => candidate.id === note.id)) {
+        return current
+      }
+      return {
+        ...current,
+        [documentId]: existingNotes.filter((candidate) => candidate.id !== note.id),
+      }
+    })
+  }, [])
+
   const loadGraph = useCallback(async () => {
     setGraphStatus('loading')
     setGraphError(null)
@@ -4468,6 +5768,7 @@ export function RecallWorkspace({
     try {
       const loadedNotes = await fetchRecallNotes(documentId)
       setDocumentNotes(loadedNotes)
+      rememberHomeSourceNotesForDocument(documentId, loadedNotes)
       if (documentId === selectedLibraryDocumentId) {
         setSelectedDocumentNoteCount(loadedNotes.length)
         setSelectedDocumentNoteCountStatus('success')
@@ -4484,7 +5785,7 @@ export function RecallWorkspace({
       setNotesStatus('error')
       return []
     }
-  }, [selectedLibraryDocumentId])
+  }, [rememberHomeSourceNotesForDocument, selectedLibraryDocumentId])
 
   useEffect(() => {
     let active = true
@@ -4625,6 +5926,27 @@ export function RecallWorkspace({
     previousActiveSourceDocumentIdRef.current = activeSourceDocumentId
     setFocusedGraphEvidenceKey(null)
     setFocusedStudySourceSpanIndex(0)
+    updateSourceWorkspaceState((current) =>
+      current.memorySearchQuery
+        ? {
+            ...current,
+            memorySearchQuery: '',
+          }
+        : current,
+    )
+    const sourceScopeChanged =
+      Boolean(studySourceScopeDocumentId) && activeSourceDocumentId !== studySourceScopeDocumentId
+    if (sourceScopeChanged) {
+      updateStudyState((current) =>
+        current.questionSearchQuery || current.scheduleDrilldown !== 'all'
+          ? {
+              ...current,
+              questionSearchQuery: '',
+              scheduleDrilldown: 'all',
+            }
+          : current,
+      )
+    }
     if (!activeSourceDocumentId) {
       setFocusedReaderMode('reflowed')
       setSourceWorkspaceReaderAnchor(null)
@@ -4632,7 +5954,13 @@ export function RecallWorkspace({
     }
     setFocusedReaderMode('reflowed')
     setSourceWorkspaceReaderAnchor(null)
-  }, [activeSourceDocumentId, setSourceWorkspaceReaderAnchor])
+  }, [
+    activeSourceDocumentId,
+    setSourceWorkspaceReaderAnchor,
+    studySourceScopeDocumentId,
+    updateSourceWorkspaceState,
+    updateStudyState,
+  ])
 
   useEffect(() => {
     if (!sourceWorkspaceDocument) {
@@ -4643,6 +5971,71 @@ export function RecallWorkspace({
     }
     setFocusedReaderMode(sourceWorkspaceDocument.available_modes.includes('reflowed') ? 'reflowed' : 'original')
   }, [focusedReaderMode, sourceWorkspaceDocument])
+
+  useEffect(() => {
+    const trimmedQuery = deferredSourceMemorySearchQuery.trim()
+    if (!activeSourceDocumentId || !trimmedQuery) {
+      setSourceMemorySearchView(null)
+      setSourceMemorySearchViewStatus('idle')
+      return
+    }
+
+    const searchDocument =
+      sourceWorkspaceDocument ?? documents.find((document) => document.id === activeSourceDocumentId) ?? null
+    if (!searchDocument) {
+      setSourceMemorySearchView(null)
+      setSourceMemorySearchViewStatus('idle')
+      return
+    }
+
+    let active = true
+    setSourceMemorySearchViewStatus('loading')
+    void fetchDocumentView(searchDocument.id, getHomePreviewViewMode(searchDocument))
+      .then((view) => {
+        if (!active) {
+          return
+        }
+        setSourceMemorySearchView(view)
+        setSourceMemorySearchViewStatus('success')
+      })
+      .catch(() => {
+        if (!active) {
+          return
+        }
+        setSourceMemorySearchView(null)
+        setSourceMemorySearchViewStatus('error')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [activeSourceDocumentId, deferredSourceMemorySearchQuery, documents, sourceWorkspaceDocument])
+
+  useEffect(() => {
+    if (!sourceMemorySearchFocusToken || !sourceWorkspaceFocused || activeSourceTab !== 'overview') {
+      return undefined
+    }
+    let cancelled = false
+    const timeouts: number[] = []
+    const focusSourceMemorySearch = (attempt = 0) => {
+      if (cancelled) {
+        return
+      }
+      const input = sourceMemorySearchInputRef.current
+      if (input) {
+        input.focus()
+        return
+      }
+      if (attempt < 4) {
+        timeouts.push(window.setTimeout(() => focusSourceMemorySearch(attempt + 1), 50))
+      }
+    }
+    timeouts.push(window.setTimeout(() => focusSourceMemorySearch(), 0))
+    return () => {
+      cancelled = true
+      timeouts.forEach((timeout) => window.clearTimeout(timeout))
+    }
+  }, [activeSourceTab, sourceMemorySearchFocusToken, sourceWorkspaceFocused])
 
   useEffect(() => {
     if (!selectedNodeDetail || !activeSourceDocumentId) {
@@ -4669,7 +6062,7 @@ export function RecallWorkspace({
 
   useEffect(() => {
     setStudyQueueExpanded(false)
-  }, [section, showFocusedStudySplitView, studyBrowseDrawerOpen, studyFilter])
+  }, [section, showFocusedStudySplitView, studyBrowseDrawerOpen, studyFilter, studyScheduleDrilldown])
 
   useEffect(() => {
     if (section !== 'study' || showFocusedStudySplitView) {
@@ -4691,6 +6084,7 @@ export function RecallWorkspace({
         if (!active) {
           return
         }
+        rememberHomeSourceNotesForDocument(selectedLibraryDocumentId, loadedNotes)
         setSelectedDocumentNoteCount(loadedNotes.length)
         setSelectedDocumentNoteCountStatus('success')
       })
@@ -4705,7 +6099,7 @@ export function RecallWorkspace({
     return () => {
       active = false
     }
-  }, [reloadToken, selectedLibraryDocumentId])
+  }, [reloadToken, rememberHomeSourceNotesForDocument, selectedLibraryDocumentId])
 
   useEffect(() => {
     if (!activeSourceDocumentId) {
@@ -4717,6 +6111,7 @@ export function RecallWorkspace({
     if (activeSourceDocumentId === selectedNotesDocumentId && !showingNoteSearch) {
       if (notesStatus === 'success') {
         setSourceWorkspaceNotes(documentNotes)
+        rememberHomeSourceNotesForDocument(activeSourceDocumentId, documentNotes)
         setSourceWorkspaceNotesStatus('success')
         return
       }
@@ -4740,6 +6135,7 @@ export function RecallWorkspace({
           return
         }
         setSourceWorkspaceNotes(loadedNotes)
+        rememberHomeSourceNotesForDocument(activeSourceDocumentId, loadedNotes)
         setSourceWorkspaceNotesStatus('success')
       })
       .catch(() => {
@@ -4753,7 +6149,14 @@ export function RecallWorkspace({
     return () => {
       active = false
     }
-  }, [activeSourceDocumentId, documentNotes, notesStatus, selectedNotesDocumentId, showingNoteSearch])
+  }, [
+    activeSourceDocumentId,
+    documentNotes,
+    notesStatus,
+    rememberHomeSourceNotesForDocument,
+    selectedNotesDocumentId,
+    showingNoteSearch,
+  ])
 
   useEffect(() => {
     if (!selectedNotesDocumentId) {
@@ -4796,6 +6199,28 @@ export function RecallWorkspace({
       active = false
     }
   }, [deferredNoteSearch, selectedNotesDocumentId, showingNoteSearch])
+
+  useEffect(() => {
+    if (!notebookSectionActive || !showingNoteSearch || noteSearchStatus !== 'success' || noteSearchResults.length === 0) {
+      return
+    }
+    if (selectedNoteId && noteSearchResults.some((note) => note.id === selectedNoteId)) {
+      return
+    }
+    const firstVisibleNote = noteSearchResults[0]
+    updateNotesState((current) => ({
+      ...current,
+      selectedDocumentId: firstVisibleNote.anchor.source_document_id,
+      selectedNoteId: firstVisibleNote.id,
+    }))
+  }, [
+    notebookSectionActive,
+    noteSearchResults,
+    noteSearchStatus,
+    selectedNoteId,
+    showingNoteSearch,
+    updateNotesState,
+  ])
 
   useEffect(() => {
     void loadGraph()
@@ -4872,22 +6297,22 @@ export function RecallWorkspace({
     updateStudyState((current) => ({
       ...current,
       activeCardId:
-        current.activeCardId && studyCards.some((card) => card.id === current.activeCardId)
+        current.activeCardId && scopedStudyCards.some((card) => card.id === current.activeCardId)
           ? current.activeCardId
-          : studyCards[0]?.id ?? null,
+          : scopedStudyCards[0]?.id ?? null,
     }))
-  }, [studyCards, updateStudyState])
+  }, [scopedStudyCards, updateStudyState])
 
   useEffect(() => {
-    if (section !== 'study' || !activeSourceDocumentId || studyCards.length === 0) {
+    if (section !== 'study' || !studySourceScopeDocumentId || scopedStudyCards.length === 0) {
       return
     }
     const currentCardMatches =
-      activeCardId && studyCards.some((card) => card.id === activeCardId && card.source_document_id === activeSourceDocumentId)
+      activeCardId && scopedStudyCards.some((card) => card.id === activeCardId && card.source_document_id === studySourceScopeDocumentId)
     if (currentCardMatches) {
       return
     }
-    const matchingCard = studyCards.find((card) => card.source_document_id === activeSourceDocumentId)
+    const matchingCard = scopedStudyCards.find((card) => card.source_document_id === studySourceScopeDocumentId)
     if (!matchingCard) {
       updateStudyState((current) => ({
         ...current,
@@ -4899,7 +6324,7 @@ export function RecallWorkspace({
       ...current,
       activeCardId: matchingCard.id,
     }))
-  }, [activeCardId, activeSourceDocumentId, section, studyCards, updateStudyState])
+  }, [activeCardId, scopedStudyCards, section, studySourceScopeDocumentId, updateStudyState])
 
   useEffect(() => {
     updateNotesState((current) => ({
@@ -4930,14 +6355,21 @@ export function RecallWorkspace({
       return
     }
     setNoteGraphDraft({
-      label: activeNoteAnchorText,
-      description: activeNoteBodyText,
+      label: activeNotePromotionGraphLabel,
+      description: activeNotePromotionGraphDescription,
     })
     setNoteStudyDraft({
-      prompt: activeNoteBodyText.trim() || 'What should you remember from this note?',
-      answer: activeNoteAnchorText,
+      prompt: activeNotePromotionStudyPrompt,
+      answer: activeNotePromotionStudyAnswer,
     })
-  }, [activeNoteAnchorText, activeNoteBodyText, activeNoteId, notePromotionMode])
+  }, [
+    activeNoteId,
+    activeNotePromotionGraphDescription,
+    activeNotePromotionGraphLabel,
+    activeNotePromotionStudyAnswer,
+    activeNotePromotionStudyPrompt,
+    notePromotionMode,
+  ])
 
   useEffect(() => {
     setNotesMessage(null)
@@ -4947,21 +6379,26 @@ export function RecallWorkspace({
     if (!focusRequest || focusRequest.section !== section) {
       return
     }
+    const newNoteRequestAlreadyConsumed = Boolean(
+      focusRequest.newNote && lastNewNoteFocusTokenRef.current === focusRequest.token,
+    )
 
-    updateSourceWorkspaceState((current) => ({
-      ...current,
-      activeDocumentId: focusRequest.documentId ?? current.activeDocumentId,
-      activeTab: focusRequest.sourceTab ?? mapRecallSectionToSourceTab(focusRequest.section),
-    }))
+    if (!newNoteRequestAlreadyConsumed) {
+      updateSourceWorkspaceState((current) => ({
+        ...current,
+        activeDocumentId: focusRequest.documentId ?? current.activeDocumentId,
+        activeTab: focusRequest.sourceTab ?? mapRecallSectionToSourceTab(focusRequest.section),
+      }))
+    }
 
-    if (focusRequest.section === 'library' && focusRequest.librarySurface) {
+    if (!newNoteRequestAlreadyConsumed && focusRequest.section === 'library' && focusRequest.librarySurface) {
       updateLibraryState((current) => ({
         ...current,
         activeSurface: focusRequest.librarySurface ?? current.activeSurface,
       }))
     }
 
-    if (focusRequest.documentId) {
+    if (!newNoteRequestAlreadyConsumed && focusRequest.documentId) {
       if (focusRequest.section === 'library') {
         updateLibraryState((current) => ({ ...current, selectedDocumentId: focusRequest.documentId ?? null }))
       }
@@ -4973,12 +6410,39 @@ export function RecallWorkspace({
         updateNotesState((current) => ({ ...current, selectedDocumentId: focusRequest.documentId ?? null }))
       }
     }
-    if (focusRequest.noteId) {
+    if (!newNoteRequestAlreadyConsumed && focusRequest.noteId) {
       updateNotesState((current) => ({
         ...current,
         searchQuery: '',
         selectedNoteId: focusRequest.noteId ?? null,
       }))
+    }
+    if (focusRequest.newNote && lastNewNoteFocusTokenRef.current !== focusRequest.token) {
+      const targetDocumentId =
+        focusRequest.documentId ?? selectedNotesDocumentId ?? selectedLibraryDocumentId ?? documents[0]?.id ?? null
+      lastNewNoteFocusTokenRef.current = focusRequest.token
+      setNewNoteDraftOpen(true)
+      setNewNoteDraftBody('')
+      setNotePromotionMode(null)
+      setNotesMessage(null)
+      if (targetDocumentId) {
+        updateNotesState((current) => ({
+          ...current,
+          searchQuery: '',
+          selectedDocumentId: targetDocumentId,
+        }))
+        updateLibraryState((current) => ({
+          ...current,
+          activeSurface: 'notebook',
+          selectedDocumentId: targetDocumentId,
+        }))
+        updateSourceWorkspaceState((current) => ({
+          ...current,
+          activeDocumentId: targetDocumentId,
+          activeTab: 'notes',
+          mode: current.mode,
+        }))
+      }
     }
     if (focusRequest.nodeId) {
       updateGraphState((current) => ({
@@ -4993,23 +6457,70 @@ export function RecallWorkspace({
         ...current,
         filter: 'all',
         activeCardId: focusRequest.cardId ?? null,
+        scheduleDrilldown: 'all',
+        sourceScopeDocumentId:
+          focusRequest.section === 'study' ? focusRequest.documentId ?? current.sourceScopeDocumentId : current.sourceScopeDocumentId,
       }))
     }
-  }, [focusRequest, section, updateGraphState, updateLibraryState, updateNotesState, updateSourceWorkspaceState, updateStudyState])
+    if (!focusRequest.cardId && focusRequest.section === 'study') {
+      updateStudyState((current) => ({
+        ...current,
+        filter: focusRequest.documentId ? 'all' : current.filter,
+        questionSearchQuery:
+          focusRequest.documentId && focusRequest.documentId === current.sourceScopeDocumentId
+            ? current.questionSearchQuery
+            : '',
+        scheduleDrilldown: 'all',
+        sourceScopeDocumentId: focusRequest.documentId ?? null,
+      }))
+    }
+  }, [
+    documents,
+    focusRequest,
+    section,
+    selectedLibraryDocumentId,
+    selectedNotesDocumentId,
+    updateGraphState,
+    updateLibraryState,
+    updateNotesState,
+    updateSourceWorkspaceState,
+    updateStudyState,
+  ])
+
+  useEffect(() => {
+    if (!newNoteDraftOpen || selectedNotesDocumentId || documents.length === 0) {
+      return
+    }
+    const fallbackDocumentId = documents[0]?.id ?? null
+    if (!fallbackDocumentId) {
+      return
+    }
+    updateNotesState((current) => ({
+      ...current,
+      selectedDocumentId: fallbackDocumentId,
+    }))
+    updateLibraryState((current) => ({
+      ...current,
+      selectedDocumentId: fallbackDocumentId,
+    }))
+  }, [documents, newNoteDraftOpen, selectedNotesDocumentId, updateLibraryState, updateNotesState])
 
   useEffect(() => {
     if (section !== 'library' || notebookSurfaceActive || !selectedLibraryDocumentId || !sourceWorkspaceFocused) {
       return
     }
-    updateSourceWorkspaceState((current) =>
-      current.activeDocumentId === selectedLibraryDocumentId && current.activeTab === 'overview'
+    updateSourceWorkspaceState((current) => {
+      if (current.activeTab === 'notes') {
+        return current
+      }
+      return current.activeDocumentId === selectedLibraryDocumentId && current.activeTab === 'overview'
         ? current
         : {
             ...current,
             activeDocumentId: selectedLibraryDocumentId,
             activeTab: 'overview',
-          },
-    )
+          }
+    })
   }, [notebookSurfaceActive, section, selectedLibraryDocumentId, sourceWorkspaceFocused, updateSourceWorkspaceState])
 
   useEffect(() => {
@@ -5659,32 +7170,54 @@ export function RecallWorkspace({
     }))
   }
 
+  function handleStartNewNotebookDraft(documentId?: string | null) {
+    const targetDocumentId = documentId ?? selectedNotesDocumentId ?? selectedLibraryDocumentId ?? documents[0]?.id ?? null
+    setNewNoteDraftOpen(true)
+    setNewNoteDraftBody('')
+    setNotePromotionMode(null)
+    setNotesMessage(null)
+    setNotesError(null)
+    setNoteSearchError(null)
+    if (!targetDocumentId) {
+      return
+    }
+    handleSelectLibraryDocument(targetDocumentId)
+    updateNotesState((current) => ({
+      ...current,
+      searchQuery: '',
+      selectedDocumentId: targetDocumentId,
+    }))
+    updateLibraryState((current) => ({
+      ...current,
+      activeSurface: 'notebook',
+      selectedDocumentId: targetDocumentId,
+    }))
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeDocumentId: targetDocumentId,
+      activeTab: 'notes',
+      mode: sourceWorkspaceFocused ? current.mode : 'browse',
+      readerAnchor: current.activeDocumentId === targetDocumentId ? current.readerAnchor : null,
+    }))
+  }
+
+  function handleCancelNewNoteDraft() {
+    setNewNoteDraftOpen(false)
+    setNewNoteDraftBody('')
+    setNotesMessage(null)
+  }
+
   const handleOpenDocumentInReader = useCallback((
     documentId: string,
     options?: {
+      returnNoteId?: string | null
+      returnToNotebook?: boolean | null
       sentenceEnd?: number | null
       sentenceStart?: number | null
     },
   ) => {
-    handleSelectLibraryDocument(documentId)
-    updateSourceWorkspaceState((current) => ({
-      ...current,
-      activeDocumentId: documentId,
-      activeTab: 'reader',
-      mode: 'focused',
-      readerAnchor:
-        options?.sentenceStart !== null &&
-        options?.sentenceStart !== undefined &&
-        options?.sentenceEnd !== null &&
-        options?.sentenceEnd !== undefined
-          ? {
-              sentenceEnd: options.sentenceEnd,
-              sentenceStart: options.sentenceStart,
-            }
-          : current.readerAnchor,
-    }))
     onOpenReader(documentId, options)
-  }, [handleSelectLibraryDocument, onOpenReader, updateSourceWorkspaceState])
+  }, [onOpenReader])
 
   function handleOpenMentionInReader(sourceDocumentId: string) {
     handleOpenDocumentInReader(sourceDocumentId)
@@ -5720,9 +7253,7 @@ export function RecallWorkspace({
     handleSelectLibraryDocument(card.source_document_id)
     setFocusedStudySourceSpanIndex(sourceSpanIndex)
     const anchorRange = buildReaderAnchorRangeFromSourceSpan(sourceSpan)
-    if (anchorRange) {
-      setSourceWorkspaceReaderAnchor(anchorRange)
-    }
+    setSourceWorkspaceReaderAnchor(anchorRange)
   }
 
   function handleSelectStudyCard(card: StudyCardRecord) {
@@ -5737,9 +7268,6 @@ export function RecallWorkspace({
     setShowAnswer(false)
     setStudyEvidencePeekOpen(false)
     setFocusedStudySourceSpanIndex(0)
-    if (studyBrowseDrawerOpen) {
-      setBrowseDrawerOpen('study', false)
-    }
   }
 
   function handleRetryRecallLoading() {
@@ -5764,6 +7292,53 @@ export function RecallWorkspace({
         })
     } else if (selectedNotesDocumentId) {
       void loadNotes(selectedNotesDocumentId)
+    }
+  }
+
+  async function handleSaveNewNoteDraft() {
+    if (!selectedNotesDocument) {
+      setNotesError('Choose a saved source before saving this note.')
+      return
+    }
+    const bodyText = newNoteDraftBody.trim()
+    if (!bodyText) {
+      return
+    }
+
+    setNoteBusyKey('new-note')
+    setNotesMessage(null)
+    setNotesError(null)
+    setNoteSearchError(null)
+    try {
+      const createdNote = await createRecallNote(selectedNotesDocument.id, {
+        anchor: buildSourceAttachedNoteAnchor(selectedNotesDocument),
+        body_text: bodyText,
+      })
+      setDocumentNotes((currentNotes) => [createdNote, ...currentNotes.filter((note) => note.id !== createdNote.id)])
+      upsertHomeSourceNote(createdNote)
+      setSourceWorkspaceNotes((currentNotes) =>
+        selectedNotesDocument.id === activeSourceDocumentId
+          ? [createdNote, ...currentNotes.filter((note) => note.id !== createdNote.id)]
+          : currentNotes,
+      )
+      if (selectedNotesDocument.id === selectedLibraryDocumentId) {
+        setSelectedDocumentNoteCount((current) => (current === null ? current : current + 1))
+        setSelectedDocumentNoteCountStatus('success')
+      }
+      updateNotesState((current) => ({
+        ...current,
+        selectedDocumentId: selectedNotesDocument.id,
+        selectedNoteId: createdNote.id,
+      }))
+      setNewNoteDraftOpen(false)
+      setNewNoteDraftBody('')
+      setNoteDraftBody(createdNote.body_text ?? '')
+      setNotesStatus('success')
+      setNotesMessage('Source note saved locally.')
+    } catch (saveError) {
+      setNotesError(getErrorMessage(saveError, 'Could not save that source note.'))
+    } finally {
+      setNoteBusyKey(null)
     }
   }
 
@@ -5829,6 +7404,8 @@ export function RecallWorkspace({
       })
       setDocumentNotes((currentNotes) => upsertNoteRecord(currentNotes, updatedNote))
       setNoteSearchResults((currentResults) => upsertNoteRecord(currentResults, updatedNote))
+      setHomeSourceNoteSearchResults((currentResults) => upsertNoteRecord(currentResults, updatedNote))
+      upsertHomeSourceNote(updatedNote)
       setNoteDraftBody(updatedNote.body_text ?? '')
       setNotesMessage('Note updated locally.')
     } catch (saveError) {
@@ -5860,6 +7437,8 @@ export function RecallWorkspace({
       await deleteRecallNote(activeNote.id)
       setDocumentNotes((currentNotes) => removeNoteRecord(currentNotes, activeNote.id))
       setNoteSearchResults((currentResults) => removeNoteRecord(currentResults, activeNote.id))
+      setHomeSourceNoteSearchResults((currentResults) => removeNoteRecord(currentResults, activeNote.id))
+      removeHomeSourceNote(activeNote)
       if (activeNote.anchor.source_document_id === selectedLibraryDocumentId) {
         setSelectedDocumentNoteCount((current) => (current === null ? current : Math.max(0, current - 1)))
       }
@@ -5933,6 +7512,7 @@ export function RecallWorkspace({
       updateStudyState((current) => ({
         ...current,
         filter: 'all',
+        scheduleDrilldown: 'all',
       }))
       const loadedCards = await loadStudy('all')
       if (!loadedCards.some((card) => card.id === promotedCard.id)) {
@@ -5945,6 +7525,7 @@ export function RecallWorkspace({
         ...current,
         filter: 'all',
         activeCardId: promotedCard.id,
+        scheduleDrilldown: 'all',
       }))
       setShowAnswer(false)
       setNotePromotionMode(null)
@@ -5962,15 +7543,29 @@ export function RecallWorkspace({
     }
   }
 
-  function handleOpenNoteInReader(note: RecallNoteRecord | RecallNoteSearchHit) {
+  function handleOpenNoteInReader(
+    note: RecallNoteRecord | RecallNoteSearchHit,
+    options: { returnToNotebook?: boolean } = {},
+  ) {
     handleSelectNotesDocument(note.anchor.source_document_id)
-    handleOpenDocumentInReader(note.anchor.source_document_id, buildReaderAnchorOptions(note))
+    updateNotesState((current) => ({
+      ...current,
+      selectedDocumentId: note.anchor.source_document_id,
+      selectedNoteId: note.id,
+    }))
+    handleOpenDocumentInReader(note.anchor.source_document_id, {
+      ...buildReaderAnchorOptions(note),
+      returnNoteId: note.id,
+      returnToNotebook: options.returnToNotebook ?? notebookSectionActive,
+    })
   }
 
   async function handleReviewCard(rating: StudyReviewRating) {
     if (!activeStudyCard) {
       return
     }
+    const reviewedCardId = activeStudyCard.id
+    const reviewedSourceScopeDocumentId = studySourceScopeDocumentId
     setStudyBusyKey(`review:${activeStudyCard.id}:${rating}`)
     setError(null)
     try {
@@ -5980,7 +7575,18 @@ export function RecallWorkspace({
       )
       setShowAnswer(false)
       setStudyEvidencePeekOpen(false)
-      await loadStudy(studyFilter)
+      const loadedCards = await loadStudy(studyFilter)
+      if (reviewedSourceScopeDocumentId) {
+        const nextSourceCard = getNextStudyCardForQueue(
+          loadedCards.filter((card) => card.source_document_id === reviewedSourceScopeDocumentId),
+          reviewedCardId,
+        )
+        updateStudyState((current) => ({
+          ...current,
+          activeCardId: nextSourceCard?.id ?? null,
+          sourceScopeDocumentId: reviewedSourceScopeDocumentId,
+        }))
+      }
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : 'Could not save that review.')
     } finally {
@@ -6115,26 +7721,26 @@ export function RecallWorkspace({
   ]
     .filter(Boolean)
     .join(' · ')
-  const studyNewCountLabel = studyStatus === 'error' ? 'Study unavailable' : `${studyOverview?.new_count ?? 0} new`
-  const studyDueCountLabel = studyStatus === 'error' ? 'Counts unavailable' : `${studyOverview?.due_count ?? 0} due`
+  const studyNewCountLabel = studyStatus === 'error' ? 'Study unavailable' : `${studyScopeOverview?.new_count ?? 0} new`
+  const studyDueCountLabel = studyStatus === 'error' ? 'Counts unavailable' : `${studyScopeOverview?.due_count ?? 0} due`
   const studyReviewCountLabel =
-    studyStatus === 'error' ? 'Retry needed' : `${studyOverview?.review_event_count ?? 0} reviews logged`
+    studyStatus === 'error' ? 'Retry needed' : `${studyScopeOverview?.review_event_count ?? 0} reviews logged`
   const studyNextReviewLabel =
     studyStatus === 'error'
       ? 'Study unavailable'
-      : studyOverview?.next_due_at
-        ? `Next review ${dateFormatter.format(new Date(studyOverview.next_due_at))}`
+      : studyScopeOverview?.next_due_at
+        ? `Next review ${dateFormatter.format(new Date(studyScopeOverview.next_due_at))}`
         : 'No next review scheduled'
   const collapsedStudyBrowseRail = !showFocusedStudySplitView && !studyBrowseDrawerOpen
   const studyQuestionsViewOpen = studyBrowseDrawerOpen
   const collapsedStudyQueueOverview = studyStatus === 'error'
     ? 'Study unavailable'
-    : studyOverview
-      ? studyOverview.due_count > 0
-        ? `${studyOverview.due_count} due`
-        : studyOverview.new_count > 0
-          ? `${studyOverview.new_count} new`
-          : `${studyOverview.scheduled_count} scheduled`
+    : studyScopeOverview
+      ? studyScopeOverview.due_count > 0
+        ? `${studyScopeOverview.due_count} due`
+        : studyScopeOverview.new_count > 0
+          ? `${studyScopeOverview.new_count} new`
+          : `${studyScopeOverview.scheduled_count} scheduled`
       : 'Loading study…'
   const activeStudyCardSidebarSummary = activeStudyCard
     ? `${activeStudyCard.document_title} · ${formatStudyStatus(activeStudyCard.status)} · Due ${dateFormatter.format(new Date(activeStudyCard.due_at))}`
@@ -6532,7 +8138,15 @@ export function RecallWorkspace({
     return (
       <button
         aria-label={`Add content to ${homeCanvasHeading}`}
-        className="recall-home-parity-add-tile-stage563 recall-home-parity-add-tile-stage603 recall-home-parity-add-tile-stage605 recall-home-parity-add-tile-stage615"
+        className={[
+          'recall-home-parity-add-tile-stage563',
+          'recall-home-parity-add-tile-stage603',
+          'recall-home-parity-add-tile-stage605',
+          'recall-home-parity-add-tile-stage615',
+          homeOpenBoardUsesDensityLiftStage828 ? 'recall-home-parity-add-tile-open-density-stage828' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         type="button"
         onClick={onRequestNewSource}
       >
@@ -6547,6 +8161,95 @@ export function RecallWorkspace({
     )
   }
 
+  function renderHomeSourceMemorySignal(
+    document: RecallDocumentRecord,
+    surface: 'card' | 'list' | 'organizer',
+  ) {
+    const summary = homeSourceMemorySummaryByDocumentId.get(document.id)
+    if (!summary) {
+      return null
+    }
+
+    const labelText = summary.labels.join(' · ')
+    const openLabel = `Open source memory for ${document.title}: ${labelText}`
+
+    return (
+      <span
+        aria-label={openLabel}
+        className={[
+          'recall-home-source-memory-signal-stage908',
+          `recall-home-source-memory-signal-${surface}-stage908`,
+        ].join(' ')}
+        data-home-source-memory-graph-count-stage908={summary.graphNodeCount}
+        data-home-source-memory-note-count-stage908={summary.personalNoteCount}
+        data-home-source-memory-signal-stage908="true"
+        data-home-source-memory-signal-surface-stage908={surface}
+        data-home-source-memory-study-count-stage908={summary.studyCardCount}
+        data-home-source-memory-total-stage908={summary.totalCount}
+        title={openLabel}
+        onClick={(event: ReactMouseEvent<HTMLSpanElement>) => {
+          event.preventDefault()
+          event.stopPropagation()
+          focusSourceLibrary(document.id)
+        }}
+      >
+        <span className="recall-home-source-memory-signal-label-stage908">Memory</span>
+        {summary.labels.map((label) => (
+          <span className="recall-home-source-memory-signal-count-stage908" key={`${document.id}:memory:${label}`}>
+            {label}
+          </span>
+        ))}
+      </span>
+    )
+  }
+
+  function renderHomeReviewReadySignal(
+    document: RecallDocumentRecord,
+    surface: 'card' | 'list' | 'organizer',
+  ) {
+    const summary = studyReviewSummaryByDocumentId.get(document.id)
+    if (!summary) {
+      return null
+    }
+
+    const nextDueLabel = summary.nextDueAt ? homeDateFormatter.format(new Date(summary.nextDueAt)) : 'no due date'
+    const reviewLabel = `${summary.dueCount} due · ${summary.newCount} new · ${summary.scheduledCount} scheduled`
+    const openLabel = `Open source review for ${document.title}: ${reviewLabel}; next due ${nextDueLabel}`
+
+    return (
+      <span
+        aria-label={openLabel}
+        className={[
+          'recall-home-review-ready-signal-stage916',
+          `recall-home-review-ready-signal-${surface}-stage916`,
+        ].join(' ')}
+        data-home-review-ready-due-count-stage916={summary.dueCount}
+        data-home-review-ready-new-count-stage916={summary.newCount}
+        data-home-review-ready-scheduled-count-stage916={summary.scheduledCount}
+        data-home-review-ready-signal-stage916="true"
+        data-home-review-ready-signal-surface-stage916={surface}
+        data-home-review-ready-total-stage916={summary.totalCount}
+        title={openLabel}
+        onClick={(event: ReactMouseEvent<HTMLSpanElement>) => {
+          event.preventDefault()
+          event.stopPropagation()
+          focusSourceStudy(document.id)
+        }}
+      >
+        <span className="recall-home-review-ready-signal-label-stage916">Review</span>
+        <span className="recall-home-review-ready-signal-count-stage916">
+          {summary.dueCount} due
+        </span>
+        <span className="recall-home-review-ready-signal-count-stage916">
+          {summary.newCount} new
+        </span>
+        <span className="recall-home-review-ready-signal-next-stage916">
+          {summary.nextDueAt ? `Next ${nextDueLabel}` : `${summary.scheduledCount} scheduled`}
+        </span>
+      </span>
+    )
+  }
+
   function renderHomeStage563Card(document: RecallDocumentRecord) {
     const sourceTypeLabel = formatHomeDocumentSourceTypeEyebrow(document.source_type)
     const sourceLabel = getHomeDocumentSourceLabel(document)
@@ -6556,22 +8259,122 @@ export function RecallWorkspace({
     const preview = getHomeDocumentPreviewDescriptor(document, previewContent)
     const previewAccentStyle = getHomeDocumentPreviewAccentStyle(document, preview.kind)
     const hasImagePreview = mediaPreview?.kind === 'image' && Boolean(mediaPreview.asset_url)
+    const weakLocalCaptureRenderedPreviewStage868 =
+      homeOpenBoardUsesPreviewDifferentiationStage868 &&
+      preview.kind === 'paste' &&
+      mediaPreview?.source === 'content-rendered-preview'
+    const previewExcerptLinesStage868 =
+      previewContent?.excerptLines.length
+        ? previewContent.excerptLines
+        : weakLocalCaptureRenderedPreviewStage868
+          ? [truncateHomePreviewText(document.title, 78)]
+          : []
+    const useLocalCaptureHybridPreviewStage868 =
+      weakLocalCaptureRenderedPreviewStage868 && previewExcerptLinesStage868.length > 0
+    const localPreviewIdentityStage884 =
+      homeOpenBoardUsesLocalPreviewFidelityStage884 && useLocalCaptureHybridPreviewStage868
+        ? getHomeLocalPreviewIdentityStage884(document, previewContent, previewExcerptLinesStage868)
+        : null
+    const useLocalPreviewIdentityStage884 = Boolean(localPreviewIdentityStage884)
+    const meaningfulRenderedPreviewStage870 =
+      homeOpenBoardUsesMixedPreviewBalanceStage870 && hasImagePreview && !useLocalCaptureHybridPreviewStage868
+    const previewDisplayMode = useLocalPreviewIdentityStage884
+      ? 'local-identity-poster'
+      : useLocalCaptureHybridPreviewStage868
+      ? 'text-first-hybrid'
+      : hasImagePreview
+        ? 'rendered-image'
+        : 'fallback-poster'
 
     return (
       <button
         aria-label={`Open ${document.title}`}
-        className="recall-home-parity-card-stage563 recall-home-parity-card-stage603 recall-home-parity-card-stage605 recall-home-parity-card-stage613 recall-home-parity-card-stage615 recall-home-parity-card-stage621 recall-home-parity-card-stage623 recall-home-parity-card-stage625 recall-home-parity-card-stage627 recall-home-parity-card-stage629 recall-home-parity-card-stage631 recall-home-parity-card-stage633 recall-home-parity-card-stage635 recall-home-parity-card-stage637 recall-home-parity-card-stage639 recall-home-parity-card-stage641 recall-home-parity-card-stage643 recall-home-parity-card-stage645 recall-home-parity-card-stage647 recall-home-parity-card-stage649 recall-home-parity-card-stage651"
+        className={[
+          'recall-home-parity-card-stage563',
+          'recall-home-parity-card-stage603',
+          'recall-home-parity-card-stage605',
+          'recall-home-parity-card-stage613',
+          'recall-home-parity-card-stage615',
+          'recall-home-parity-card-stage621',
+          'recall-home-parity-card-stage623',
+          'recall-home-parity-card-stage625',
+          'recall-home-parity-card-stage627',
+          'recall-home-parity-card-stage629',
+          'recall-home-parity-card-stage631',
+          'recall-home-parity-card-stage633',
+          'recall-home-parity-card-stage635',
+          'recall-home-parity-card-stage637',
+          'recall-home-parity-card-stage639',
+          'recall-home-parity-card-stage641',
+          'recall-home-parity-card-stage643',
+          'recall-home-parity-card-stage645',
+          'recall-home-parity-card-stage647',
+          'recall-home-parity-card-stage649',
+          'recall-home-parity-card-stage651',
+          homeOpenBoardUsesDensityLiftStage828 ? 'recall-home-parity-card-open-density-stage828' : '',
+          homeOpenSelectedBoardUsesLowerMetaCompactionStage836 ? 'recall-home-parity-card-selected-meta-stage836' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        data-home-open-selected-card-stage836={
+          homeOpenSelectedBoardUsesLowerMetaCompactionStage836 ? 'true' : undefined
+        }
         key={`home-parity-card:${document.id}`}
         type="button"
         onClick={() => focusSourceLibrary(document.id)}
       >
         <span
-          className={`recall-home-parity-card-preview-stage563 recall-home-parity-card-preview-stage613 recall-home-parity-card-preview-stage621 recall-home-parity-card-preview-stage623 recall-home-parity-card-preview-stage625 recall-home-parity-card-preview-stage627 recall-home-parity-card-preview-stage629 recall-home-parity-card-preview-stage631 recall-home-parity-card-preview-stage633 recall-home-parity-card-preview-stage635 recall-home-parity-card-preview-stage637 recall-home-parity-card-preview-stage639 recall-home-parity-card-preview-stage641 recall-home-parity-card-preview-stage643 recall-home-parity-card-preview-stage645 recall-home-parity-card-preview-stage647 recall-home-parity-card-preview-stage649 recall-home-parity-card-preview-stage651 recall-home-parity-card-preview-stage653 recall-home-parity-card-preview-stage655 recall-home-parity-card-preview-stage657 recall-home-parity-card-preview-${preview.kind}-stage565${hasImagePreview ? ' recall-home-parity-card-preview-has-image-stage657' : ''}`}
+          className={[
+            'recall-home-parity-card-preview-stage563',
+            'recall-home-parity-card-preview-stage613',
+            'recall-home-parity-card-preview-stage621',
+            'recall-home-parity-card-preview-stage623',
+            'recall-home-parity-card-preview-stage625',
+            'recall-home-parity-card-preview-stage627',
+            'recall-home-parity-card-preview-stage629',
+            'recall-home-parity-card-preview-stage631',
+            'recall-home-parity-card-preview-stage633',
+            'recall-home-parity-card-preview-stage635',
+            'recall-home-parity-card-preview-stage637',
+            'recall-home-parity-card-preview-stage639',
+            'recall-home-parity-card-preview-stage641',
+            'recall-home-parity-card-preview-stage643',
+            'recall-home-parity-card-preview-stage645',
+            'recall-home-parity-card-preview-stage647',
+            'recall-home-parity-card-preview-stage649',
+            'recall-home-parity-card-preview-stage651',
+            'recall-home-parity-card-preview-stage653',
+            'recall-home-parity-card-preview-stage655',
+            'recall-home-parity-card-preview-stage657',
+            `recall-home-parity-card-preview-${preview.kind}-stage565`,
+            hasImagePreview ? 'recall-home-parity-card-preview-has-image-stage657' : '',
+            homeOpenBoardUsesDensityLiftStage828 ? 'recall-home-parity-card-preview-open-density-stage828' : '',
+            useLocalCaptureHybridPreviewStage868
+              ? 'recall-home-parity-card-preview-text-first-hybrid-stage868'
+              : '',
+            useLocalPreviewIdentityStage884
+              ? 'recall-home-parity-card-preview-local-identity-card-stage884'
+              : '',
+            meaningfulRenderedPreviewStage870
+              ? 'recall-home-parity-card-preview-meaningful-rendered-stage870'
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           aria-hidden="true"
           data-preview-kind={preview.kind}
+          data-preview-display-mode={previewDisplayMode}
           data-preview-hero-source={preview.heroTextSource}
           data-preview-media-kind={hasImagePreview ? 'image' : 'fallback'}
           data-preview-media-source={mediaPreview?.source ?? 'fallback'}
+          data-preview-weak-local-stage868={useLocalCaptureHybridPreviewStage868 ? 'true' : undefined}
+          data-preview-meaningful-rendered-stage870={meaningfulRenderedPreviewStage870 ? 'true' : undefined}
+          data-preview-local-identity-stage884={useLocalPreviewIdentityStage884 ? 'true' : undefined}
+          data-preview-local-identity-variant-stage884={localPreviewIdentityStage884?.variant}
+          data-preview-local-identity-token-stage884={localPreviewIdentityStage884?.token}
+          data-preview-excerpt-line-count={
+            useLocalCaptureHybridPreviewStage868 ? String(previewExcerptLinesStage868.length) : undefined
+          }
           data-source-type={document.source_type.toLowerCase()}
           style={previewAccentStyle}
         >
@@ -6590,6 +8393,35 @@ export function RecallWorkspace({
               {preview.detail}
             </span>
           </span>
+          {localPreviewIdentityStage884 ? (
+            <span
+              className={[
+                'recall-home-parity-card-preview-excerpt-stage868',
+                'recall-home-parity-card-preview-local-identity-stage884',
+                `recall-home-parity-card-preview-local-identity-${localPreviewIdentityStage884.variant}-stage884`,
+              ].join(' ')}
+            >
+              <span className="recall-home-parity-card-preview-local-token-stage884">
+                {localPreviewIdentityStage884.token}
+              </span>
+              <span className="recall-home-parity-card-preview-local-lead-stage884">
+                {localPreviewIdentityStage884.lead}
+              </span>
+              {localPreviewIdentityStage884.lines.length > 0 ? (
+                <span className="recall-home-parity-card-preview-local-lines-stage884">
+                  {localPreviewIdentityStage884.lines.map((line, index) => (
+                    <span key={`${document.id}:home-preview-identity-line:${index}`}>{line}</span>
+                  ))}
+                </span>
+              ) : null}
+            </span>
+          ) : useLocalCaptureHybridPreviewStage868 ? (
+            <span className="recall-home-parity-card-preview-excerpt-stage868">
+              {previewExcerptLinesStage868.slice(0, 3).map((line, index) => (
+                <span key={`${document.id}:home-preview-line:${index}`}>{line}</span>
+              ))}
+            </span>
+          ) : null}
           <span className="recall-home-parity-card-preview-footer-stage569">
             <span className="recall-home-parity-card-preview-mark-stage565">{preview.mark}</span>
             {!hasImagePreview ? (
@@ -6602,15 +8434,116 @@ export function RecallWorkspace({
             </span>
           </span>
         </span>
-        <span className="recall-home-parity-card-copy-stage563 recall-home-parity-card-copy-stage571 recall-home-parity-card-copy-stage603 recall-home-parity-card-copy-stage605 recall-home-parity-card-copy-stage607 recall-home-parity-card-copy-stage613 recall-home-parity-card-copy-stage621 recall-home-parity-card-copy-stage623 recall-home-parity-card-copy-stage625 recall-home-parity-card-copy-stage627 recall-home-parity-card-copy-stage629 recall-home-parity-card-copy-stage631 recall-home-parity-card-copy-stage633 recall-home-parity-card-copy-stage635 recall-home-parity-card-copy-stage637 recall-home-parity-card-copy-stage639 recall-home-parity-card-copy-stage641 recall-home-parity-card-copy-stage643 recall-home-parity-card-copy-stage645 recall-home-parity-card-copy-stage647 recall-home-parity-card-copy-stage649 recall-home-parity-card-copy-stage651">
+        <span
+          className={[
+            'recall-home-parity-card-copy-stage563',
+            'recall-home-parity-card-copy-stage571',
+            'recall-home-parity-card-copy-stage603',
+            'recall-home-parity-card-copy-stage605',
+            'recall-home-parity-card-copy-stage607',
+            'recall-home-parity-card-copy-stage613',
+            'recall-home-parity-card-copy-stage621',
+            'recall-home-parity-card-copy-stage623',
+            'recall-home-parity-card-copy-stage625',
+            'recall-home-parity-card-copy-stage627',
+            'recall-home-parity-card-copy-stage629',
+            'recall-home-parity-card-copy-stage631',
+            'recall-home-parity-card-copy-stage633',
+            'recall-home-parity-card-copy-stage635',
+            'recall-home-parity-card-copy-stage637',
+            'recall-home-parity-card-copy-stage639',
+            'recall-home-parity-card-copy-stage641',
+            'recall-home-parity-card-copy-stage643',
+            'recall-home-parity-card-copy-stage645',
+            'recall-home-parity-card-copy-stage647',
+            'recall-home-parity-card-copy-stage649',
+            'recall-home-parity-card-copy-stage651',
+            homeOpenBoardUsesDensityLiftStage828 ? 'recall-home-parity-card-copy-open-density-stage828' : '',
+            homeOpenSelectedBoardUsesLowerMetaCompactionStage836
+              ? 'recall-home-parity-card-copy-selected-meta-stage836'
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
           <strong className="recall-home-parity-card-title-stage603 recall-home-parity-card-title-stage605 recall-home-parity-card-title-stage607 recall-home-parity-card-title-stage613 recall-home-parity-card-title-stage621 recall-home-parity-card-title-stage623 recall-home-parity-card-title-stage625 recall-home-parity-card-title-stage627 recall-home-parity-card-title-stage629 recall-home-parity-card-title-stage631 recall-home-parity-card-title-stage633 recall-home-parity-card-title-stage635 recall-home-parity-card-title-stage637 recall-home-parity-card-title-stage639 recall-home-parity-card-title-stage641 recall-home-parity-card-title-stage643 recall-home-parity-card-title-stage645 recall-home-parity-card-title-stage647 recall-home-parity-card-title-stage649 recall-home-parity-card-title-stage651 recall-home-parity-card-title-stage696">{document.title}</strong>
-          <span className="recall-home-parity-card-meta-stack-stage571 recall-home-parity-card-meta-stack-stage603 recall-home-parity-card-meta-stack-stage605 recall-home-parity-card-meta-stack-stage607 recall-home-parity-card-meta-stack-stage611 recall-home-parity-card-meta-stack-stage613 recall-home-parity-card-meta-stack-stage621 recall-home-parity-card-meta-stack-stage623 recall-home-parity-card-meta-stack-stage625 recall-home-parity-card-meta-stack-stage627 recall-home-parity-card-meta-stack-stage629 recall-home-parity-card-meta-stack-stage631 recall-home-parity-card-meta-stack-stage633 recall-home-parity-card-meta-stack-stage635 recall-home-parity-card-meta-stack-stage637 recall-home-parity-card-meta-stack-stage639 recall-home-parity-card-meta-stack-stage641 recall-home-parity-card-meta-stack-stage643 recall-home-parity-card-meta-stack-stage645 recall-home-parity-card-meta-stack-stage647 recall-home-parity-card-meta-stack-stage649 recall-home-parity-card-meta-stack-stage651">
-            <span className="recall-home-parity-card-source-row-stage565 recall-home-parity-card-source-row-stage571 recall-home-parity-card-source-row-stage603 recall-home-parity-card-source-row-stage607 recall-home-parity-card-source-row-stage611 recall-home-parity-card-source-row-stage621 recall-home-parity-card-source-row-stage623 recall-home-parity-card-source-row-stage625 recall-home-parity-card-source-row-stage627 recall-home-parity-card-source-row-stage629 recall-home-parity-card-source-row-stage631 recall-home-parity-card-source-row-stage633 recall-home-parity-card-source-row-stage635 recall-home-parity-card-source-row-stage637 recall-home-parity-card-source-row-stage639 recall-home-parity-card-source-row-stage641 recall-home-parity-card-source-row-stage643 recall-home-parity-card-source-row-stage645 recall-home-parity-card-source-row-stage647 recall-home-parity-card-source-row-stage649 recall-home-parity-card-source-row-stage651 recall-home-parity-card-source-row-stage696">
+          <span
+            className={[
+              'recall-home-parity-card-meta-stack-stage571',
+              'recall-home-parity-card-meta-stack-stage603',
+              'recall-home-parity-card-meta-stack-stage605',
+              'recall-home-parity-card-meta-stack-stage607',
+              'recall-home-parity-card-meta-stack-stage611',
+              'recall-home-parity-card-meta-stack-stage613',
+              'recall-home-parity-card-meta-stack-stage621',
+              'recall-home-parity-card-meta-stack-stage623',
+              'recall-home-parity-card-meta-stack-stage625',
+              'recall-home-parity-card-meta-stack-stage627',
+              'recall-home-parity-card-meta-stack-stage629',
+              'recall-home-parity-card-meta-stack-stage631',
+              'recall-home-parity-card-meta-stack-stage633',
+              'recall-home-parity-card-meta-stack-stage635',
+              'recall-home-parity-card-meta-stack-stage637',
+              'recall-home-parity-card-meta-stack-stage639',
+              'recall-home-parity-card-meta-stack-stage641',
+              'recall-home-parity-card-meta-stack-stage643',
+              'recall-home-parity-card-meta-stack-stage645',
+              'recall-home-parity-card-meta-stack-stage647',
+              'recall-home-parity-card-meta-stack-stage649',
+              'recall-home-parity-card-meta-stack-stage651',
+              homeOpenSelectedBoardUsesLowerMetaCompactionStage836
+                ? 'recall-home-parity-card-meta-stack-selected-meta-stage836'
+                : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            data-home-open-lower-meta-single-row-stage836={
+              homeOpenSelectedBoardUsesLowerMetaCompactionStage836 ? 'true' : undefined
+            }
+          >
+            <span
+              className={[
+                'recall-home-parity-card-source-row-stage565',
+                'recall-home-parity-card-source-row-stage571',
+                'recall-home-parity-card-source-row-stage603',
+                'recall-home-parity-card-source-row-stage607',
+                'recall-home-parity-card-source-row-stage611',
+                'recall-home-parity-card-source-row-stage621',
+                'recall-home-parity-card-source-row-stage623',
+                'recall-home-parity-card-source-row-stage625',
+                'recall-home-parity-card-source-row-stage627',
+                'recall-home-parity-card-source-row-stage629',
+                'recall-home-parity-card-source-row-stage631',
+                'recall-home-parity-card-source-row-stage633',
+                'recall-home-parity-card-source-row-stage635',
+                'recall-home-parity-card-source-row-stage637',
+                'recall-home-parity-card-source-row-stage639',
+                'recall-home-parity-card-source-row-stage641',
+                'recall-home-parity-card-source-row-stage643',
+                'recall-home-parity-card-source-row-stage645',
+                'recall-home-parity-card-source-row-stage647',
+                'recall-home-parity-card-source-row-stage649',
+                'recall-home-parity-card-source-row-stage651',
+                'recall-home-parity-card-source-row-stage696',
+                homeOpenSelectedBoardUsesLowerMetaCompactionStage836
+                  ? 'recall-home-parity-card-source-row-selected-meta-stage836'
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              data-home-open-source-row-stage836={
+                homeOpenSelectedBoardUsesLowerMetaCompactionStage836 ? 'true' : undefined
+              }
+            >
               <span className="recall-home-parity-card-source-stage563 recall-home-parity-card-source-stage603 recall-home-parity-card-source-stage605 recall-home-parity-card-source-stage607 recall-home-parity-card-source-stage611 recall-home-parity-card-source-stage621 recall-home-parity-card-source-stage623 recall-home-parity-card-source-stage625 recall-home-parity-card-source-stage627 recall-home-parity-card-source-stage629 recall-home-parity-card-source-stage631 recall-home-parity-card-source-stage633 recall-home-parity-card-source-stage635 recall-home-parity-card-source-stage637 recall-home-parity-card-source-stage639 recall-home-parity-card-source-stage641 recall-home-parity-card-source-stage643 recall-home-parity-card-source-stage645 recall-home-parity-card-source-stage647 recall-home-parity-card-source-stage649 recall-home-parity-card-source-stage651 recall-home-parity-card-source-stage696">{sourceLabel}</span>
             </span>
-            <span className="recall-home-parity-card-chip-stage563 recall-home-parity-card-chip-stage571 recall-home-parity-card-chip-stage603 recall-home-parity-card-chip-stage605 recall-home-parity-card-chip-stage607 recall-home-parity-card-chip-stage611 recall-home-parity-card-chip-stage621 recall-home-parity-card-chip-stage623 recall-home-parity-card-chip-stage625 recall-home-parity-card-chip-stage627 recall-home-parity-card-chip-stage629 recall-home-parity-card-chip-stage631 recall-home-parity-card-chip-stage633 recall-home-parity-card-chip-stage635 recall-home-parity-card-chip-stage637 recall-home-parity-card-chip-stage639 recall-home-parity-card-chip-stage641 recall-home-parity-card-chip-stage643 recall-home-parity-card-chip-stage645 recall-home-parity-card-chip-stage647 recall-home-parity-card-chip-stage649 recall-home-parity-card-chip-stage651">
-              {cardCollectionLabel}
-            </span>
+            {renderHomeSourceMemorySignal(document, 'card')}
+            {renderHomeReviewReadySignal(document, 'card')}
+            {!homeOpenSelectedBoardUsesLowerMetaCompactionStage836 ? (
+              <span className="recall-home-parity-card-chip-stage563 recall-home-parity-card-chip-stage571 recall-home-parity-card-chip-stage603 recall-home-parity-card-chip-stage605 recall-home-parity-card-chip-stage607 recall-home-parity-card-chip-stage611 recall-home-parity-card-chip-stage621 recall-home-parity-card-chip-stage623 recall-home-parity-card-chip-stage625 recall-home-parity-card-chip-stage627 recall-home-parity-card-chip-stage629 recall-home-parity-card-chip-stage631 recall-home-parity-card-chip-stage633 recall-home-parity-card-chip-stage635 recall-home-parity-card-chip-stage637 recall-home-parity-card-chip-stage639 recall-home-parity-card-chip-stage641 recall-home-parity-card-chip-stage643 recall-home-parity-card-chip-stage645 recall-home-parity-card-chip-stage647 recall-home-parity-card-chip-stage649 recall-home-parity-card-chip-stage651">
+                {cardCollectionLabel}
+              </span>
+            ) : null}
           </span>
         </span>
       </button>
@@ -6635,9 +8568,29 @@ export function RecallWorkspace({
           <span>{sourceLabel}</span>
         </span>
         <span className="recall-home-parity-list-row-meta-stage563">
+          {renderHomeSourceMemorySignal(document, 'list')}
+          {renderHomeReviewReadySignal(document, 'list')}
           <span>{sourceTypeLabel}</span>
           <span>{updatedLabel}</span>
         </span>
+      </button>
+    )
+  }
+
+  function renderHomeMemoryFilterStatus() {
+    if (!homeMemoryFilterActive) {
+      return null
+    }
+
+    return (
+      <button
+        aria-label={`Clear ${homeMemoryFilterStatusLabel} filter`}
+        className="ghost-button recall-home-memory-filter-chip-stage910"
+        data-home-memory-filter-active-stage910={homeMemoryFilter}
+        type="button"
+        onClick={clearHomeMemoryFilter}
+      >
+        {homeMemoryFilterStatusLabel}
       </button>
     )
   }
@@ -6679,6 +8632,31 @@ export function RecallWorkspace({
           role="group"
           aria-label="Sort Home sources"
         >
+          <div
+            className="recall-home-parity-sort-group-stage563 recall-home-memory-filter-group-stage910"
+            data-home-memory-filter-controls-stage910="true"
+            role="group"
+            aria-label="Memory filter"
+          >
+            <strong>Memory</strong>
+            <div className="recall-home-memory-filter-options-stage910">
+              {HOME_MEMORY_FILTER_OPTIONS.map((option) => (
+                <button
+                  aria-pressed={homeMemoryFilter === option.key}
+                  className="ghost-button"
+                  data-home-memory-filter-option-stage910={option.key}
+                  key={option.key}
+                  type="button"
+                  onClick={() => {
+                    setHomeMemoryFilter(option.key)
+                    setHomeStage563SortMenuOpen(false)
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="recall-home-parity-sort-group-stage563" role="group" aria-label="Sort mode">
             <button
               aria-pressed={homeSortMode === 'updated'}
@@ -6757,14 +8735,29 @@ export function RecallWorkspace({
   }
 
   function renderHomeStage563CollectionRailBody() {
+    const railHeadingLabel = libraryFilterActive ? 'Matches' : homeOrganizerLens === 'collections' ? 'Collections' : 'Recent'
+    const railHeadingMetaLabel = libraryFilterActive
+      ? homeOpenMatchesCountSummaryStage840
+      : formatCountLabel(homeBrowseSectionEntries.length, 'group', 'groups')
+
     return (
       <>
-        <div className="recall-home-parity-rail-header-stage563 recall-home-parity-rail-header-stage599">
+        <div
+          className={[
+            'recall-home-parity-rail-header-stage563',
+            'recall-home-parity-rail-header-stage599',
+            homeOpenOrganizerUsesListRhythmConvergenceStage838
+              ? 'recall-home-parity-rail-header-stage838'
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
           <div className="recall-home-parity-rail-header-row-stage567">
             <div className="recall-home-parity-rail-heading-stage563">
-              <strong>{homeOrganizerLens === 'collections' ? 'Collections' : 'Recent'}</strong>
+              <strong>{railHeadingLabel}</strong>
               <span className="recall-home-parity-rail-heading-meta-stage571 recall-home-parity-rail-heading-meta-stage609">
-                {formatCountLabel(homeBrowseSectionEntries.length, 'group', 'groups')}
+                {railHeadingMetaLabel}
               </span>
             </div>
             <div className="recall-home-parity-rail-actions-stage694">
@@ -6847,17 +8840,76 @@ export function RecallWorkspace({
                   </div>
                 </div>
               </div>
+              <button
+                aria-label="Hide organizer"
+                className="ghost-button recall-home-organizer-inline-close-stage818"
+                title="Hide organizer"
+                type="button"
+                onClick={() => {
+                  setHomeStage567RailMenuOpen(false)
+                  setHomeStage563SortMenuOpen(false)
+                  setHomeOrganizerVisible(false)
+                }}
+              >
+                <span aria-hidden="true">‹</span>
+              </button>
             </div>
           </div>
-          <span className="recall-home-parity-rail-note-stage563 recall-home-parity-rail-note-stage609">{homeCanvasSummary}</span>
+          {libraryFilterActive ? (
+            <div
+              className="recall-home-parity-rail-matches-context-stage840"
+              data-home-open-matches-query-summary-stage840="true"
+              role="group"
+              aria-label="Matches context"
+            >
+              <div className="recall-home-parity-rail-matches-copy-stage840">
+                <span className="recall-home-parity-rail-matches-label-stage840">Query</span>
+                <strong
+                  className="recall-home-parity-rail-matches-query-stage840"
+                  title={homeOpenMatchesQuerySummaryStage840}
+                >
+                  {homeOpenMatchesQuerySummaryStage840}
+                </strong>
+              </div>
+              <div className="recall-home-parity-rail-matches-actions-stage840">
+                <span className="recall-home-parity-rail-matches-status-stage840">
+                  {homeOpenMatchesCountSummaryStage840}
+                </span>
+                <button
+                  aria-label="Clear search"
+                  className="ghost-button recall-home-parity-rail-matches-clear-stage840"
+                  data-home-open-matches-clear-stage840="true"
+                  type="button"
+                  onClick={clearHomeLibraryFilter}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          ) : (
+            <span className="recall-home-parity-rail-note-stage563 recall-home-parity-rail-note-stage609">
+              {homeCanvasSummary}
+            </span>
+          )}
         </div>
 
-        <div className="recall-home-parity-rail-list-stage563" role="list">
-          {homeBrowseSectionEntries.map((section) => {
+        {!libraryFilterActive ? (
+          <div
+            className={[
+              'recall-home-parity-rail-list-stage563',
+              homeOpenOrganizerUsesListRhythmConvergenceStage838 ? 'recall-home-parity-rail-list-stage838' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            role="list"
+          >
+            {homeBrowseSectionEntries.map((section) => {
             const active = section.key === homeSelectedBrowseSection?.key
             let supportText = section.previewLeadDocument?.title ?? section.description
             if (active) {
-              if (isCollectionCaptureSection(section.key)) {
+              if (isHomePersonalNotesSection(section.key)) {
+                supportText = 'Source-attached notes'
+              } else if (isCollectionCaptureSection(section.key)) {
                 supportText = 'Local captures'
               } else if (section.key === 'collection:web') {
                 supportText = 'Browser sources'
@@ -6873,21 +8925,39 @@ export function RecallWorkspace({
             }
             return (
               <div
-                className={
-                  active
-                    ? 'recall-home-parity-rail-item-stage563 recall-home-parity-rail-item-active-stage599'
-                    : 'recall-home-parity-rail-item-stage563'
-                }
+                className={[
+                  'recall-home-parity-rail-item-stage563',
+                  active ? 'recall-home-parity-rail-item-active-stage599' : '',
+                  active && homeOpenOrganizerUsesListRhythmConvergenceStage838
+                    ? 'recall-home-parity-rail-item-active-stage838'
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 key={section.key}
+                data-home-personal-notes-organizer-section-stage898={
+                  isHomePersonalNotesSection(section.key) ? 'true' : undefined
+                }
+                data-home-personal-notes-organizer-selected-stage898={
+                  active && isHomePersonalNotesSection(section.key) ? 'true' : undefined
+                }
+                data-home-organizer-active-item-stage838={
+                  active && homeOpenOrganizerUsesListRhythmConvergenceStage838 ? 'true' : undefined
+                }
                 role="listitem"
               >
                 <button
                   aria-pressed={active}
-                  className={
-                    active
-                      ? 'recall-home-parity-rail-button-stage563 recall-home-parity-rail-button-active-stage563 recall-home-parity-rail-button-active-stage599'
-                      : 'recall-home-parity-rail-button-stage563 recall-home-parity-rail-button-inactive-stage575'
-                  }
+                  className={[
+                    'recall-home-parity-rail-button-stage563',
+                    active ? 'recall-home-parity-rail-button-active-stage563 recall-home-parity-rail-button-active-stage599' : '',
+                    !active ? 'recall-home-parity-rail-button-inactive-stage575' : '',
+                    active && homeOpenOrganizerUsesListRhythmConvergenceStage838
+                      ? 'recall-home-parity-rail-button-active-stage838'
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                   type="button"
                   onClick={(event) => handleHomeOrganizerSectionClick(section.key, event)}
                 >
@@ -6900,7 +8970,19 @@ export function RecallWorkspace({
                 {active && section.previewLeadDocument ? (
                   <button
                     aria-label={`Open ${section.previewLeadDocument.title} from ${section.label}`}
-                    className="recall-home-parity-rail-preview-stage563 recall-home-parity-rail-preview-stage571 recall-home-parity-rail-preview-stage599"
+                    className={[
+                      'recall-home-parity-rail-preview-stage563',
+                      'recall-home-parity-rail-preview-stage571',
+                      'recall-home-parity-rail-preview-stage599',
+                      homeOpenOrganizerUsesListRhythmConvergenceStage838
+                        ? 'recall-home-parity-rail-preview-attached-stage838'
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    data-home-organizer-active-preview-stage838={
+                      homeOpenOrganizerUsesListRhythmConvergenceStage838 ? 'true' : undefined
+                    }
                     type="button"
                     onClick={() => focusSourceLibrary(section.previewLeadDocument?.id ?? '')}
                   >
@@ -6913,9 +8995,10 @@ export function RecallWorkspace({
               </div>
             )
           })}
-        </div>
+          </div>
+        ) : null}
 
-        {homeOrganizerSelectionKeys.length > 0 ? (
+        {!libraryFilterActive && homeOrganizerSelectionKeys.length > 0 ? (
           <div className="recall-home-organizer-selection-bar recall-home-organizer-selection-bar-stage483-reset recall-home-organizer-selection-bar-stage487-reset" role="group" aria-label="Organizer selection bar">
             <div className="recall-home-organizer-selection-copy-stage483-reset">
               <strong>{formatCountLabel(homeOrganizerSelectionKeys.length, 'item', 'items')} selected</strong>
@@ -6952,119 +9035,519 @@ export function RecallWorkspace({
     )
   }
 
-  function renderHomeStage563Canvas() {
+  function renderHomeParityToolbar({
+    useOpenTopBandFusionStage830 = false,
+    useSingleRowConvergenceStage832 = false,
+  }: {
+    useOpenTopBandFusionStage830?: boolean
+    useSingleRowConvergenceStage832?: boolean
+  } = {}) {
     return (
-      <section
-        className="recall-home-parity-canvas-stage563 recall-home-parity-canvas-stage617 recall-home-parity-canvas-stage619 priority-surface-stage-shell"
-        aria-label={homeCanvasAriaLabel}
+      <div
+        className={[
+          'recall-home-parity-toolbar-stage563',
+          'recall-home-parity-toolbar-stage617',
+          useOpenTopBandFusionStage830 ? 'recall-home-parity-toolbar-open-top-band-stage830' : '',
+          useSingleRowConvergenceStage832 ? 'recall-home-parity-toolbar-single-row-stage832' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
       >
-        <div className="recall-home-parity-toolbar-stage563 recall-home-parity-toolbar-stage617">
-          <span className="visually-hidden">{homeCanvasSummary}</span>
+        <span className="visually-hidden">{homeCanvasSummary}</span>
+        <div
+          className={[
+            'recall-home-parity-toolbar-actions-stage563',
+            'recall-home-parity-toolbar-actions-stage569',
+            'recall-home-parity-toolbar-actions-stage601',
+            'recall-home-parity-toolbar-actions-stage617',
+            useOpenTopBandFusionStage830 ? 'recall-home-parity-toolbar-actions-open-top-band-stage830' : '',
+            useSingleRowConvergenceStage832 ? 'recall-home-parity-toolbar-actions-single-row-stage832' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-label="Home workspace controls"
+          data-home-open-toolbar-single-row-stage832={useSingleRowConvergenceStage832 ? 'true' : undefined}
+        >
           <div
-            className="recall-home-parity-toolbar-actions-stage563 recall-home-parity-toolbar-actions-stage569 recall-home-parity-toolbar-actions-stage601 recall-home-parity-toolbar-actions-stage617"
-            aria-label="Home workspace controls"
+            className={[
+              'recall-home-parity-toolbar-row-stage567',
+              'recall-home-parity-toolbar-row-primary-stage567',
+              'recall-home-parity-toolbar-row-stage569',
+              'recall-home-parity-toolbar-row-primary-stage601',
+              useSingleRowConvergenceStage832 ? 'recall-home-parity-toolbar-row-inline-stage832' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
           >
-            <div className="recall-home-parity-toolbar-row-stage567 recall-home-parity-toolbar-row-primary-stage567 recall-home-parity-toolbar-row-stage569 recall-home-parity-toolbar-row-primary-stage601">
-              <button
-                aria-label="Search saved sources"
-                className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-search-stage567 recall-home-parity-toolbar-button-search-stage601 recall-home-parity-toolbar-button-search-stage609 recall-home-parity-toolbar-button-search-stage619"
-                type="button"
-                onClick={() => {
-                  setHomeStage567RailMenuOpen(false)
-                  setHomeStage563SortMenuOpen(false)
-                  onOpenSearch()
-                }}
-                >
-                <span className="recall-home-parity-toolbar-button-leading-stage569">
-                  <span className="recall-home-parity-toolbar-search-glyph-stage569" aria-hidden="true" />
-                  <span className="recall-home-parity-toolbar-search-label-stage609">Search...</span>
-                </span>
-                <span className="shell-nav-hint recall-home-parity-toolbar-hint-stage601 recall-home-parity-toolbar-hint-stage609">Ctrl+K</span>
-              </button>
-              <button
-                className="recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-primary-stage563 recall-home-parity-toolbar-button-primary-stage601"
-                type="button"
-                onClick={() => {
-                  setHomeStage567RailMenuOpen(false)
-                  setHomeStage563SortMenuOpen(false)
-                  onRequestNewSource()
-                }}
+            <button
+              aria-label="Search saved sources"
+              className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-search-stage567 recall-home-parity-toolbar-button-search-stage601 recall-home-parity-toolbar-button-search-stage609 recall-home-parity-toolbar-button-search-stage619"
+              type="button"
+              onClick={() => {
+                setHomeStage567RailMenuOpen(false)
+                setHomeStage563SortMenuOpen(false)
+                onOpenSearch()
+              }}
+            >
+              <span className="recall-home-parity-toolbar-button-leading-stage569">
+                <span className="recall-home-parity-toolbar-search-glyph-stage569" aria-hidden="true" />
+                <span className="recall-home-parity-toolbar-search-label-stage609">Search...</span>
+              </span>
+              <span className="shell-nav-hint recall-home-parity-toolbar-hint-stage601 recall-home-parity-toolbar-hint-stage609">Ctrl+K</span>
+            </button>
+            <button
+              className="recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-primary-stage563 recall-home-parity-toolbar-button-primary-stage601"
+              type="button"
+              onClick={() => {
+                setHomeStage567RailMenuOpen(false)
+                setHomeStage563SortMenuOpen(false)
+                onRequestNewSource()
+              }}
+            >
+              Add
+            </button>
+            <button
+              aria-label="New note"
+              className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-note-stage690"
+              title="Open notebook"
+              type="button"
+              onClick={() => {
+                setHomeStage567RailMenuOpen(false)
+                setHomeStage563SortMenuOpen(false)
+                onOpenNotebook({
+                  documentId: selectedLibraryDocumentId ?? selectedNotesDocumentId ?? activeSourceDocumentId ?? documents[0]?.id ?? null,
+                  newNote: true,
+                })
+              }}
+            >
+              <svg
+                aria-hidden="true"
+                className="recall-home-parity-toolbar-note-icon-stage690"
+                viewBox="0 0 16 16"
               >
-                Add
-              </button>
-              <button
-                aria-label="New note"
-                className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-note-stage690"
-                title="Open notebook"
-                type="button"
-                onClick={() => {
-                  setHomeStage567RailMenuOpen(false)
-                  setHomeStage563SortMenuOpen(false)
-                  onOpenNotebook()
-                }}
-              >
-                <svg
-                  aria-hidden="true"
-                  className="recall-home-parity-toolbar-note-icon-stage690"
-                  viewBox="0 0 16 16"
-                >
-                  <path
-                    d="M11.69 1.59a1.5 1.5 0 0 1 2.12 2.12l-7.4 7.4-2.72.6.6-2.72 7.4-7.4Zm1.06 1.06a.5.5 0 0 0-.7 0l-.78.78 1.41 1.41.78-.78a.5.5 0 0 0 0-.7l-.7-.7ZM11.97 4.2 10.56 2.8 5.07 8.29l-.32 1.42 1.42-.32 5.8-5.19Z"
-                    fill="currentColor"
-                  />
-                  <path d="M3 12.5h10v1H3z" fill="currentColor" />
-                </svg>
-              </button>
-            </div>
-            <div className="recall-home-parity-toolbar-row-stage567 recall-home-parity-toolbar-row-secondary-stage567 recall-home-parity-toolbar-row-stage569 recall-home-parity-toolbar-row-secondary-stage601">
-              <button
-                aria-pressed={homeViewMode === 'list'}
-                className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-secondary-stage567 recall-home-parity-toolbar-button-secondary-stage601 recall-home-parity-toolbar-button-secondary-stage609 recall-home-parity-toolbar-button-secondary-stage619"
-                type="button"
-                onClick={() => {
-                  setHomeStage567RailMenuOpen(false)
-                  setHomeStage563SortMenuOpen(false)
-                  setHomeViewMode(homeViewMode === 'list' ? 'board' : 'list')
-                }}
-              >
-                List
-              </button>
-              {renderHomeStage563SortMenu()}
-            </div>
+                <path
+                  d="M11.69 1.59a1.5 1.5 0 0 1 2.12 2.12l-7.4 7.4-2.72.6.6-2.72 7.4-7.4Zm1.06 1.06a.5.5 0 0 0-.7 0l-.78.78 1.41 1.41.78-.78a.5.5 0 0 0 0-.7l-.7-.7ZM11.97 4.2 10.56 2.8 5.07 8.29l-.32 1.42 1.42-.32 5.8-5.19Z"
+                  fill="currentColor"
+                />
+                <path d="M3 12.5h10v1H3z" fill="currentColor" />
+              </svg>
+            </button>
+          </div>
+          <div
+            className={[
+              'recall-home-parity-toolbar-row-stage567',
+              'recall-home-parity-toolbar-row-secondary-stage567',
+              'recall-home-parity-toolbar-row-stage569',
+              'recall-home-parity-toolbar-row-secondary-stage601',
+              useSingleRowConvergenceStage832 ? 'recall-home-parity-toolbar-row-inline-stage832' : '',
+              useSingleRowConvergenceStage832 ? 'recall-home-parity-toolbar-row-secondary-inline-stage832' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            <button
+              aria-pressed={homeViewMode === 'list'}
+              className="ghost-button recall-home-parity-toolbar-button-stage563 recall-home-parity-toolbar-button-secondary-stage567 recall-home-parity-toolbar-button-secondary-stage601 recall-home-parity-toolbar-button-secondary-stage609 recall-home-parity-toolbar-button-secondary-stage619"
+              type="button"
+              onClick={() => {
+                setHomeStage567RailMenuOpen(false)
+                setHomeStage563SortMenuOpen(false)
+                setHomeViewMode(homeViewMode === 'list' ? 'board' : 'list')
+              }}
+            >
+              List
+            </button>
+            {renderHomeStage563SortMenu()}
+            {renderHomeMemoryFilterStatus()}
           </div>
         </div>
+      </div>
+    )
+  }
 
-        {homeCanvasDayGroups.length > 0 ? (
-          <div className="recall-home-parity-day-groups-stage563 recall-home-parity-day-groups-stage605 recall-home-parity-day-groups-stage617">
-            {homeCanvasDayGroups.map((group, index) => (
-              <section
-                className="recall-home-parity-day-group-stage563 recall-home-parity-day-group-stage605 recall-home-parity-day-group-stage617"
-                key={group.key}
-                aria-label={`${group.label}, ${formatCountLabel(group.documents.length, 'source', 'sources')}`}
+  function renderHomeOpenMatchesLeadBandStage842() {
+    return (
+      <div
+        className="recall-home-parity-day-group-lead-band-stage830 recall-home-open-matches-lead-band-stage842"
+        data-home-open-top-band-stage830="true"
+        data-home-open-matches-lead-band-stage842="true"
+      >
+        <div className="recall-home-parity-day-group-header-stage563 recall-home-parity-day-group-header-stage617 recall-home-open-matches-lead-header-stage842">
+          <h3>Matches</h3>
+          <span className="recall-library-section-count recall-home-open-matches-lead-count-stage842">
+            {homeOpenMatchesCountSummaryStage840}
+          </span>
+        </div>
+        {renderHomeParityToolbar({
+          useOpenTopBandFusionStage830: true,
+          useSingleRowConvergenceStage832: true,
+        })}
+      </div>
+    )
+  }
+
+  function renderHomeOpenMatchesDayDividerStage842(group: { documents: RecallDocumentRecord[]; key: string; label: string }) {
+    return (
+      <div
+        aria-label={`${group.label}, ${formatCountLabel(group.documents.length, 'match', 'matches')}`}
+        className="recall-home-open-matches-day-divider-stage842"
+        data-home-open-matches-day-divider-stage842="true"
+      >
+        <span className="recall-home-open-matches-day-divider-label-stage842">{group.label}</span>
+      </div>
+    )
+  }
+
+  function renderHomePersonalNotesLane() {
+    const noteStatus = homeSourceNoteSearchActive ? homeSourceNoteSearchStatus : homeSourceNotesStatus
+    const laneSummary = homeSourceNoteSearchActive
+      ? formatCountLabel(homePersonalNoteLaneItems.length, 'matching note', 'matching notes')
+      : formatCountLabel(homePersonalNoteLaneItems.length, 'recent note', 'recent notes')
+
+    if (homePersonalNotesBoardSelected && !homeSourceNoteSearchActive) {
+      return null
+    }
+
+    if (
+      homePersonalNoteLaneItems.length === 0 &&
+      (!homeSourceNoteSearchActive || (noteStatus !== 'loading' && noteStatus !== 'error'))
+    ) {
+      return null
+    }
+
+    return (
+      <section
+        aria-label="Personal notes"
+        className="recall-home-personal-notes-lane-stage894"
+        data-home-personal-note-lane="true"
+      >
+        <div className="section-header section-header-compact recall-home-personal-notes-header-stage894">
+          <div className="recall-home-library-stage-source recall-home-personal-notes-heading-stage894">
+            <h3>{homeSourceNoteSearchActive ? 'Personal note matches' : 'Personal notes'}</h3>
+            <span>{homeSourceNoteSearchActive ? 'Notebook results from source-attached notes.' : 'Recent source notes from Notebook.'}</span>
+          </div>
+          <span className="recall-library-section-count">{laneSummary}</span>
+        </div>
+        {noteStatus === 'error' && homePersonalNoteLaneItems.length === 0 ? (
+          <p className="small-note recall-home-personal-notes-status-stage894">
+            {homeSourceNoteSearchError ?? 'Personal notes are unavailable right now.'}
+          </p>
+        ) : null}
+        {noteStatus === 'loading' && homePersonalNoteLaneItems.length === 0 ? (
+          <p className="small-note recall-home-personal-notes-status-stage894">Loading personal notes…</p>
+        ) : null}
+        {homePersonalNoteLaneItems.length > 0 ? (
+          <div className="recall-home-personal-notes-list-stage894" role="list">
+            {homePersonalNoteLaneItems.map((item) => (
+              <button
+                aria-label={`Open personal note from ${item.sourceTitle}`}
+                className="recall-home-personal-note-row-stage894"
+                data-home-personal-note-item={item.searchResult ? 'search-result' : 'source-note'}
+                key={item.key}
+                type="button"
+                onClick={() => focusSourceNotes(item.note.anchor.source_document_id, item.note.id, { focused: false })}
               >
-                <div className="recall-home-parity-day-group-header-stage563 recall-home-parity-day-group-header-stage617">
-                  <h3>{group.label}</h3>
-                </div>
-                {homeViewMode === 'list' ? (
-                  <div className="recall-home-parity-list-stage563" role="list">
-                    {index === 0 ? renderHomeStage563AddTile() : null}
-                    {group.documents.map((document) => renderHomeStage563ListRow(document))}
-                  </div>
-                ) : (
-                  <div className="recall-home-parity-grid-stage563 recall-home-parity-grid-stage605 recall-home-parity-grid-stage615" role="list">
-                    {index === 0 ? renderHomeStage563AddTile() : null}
-                    {group.documents.map((document) => renderHomeStage563Card(document))}
-                  </div>
-                )}
-              </section>
+                <span className="status-chip reader-meta-chip recall-home-personal-note-kind-stage894">
+                  {item.searchResult ? 'Source note' : 'Personal note'}
+                </span>
+                <span className="recall-home-personal-note-copy-stage894">
+                  <strong>{item.sourceTitle}</strong>
+                  <span data-home-personal-note-preview="body">{item.preview}</span>
+                </span>
+                <span className="recall-home-personal-note-meta-stage894">
+                  <span>{item.sourceTypeLabel}</span>
+                  <span>{dateFormatter.format(new Date(item.updatedAt))}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </section>
+    )
+  }
+
+  function renderHomePersonalNotesBoard(embedToolbarInOpenTopBandStage830: boolean) {
+    const boardSummary = formatCountLabel(homeCachedPersonalNoteBoardItems.length, 'source note', 'source notes')
+    const boardEmpty =
+      homeSourceNotesStatus === 'loading'
+        ? 'Personal notes are still loading.'
+        : 'No source-attached personal notes are known yet. Save a New note from Home or Notebook to fill this board.'
+
+    return (
+      <div
+        className={[
+          'recall-home-personal-notes-board-stage898',
+          homeViewMode === 'list' ? 'recall-home-personal-notes-board-list-stage898' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        data-home-personal-notes-board-stage898="true"
+      >
+        <div
+          className="recall-home-parity-day-group-lead-band-stage830 recall-home-personal-notes-board-lead-stage898"
+          data-home-open-top-band-stage830={embedToolbarInOpenTopBandStage830 ? 'true' : undefined}
+        >
+          <div className="recall-home-parity-day-group-header-stage563 recall-home-parity-day-group-header-stage617 recall-home-personal-notes-board-header-stage898">
+            <h3>Personal notes</h3>
+            <span className="recall-library-section-count">{boardSummary}</span>
+          </div>
+          {embedToolbarInOpenTopBandStage830
+            ? renderHomeParityToolbar({
+                useOpenTopBandFusionStage830: true,
+                useSingleRowConvergenceStage832: true,
+              })
+            : null}
+        </div>
+
+        {visibleHomePersonalNoteBoardItems.length > 0 ? (
+          <div
+            className={[
+              homeViewMode === 'list'
+                ? 'recall-home-personal-notes-board-items-list-stage898'
+                : 'recall-home-personal-notes-board-items-grid-stage898',
+            ].join(' ')}
+            data-home-personal-notes-board-starts-with-note-items-stage898="true"
+            role="list"
+          >
+            {visibleHomePersonalNoteBoardItems.map((item) => (
+              <article
+                className="recall-home-personal-note-board-item-stage898"
+                data-home-personal-note-board-item-stage898="true"
+                key={item.key}
+                role="listitem"
+              >
+                <button
+                  aria-label={`Open personal note from ${item.sourceTitle}`}
+                  className="recall-home-personal-note-board-primary-stage898"
+                  data-home-personal-note-board-open-notebook-stage898="true"
+                  type="button"
+                  onClick={() => focusSourceNotes(item.note.anchor.source_document_id, item.note.id, { focused: false })}
+                >
+                  <span className="status-chip reader-meta-chip recall-home-personal-note-kind-stage894">
+                    Personal note
+                  </span>
+                  <span className="recall-home-personal-note-board-copy-stage898">
+                    <strong data-home-personal-note-board-preview-stage898="body">{item.preview}</strong>
+                    <span>{item.sourceTitle}</span>
+                  </span>
+                  <span className="recall-home-personal-note-board-meta-stage898">
+                    <span>{item.sourceTypeLabel}</span>
+                    <span>{dateFormatter.format(new Date(item.updatedAt))}</span>
+                  </span>
+                </button>
+                <button
+                  aria-label={`Open ${item.sourceTitle} in Reader`}
+                  className="ghost-button recall-home-personal-note-board-reader-stage898"
+                  data-home-personal-note-board-reader-stage898="true"
+                  type="button"
+                  onClick={() => handleOpenDocumentInReader(item.note.anchor.source_document_id)}
+                >
+                  Reader
+                </button>
+              </article>
             ))}
           </div>
         ) : (
-          <div className="recall-library-inline-state recall-home-parity-empty-stage563">
-            <p>{homeCanvasEmptyNote}</p>
-            <button className="ghost-button" type="button" onClick={onRequestNewSource}>
-              Add content
+          <p className="recall-home-personal-notes-board-empty-stage898">{boardEmpty}</p>
+        )}
+
+        {homeCachedPersonalNoteBoardItems.length > homePersonalNotesBoardDisplayLimit ? (
+          <div className="recall-library-section-footer recall-home-personal-notes-board-footer-stage898">
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() =>
+                setExpandedLibrarySectionKeys((current) => ({
+                  ...current,
+                  [HOME_PERSONAL_NOTES_SECTION_KEY]: !current[HOME_PERSONAL_NOTES_SECTION_KEY],
+                }))
+              }
+            >
+              {expandedLibrarySectionKeys[HOME_PERSONAL_NOTES_SECTION_KEY]
+                ? 'Show fewer personal notes'
+                : `Show all ${homeCachedPersonalNoteBoardItems.length} personal notes`}
             </button>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  function renderHomeStage563Canvas() {
+    const embedToolbarInOpenTopBandStage830 =
+      homeOpenBoardUsesTopBandFusionStage830 && (homeCanvasDayGroups.length > 0 || homePersonalNotesBoardSelected)
+    const hideAddTileInBoardResultsStage840 = homeOpenMatchesUsesResultsFirstStage840
+    const showMatchesEmptyToolbarStage840 = homeOpenMatchesUsesResultsFirstStage840
+    const showStandaloneCanvasToolbarStage840 =
+      !embedToolbarInOpenTopBandStage830 && !showMatchesEmptyToolbarStage840
+
+    return (
+      <section
+        className={[
+          'recall-home-parity-canvas-stage563',
+          'recall-home-parity-canvas-stage617',
+          'recall-home-parity-canvas-stage619',
+          'priority-surface-stage-shell',
+          homeOpenBoardUsesDensityLiftStage828 ? 'recall-home-parity-canvas-open-density-stage828' : '',
+          embedToolbarInOpenTopBandStage830 ? 'recall-home-parity-canvas-open-top-band-stage830' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        aria-label={homeCanvasAriaLabel}
+        data-home-memory-filter-active-stage910={homeMemoryFilter}
+        data-home-memory-filter-visible-count-stage910={homeCanvasDocuments.length}
+      >
+        {showStandaloneCanvasToolbarStage840 ? renderHomeParityToolbar() : null}
+
+        {!homeOrganizerVisible && showHomeReopenCluster ? renderHomeReopenCluster() : null}
+
+        {homePersonalNotesBoardSelected ? (
+          renderHomePersonalNotesBoard(embedToolbarInOpenTopBandStage830)
+        ) : homeCanvasDayGroups.length > 0 ? (
+          <div
+            className={[
+              'recall-home-parity-day-groups-stage563',
+              'recall-home-parity-day-groups-stage605',
+              'recall-home-parity-day-groups-stage617',
+              homeOpenBoardUsesDensityLiftStage828 ? 'recall-home-parity-day-groups-open-density-stage828' : '',
+              embedToolbarInOpenTopBandStage830 ? 'recall-home-parity-day-groups-open-top-band-stage830' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            {homeCanvasDayGroups.map((group, index) => {
+              const useOpenTopBandFusionStage830 =
+                embedToolbarInOpenTopBandStage830 && index === 0 && homeViewMode === 'board'
+              const useSearchOwnedLeadBandStage842 =
+                homeOpenMatchesUsesSearchOwnedLeadBandStage842 && useOpenTopBandFusionStage830
+              const showMatchesDayDividerStage842 =
+                homeOpenMatchesUsesSearchOwnedLeadBandStage842 &&
+                (homeOpenMatchesUsesInlineDayDividersStage842 || index > 0)
+
+              return (
+                <Fragment key={group.key}>
+                  <section
+                    className={[
+                      'recall-home-parity-day-group-stage563',
+                      'recall-home-parity-day-group-stage605',
+                      'recall-home-parity-day-group-stage617',
+                      homeOpenBoardUsesDensityLiftStage828 ? 'recall-home-parity-day-group-open-density-stage828' : '',
+                      useOpenTopBandFusionStage830 ? 'recall-home-parity-day-group-open-top-band-stage830' : '',
+                      homeOpenMatchesUsesSearchOwnedLeadBandStage842 ? 'recall-home-open-matches-day-group-stage842' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    aria-label={`${group.label}, ${formatCountLabel(group.documents.length, 'source', 'sources')}`}
+                  >
+                    {useSearchOwnedLeadBandStage842 ? (
+                      renderHomeOpenMatchesLeadBandStage842()
+                    ) : useOpenTopBandFusionStage830 ? (
+                      <div
+                        className="recall-home-parity-day-group-lead-band-stage830"
+                        data-home-open-top-band-stage830="true"
+                      >
+                        <div className="recall-home-parity-day-group-header-stage563 recall-home-parity-day-group-header-stage617">
+                          <h3>{group.label}</h3>
+                        </div>
+                        {renderHomeParityToolbar({
+                          useOpenTopBandFusionStage830: true,
+                          useSingleRowConvergenceStage832: true,
+                        })}
+                      </div>
+                    ) : showMatchesDayDividerStage842 ? (
+                      renderHomeOpenMatchesDayDividerStage842(group)
+                    ) : (
+                      <div className="recall-home-parity-day-group-header-stage563 recall-home-parity-day-group-header-stage617">
+                        <h3>{group.label}</h3>
+                      </div>
+                    )}
+                    {useSearchOwnedLeadBandStage842 && showMatchesDayDividerStage842
+                      ? renderHomeOpenMatchesDayDividerStage842(group)
+                      : null}
+                    {homeViewMode === 'list' ? (
+                      <div className="recall-home-parity-list-stage563" role="list">
+                        {index === 0 ? renderHomeStage563AddTile() : null}
+                        {group.documents.map((document) => renderHomeStage563ListRow(document))}
+                      </div>
+                    ) : (
+                      <div
+                        className={[
+                          'recall-home-parity-grid-stage563',
+                          'recall-home-parity-grid-stage605',
+                          'recall-home-parity-grid-stage615',
+                          homeOpenBoardUsesDensityLiftStage828 ? 'recall-home-parity-grid-open-density-stage828' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        data-home-open-density-stage828={homeOpenBoardUsesDensityLiftStage828 ? 'true' : undefined}
+                        role="list"
+                      >
+                        {index === 0 && !hideAddTileInBoardResultsStage840 ? renderHomeStage563AddTile() : null}
+                        {group.documents.map((document) => renderHomeStage563Card(document))}
+                      </div>
+                    )}
+                  </section>
+                  {index === 0 ? renderHomePersonalNotesLane() : null}
+                </Fragment>
+              )
+            })}
+          </div>
+        ) : (
+          <div
+            className={[
+              'recall-home-parity-empty-shell-stage840',
+              showMatchesEmptyToolbarStage840 ? 'recall-home-parity-empty-shell-matches-stage842' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            data-home-open-matches-empty-stage840={libraryFilterActive ? 'true' : undefined}
+          >
+            {renderHomePersonalNotesLane()}
+            {showMatchesEmptyToolbarStage840 ? renderHomeOpenMatchesLeadBandStage842() : null}
+            {!libraryFilterActive && homeSelectedBrowseSection ? (
+              <div className="section-header section-header-compact recall-home-library-card-header">
+                <div className="recall-home-library-stage-heading">
+                  <div className="recall-library-section-heading-row">
+                    <h3>{homeSelectedGroupHeading}</h3>
+                    <span className="recall-library-section-count">
+                      {formatCountLabel(homeSelectedBrowseSection.documents.length, 'source', 'sources')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            <div
+              className={[
+                'recall-library-inline-state',
+                'recall-home-parity-empty-stage563',
+                showMatchesEmptyToolbarStage840 ? 'recall-home-open-matches-empty-state-stage842' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              <p>{!libraryFilterActive && homeSelectedBrowseSection ? homeSelectedGroupEmptyNote : homeCanvasEmptyNote}</p>
+              <div className="recall-home-empty-actions-stage910">
+                {homeMemoryFilterActive ? (
+                  <button
+                    className="ghost-button"
+                    data-home-memory-filter-clear-empty-stage910="true"
+                    type="button"
+                    onClick={clearHomeMemoryFilter}
+                  >
+                    Clear memory filter
+                  </button>
+                ) : null}
+                {libraryFilterActive ? (
+                  <button className="ghost-button" type="button" onClick={clearHomeLibraryFilter}>
+                    Clear search
+                  </button>
+                ) : homeMemoryFilterActive ? null : (
+                  <button className="ghost-button" type="button" onClick={onRequestNewSource}>
+                    Add content
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -7227,7 +9710,8 @@ export function RecallWorkspace({
     [homeManualModeActive, homeOrganizerDragSession, rawLibraryBrowseSections],
   )
 
-  const focusSourceNotes = useCallback((documentId: string, noteId?: string | null) => {
+  const focusSourceNotes = useCallback((documentId: string, noteId?: string | null, options?: { focused?: boolean }) => {
+    const shouldUseFocusedSource = options?.focused ?? true
     handleSelectLibraryDocument(documentId)
     updateLibraryState((current) => ({
       ...current,
@@ -7238,7 +9722,7 @@ export function RecallWorkspace({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'notes',
-      mode: 'focused',
+      mode: shouldUseFocusedSource ? 'focused' : 'browse',
       readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
     }))
     updateNotesState((current) => ({
@@ -7281,7 +9765,8 @@ export function RecallWorkspace({
 
   const focusSourceStudy = useCallback((documentId: string, cardId?: string | null) => {
     handleSelectLibraryDocument(documentId)
-    const matchingCardId = cardId ?? studyCards.find((card) => card.source_document_id === documentId)?.id ?? null
+    const sourceCards = studyCards.filter((card) => card.source_document_id === documentId)
+    const matchingCardId = cardId ?? getNextStudyCardForQueue(sourceCards)?.id ?? null
     updateSourceWorkspaceState((current) => ({
       ...current,
       activeDocumentId: documentId,
@@ -7293,6 +9778,9 @@ export function RecallWorkspace({
       ...current,
       filter: 'all',
       activeCardId: matchingCardId,
+      questionSearchQuery: '',
+      scheduleDrilldown: 'all',
+      sourceScopeDocumentId: documentId,
     }))
     setBrowseDrawerOpen('study', false)
     onSectionChange('study')
@@ -7304,6 +9792,52 @@ export function RecallWorkspace({
     updateSourceWorkspaceState,
     updateStudyState,
   ])
+
+  const focusSourceStudyQuestions = useCallback((documentId: string) => {
+    handleSelectLibraryDocument(documentId)
+    const sourceCards = studyCards.filter((card) => card.source_document_id === documentId)
+    const matchingCardId = getNextStudyCardForQueue(sourceCards)?.id ?? sourceCards[0]?.id ?? null
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeDocumentId: documentId,
+      activeTab: 'study',
+      mode: 'focused',
+      readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
+    }))
+    updateStudyState((current) => ({
+      ...current,
+      filter: 'all',
+      activeCardId: matchingCardId,
+      questionSearchQuery: '',
+      scheduleDrilldown: 'all',
+      sourceScopeDocumentId: documentId,
+    }))
+    setBrowseDrawerOpen('study', true)
+    onSectionChange('study')
+  }, [
+    handleSelectLibraryDocument,
+    onSectionChange,
+    setBrowseDrawerOpen,
+    studyCards,
+    updateSourceWorkspaceState,
+    updateStudyState,
+  ])
+
+  const openStudyScheduleDrilldown = useCallback((drilldown: RecallStudyScheduleDrilldown) => {
+    const matchingCards =
+      drilldown === 'all'
+        ? scopedStudyCards
+        : scopedStudyCards.filter((card) => studyCardMatchesScheduleDrilldown(card, drilldown))
+    const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
+    updateStudyState((current) => ({
+      ...current,
+      activeCardId: matchingCardId ?? current.activeCardId,
+      filter: 'all',
+      scheduleDrilldown: drilldown,
+    }))
+    setBrowseDrawerOpen('study', true)
+    onSectionChange('study')
+  }, [onSectionChange, scopedStudyCards, setBrowseDrawerOpen, updateStudyState])
 
   const resumeFocusedSource = useCallback(() => {
     if (!activeSourceDocumentId) {
@@ -7371,6 +9905,69 @@ export function RecallWorkspace({
   }
 
   function renderSourceOverviewPanel(splitView = false) {
+    const normalizedSourceMemorySearchQuery = normalizeSourceMemorySearchText(deferredSourceMemorySearchQuery)
+    const sourceMemorySearchActive = normalizedSourceMemorySearchQuery.length > 0
+    const sortedSourceOverviewMemoryNotes = [...sourceWorkspaceNotes]
+      .sort((left, right) => {
+        const leftSource = isSourceAttachedNote(left)
+        const rightSource = isSourceAttachedNote(right)
+        if (leftSource !== rightSource) {
+          return leftSource ? -1 : 1
+        }
+        return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+      })
+    const sourceOverviewMemoryNotes = sourceMemorySearchActive
+      ? sortedSourceOverviewMemoryNotes.filter((note) =>
+          noteMatchesSourceMemorySearch(
+            note,
+            normalizedSourceMemorySearchQuery,
+            documentTitleById,
+            sourceOverviewDocument?.title,
+          ),
+        )
+      : sortedSourceOverviewMemoryNotes.slice(0, 4)
+    const sourceOverviewGraphMemoryItems = sourceMemorySearchActive
+      ? activeSourceGraphNodes.filter((node) => graphNodeMatchesSourceMemorySearch(node, normalizedSourceMemorySearchQuery))
+      : activeSourceGraphNodes.slice(0, 3)
+    const sourceOverviewStudyMemoryItems = sourceMemorySearchActive
+      ? activeSourceStudyCards.filter((card) => studyCardMatchesSourceMemorySearch(card, normalizedSourceMemorySearchQuery))
+      : activeSourceStudyCards.slice(0, 3)
+    const sourceOverviewTextMatches = sourceMemorySearchActive
+      ? buildSourceMemoryTextMatches(sourceMemorySearchView, deferredSourceMemorySearchQuery)
+      : []
+    const sourceOverviewSourceNoteCount = sourceWorkspaceNotes.filter(isSourceAttachedNote).length
+    const sourceOverviewReviewOverview = buildStudyScopeOverview(activeSourceStudyCards)
+    const sourceOverviewReviewPrimaryCard = getNextStudyCardForQueue(activeSourceStudyCards) ?? activeSourceStudyCards[0] ?? null
+    const sourceOverviewReviewNextDueLabel = sourceOverviewReviewOverview.next_due_at
+      ? dateFormatter.format(new Date(sourceOverviewReviewOverview.next_due_at))
+      : 'No due date'
+    const sourceOverviewMemoryItemCount =
+      sourceOverviewMemoryNotes.length +
+      sourceOverviewGraphMemoryItems.length +
+      sourceOverviewStudyMemoryItems.length +
+      sourceOverviewTextMatches.length
+    const sourceMemorySearchStatusLabel = sourceMemorySearchActive
+      ? sourceMemorySearchViewStatus === 'loading'
+        ? `${sourceOverviewMemoryItemCount} memory ${sourceOverviewMemoryItemCount === 1 ? 'match' : 'matches'} so far; source text is loading.`
+        : sourceOverviewMemoryItemCount === 1
+          ? '1 source memory match'
+          : `${sourceOverviewMemoryItemCount} source memory matches`
+      : 'Search notes, graph, study, and source text.'
+    const sourceOverviewMemoryPreview =
+      sourceMemorySearchActive
+        ? sourceMemorySearchStatusLabel
+        : sourceWorkspaceNotesStatus === 'loading'
+        ? 'Loading source memory for this source.'
+        : sourceWorkspaceNotesStatus === 'error'
+          ? 'Source memory is unavailable until Notebook reconnects.'
+          : sourceOverviewMemoryItemCount > 0
+            ? `${sourceOverviewMemoryItemCount} recent memory ${sourceOverviewMemoryItemCount === 1 ? 'item' : 'items'} attached to this source.`
+            : 'Create a personal source note, graph node, or study card to keep source memory nearby.'
+    const sourceMemorySearchEmpty =
+      sourceMemorySearchActive &&
+      sourceMemorySearchViewStatus !== 'loading' &&
+      sourceOverviewMemoryItemCount === 0
+    const handleClearSourceMemorySearch = () => setSourceMemorySearchQuery('')
     return (
       <section
         className={
@@ -7443,23 +10040,352 @@ export function RecallWorkspace({
               </div>
             </div>
             <div className="recall-source-overview-grid">
-              <div className="recall-detail-panel recall-source-summary-card">
-                <strong>Notebook</strong>
-                <span>{sourceOverviewNoteCountLabel}</span>
-                <p className="small-note">
-                  {sourceWorkspacePrimaryNote
-                    ? sourceWorkspacePrimaryNote.body_text?.trim() || sourceWorkspacePrimaryNote.anchor.anchor_text
-                    : sourceWorkspaceNotesStatus === 'loading'
-                      ? 'Loading notebook context for this source.'
-                      : 'Capture a source-linked highlight from Reader to keep a note nearby in Notebook.'}
-                </p>
+              <div
+                className="recall-detail-panel recall-source-summary-card recall-source-memory-card-stage900"
+                data-source-overview-personal-notes-panel-stage900="true"
+              >
+                <div className="recall-source-memory-heading-stage900">
+                  <strong>Source memory</strong>
+                  <span>{sourceOverviewNoteCountLabel}</span>
+                </div>
+                <div className="reader-meta-row" role="list" aria-label="Source memory summary">
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {sourceOverviewSourceNoteCount === 1
+                      ? '1 personal note'
+                      : `${sourceOverviewSourceNoteCount} personal notes`}
+                  </span>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    Notebook-first
+                  </span>
+                </div>
+                <label
+                  className="field recall-source-memory-search-stage912"
+                  data-source-memory-search-controls-stage912="true"
+                >
+                  <span>Search source memory</span>
+                  <input
+                    ref={sourceMemorySearchInputRef}
+                    data-source-memory-search-control-stage912="true"
+                    placeholder="Find notes, graph, study, or source text"
+                    type="search"
+                    value={sourceMemorySearchQuery}
+                    onChange={(event) => setSourceMemorySearchQuery(event.target.value)}
+                  />
+                </label>
+                {sourceMemorySearchActive ? (
+                  <div
+                    className="recall-source-memory-search-status-stage912"
+                    data-source-memory-search-status-stage912={sourceOverviewMemoryItemCount}
+                  >
+                    <span>{sourceMemorySearchStatusLabel}</span>
+                    <button
+                      className="ghost-button"
+                      data-source-memory-search-clear-stage912="true"
+                      type="button"
+                      onClick={handleClearSourceMemorySearch}
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                ) : null}
+                <p className="small-note">{sourceOverviewMemoryPreview}</p>
+                {sourceOverviewMemoryItemCount > 0 ? (
+                  <div
+                    className="recall-source-memory-stack-stage906"
+                    data-source-overview-memory-stack-stage906="true"
+                    role="list"
+                    aria-label="Source memory stack"
+                  >
+                    {sourceOverviewMemoryNotes.length > 0 ? (
+                      <div
+                        className="recall-source-memory-stack-section-stage906"
+                        data-source-overview-memory-stack-section-stage906="notes"
+                      >
+                        <span className="recall-source-memory-stack-section-heading-stage906">Personal notes</span>
+                        <div className="recall-source-memory-list-stage900" role="list" aria-label="Source memory notes">
+                          {sourceOverviewMemoryNotes.map((note) => {
+                            const noteIsSource = isSourceAttachedNote(note)
+                            const notePreview = noteIsSource ? getSourceNoteBodyPreview(note) : getNoteRowPreview(note)
+                            const noteSourceTitle = getNoteDocumentTitle(note, documentTitleById, sourceOverviewDocument.title)
+                            const noteSourceType = sourceOverviewDocument.source_type.toUpperCase()
+                            return (
+                              <div
+                                key={note.id}
+                                className="recall-source-memory-item-stage900"
+                                data-source-overview-memory-item-kind={noteIsSource ? 'source' : 'sentence'}
+                                data-source-overview-memory-stack-kind-stage906={noteIsSource ? 'personal-note' : 'sentence-note'}
+                                data-source-memory-search-result-stage912={
+                                  sourceMemorySearchActive ? (noteIsSource ? 'personal-note' : 'sentence-note') : undefined
+                                }
+                                role="listitem"
+                              >
+                                <button
+                                  className="recall-source-memory-primary-stage900"
+                                  data-source-overview-memory-open-notebook-stage900="true"
+                                  type="button"
+                                  onClick={() => focusSourceNotes(sourceOverviewDocument.id, note.id)}
+                                  aria-label={
+                                    noteIsSource
+                                      ? `Open source memory note from ${noteSourceTitle}`
+                                      : `Open highlighted note from ${noteSourceTitle}`
+                                  }
+                                >
+                                  <span className="recall-source-memory-copy-stage900">
+                                    <strong data-source-overview-memory-preview-stage900={noteIsSource ? 'body' : 'highlight'}>
+                                      {notePreview}
+                                    </strong>
+                                    <span>{noteSourceTitle}</span>
+                                  </span>
+                                  <span className="recall-source-memory-meta-stage900">
+                                    <span>{noteIsSource ? 'Personal note' : 'Highlighted passage'}</span>
+                                    <span>{noteSourceType}</span>
+                                    <span>Updated {dateFormatter.format(new Date(note.updated_at))}</span>
+                                  </span>
+                                </button>
+                                <button
+                                  className="ghost-button recall-source-memory-reader-stage900"
+                                  data-source-overview-memory-reader-stage900="true"
+                                  type="button"
+                                  onClick={() => handleOpenNoteInReader(note, { returnToNotebook: false })}
+                                  aria-label={
+                                    noteIsSource
+                                      ? `Open ${noteSourceTitle} source note in Reader`
+                                      : `Open ${noteSourceTitle} highlighted passage in Reader`
+                                  }
+                                >
+                                  {noteIsSource ? 'Open source in Reader' : 'Open anchor'}
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                    {sourceOverviewGraphMemoryItems.length > 0 ? (
+                      <div
+                        className="recall-source-memory-stack-section-stage906"
+                        data-source-overview-memory-stack-section-stage906="graph"
+                      >
+                        <span className="recall-source-memory-stack-section-heading-stage906">Graph memory</span>
+                        <div className="recall-source-memory-list-stage900" role="list" aria-label="Source graph memory">
+                          {sourceOverviewGraphMemoryItems.map((node) => (
+                            <div
+                              key={node.id}
+                              className="recall-source-memory-item-stage900 recall-source-memory-stack-item-stage906"
+                              data-source-overview-memory-stack-kind-stage906="graph"
+                              data-source-memory-search-result-stage912={sourceMemorySearchActive ? 'graph' : undefined}
+                              role="listitem"
+                            >
+                              <button
+                                className="recall-source-memory-primary-stage900"
+                                data-source-overview-graph-memory-open-stage906="true"
+                                type="button"
+                                onClick={() => focusSourceGraph(sourceOverviewDocument.id, node.id)}
+                                aria-label={`Open ${node.label} graph memory for ${sourceOverviewDocument.title}`}
+                              >
+                                <span className="recall-source-memory-copy-stage900">
+                                  <strong>{node.label}</strong>
+                                  <span>{node.description ?? 'Graph node attached to this source.'}</span>
+                                </span>
+                                <span className="recall-source-memory-meta-stage900">
+                                  <span>Graph node</span>
+                                  <span>{formatCountLabel(node.mention_count, 'mention', 'mentions')}</span>
+                                  <span>{formatStudyStatus(node.status)}</span>
+                                </span>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {sourceOverviewStudyMemoryItems.length > 0 ? (
+                      <div
+                        className="recall-source-memory-stack-section-stage906"
+                        data-source-overview-memory-stack-section-stage906="study"
+                      >
+                        <span className="recall-source-memory-stack-section-heading-stage906">Study memory</span>
+                        <div className="recall-source-memory-list-stage900" role="list" aria-label="Source study memory">
+                          {sourceOverviewStudyMemoryItems.map((card) => {
+                            const primarySpan = card.source_spans[0] ?? {}
+                            const evidencePreview = getStudyEvidenceExcerpt(primarySpan)
+                            const studyPreview = evidencePreview === 'No excerpt saved.' ? card.answer : evidencePreview
+                            return (
+                              <div
+                                key={card.id}
+                                className="recall-source-memory-item-stage900 recall-source-memory-stack-item-stage906"
+                                data-source-overview-memory-stack-kind-stage906="study"
+                                data-source-memory-search-result-stage912={sourceMemorySearchActive ? 'study' : undefined}
+                                role="listitem"
+                              >
+                                <button
+                                  className="recall-source-memory-primary-stage900"
+                                  data-source-overview-study-memory-open-stage906="true"
+                                  type="button"
+                                  onClick={() => focusSourceStudy(sourceOverviewDocument.id, card.id)}
+                                  aria-label={`Open ${card.prompt} study memory for ${sourceOverviewDocument.title}`}
+                                >
+                                  <span className="recall-source-memory-copy-stage900">
+                                    <strong>{card.prompt}</strong>
+                                    <span>{studyPreview}</span>
+                                  </span>
+                                  <span className="recall-source-memory-meta-stage900">
+                                    <span>Study card</span>
+                                    <span>{formatStudyStatus(card.status)}</span>
+                                    <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
+                                  </span>
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                    {sourceOverviewTextMatches.length > 0 ? (
+                      <div
+                        className="recall-source-memory-stack-section-stage906"
+                        data-source-overview-memory-stack-section-stage906="source-text"
+                      >
+                        <span className="recall-source-memory-stack-section-heading-stage906">Source text</span>
+                        <div className="recall-source-memory-list-stage900" role="list" aria-label="Source text matches">
+                          {sourceOverviewTextMatches.map((match) => (
+                            <div
+                              key={match.id}
+                              className="recall-source-memory-item-stage900 recall-source-memory-stack-item-stage906"
+                              data-source-memory-search-result-stage912="source-text"
+                              data-source-overview-memory-stack-kind-stage912="source-text"
+                              role="listitem"
+                            >
+                              <button
+                                className="recall-source-memory-primary-stage900"
+                                data-source-memory-search-source-text-open-reader-stage912="true"
+                                type="button"
+                                onClick={() =>
+                                  handleOpenDocumentInReader(sourceOverviewDocument.id, {
+                                    sentenceEnd: match.sentenceEnd,
+                                    sentenceStart: match.sentenceStart,
+                                  })
+                                }
+                                aria-label={`Open source text match in Reader for ${sourceOverviewDocument.title}`}
+                              >
+                                <span className="recall-source-memory-copy-stage900">
+                                  <strong>{match.preview}</strong>
+                                  <span>{sourceOverviewDocument.title}</span>
+                                </span>
+                                <span className="recall-source-memory-meta-stage900">
+                                  <span>Source text</span>
+                                  <span>{sourceOverviewDocument.source_type.toUpperCase()}</span>
+                                  <span>{match.sentenceStart === null ? 'Source-level match' : 'Anchored sentence'}</span>
+                                </span>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {sourceMemorySearchEmpty ? (
+                  <div
+                    className="recall-source-memory-search-empty-stage912"
+                    data-source-memory-search-empty-state-stage912="true"
+                  >
+                    <strong>No source memory matches</strong>
+                    <p className="small-note">Clear the search to return to the source memory stack.</p>
+                    <button className="ghost-button" type="button" onClick={handleClearSourceMemorySearch}>
+                      Clear search
+                    </button>
+                  </div>
+                ) : null}
                 <div className="recall-actions recall-actions-inline">
-                  <button className="ghost-button" type="button" onClick={() => focusSourceNotes(sourceOverviewDocument.id)}>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => focusSourceNotes(sourceOverviewDocument.id)}
+                  >
                     Open notebook
                   </button>
-                  {sourceWorkspacePrimaryNote ? (
-                    <button className="ghost-button" type="button" onClick={() => handleOpenNoteInReader(sourceWorkspacePrimaryNote)}>
-                      Open anchor
+                  <button
+                    className="ghost-button"
+                    data-source-overview-new-note-stage900="true"
+                    type="button"
+                    onClick={() => handleStartNewNotebookDraft(sourceOverviewDocument.id)}
+                  >
+                    New note
+                  </button>
+                </div>
+              </div>
+              <div className="recall-detail-panel recall-source-summary-card">
+                <div
+                  className="recall-source-memory-heading-stage900"
+                  data-source-overview-review-panel-stage914="true"
+                >
+                  <strong>Source review</strong>
+                  <span>{formatCountLabel(sourceOverviewReviewOverview.due_count, 'due card', 'due cards')}</span>
+                </div>
+                <div
+                  className="reader-meta-row"
+                  data-source-overview-review-counts-stage914="true"
+                  role="list"
+                  aria-label="Source review summary"
+                >
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {sourceOverviewReviewOverview.due_count} due
+                  </span>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {sourceOverviewReviewOverview.new_count} new
+                  </span>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {sourceOverviewReviewOverview.scheduled_count} scheduled
+                  </span>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {activeSourceStudyCards.length} total
+                  </span>
+                </div>
+                <p className="small-note">
+                  {activeSourceStudyCards.length > 0
+                    ? `Next due ${sourceOverviewReviewNextDueLabel}. Review stays scoped to this source.`
+                    : 'Create a card from Notebook or Study to start reviewing this source.'}
+                </p>
+                {sourceOverviewReviewPrimaryCard ? (
+                  <div className="recall-source-memory-item-stage900" role="listitem">
+                    <button
+                      className="recall-source-memory-primary-stage900"
+                      data-source-overview-review-open-stage914="true"
+                      type="button"
+                      onClick={() => focusSourceStudy(sourceOverviewDocument.id, sourceOverviewReviewPrimaryCard.id)}
+                      aria-label={`Open source review for ${sourceOverviewDocument.title}`}
+                    >
+                      <span className="recall-source-memory-copy-stage900">
+                        <strong>{sourceOverviewReviewPrimaryCard.prompt}</strong>
+                        <span>{getStudyCardPreview(sourceOverviewReviewPrimaryCard)}</span>
+                      </span>
+                      <span className="recall-source-memory-meta-stage900">
+                        <span>{formatStudyStatus(sourceOverviewReviewPrimaryCard.status)}</span>
+                        <span>Due {dateFormatter.format(new Date(sourceOverviewReviewPrimaryCard.due_at))}</span>
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
+                <div className="recall-actions recall-actions-inline">
+                  <button
+                    className="ghost-button"
+                    data-source-overview-review-due-handoff-stage914="true"
+                    type="button"
+                    onClick={() => focusSourceStudy(sourceOverviewDocument.id, sourceOverviewReviewPrimaryCard?.id)}
+                  >
+                    Review source
+                  </button>
+                  <button
+                    className="ghost-button"
+                    data-source-overview-review-questions-handoff-stage914="true"
+                    type="button"
+                    onClick={() => focusSourceStudyQuestions(sourceOverviewDocument.id)}
+                  >
+                    Questions
+                  </button>
+                  {activeSourceStudyCards.length === 0 ? (
+                    <button className="ghost-button" type="button" onClick={() => focusSourceNotes(sourceOverviewDocument.id)}>
+                      Create from note
                     </button>
                   ) : null}
                 </div>
@@ -7637,6 +10563,7 @@ export function RecallWorkspace({
           <span>{getDocumentSourcePreview(document)}</span>
         </span>
         <span className="recall-library-list-row-meta">
+          {renderHomeReviewReadySignal(document, 'list')}
           <span className="recall-library-row-timestamp">{sortTimestamp}</span>
           <span>{availableViewLabel}</span>
         </span>
@@ -7699,16 +10626,22 @@ export function RecallWorkspace({
     )
   }
 
-  function renderHomeContinueRow(document: RecallDocumentRecord, variant: 'default' | 'compactRail' = 'default') {
+  function renderHomeContinueRow(
+    document: RecallDocumentRecord,
+    variant: 'default' | 'compactRail' | 'compactStrip' = 'default',
+  ) {
     const updatedLabel = homeDateFormatter.format(new Date(document.updated_at))
     const availableViewLabel = `${document.available_modes.length} ${document.available_modes.length === 1 ? 'view' : 'views'} ready`
     const compactRail = variant === 'compactRail'
+    const compactStrip = variant === 'compactStrip'
 
     return (
       <button
         aria-label={`Open ${document.title}`}
         className={
-          compactRail
+          compactStrip
+            ? 'recall-home-continue-row recall-home-continue-row-strip-reset'
+            : compactRail
             ? 'recall-home-continue-row recall-home-continue-row-rail-reset recall-home-continue-row-results-sheet-reset'
             : 'recall-home-continue-row'
         }
@@ -7723,10 +10656,89 @@ export function RecallWorkspace({
         </span>
         <span className="recall-home-continue-row-meta">
           <span>{updatedLabel}</span>
-          {compactRail ? <span>{document.source_type.toUpperCase()}</span> : null}
+          {compactRail || compactStrip ? <span>{document.source_type.toUpperCase()}</span> : null}
           <span>{availableViewLabel}</span>
         </span>
       </button>
+    )
+  }
+
+  function renderHomeHiddenReopenStrip() {
+    const primaryDocument = homeLeadDocument ?? homeContinueDocuments[0] ?? null
+    if (!primaryDocument) {
+      return null
+    }
+
+    const isResumeCard = primaryDocument.id === resumeSourceDocument?.id
+    const nearbyDocuments = homeLeadDocument ? homeContinueDocuments : homeContinueDocuments.slice(1)
+    const hasNearbyDocuments = nearbyDocuments.length > 0
+    const primaryUpdatedLabel = homeDateFormatter.format(new Date(primaryDocument.updated_at))
+    const primaryAvailableViewLabel = `${primaryDocument.available_modes.length} ${
+      primaryDocument.available_modes.length === 1 ? 'view' : 'views'
+    } ready`
+    const nearbyDisclosureLabel = formatCountLabel(nearbyDocuments.length, 'nearby source', 'nearby sources')
+    const nearbyDisclosureButtonLabel = homeHiddenReopenDisclosureOpen
+      ? `Hide ${nearbyDisclosureLabel}`
+      : `Show ${nearbyDisclosureLabel}`
+
+    const handleOpenPrimaryDocument = () => {
+      if (isResumeCard) {
+        resumeFocusedSource()
+        return
+      }
+      focusSourceLibrary(primaryDocument.id)
+    }
+
+    return (
+      <section className="recall-home-hidden-reopen-strip-stage826" aria-label="Pinned reopen strip">
+        <div className="recall-home-hidden-reopen-strip-main-stage826">
+          <div className="recall-home-hidden-reopen-strip-copy-stage826">
+            <span className="recall-home-hidden-reopen-strip-kicker-stage826">{homeWorkspaceContinueHeading}</span>
+            <strong>{primaryDocument.title}</strong>
+            <span className="recall-home-hidden-reopen-strip-meta-stage826">
+              {getDocumentSourcePreview(primaryDocument)} · {primaryUpdatedLabel} · {primaryAvailableViewLabel}
+            </span>
+          </div>
+          <div className="recall-home-hidden-reopen-strip-actions-stage826">
+            {hasNearbyDocuments ? (
+              <button
+                aria-label={nearbyDisclosureButtonLabel}
+                aria-controls="home-hidden-reopen-nearby"
+                aria-expanded={homeHiddenReopenDisclosureOpen}
+                className="ghost-button recall-home-hidden-reopen-strip-disclosure-stage826"
+                type="button"
+                onClick={() => setHomeHiddenReopenDisclosureOpen((current) => !current)}
+              >
+                Nearby {nearbyDocuments.length}
+              </button>
+            ) : null}
+            <button
+              aria-label={isResumeCard ? homeWorkspaceLeadActionLabel : `Open ${primaryDocument.title}`}
+              className="ghost-button recall-home-hidden-reopen-strip-primary-stage826"
+              type="button"
+              onClick={handleOpenPrimaryDocument}
+            >
+              {isResumeCard ? homeWorkspaceLeadActionLabel : 'Open source'}
+            </button>
+          </div>
+        </div>
+        {hasNearbyDocuments && homeHiddenReopenDisclosureOpen ? (
+          <div
+            className="recall-home-hidden-reopen-strip-disclosure-panel-stage826"
+            id="home-hidden-reopen-nearby"
+            role="group"
+            aria-label="Nearby sources"
+          >
+            <div className="recall-home-hidden-reopen-strip-disclosure-header-stage826">
+              <strong>Nearby</strong>
+              <span>{nearbyDisclosureLabel}</span>
+            </div>
+            <div className="recall-home-continue-list recall-home-continue-list-strip-reset" role="list" aria-label="Nearby sources list">
+              {nearbyDocuments.map((document) => renderHomeContinueRow(document, 'compactStrip'))}
+            </div>
+          </div>
+        ) : null}
+      </section>
     )
   }
 
@@ -7790,6 +10802,8 @@ export function RecallWorkspace({
             <span className="recall-home-browse-group-child-meta recall-home-browse-group-child-meta-lean-branch-reset recall-home-browse-group-child-meta-stage504-reset recall-home-browse-group-child-meta-stage509-reset">
               {childMetaSummary}
             </span>
+            {renderHomeSourceMemorySignal(document, 'organizer')}
+            {renderHomeReviewReadySignal(document, 'organizer')}
           </span>
         </button>
         {homeManualModeActive ? (
@@ -7927,6 +10941,7 @@ export function RecallWorkspace({
           >
             {compactMetaLabel}
           </span>
+          {renderHomeReviewReadySignal(document, 'list')}
         </span>
       </button>
     )
@@ -8113,15 +11128,15 @@ export function RecallWorkspace({
       return null
     }
 
+    if (!homeOrganizerVisible) {
+      return renderHomeHiddenReopenStrip()
+    }
+
     const homeContinueCountLabel = formatCountLabel(homeContinueDocuments.length, 'nearby source', 'nearby sources')
 
     return (
       <section
-        className={
-          homeOrganizerVisible
-            ? 'recall-home-reopen-shelf recall-home-reopen-shelf-secondary recall-home-reopen-shelf-companion recall-home-reopen-shelf-sidecar-density-reset recall-home-reopen-shelf-sidecar-coverage-reset recall-home-reopen-shelf-sidecar-sheet-reset recall-home-reopen-shelf-minimal-entry-reset recall-home-reopen-shelf-organizer-control-reset recall-home-reopen-shelf-board-first-reset recall-home-reopen-shelf-board-fusion-reset recall-home-reopen-shelf-organizer-owned-reset recall-home-reopen-shelf-unified-workbench-reset recall-home-reopen-shelf-rail-reset recall-home-reopen-shelf-direct-board-reset recall-home-reopen-shelf-inline-strip-reset recall-home-reopen-shelf-results-sheet-reset stack-gap'
-            : 'recall-home-reopen-shelf recall-home-reopen-shelf-secondary recall-home-reopen-shelf-companion recall-home-reopen-shelf-sidecar-density-reset recall-home-reopen-shelf-sidecar-coverage-reset recall-home-reopen-shelf-sidecar-sheet-reset recall-home-reopen-shelf-minimal-entry-reset recall-home-reopen-shelf-organizer-control-reset recall-home-reopen-shelf-organizer-hidden-reset recall-home-reopen-shelf-board-first-reset recall-home-reopen-shelf-board-first-hidden-reset recall-home-reopen-shelf-board-fusion-reset recall-home-reopen-shelf-organizer-owned-reset recall-home-reopen-shelf-unified-workbench-reset recall-home-reopen-shelf-rail-reset recall-home-reopen-shelf-direct-board-reset recall-home-reopen-shelf-inline-strip-reset recall-home-reopen-shelf-results-sheet-reset stack-gap'
-        }
+        className="recall-home-reopen-shelf recall-home-reopen-shelf-secondary recall-home-reopen-shelf-companion recall-home-reopen-shelf-sidecar-density-reset recall-home-reopen-shelf-sidecar-coverage-reset recall-home-reopen-shelf-sidecar-sheet-reset recall-home-reopen-shelf-minimal-entry-reset recall-home-reopen-shelf-organizer-control-reset recall-home-reopen-shelf-board-first-reset recall-home-reopen-shelf-board-fusion-reset recall-home-reopen-shelf-organizer-owned-reset recall-home-reopen-shelf-unified-workbench-reset recall-home-reopen-shelf-rail-reset recall-home-reopen-shelf-direct-board-reset recall-home-reopen-shelf-inline-strip-reset recall-home-reopen-shelf-results-sheet-reset stack-gap"
         aria-label="Pinned reopen shelf"
       >
         <div className="recall-home-stage-lane-header recall-home-stage-lane-header-board-top-reset recall-home-stage-lane-header-direct-board-reset recall-home-stage-lane-header-board-dominant-reset recall-home-stage-lane-header-results-sheet-reset">
@@ -8178,32 +11193,6 @@ export function RecallWorkspace({
           {activeStudyCardCollapsedRailSummary ? (
             <span className="recall-study-toolbar-caption">{activeStudyCardCollapsedRailSummary}</span>
           ) : null}
-          {activeStudyCard ? (
-            <span className="recall-study-toolbar-caption">
-              Grounded: {browseStudyEvidenceSummary}
-            </span>
-          ) : null}
-        </div>
-        <div className="recall-study-toolbar-actions recall-study-toolbar-actions-row">
-          {focusedStudySourceSpan ? (
-            <button
-              aria-label="Preview evidence"
-              className="ghost-button recall-study-evidence-summary-button"
-              type="button"
-              onClick={() => setStudyEvidencePeekOpen(true)}
-            >
-              Preview evidence
-            </button>
-          ) : null}
-          <button
-            aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
-            className="ghost-button recall-study-sidebar-utility-button"
-            disabled={studyBusyKey === 'generate'}
-            type="button"
-            onClick={handleGenerateStudyCards}
-          >
-            {studyBusyKey === 'generate' ? 'Refreshing…' : 'Refresh'}
-          </button>
         </div>
       </div>
     )
@@ -8332,7 +11321,12 @@ export function RecallWorkspace({
       selectedNodeDetail?.node.description ??
       'Open one grounded clue here, then expand into mentions or relations only when you need them.'
     const graphDetailPeekLabel =
-      leadingMention?.document_title ?? primarySourceDocumentTitle ?? selectedNodeDetail?.node.label ?? 'Grounded evidence'
+      leadingMention
+        ? isGraphMentionFromSourceNote(leadingMention)
+          ? `${leadingMention.document_title} personal note`
+          : leadingMention.document_title
+        : primarySourceDocumentTitle ?? selectedNodeDetail?.node.label ?? 'Grounded evidence'
+    const graphDetailPeekKicker = leadingMention ? getGraphMentionEvidenceLabel(leadingMention) : 'Grounded clue'
     const graphDetailMetaSummary = selectedNodeDetail
       ? `${selectedNodeDetail.node.status} · ${Math.round(selectedNodeDetail.node.confidence * 100)}% confidence`
       : null
@@ -8466,7 +11460,7 @@ export function RecallWorkspace({
               <div className="recall-graph-detail-flow">
                 <article className="recall-graph-detail-card recall-graph-detail-card-leading recall-graph-detail-card-leading-peek recall-graph-detail-card-drawer-reset">
                   <div className="recall-graph-detail-card-header">
-                    <span className="recall-graph-detail-card-kicker">Grounded clue</span>
+                    <span className="recall-graph-detail-card-kicker">{graphDetailPeekKicker}</span>
                     <strong>{graphDetailPeekLabel}</strong>
                     {leadingMention ? (
                       <span className="recall-graph-detail-card-confidence">
@@ -8479,8 +11473,8 @@ export function RecallWorkspace({
                   <p className="recall-graph-detail-card-copy">{graphDetailPeekCopy}</p>
                   {leadingMention ? (
                     <div className="recall-graph-detail-card-meta">
-                      <span className="status-chip">{leadingMention.entity_type}</span>
-                      <span className="status-chip">{leadingMention.text}</span>
+                      <span className="status-chip">{getGraphMentionEvidenceLabel(leadingMention)}</span>
+                      <span className="status-chip">{getGraphMentionEvidenceKindLabel(leadingMention)}</span>
                       {leadingMention.chunk_id ? <span className="status-chip">Chunk evidence</span> : null}
                     </div>
                   ) : null}
@@ -8630,7 +11624,9 @@ export function RecallWorkspace({
                     {primarySourceDocumentTitle ? (
                       <article className="recall-graph-detail-card recall-graph-detail-card-drawer-reset">
                         <div className="recall-graph-detail-card-header">
-                          <span className="recall-graph-detail-card-kicker">Primary source</span>
+                          <span className="recall-graph-detail-card-kicker">
+                            {leadingMention ? getGraphMentionEvidenceLabel(leadingMention) : 'Primary source'}
+                          </span>
                           <strong>{primarySourceDocumentTitle}</strong>
                           <span className="recall-graph-detail-card-confidence">
                             {primarySourceDocument
@@ -8640,13 +11636,22 @@ export function RecallWorkspace({
                         </div>
                         <p className="recall-graph-detail-card-copy">{leadingMention?.excerpt ?? graphDetailPeekCopy}</p>
                         <div className="recall-graph-detail-card-meta">
-                          {leadingMention ? <span className="status-chip">{leadingMention.entity_type}</span> : null}
+                          {leadingMention ? <span className="status-chip">{getGraphMentionEvidenceKindLabel(leadingMention)}</span> : null}
                           {primarySourceDocument?.source_locator ? (
                             <span className="status-chip">{primarySourceDocument.source_locator}</span>
                           ) : null}
                         </div>
                         {primarySourceDocumentId ? (
                           <div className="recall-actions recall-actions-inline recall-graph-detail-source-document-actions">
+                            {leadingMention?.note_id ? (
+                              <button
+                                className="ghost-button"
+                                type="button"
+                                onClick={() => focusSourceNotes(primarySourceDocumentId, leadingMention.note_id, { focused: false })}
+                              >
+                                Open note
+                              </button>
+                            ) : null}
                             <button
                               className="ghost-button"
                               type="button"
@@ -8661,7 +11666,8 @@ export function RecallWorkspace({
                     <div className="recall-graph-detail-follow-on-groups" role="list" aria-label="Selected node source runs">
                       {visibleMentionSourceRuns.length ? (
                         visibleMentionSourceRuns.map((sourceRun, sourceRunIndex) => {
-                          const leadExcerpt = sourceRun.mentions[0]?.excerpt ?? 'Grounded evidence available.'
+                          const sourceRunLeadMention = sourceRun.mentions[0] ?? null
+                          const leadExcerpt = sourceRunLeadMention?.excerpt ?? 'Grounded evidence available.'
                           const leadSourceRun = sourceRunIndex === 0
                           return (
                             <article
@@ -8674,7 +11680,13 @@ export function RecallWorkspace({
                               role="listitem"
                             >
                               <div className="recall-graph-detail-follow-on-group-header">
-                                <strong>{leadSourceRun ? 'Lead source' : sourceRun.documentTitle}</strong>
+                                <strong>
+                                  {sourceRunLeadMention && isGraphMentionFromSourceNote(sourceRunLeadMention)
+                                    ? 'Source note'
+                                    : leadSourceRun
+                                      ? 'Lead source'
+                                      : sourceRun.documentTitle}
+                                </strong>
                                 <span>{formatCountLabel(sourceRun.mentions.length, 'mention', 'mentions')}</span>
                               </div>
                               <p className="recall-graph-detail-follow-on-group-copy">{leadExcerpt}</p>
@@ -8693,6 +11705,19 @@ export function RecallWorkspace({
                               ) : null}
                               {sourceRun.sourceDocumentId ? (
                                 <div className="recall-actions recall-actions-inline recall-graph-detail-follow-on-group-actions">
+                                  {sourceRunLeadMention?.note_id ? (
+                                    <button
+                                      className="ghost-button"
+                                      type="button"
+                                      onClick={() =>
+                                        focusSourceNotes(sourceRun.sourceDocumentId as string, sourceRunLeadMention.note_id, {
+                                          focused: false,
+                                        })
+                                      }
+                                    >
+                                      Open note
+                                    </button>
+                                  ) : null}
                                   <button
                                     className="ghost-button"
                                     type="button"
@@ -8955,7 +11980,11 @@ export function RecallWorkspace({
         >
           <span className="recall-collection-row-head">
             <strong title={repeatsPreviousSource ? mention.document_title : undefined}>
-              {repeatsPreviousSource ? 'Same source' : mention.document_title}
+              {isGraphMentionFromSourceNote(mention)
+                ? 'Source note'
+                : repeatsPreviousSource
+                  ? 'Same source'
+                  : mention.document_title}
             </strong>
             {!mergeRepeatSourceUtilitySeam ? (
               <span
@@ -8977,8 +12006,8 @@ export function RecallWorkspace({
                 : 'recall-collection-row-meta'
             }
           >
-            <span className="status-chip">{mention.entity_type}</span>
-            <span className="status-chip">{mention.text}</span>
+            <span className="status-chip">{getGraphMentionEvidenceLabel(mention)}</span>
+            <span className="status-chip">{getGraphMentionEvidenceKindLabel(mention)}</span>
             {mention.chunk_id ? <span className="status-chip">Chunk evidence</span> : null}
           </span>
           <div
@@ -9013,6 +12042,16 @@ export function RecallWorkspace({
               >
                 {Math.round(mention.confidence * 100)}%
               </span>
+            ) : null}
+            {mention.note_id ? (
+              <button
+                aria-label={`Open ${mention.document_title} note in Notebook`}
+                className="ghost-button recall-graph-focused-evidence-button recall-graph-focused-evidence-button-open"
+                type="button"
+                onClick={() => focusSourceNotes(mention.source_document_id, mention.note_id, { focused: false })}
+              >
+                Notebook
+              </button>
             ) : null}
             {mention.source_document_id === activeSourceDocumentId ? (
               <button
@@ -9554,10 +12593,10 @@ export function RecallWorkspace({
       .filter(Boolean)
       .join(' ')
     const graphTourVisible =
-      !graphTourDismissed &&
       graphTourStep !== null &&
       !showFocusedGraphSplitView &&
       (graphSnapshot?.nodes.length ?? 0) > 0
+    const graphTourEntryLabel = graphTourDismissed ? 'Replay Graph tour' : 'Take Graph tour'
     const graphBottomTrayVisible = graphPathSelectionActive || Boolean(selectedGraphNode)
     const graphResetActionVisible =
       Boolean(graphFilterQuery.trim()) ||
@@ -9753,7 +12792,6 @@ export function RecallWorkspace({
                       <section className="recall-graph-sidebar-section recall-graph-sidebar-section-presets-reset">
                         <div className="recall-graph-sidebar-section-head">
                           <strong>Presets</strong>
-                          <span>{graphActivePresetDescription}</span>
                         </div>
                         <div className="recall-graph-sidebar-toggle-row recall-graph-sidebar-toggle-row-presets-reset" role="group" aria-label="Graph starter presets">
                           {GRAPH_VIEW_PRESETS.map((preset) => (
@@ -9772,11 +12810,25 @@ export function RecallWorkspace({
                             </button>
                           ))}
                         </div>
-                        <span className="recall-graph-sidebar-filter-note">
-                          Active view: {graphActivePresetLabel}
-                        </span>
-                        <div className="recall-graph-sidebar-preset-actions-block">
-                          {graphPresetSaveDraftOpen ? (
+                        <div className="recall-graph-sidebar-preset-utility-row">
+                          <div className="recall-graph-sidebar-preset-summary-inline">
+                            <span className="recall-graph-sidebar-filter-note">{graphActivePresetDescription}</span>
+                            <span className="recall-graph-sidebar-filter-note recall-graph-sidebar-filter-note-inline">
+                              Active view: {graphActivePresetLabel}
+                            </span>
+                          </div>
+                          {!graphPresetSaveDraftOpen ? (
+                            <button
+                              className="ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-secondary-action"
+                              type="button"
+                              onClick={handleOpenGraphPresetSaveDraft}
+                            >
+                              Save as preset
+                            </button>
+                          ) : null}
+                        </div>
+                        {graphPresetSaveDraftOpen ? (
+                          <div className="recall-graph-sidebar-preset-actions-block">
                             <div className="recall-graph-settings-inline-action-row recall-graph-settings-inline-action-row-expanded">
                               <label className="field recall-inline-field recall-graph-sidebar-preset-name">
                                 <span className="recall-graph-browser-node-peek-kicker">Preset name</span>
@@ -9805,16 +12857,8 @@ export function RecallWorkspace({
                                 </button>
                               </div>
                             </div>
-                          ) : (
-                            <button
-                              className="ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active recall-graph-sidebar-primary-action"
-                              type="button"
-                              onClick={handleOpenGraphPresetSaveDraft}
-                            >
-                              Save as preset
-                            </button>
-                          )}
-                        </div>
+                          </div>
+                        ) : null}
                         <GraphSettingsDisclosure
                           className="recall-graph-settings-disclosure-saved-views"
                           open={graphSavedViewsOpen}
@@ -10512,13 +13556,13 @@ export function RecallWorkspace({
                     {!graphTourVisible ? (
                       <div className="recall-graph-canvas-help-controls" role="group" aria-label="Graph help controls">
                         <button
-                          aria-label="Replay Graph tour"
+                          aria-label={graphTourEntryLabel}
                           className="ghost-button recall-graph-canvas-help-button"
-                          title="Replay Graph tour"
+                          title={graphTourEntryLabel}
                           type="button"
                           onClick={() => handleOpenGraphTour('replay')}
                         >
-                          ↺
+                          {graphTourEntryLabel}
                         </button>
                         <button
                           aria-label="Graph help"
@@ -10527,7 +13571,7 @@ export function RecallWorkspace({
                           type="button"
                           onClick={() => handleOpenGraphTour('help')}
                         >
-                          ?
+                          Graph help
                         </button>
                       </div>
                     ) : null}
@@ -10693,93 +13737,440 @@ export function RecallWorkspace({
     )
   }
 
+  function getStudyQuestionsEmptyMessage() {
+    if (studyScheduleDrilldownActive) {
+      const scopeLabel = studySourceScopeDocumentId ? 'source-scoped ' : ''
+      return `No ${scopeLabel}${studyScheduleDrilldownLabel.toLowerCase()} questions match${studyQuestionSearchActive ? ' that search' : ' this filter'}.`
+    }
+    if (studyQuestionSearchActive && studySourceScopeDocumentId) {
+      return 'No source-scoped questions match that search.'
+    }
+    return studyQuestionSearchActive ? 'No questions match that search.' : 'No study cards are available for that filter yet.'
+  }
+
+  function renderStudyScheduleDrilldownChip(surface: 'desktop' | 'focused') {
+    if (!studyScheduleDrilldownActive) {
+      return null
+    }
+
+    return (
+      <div
+        className={`reader-meta-row recall-study-schedule-filter-chip-stage918 recall-study-schedule-filter-chip-${surface}-stage918`}
+        data-study-schedule-filter-chip-stage918="true"
+        data-study-schedule-filter-value-stage918={studyScheduleDrilldown}
+        role="list"
+        aria-label="Active study schedule filter"
+      >
+        <span className="status-chip reader-meta-chip" role="listitem">
+          Schedule: {studyScheduleDrilldownLabel}
+        </span>
+        <span className="status-chip reader-meta-chip" role="listitem">
+          {scheduleFilteredStudyQuestionCount} {scheduleFilteredStudyQuestionCount === 1 ? 'question' : 'questions'}
+        </span>
+        <button
+          className="ghost-button"
+          data-study-schedule-filter-clear-stage918="true"
+          type="button"
+          onClick={() => updateStudyState((current) => ({ ...current, scheduleDrilldown: 'all' }))}
+        >
+          Clear schedule
+        </button>
+      </div>
+    )
+  }
+
   function renderDesktopStudySection() {
+    const studyScopeTitle = studySourceScopeDocument?.title ?? activeStudyCard?.document_title ?? 'Selected source'
     const studyWorkspaceBadge =
       studyStatus === 'error'
         ? 'Study unavailable'
+        : studySourceScopeDocumentId
+          ? 'Source review'
+        : studyQuestionsViewOpen
+          ? 'Questions'
         : activeStudyCard
-          ? 'Review ready'
-          : studyCards.length > 0
-            ? 'Study queue'
-            : 'Study workspace'
+            ? 'Review ready'
+            : scopedStudyCardCount > 0
+              ? 'Study queue'
+              : 'Study workspace'
     const studyWorkspaceSummary =
       studyStatus === 'error'
         ? 'Reconnect the local service to reload study cards and review state.'
-        : activeStudyCard
-          ? 'Review one grounded question at a time. Open Questions only when you need to switch cards or filters.'
-          : studyCards.length > 0
-            ? 'Choose one grounded card, then keep questions and supporting evidence nearby instead of turning Study into a dashboard.'
-            : 'Generate or promote a grounded card to begin a calmer review flow.'
+        : studySourceScopeDocumentId
+          ? `Review and search cards grounded in ${studyScopeTitle}.`
+        : studyQuestionsViewOpen
+          ? 'Browse, filter, and select the next grounded review card.'
+          : activeStudyCard
+            ? 'Review one grounded question, reveal, then rate.'
+            : scopedStudyCardCount > 0
+              ? 'Choose one grounded card and keep evidence nearby.'
+              : 'Generate or promote a grounded card to begin a calmer review flow.'
     const studyWorkspaceNote =
       studyStatus === 'error'
         ? 'Reconnect local study service'
+        : studySourceScopeDocumentId
+          ? `${studyScopeTitle} · ${scopedStudyCardCount} source-scoped ${scopedStudyCardCount === 1 ? 'card' : 'cards'}`
         : activeStudyCard?.document_title ??
-          (studyCards.length > 0 ? collapsedStudyQueueOverview : 'No active card yet')
-    const queuePreviewCards = studyCards.filter((card) => card.id !== activeStudyCard?.id).slice(0, 2)
-    const studySessionActiveStep =
-      studyStatus === 'error' || studyQuestionsViewOpen || !activeStudyCard ? 'questions' : showAnswer ? 'rate' : 'recall'
+          (scopedStudyCardCount > 0 ? collapsedStudyQueueOverview : 'No active card yet')
+    const queuePreviewCards = filteredStudyCards.filter((card) => card.id !== activeStudyCard?.id).slice(0, 1)
     const studyDashboardTitle =
       studyStatus === 'error'
-        ? 'Study needs the local service'
-        : activeStudyCard
-          ? 'Keep the next grounded review moving.'
-          : studyCards.length > 0
-            ? 'Start the next grounded review.'
-            : 'Build your first grounded question.'
+        ? 'Study unavailable'
+        : studySourceScopeDocumentId
+          ? studyQuestionsViewOpen
+            ? 'Source questions'
+            : 'Source review'
+        : studyQuestionsViewOpen
+          ? 'Questions'
+            : activeStudyCard
+              ? 'Current review'
+            : scopedStudyCardCount > 0
+              ? 'Start review'
+              : 'Build first question'
     const studyDashboardMetrics = [
       {
-        detail: studyOverview?.due_count ? 'Needs review now' : 'Nothing due right now',
-        emphasis: Boolean(studyOverview?.due_count),
-        label: 'Ready now',
-        value: studyOverview ? String(studyOverview.due_count) : '—',
+        detail: studyScheduleSummary.dueCount ? 'Needs review now' : 'Nothing due right now',
+        emphasis: Boolean(studyScheduleSummary.dueCount),
+        label: 'Due now',
+        scheduleDrilldown: 'due-now',
+        value: studyStatus === 'error' ? '—' : String(studyScheduleSummary.dueCount),
       },
       {
-        detail: studyOverview?.new_count ? 'Fresh prompts available' : 'No new prompts queued',
-        emphasis: Boolean(studyOverview?.new_count),
-        label: 'New',
-        value: studyOverview ? String(studyOverview.new_count) : '—',
+        detail: studyScheduleSummary.dueThisWeekCount ? 'Scheduled inside seven days' : 'No scheduled cards this week',
+        emphasis: false,
+        label: 'This week',
+        scheduleDrilldown: 'due-this-week',
+        value: studyStatus === 'error' ? '—' : String(studyScheduleSummary.dueThisWeekCount),
       },
       {
         detail: studyNextReviewLabel,
         emphasis: false,
-        label: 'Scheduled',
-        value: studyOverview ? String(studyOverview.scheduled_count) : '—',
+        label: 'Upcoming',
+        scheduleDrilldown: 'upcoming',
+        value: studyStatus === 'error' ? '—' : String(studyScheduleSummary.upcomingCount),
       },
       {
-        detail: studyStatus === 'error' ? 'Retry needed' : 'Review activity logged locally',
+        detail: studyScheduleSummary.newCount ? 'Fresh prompts available' : 'No new prompts queued',
+        emphasis: Boolean(studyScheduleSummary.newCount),
+        label: 'New',
+        scheduleDrilldown: 'new',
+        value: studyStatus === 'error' ? '—' : String(studyScheduleSummary.newCount),
+      },
+      {
+        detail: studyStatus === 'error' ? 'Retry needed' : 'Cards with at least one review',
         emphasis: false,
-        label: 'Logged',
-        value: studyOverview ? String(studyOverview.review_event_count) : '—',
+        label: 'Reviewed',
+        scheduleDrilldown: 'reviewed',
+        value: studyStatus === 'error' ? '—' : String(studyScheduleSummary.reviewedCount),
+      },
+      {
+        detail: studyStatus === 'error' ? 'Retry needed' : 'Cards in this schedule',
+        emphasis: false,
+        label: 'Total',
+        scheduleDrilldown: 'all',
+        value: studyStatus === 'error' ? '—' : String(studyScheduleSummary.totalCount),
       },
     ] as const
     const studyDashboardCurrentLabel =
       studyStatus === 'error'
         ? 'Reconnect local study service'
         : studyQuestionsViewOpen
-          ? 'Questions are open'
+          ? 'Question queue'
           : activeStudyCard
-            ? 'Current review'
+            ? 'Review status'
             : 'Next step'
+    const studyDashboardCurrentTitle =
+      studyStatus === 'error'
+        ? studyWorkspaceNote
+        : studyQuestionsViewOpen
+          ? `${studyQuestionResultCount} visible ${studyQuestionResultCount === 1 ? 'question' : 'questions'}`
+          : activeStudyCard
+            ? `${formatStudyStatus(activeStudyCard.status)} · ${browseStudyEvidenceSummary}`
+            : studyWorkspaceNote
     const studyDashboardCurrentSummary =
       studyStatus === 'error'
         ? 'Reconnect the local service to restore questions, evidence, and review state.'
+        : studySourceScopeDocumentId
+          ? studyQuestionsViewOpen
+            ? 'Search and filter inside this source; clear the scope to return to all questions.'
+            : 'Review stays source-scoped after rating.'
+        : studyQuestionsViewOpen
+          ? 'Filters and rows start below; review handoff stays compact at the right.'
         : activeStudyCard
-          ? `${activeStudyCard.document_title} · ${formatStudyStatus(activeStudyCard.status)} · ${browseStudyEvidenceSummary}`
+          ? `${activeStudyCard.document_title} · answer below, then rate recall.`
           : 'Generate or promote one grounded card to start reviewing here.'
+    const studyQuestionFilterOptions = [
+      ['all', 'All'],
+      ['new', 'New'],
+      ['due', 'Due'],
+      ['scheduled', 'Scheduled'],
+    ] as const
 
-    return (
-      <div
-        className={
-          studyBrowseDrawerOpen
-            ? 'recall-study-workspace stack-gap recall-study-workspace-queue-open'
-            : 'recall-study-workspace stack-gap'
-        }
-      >
-        <section className="card recall-study-dashboard-shell priority-surface-stage-shell" aria-label="Study workspace header">
+    function renderStudyQuestionFilterTabs() {
+      return (
+        <div className="recall-stage-tabs recall-study-questions-filter-tabs" aria-label="Study filters" role="tablist">
+          {studyQuestionFilterOptions.map(([filter, label]) => (
+            <button
+              key={filter}
+              aria-selected={studyFilter === filter}
+              className={studyFilter === filter ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+              role="tab"
+              type="button"
+              onClick={() => updateStudyState((current) => ({ ...current, filter, scheduleDrilldown: 'all' }))}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )
+    }
+
+    function renderStudyQuestionRow(card: StudyCardRecord, surface: 'canvas' | 'dock' = 'canvas') {
+      const isActive = activeStudyCard?.id === card.id
+      return (
+        <button
+          key={card.id}
+          aria-pressed={isActive}
+          className={
+            isActive
+              ? `recall-document-item recall-document-item-compact recall-study-queue-item recall-study-questions-row recall-study-questions-row-${surface} recall-study-questions-row-active`
+              : `recall-document-item recall-document-item-compact recall-study-queue-item recall-study-questions-row recall-study-questions-row-${surface}`
+          }
+          data-study-questions-active-row-stage852={isActive ? 'true' : undefined}
+          data-study-question-search-result-stage914={studyQuestionSearchActive ? 'true' : undefined}
+          data-study-schedule-question-result-stage918={studyScheduleDrilldownActive ? studyScheduleDrilldown : undefined}
+          type="button"
+          onClick={() => handleSelectStudyCard(card)}
+        >
+          <span className="recall-study-queue-item-head">
+            <strong className="recall-document-title">{card.prompt}</strong>
+            <span className="recall-study-queue-item-status">{formatStudyStatus(card.status)}</span>
+          </span>
+          <span className="recall-document-meta">{card.document_title}</span>
+          <span className="recall-collection-row-preview">{getStudyCardPreview(card)}</span>
+          <span className="recall-study-queue-item-meta">
+            <span>{card.card_type}</span>
+            <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
+            <span>{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
+          </span>
+        </button>
+      )
+    }
+
+    function renderStudyDashboardSourceBreakdown() {
+      if (studyStatus === 'error') {
+        return null
+      }
+
+      return (
+        <div
+          className="recall-study-review-source-breakdown-stage916"
+          data-study-review-dashboard-source-breakdown-stage916="true"
+          role="list"
+          aria-label="Study source schedule"
+        >
+          <div className="recall-study-review-source-breakdown-head-stage916">
+            <span className="recall-study-dashboard-current-kicker">Source schedule</span>
+            <strong>
+              {studyDashboardSourceRows.length} review-ready {studyDashboardSourceRows.length === 1 ? 'source' : 'sources'}
+            </strong>
+          </div>
+          {studyDashboardSourceRows.length === 0 ? (
+            <p className="small-note">Promote a note or create a Study card to build a review schedule.</p>
+          ) : (
+            studyDashboardSourceRows.map((row) => {
+              const nextDueLabel = row.nextDueAt ? dateFormatter.format(new Date(row.nextDueAt)) : 'No due date'
+              return (
+                <div
+                  className="recall-study-review-source-row-stage916"
+                  data-study-review-dashboard-source-row-stage916="true"
+                  data-study-review-dashboard-source-row-due-stage916={row.dueCount}
+                  data-study-review-dashboard-source-row-new-stage916={row.newCount}
+                  key={`study-source-schedule:${row.documentId}`}
+                  role="listitem"
+                >
+                  <span className="recall-study-review-source-row-copy-stage916">
+                    <strong>{row.title}</strong>
+                    <span>
+                      {row.dueCount} due · {row.newCount} new · {row.scheduledCount} scheduled · next {nextDueLabel}
+                    </span>
+                  </span>
+                  <span className="recall-study-review-source-row-actions-stage916">
+                    <button
+                      className="ghost-button"
+                      data-study-review-dashboard-source-review-stage916="true"
+                      type="button"
+                      onClick={() => focusSourceStudy(row.documentId)}
+                    >
+                      Review
+                    </button>
+                    <button
+                      className="ghost-button"
+                      data-study-review-dashboard-source-questions-stage916="true"
+                      type="button"
+                      onClick={() => focusSourceStudyQuestions(row.documentId)}
+                    >
+                      Questions
+                    </button>
+                  </span>
+                </div>
+              )
+            })
+          )}
+        </div>
+      )
+    }
+
+    function renderStudyQuestionsManager() {
+      return (
+        <section
+          className="card stack-gap recall-study-card recall-study-questions-stage"
+          aria-label="Study questions manager"
+          data-study-questions-primary-canvas-stage852="true"
+          data-study-questions-fused-stage854="true"
+        >
+          {studyStatus === 'error' ? (
+            <div className="recall-surface-state stack-gap">
+              <p>Study cards are unavailable until the local service reconnects.</p>
+              <div className="inline-actions">
+                <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                  Retry loading
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {renderStudyQuestionFilterTabs()}
+              <div
+                className="recall-study-question-search-stage914"
+                data-study-source-scoped-queue-stage914={studySourceScopeDocumentId ? 'true' : undefined}
+              >
+                {studySourceScopeDocumentId ? (
+                  <div
+                    className="reader-meta-row"
+                    data-study-source-scope-chip-stage914="true"
+                    role="list"
+                    aria-label="Active study source scope"
+                  >
+                    <span className="status-chip reader-meta-chip" role="listitem">
+                      Source: {studyScopeTitle}
+                    </span>
+                    <span className="status-chip reader-meta-chip" role="listitem">
+                      {scopedStudyCardCount} scoped {scopedStudyCardCount === 1 ? 'card' : 'cards'}
+                    </span>
+                    <button
+                      className="ghost-button"
+                      data-study-source-scope-clear-stage914="true"
+                      type="button"
+                      onClick={() =>
+                        updateStudyState((current) => ({
+                          ...current,
+                          questionSearchQuery: '',
+                          sourceScopeDocumentId: null,
+                        }))
+                      }
+                    >
+                      Clear source
+                    </button>
+                  </div>
+                ) : null}
+                {renderStudyScheduleDrilldownChip('desktop')}
+                <label
+                  className="field recall-study-question-search-field-stage914"
+                  data-study-source-scoped-question-search-stage914="true"
+                >
+                  <span>Search questions</span>
+                  <input
+                    placeholder="Find prompt, answer, evidence, or source"
+                    type="search"
+                    value={studyQuestionSearchQuery}
+                    onChange={(event) => setStudyQuestionSearchQuery(event.target.value)}
+                  />
+                </label>
+                {studyQuestionSearchActive ? (
+                  <div className="recall-source-memory-search-status-stage912" data-study-question-search-status-stage914={studyQuestionResultCount}>
+                    <span>
+                      {studyQuestionResultCount === 1
+                        ? '1 question match'
+                        : `${studyQuestionResultCount} question matches`}
+                    </span>
+                    <button
+                      className="ghost-button"
+                      data-study-question-search-clear-stage914="true"
+                      type="button"
+                      onClick={() => setStudyQuestionSearchQuery('')}
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="recall-document-list recall-study-questions-list" role="list">
+                {studyLoading ? <p className="small-note">Loading study cards…</p> : null}
+                {!studyLoading && scopedStudyCardCount === 0 ? (
+                  <div className="recall-surface-state">
+                    <p>No study cards are available for this source yet.</p>
+                  </div>
+                ) : null}
+                {!studyLoading && scopedStudyCardCount > 0 && studyQuestionResultCount === 0 ? (
+                  <div
+                    className="recall-surface-state"
+                    data-study-question-search-empty-stage914={studyQuestionSearchActive ? 'true' : undefined}
+                    data-study-schedule-empty-stage918={studyScheduleDrilldownActive ? 'true' : undefined}
+                  >
+                    <p>{getStudyQuestionsEmptyMessage()}</p>
+                    {studyQuestionSearchActive ? (
+                      <button className="ghost-button" type="button" onClick={() => setStudyQuestionSearchQuery('')}>
+                        Clear search
+                      </button>
+                    ) : null}
+                    {studyScheduleDrilldownActive ? (
+                      <button
+                        className="ghost-button"
+                        data-study-schedule-empty-clear-stage918="true"
+                        type="button"
+                        onClick={() => updateStudyState((current) => ({ ...current, scheduleDrilldown: 'all' }))}
+                      >
+                        Clear schedule
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {visibleStudyQuestionCards.map((card) => renderStudyQuestionRow(card))}
+              </div>
+
+              {studyQueueExpanded || hiddenStudyQueueCount > 0 ? (
+                <button
+                  className="ghost-button recall-study-queue-toggle"
+                  type="button"
+                  onClick={() => setStudyQueueExpanded((current) => !current)}
+                >
+                  {studyQueueExpanded ? 'Show fewer questions' : `Show all ${scheduleFilteredStudyQuestionCount} questions`}
+                </button>
+              ) : null}
+            </>
+          )}
+        </section>
+      )
+    }
+
+    const studyWorkspaceHeader = (
+        <section
+          className={
+            studyQuestionsViewOpen
+              ? 'card recall-study-dashboard-shell recall-study-review-lead-band recall-study-questions-lead-band recall-study-command-lead-stage858'
+              : 'card recall-study-dashboard-shell recall-study-review-lead-band recall-study-command-lead-stage858 recall-study-review-lead-band-stage882'
+          }
+          aria-label="Study workspace header"
+          data-study-review-dashboard-stage916="true"
+          data-study-lead-command-row-stage858="true"
+          data-study-review-command-inside-workbench-stage882={studyQuestionsViewOpen ? undefined : 'true'}
+        >
           <div className="recall-study-header-copy">
             <div className="reader-stage-kicker-row">
               <span className="status-chip recall-study-stage-badge">{studyWorkspaceBadge}</span>
-              <span className="recall-study-stage-note">Review dashboard</span>
+              <span className="recall-study-stage-note">Review flow</span>
             </div>
             <div className="recall-study-header-heading">
               <h2>{studyDashboardTitle}</h2>
@@ -10787,28 +14178,49 @@ export function RecallWorkspace({
             </div>
           </div>
 
-          <div className="recall-study-dashboard-grid" role="list" aria-label="Study dashboard metrics">
+          <div
+            className="recall-study-dashboard-grid"
+            data-study-review-dashboard-buckets-stage916="true"
+            data-study-schedule-bucket-drilldowns-stage918="true"
+            role="list"
+            aria-label="Study dashboard metrics"
+          >
             {studyDashboardMetrics.map((metric) => (
               <div
                 key={metric.label}
                 className={
                   metric.emphasis
-                    ? 'recall-study-dashboard-metric recall-study-dashboard-metric-emphasis'
-                    : 'recall-study-dashboard-metric'
+                    ? 'recall-study-dashboard-metric recall-study-dashboard-metric-emphasis recall-study-dashboard-metric-stage858'
+                    : 'recall-study-dashboard-metric recall-study-dashboard-metric-stage858'
                 }
+                data-study-lead-metric-pill-stage858="true"
                 role="listitem"
               >
-                <span className="recall-study-dashboard-metric-label">{metric.label}</span>
-                <strong>{metric.value}</strong>
-                <span>{metric.detail}</span>
+                <button
+                  className="recall-study-dashboard-metric-button-stage918"
+                  data-study-schedule-bucket-stage918={metric.scheduleDrilldown}
+                  type="button"
+                  onClick={() => openStudyScheduleDrilldown(metric.scheduleDrilldown)}
+                >
+                  <span className="recall-study-dashboard-metric-label">{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                  <span>{metric.detail}</span>
+                </button>
               </div>
             ))}
           </div>
 
-          <div className="recall-study-dashboard-current" aria-label="Current review summary">
+          <div
+            className={
+              studyQuestionsViewOpen
+                ? 'recall-study-dashboard-current recall-study-dashboard-current-questions recall-study-command-status-stage858'
+                : 'recall-study-dashboard-current recall-study-command-status-stage858'
+            }
+            aria-label={studyQuestionsViewOpen ? 'Questions lead actions' : 'Current review summary'}
+          >
             <div className="recall-study-dashboard-current-copy">
               <span className="recall-study-dashboard-current-kicker">{studyDashboardCurrentLabel}</span>
-              <strong>{activeStudyCard?.prompt ?? studyWorkspaceNote}</strong>
+              <strong>{studyDashboardCurrentTitle}</strong>
               <span>{studyDashboardCurrentSummary}</span>
             </div>
             <div className="recall-study-dashboard-current-actions">
@@ -10851,56 +14263,37 @@ export function RecallWorkspace({
               </button>
             </div>
           </div>
+          {renderStudyDashboardSourceBreakdown()}
         </section>
+    )
 
-        <div
-          className={
-            studyBrowseDrawerOpen
-              ? 'recall-study-stage-grid recall-study-stage-grid-queue-open'
-              : 'recall-study-stage-grid'
-          }
-        >
-          <section className="card stack-gap recall-study-card recall-study-review-stage">
-            <div className="toolbar recall-collection-toolbar recall-study-review-toolbar">
-              <div className="section-header section-header-compact recall-study-review-heading recall-study-review-heading-row">
+    const studyReviewActiveCard = (
+          <section
+            className="card stack-gap recall-study-card recall-study-review-stage recall-study-review-single-surface-stage862 recall-study-review-stage-stage882"
+            aria-label="Active review card"
+            data-study-review-prompt-first-stage856="true"
+            data-study-review-single-surface-stage862="true"
+            data-study-review-active-card-panel-reduced-stage882="true"
+          >
+            <div
+              className="recall-study-review-card-head recall-study-review-single-card-head"
+              data-study-review-card-top-seam-stage862="true"
+            >
+              <div className="section-header section-header-compact recall-study-review-heading recall-study-review-card-heading">
+                <span className="recall-study-review-card-kicker">Active review</span>
                 <h2>Review</h2>
                 <p>
                   {activeStudyCard
-                    ? 'Keep recall, reveal, answer, and rating together in one uninterrupted review lane.'
+                    ? 'Recall from memory, reveal, then rate this card.'
                     : 'Choose one grounded question from Questions to start reviewing here.'}
                 </p>
               </div>
-              <div className="recall-study-review-flow" aria-label="Study review flow">
-                <span
-                  className={
-                    studySessionActiveStep === 'questions'
-                      ? 'recall-study-review-flow-step recall-study-review-flow-step-active'
-                      : 'recall-study-review-flow-step'
-                  }
-                >
-                  Questions
-                </span>
-                <span
-                  className={
-                    studySessionActiveStep === 'recall'
-                      ? 'recall-study-review-flow-step recall-study-review-flow-step-active'
-                      : 'recall-study-review-flow-step'
-                  }
-                >
-                  Recall
-                </span>
-                <span
-                  className={
-                    studySessionActiveStep === 'rate'
-                      ? 'recall-study-review-flow-step recall-study-review-flow-step-active'
-                      : 'recall-study-review-flow-step'
-                  }
-                >
-                  Rate
-                </span>
-              </div>
               {activeStudyCard ? (
-                <div className="recall-hero-metrics recall-study-review-metrics" role="list" aria-label="Study card metadata">
+                <div
+                  className="recall-hero-metrics recall-study-review-metrics recall-study-review-card-meta"
+                  role="list"
+                  aria-label="Study card metadata"
+                >
                   <span className="status-chip" role="listitem">{activeStudyCard.card_type}</span>
                   <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
                   <span className="status-chip status-muted" role="listitem">
@@ -10918,43 +14311,42 @@ export function RecallWorkspace({
                 <p>
                   {studyStatus === 'error'
                     ? 'Study cards are unavailable until the local service reconnects.'
-                    : 'No active study card yet. Open the queue dock to choose one or refresh the local card set.'}
+                    : 'No active study card yet. Open Questions to choose one or refresh the local card set.'}
                 </p>
               </div>
             ) : (
               <div
                 className={
                   showAnswer
-                    ? 'study-card-body study-card-body-centered stack-gap recall-study-review-body recall-study-review-body-answer-shown'
-                    : 'study-card-body study-card-body-centered stack-gap recall-study-review-body'
+                    ? 'recall-study-review-body recall-study-review-active-card recall-study-review-body-answer-shown'
+                    : 'recall-study-review-body recall-study-review-active-card'
                 }
               >
-                <div className="recall-study-review-glance">
-                  <div className="recall-study-review-glance-copy">
-                    <span className="recall-study-review-glance-kicker">Current question</span>
-                    <strong>{activeStudyCard.document_title}</strong>
-                    <span>{activeStudyCardSidebarSummary}</span>
-                  </div>
-                  <div className="recall-study-review-glance-meta">
-                    <span className="status-chip status-muted">{browseStudyEvidenceSummary}</span>
-                    <span className="status-chip status-muted">
-                      {formatCountLabel(activeStudyCard.source_spans.length, 'evidence span', 'evidence spans')}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="study-card-face recall-study-review-prompt-panel">
-                  <strong>Prompt</strong>
+                <div
+                  className="recall-study-review-prompt-inline"
+                  aria-label="Active review prompt"
+                  data-study-review-prompt-surface-stage856="true"
+                >
+                  <span className="recall-study-review-card-kicker">Prompt</span>
                   <p>{activeStudyCard.prompt}</p>
+                  <div className="recall-study-review-card-seam" aria-label="Active review metadata">
+                    <span>{activeStudyCard.document_title}</span>
+                    <span>{formatStudyStatus(activeStudyCard.status)}</span>
+                    <span>{browseStudyEvidenceSummary}</span>
+                    <span>{formatCountLabel(activeStudyCard.source_spans.length, 'evidence span', 'evidence spans')}</span>
+                  </div>
                 </div>
 
                 {showAnswer ? (
-                  <div className="study-card-answer recall-study-review-answer-panel">
+                  <div
+                    className="recall-study-review-answer-inline"
+                    data-study-review-answer-attached-stage862="true"
+                  >
                     <strong>Answer</strong>
                     <p>{activeStudyCard.answer}</p>
                   </div>
                 ) : (
-                  <div className="study-card-reveal recall-study-review-reveal-band">
+                  <div className="recall-study-review-action-row" data-study-review-reveal-attached-stage862="true">
                     <p>Recall the answer before revealing it, then rate how easily it came back.</p>
                     <button type="button" onClick={() => setShowAnswer(true)}>
                       Show answer
@@ -10963,7 +14355,10 @@ export function RecallWorkspace({
                 )}
 
                 {showAnswer ? (
-                  <div className="recall-study-rating-panel recall-study-review-rating-band">
+                  <div
+                    className="recall-study-review-rating-inline"
+                    data-study-review-rating-attached-stage862="true"
+                  >
                     <p className="recall-study-rating-note">Rate recall to schedule the next review.</p>
                     <div className="study-rating-row recall-study-review-rating-row">
                       {([
@@ -10985,29 +14380,70 @@ export function RecallWorkspace({
                     </div>
                   </div>
                 ) : (
-                  <p className="small-note recall-study-rating-placeholder recall-study-review-placeholder">
+                  <p className="small-note recall-study-review-placeholder">
                     Reveal the answer to rate recall.
                   </p>
                 )}
               </div>
             )}
           </section>
+    )
 
-          <aside className="recall-study-support-dock stack-gap">
+    return (
+      <div
+        className={
+          studyBrowseDrawerOpen
+            ? 'recall-study-workspace stack-gap recall-study-workspace-queue-open recall-study-workspace-questions-open'
+            : 'recall-study-workspace stack-gap recall-study-workspace-review-stage882'
+        }
+        data-study-source-scoped-queue-stage914={studySourceScopeDocumentId ? 'true' : undefined}
+      >
+        {studyQuestionsViewOpen ? (
+          studyWorkspaceHeader
+        ) : (
+          <div
+            className="recall-study-review-task-workbench-stage882"
+            aria-label="Study review task workbench"
+            data-study-review-task-workbench-stage882="true"
+          >
+            {studyWorkspaceHeader}
+            {studyReviewActiveCard}
+          </div>
+        )}
+
+        <div
+          className={
+            studyBrowseDrawerOpen
+              ? 'recall-study-stage-grid recall-study-stage-grid-queue-open'
+              : 'recall-study-stage-grid'
+          }
+        >
+          {studyQuestionsViewOpen ? renderStudyQuestionsManager() : null}
+
+          <aside
+            className={
+              studyQuestionsViewOpen
+                ? 'recall-study-support-dock stack-gap recall-study-support-dock-stage860'
+                : 'recall-study-support-dock stack-gap recall-study-support-dock-stage860 recall-study-support-dock-stage882'
+            }
+            data-study-support-single-rail-stage860="true"
+            data-study-review-support-rail-stage882={studyQuestionsViewOpen ? undefined : 'true'}
+          >
             <section
-              className="card stack-gap recall-study-queue-dock priority-surface-support-rail priority-surface-support-rail-quiet"
-              aria-label="Study queue support"
+              className={
+                studyQuestionsViewOpen && studyStatus !== 'error'
+                  ? 'card stack-gap recall-study-queue-dock recall-study-review-handoff-dock recall-study-support-seam-stage860 recall-study-review-handoff-compact-stage860 priority-surface-support-rail priority-surface-support-rail-quiet'
+                  : 'card stack-gap recall-study-queue-dock recall-study-support-seam-stage860 recall-study-queue-seam-stage860 recall-study-queue-seam-stage882 priority-surface-support-rail priority-surface-support-rail-quiet'
+              }
+              aria-label={studyQuestionsViewOpen && studyStatus !== 'error' ? 'Study review handoff' : 'Study queue support'}
+              data-study-support-panel-stage860="queue"
+              data-study-review-queue-attached-stage882={studyQuestionsViewOpen ? undefined : 'true'}
             >
-              {studyBrowseDrawerOpen || studyStatus === 'error' ? (
+              {studyQuestionsViewOpen && studyStatus !== 'error' ? (
                 <>
-                  <div className="toolbar recall-study-queue-dock-toolbar">
+                  <div className="toolbar recall-study-queue-dock-toolbar recall-study-review-handoff-toolbar">
                     <div className="section-header section-header-compact recall-study-dock-heading">
-                      <h3>{studyStatus === 'error' ? 'Study queue' : 'Questions'}</h3>
-                      <p>
-                        {studyStatus === 'error'
-                          ? 'Reconnect the local service to restore questions and review state.'
-                          : 'Switch questions or filters here, then return to Review.'}
-                      </p>
+                      <h3>Review handoff</h3>
                     </div>
                     <div className="recall-study-dock-controls">
                       <button
@@ -11018,14 +14454,39 @@ export function RecallWorkspace({
                       >
                         Review
                       </button>
+                    </div>
+                  </div>
+
+                  <div
+                    className="recall-study-queue-dock-summary recall-study-review-handoff-summary"
+                    aria-label="Selected review handoff"
+                  >
+                    <strong>{activeStudyCard?.prompt ?? 'No active card yet'}</strong>
+                    <span>{activeStudyCardSidebarSummary}</span>
+                    {activeStudyCard ? (
+                      <span className="recall-study-review-handoff-meta">
+                        <span>{activeStudyCard.card_type}</span>
+                        <span>Due {dateFormatter.format(new Date(activeStudyCard.due_at))}</span>
+                        <span>{formatCountLabel(activeStudyCard.review_count, 'review', 'reviews')}</span>
+                      </span>
+                    ) : null}
+                  </div>
+                </>
+              ) : studyStatus === 'error' ? (
+                <>
+                  <div className="toolbar recall-study-queue-dock-toolbar">
+                    <div className="section-header section-header-compact recall-study-dock-heading">
+                      <h3>Study queue</h3>
+                      <p>Reconnect the local service to restore questions and review state.</p>
+                    </div>
+                    <div className="recall-study-dock-controls">
                       <button
-                        aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
+                        aria-label="Retry loading"
                         className="ghost-button"
-                        disabled={studyBusyKey === 'generate'}
                         type="button"
-                        onClick={handleGenerateStudyCards}
+                        onClick={handleRetryRecallLoading}
                       >
-                        {studyBusyKey === 'generate' ? 'Refreshing…' : 'Refresh'}
+                        Retry
                       </button>
                     </div>
                   </div>
@@ -11035,82 +14496,14 @@ export function RecallWorkspace({
                     <span>{activeStudyCardSidebarSummary}</span>
                   </div>
 
-                  {studyStatus === 'error' ? (
-                    <div className="recall-surface-state stack-gap">
-                      <p>Study cards are unavailable until the local service reconnects.</p>
-                      <div className="inline-actions">
-                        <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
-                          Retry loading
-                        </button>
-                      </div>
+                  <div className="recall-surface-state stack-gap">
+                    <p>Study cards are unavailable until the local service reconnects.</p>
+                    <div className="inline-actions">
+                      <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                        Retry loading
+                      </button>
                     </div>
-                  ) : (
-                    <>
-                      <div className="recall-stage-tabs" aria-label="Study filters" role="tablist">
-                        {([
-                          ['all', 'All'],
-                          ['new', 'New'],
-                          ['due', 'Due'],
-                          ['scheduled', 'Scheduled'],
-                        ] as const).map(([filter, label]) => (
-                          <button
-                            key={filter}
-                            aria-selected={studyFilter === filter}
-                            className={studyFilter === filter ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-                            role="tab"
-                            type="button"
-                            onClick={() => updateStudyState((current) => ({ ...current, filter }))}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="recall-document-list recall-study-queue-dock-list" role="list">
-                        {studyLoading ? <p className="small-note">Loading study cards…</p> : null}
-                        {!studyLoading && studyCards.length === 0 ? (
-                          <div className="recall-surface-state">
-                            <p>No study cards are available for that filter yet.</p>
-                          </div>
-                        ) : null}
-                        {visibleStudyQueueCards.map((card) => (
-                          <button
-                            key={card.id}
-                            aria-pressed={activeStudyCard?.id === card.id}
-                            className={
-                              activeStudyCard?.id === card.id
-                                ? 'recall-document-item recall-document-item-compact recall-document-item-active recall-study-queue-item'
-                                : 'recall-document-item recall-document-item-compact recall-study-queue-item'
-                            }
-                            type="button"
-                            onClick={() => handleSelectStudyCard(card)}
-                          >
-                            <span className="recall-study-queue-item-head">
-                              <strong className="recall-document-title">{card.prompt}</strong>
-                              <span className="recall-study-queue-item-status">{formatStudyStatus(card.status)}</span>
-                            </span>
-                            <span className="recall-document-meta">{card.document_title}</span>
-                            <span className="recall-collection-row-preview">{getStudyCardPreview(card)}</span>
-                            <span className="recall-study-queue-item-meta">
-                              <span>{card.card_type}</span>
-                              <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
-                              <span>{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-
-                      {studyQueueExpanded || hiddenStudyQueueCount > 0 ? (
-                        <button
-                          className="ghost-button recall-study-queue-toggle"
-                          type="button"
-                          onClick={() => setStudyQueueExpanded((current) => !current)}
-                        >
-                          {studyQueueExpanded ? 'Show fewer questions' : `Show all ${studyCards.length} questions`}
-                        </button>
-                      ) : null}
-                    </>
-                  )}
+                  </div>
                 </>
               ) : (
                 <>
@@ -11130,20 +14523,36 @@ export function RecallWorkspace({
             </section>
 
             <section
-              className="card stack-gap recall-study-evidence-dock priority-surface-support-rail"
+              className={
+                studyQuestionsViewOpen
+                  ? 'card stack-gap recall-study-evidence-dock recall-study-evidence-dock-stage860 priority-surface-support-rail'
+                  : 'card stack-gap recall-study-evidence-dock recall-study-evidence-dock-stage860 recall-study-evidence-attached-stage882 priority-surface-support-rail'
+              }
               aria-label="Study evidence support"
+              data-study-support-panel-stage860="evidence"
+              data-study-review-grounding-attached-stage882={studyQuestionsViewOpen ? undefined : 'true'}
             >
               <div className="toolbar recall-study-evidence-dock-toolbar">
                 <div className="section-header section-header-compact recall-study-dock-heading">
                   <h3>{browseStudyEvidenceExpanded ? 'Evidence' : 'Grounding'}</h3>
-                  <p>
-                    {browseStudyEvidenceExpanded
-                      ? 'Keep one grounded excerpt nearby before reopening Reader or recording the next review.'
-                      : 'Keep one source reminder nearby without breaking the review flow.'}
-                  </p>
                 </div>
                 {focusedStudySourceSpan ? (
                   <div className="recall-actions recall-actions-inline recall-study-evidence-dock-actions">
+                    {activeStudyCard && getRecordStringValue(focusedStudySourceSpan, 'note_id') ? (
+                      <button
+                        className="ghost-button recall-study-evidence-note-button"
+                        type="button"
+                        onClick={() =>
+                          focusSourceNotes(
+                            activeStudyCard.source_document_id,
+                            getRecordStringValue(focusedStudySourceSpan, 'note_id'),
+                            { focused: false },
+                          )
+                        }
+                      >
+                        Open note
+                      </button>
+                    ) : null}
                     {!showAnswer ? (
                       <button
                         className="ghost-button recall-study-evidence-summary-button"
@@ -11183,7 +14592,7 @@ export function RecallWorkspace({
                             onClick={() => setFocusedStudySourceSpanIndex(index)}
                           >
                             Evidence {index + 1}
-                            {getRecordStringValue(sourceSpan, 'note_id') ? ' · Note' : ''}
+                            {getRecordStringValue(sourceSpan, 'note_id') ? ` · ${isSourceNoteSourceSpan(sourceSpan) ? 'Source note' : 'Note'}` : ''}
                           </button>
                         ))}
                       </div>
@@ -11196,7 +14605,9 @@ export function RecallWorkspace({
                       </span>
                       <span className="recall-collection-row-preview">{getStudyEvidenceExcerpt(focusedStudySourceSpan)}</span>
                       <span className="recall-collection-row-meta">
-                        {getRecordStringValue(focusedStudySourceSpan, 'note_id') ? <span className="status-chip">Anchored note</span> : null}
+                        {getStudyEvidenceNoteKindLabel(focusedStudySourceSpan) ? (
+                          <span className="status-chip">{getStudyEvidenceNoteKindLabel(focusedStudySourceSpan)}</span>
+                        ) : null}
                         {getRecordStringValue(focusedStudySourceSpan, 'edge_id') ? <span className="status-chip">Graph-backed</span> : null}
                         {getRecordStringValue(focusedStudySourceSpan, 'chunk_id') ? <span className="status-chip">Chunk excerpt</span> : null}
                         {getRecordNumberValue(focusedStudySourceSpan, 'global_sentence_start') !== null ? (
@@ -11218,6 +14629,11 @@ export function RecallWorkspace({
                   <div className="recall-study-evidence-dock-summary">
                     <strong>{browseStudyEvidenceSummary}</strong>
                     <span>{activeStudyCard?.document_title ?? 'Saved source'}</span>
+                    {getStudyEvidenceNoteKindLabel(focusedStudySourceSpan) ? (
+                      <span className="recall-collection-row-meta">
+                        <span className="status-chip">{getStudyEvidenceNoteKindLabel(focusedStudySourceSpan)}</span>
+                      </span>
+                    ) : null}
                     <p>{focusedStudyEvidenceExcerpt}</p>
                   </div>
                 )
@@ -11239,45 +14655,56 @@ export function RecallWorkspace({
     emptyStateMessage,
     filtersClassName = 'recall-collection-filters',
     rowVariant = 'desktop',
+    showFilters = true,
   }: {
     emptyStateClassName?: string
     emptyStateMessage?: string
     filtersClassName?: string
     rowVariant?: 'desktop' | 'focused'
+    showFilters?: boolean
   }) {
     return (
       <>
-        <div className={filtersClassName}>
-          <label className="field recall-inline-field">
-            <span>Source</span>
-            <select
-              disabled={documentsStatus === 'error' || documents.length === 0}
-              value={selectedNotesDocumentId ?? ''}
-              onChange={(event) => handleSelectNotesDocument(event.target.value)}
-            >
-              {documents.length === 0 ? <option value="">No documents yet</option> : null}
-              {documents.map((document) => (
-                <option key={document.id} value={document.id}>
-                  {document.title}
-                </option>
-              ))}
-            </select>
-          </label>
+        {showFilters ? (
+          <div className={filtersClassName}>
+            <label className="field recall-inline-field">
+              <span>Source</span>
+              <select
+                disabled={documentsStatus === 'error' || documents.length === 0}
+                value={selectedNotesDocumentId ?? ''}
+                onChange={(event) => handleSelectNotesDocument(event.target.value)}
+              >
+                {documents.length === 0 ? <option value="">No documents yet</option> : null}
+                {documents.map((document) => (
+                  <option key={document.id} value={document.id}>
+                    {document.title}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label className="field recall-inline-field">
-            <span>Search notebook</span>
-            <input
-              type="search"
-              placeholder="Search highlights or note text"
-              value={noteSearchQuery}
-              onChange={(event) =>
-                updateNotesState((current) => ({ ...current, searchQuery: event.target.value }))
-              }
-            />
-          </label>
-        </div>
+            <label className="field recall-inline-field">
+              <span>Search notebook</span>
+              <input
+                type="search"
+                placeholder="Search highlights or note text"
+                value={noteSearchQuery}
+                onChange={(event) =>
+                  updateNotesState((current) => ({ ...current, searchQuery: event.target.value }))
+                }
+              />
+            </label>
+          </div>
+        ) : null}
 
-        <div className="recall-document-list recall-notes-browser-list" role="list">
+        <div
+          className={
+            rowVariant === 'desktop'
+              ? 'recall-document-list recall-notes-browser-list recall-notes-browser-list-stage888'
+              : 'recall-document-list recall-notes-browser-list'
+          }
+          role="list"
+        >
           {documentsStatus === 'error' ? (
             <div className="recall-surface-state stack-gap">
               <p>Notebook is unavailable until the local library reconnects.</p>
@@ -11328,30 +14755,39 @@ export function RecallWorkspace({
           ) : null}
 
           {visibleNotes.map((note) => {
-            const noteSentenceCount =
-              (note.anchor.global_sentence_end ?? note.anchor.sentence_end) -
-              (note.anchor.global_sentence_start ?? note.anchor.sentence_start) +
-              1
+            const noteScopeLabel = getNoteAnchorScopeLabel(note)
             const noteDocumentLabel = getNoteDocumentTitle(note, documentTitleById, selectedNotesDocumentTitle)
+            const noteDisplayTitle = getNoteDisplayTitle(note, documentTitleById, selectedNotesDocumentTitle)
             const noteHasBodyText = Boolean(note.body_text?.trim())
+
+            const noteActive = activeNote?.id === note.id
+            const noteRowClassName = [
+              'recall-document-item',
+              'recall-document-item-compact',
+              noteActive ? 'recall-document-item-active' : null,
+              'recall-note-browser-row',
+              `recall-note-browser-row-${rowVariant}`,
+              rowVariant === 'desktop' ? 'recall-note-browser-row-stage888' : null,
+              rowVariant === 'desktop' && noteActive ? 'recall-note-browser-row-active-stage888' : null,
+            ]
+              .filter(Boolean)
+              .join(' ')
 
             return (
               <button
                 key={note.id}
-                aria-pressed={activeNote?.id === note.id}
-                className={
-                  activeNote?.id === note.id
-                    ? `recall-document-item recall-document-item-compact recall-document-item-active recall-note-browser-row recall-note-browser-row-${rowVariant}`
-                    : `recall-document-item recall-document-item-compact recall-note-browser-row recall-note-browser-row-${rowVariant}`
-                }
+                aria-pressed={noteActive}
+                className={noteRowClassName}
                 data-note-browser-row-kind="library-note"
+                data-note-browser-row-state={noteActive ? 'active' : 'idle'}
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  setNewNoteDraftOpen(false)
                   updateNotesState((current) => ({
                     ...current,
                     selectedNoteId: note.id,
                   }))
-                }
+                }}
               >
                 <span className="recall-note-browser-row-kicker">
                   <span className="status-chip recall-note-browser-row-badge">
@@ -11360,13 +14796,13 @@ export function RecallWorkspace({
                   <span className="recall-note-browser-row-source">{noteDocumentLabel}</span>
                 </span>
                 <span className="recall-note-browser-row-head">
-                  <span className="recall-document-title">{note.anchor.anchor_text}</span>
+                  <span className="recall-document-title">{noteDisplayTitle}</span>
                   <span className="recall-document-meta">{dateFormatter.format(new Date(note.updated_at))}</span>
                 </span>
                 <span className="recall-note-browser-row-preview">{getNoteRowPreview(note)}</span>
                 <span className="recall-note-browser-row-meta">
                   <span className="status-chip reader-meta-chip">
-                    {noteSentenceCount} {noteSentenceCount === 1 ? 'sentence' : 'sentences'}
+                    {noteScopeLabel}
                   </span>
                   <span className="status-chip reader-meta-chip">
                     {noteHasBodyText ? 'Editable note' : 'Anchor ready'}
@@ -11382,67 +14818,64 @@ export function RecallWorkspace({
 
   function renderDesktopNotesEmptyState() {
     const selectedSourceReady = Boolean(selectedNotesDocumentId && selectedNotesDocumentTitle)
+    const emptyStateKind =
+      documentsStatus === 'error'
+        ? 'error'
+        : showingNoteSearch
+          ? 'search-empty'
+          : selectedSourceReady
+            ? 'source-empty'
+            : 'choose-source'
+    const emptyStateTitle =
+      documentsStatus === 'error'
+        ? 'Notebook is waiting on the local library'
+        : showingNoteSearch
+          ? 'No matching notebook notes'
+          : selectedSourceReady
+            ? 'Capture from Reader'
+            : 'Choose a source to begin'
     const emptyStateLead =
       documentsStatus === 'error'
-        ? 'Reconnect the local library to reopen saved notebook anchors here.'
+        ? 'Reconnect the local service, then this same source-owned workbench will reopen saved anchors and notes.'
         : selectedSourceReady
           ? showingNoteSearch
-            ? `Search is active for ${selectedNotesDocumentTitle}. Clear or refine it to reopen a notebook note.`
-            : `${selectedNotesCountLabel} stay local to ${selectedNotesDocumentTitle} and open here when you need to edit, reopen, or promote them.`
-          : 'Choose one saved source on the left to make notebook browsing and note detail primary here.'
-    const emptyStateFooter =
+            ? `No notes in ${selectedNotesDocumentTitle} match this search. Clear it or open the source in Reader to capture a grounded highlight.`
+            : `${selectedNotesDocumentTitle} has no active notebook note in this view. Open it in Reader to capture a highlighted, source-linked note.`
+          : 'Choose a saved source above so its note stream, Reader capture path, and future promotions stay attached here.'
+    const emptyStateSeam =
       documentsStatus === 'error'
-        ? 'Reader handoff, note search, and promotion all stay available again once the local service reconnects.'
+        ? 'Reader handoff, note search, and promotion return as soon as the local library is available.'
         : showingNoteSearch
-          ? 'Try another phrase or clear the search to return to the broader saved note stream.'
+          ? 'Search stays scoped to the selected source until you clear it.'
           : selectedSourceReady
-            ? 'Capture the next highlight from Reader when you want to turn another passage into an editable notebook note.'
-            : 'Once a source is selected, saved notebook anchors, note text, and promotion tools stay together in this workspace.'
-    const emptyStateActionLead =
-      documentsStatus === 'error'
-        ? 'Retry once the local library reconnects, then reopen the saved anchor here.'
-        : selectedSourceReady
-          ? showingNoteSearch
-            ? 'Clear or refine the search when you want the next matching note to take over the main workbench.'
-            : 'Capture the next highlight in Reader and it will reopen here with the anchored passage and editable note text.'
-          : 'Pick a saved source first so its note stream and detail work stay together.'
-    const emptyStateFollowOn =
-      documentsStatus === 'error'
-        ? 'Source reopen, note search, and promotions all return as soon as the local library is available again.'
-        : selectedSourceReady
-          ? 'Once a note is open, edit it here, reopen the surrounding passage, and only promote it after the note feels stable.'
-          : 'After a source is selected, search, anchored reopen, and note editing stay together in one calmer workspace.'
+            ? 'Reader is the capture surface; Notebook remains the local workbench for saved anchors.'
+            : 'Local-first notebook'
 
     return (
-      <div className="recall-note-empty-stage recall-note-empty-stage-stage698 stack-gap">
-        <div className="recall-note-empty-hero recall-note-empty-hero-stage698">
-          <div className="recall-note-empty-hero-copy">
-            <div className="reader-stage-kicker-row">
-              <span className="status-chip recall-notes-stage-badge">
-                {selectedSourceReady ? 'Selected source' : 'Choose a source'}
-              </span>
-              <span className="recall-notes-stage-note">
-                {selectedSourceReady ? selectedNotesCountLabel : 'Notebook workspace'}
-              </span>
-            </div>
-            <strong>{selectedNotesDocumentTitle ?? 'No active note yet'}</strong>
-            <p>{emptyStateLead}</p>
+      <div
+        className="recall-note-empty-workbench recall-note-empty-workbench-stage874 recall-note-empty-workbench-stage888"
+        data-notebook-empty-state-kind={emptyStateKind}
+        data-notebook-empty-state-stage="888"
+      >
+        <div className="recall-note-empty-workbench-copy-stage874">
+          <div className="reader-stage-kicker-row">
+            <span className="status-chip recall-notes-stage-badge">
+              {selectedSourceReady ? 'Selected source' : 'Notebook workspace'}
+            </span>
+            <span className="recall-notes-stage-note">
+              {selectedSourceReady ? selectedNotesDocumentTitle : 'Local-first notes'}
+            </span>
           </div>
-          {selectedNotesDocumentId ? (
-            <div className="recall-actions recall-actions-inline">
-              <button type="button" onClick={() => focusSourceLibrary(selectedNotesDocumentId)}>
-                Open source
-              </button>
-            </div>
-          ) : null}
+          <strong>{emptyStateTitle}</strong>
+          <p>{emptyStateLead}</p>
         </div>
 
-        <div className="reader-meta-row recall-note-empty-meta" role="list" aria-label="Notebook workspace status">
+        <div className="reader-meta-row recall-note-empty-meta recall-note-empty-meta-stage874" role="list" aria-label="Notebook workspace status">
           <span className="status-chip reader-meta-chip" role="listitem">
             {selectedNotesCountLabel}
           </span>
           <span className="status-chip reader-meta-chip" role="listitem">
-            {showingNoteSearch ? 'Search active' : selectedSourceReady ? 'Ready for next note' : 'Choose a source'}
+            {showingNoteSearch ? 'Search active' : selectedSourceReady ? 'Reader capture ready' : 'Choose a source'}
           </span>
           <span className="status-chip reader-meta-chip" role="listitem">
             {documentsStatus === 'error'
@@ -11453,25 +14886,109 @@ export function RecallWorkspace({
           </span>
         </div>
 
-        <div className="recall-note-empty-guidance-grid recall-note-empty-guidance-grid-stage698">
-          <div className="recall-detail-panel recall-note-empty-guidance-card recall-note-empty-guidance-card-stage698 stack-gap">
-            <div className="section-header section-header-compact">
-              <h3>Ready for next note</h3>
-              <p>{emptyStateActionLead}</p>
-            </div>
-            <span className="recall-note-empty-guidance-meta">
-              {showingNoteSearch
-                ? 'Search stays scoped to this source until you clear it.'
-                : 'Reader capture keeps the anchored passage tied to this workspace.'}
-            </span>
+        <div className="recall-note-empty-handoff-stage874">
+          <span>{emptyStateSeam}</span>
+          <div className="recall-actions recall-actions-inline recall-note-empty-actions-stage874">
+            {showingNoteSearch ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => updateNotesState((current) => ({ ...current, searchQuery: '' }))}
+              >
+                Clear search
+              </button>
+            ) : null}
+            {documentsStatus === 'error' ? (
+              <button className="ghost-button" type="button" onClick={handleRetryRecallLoading}>
+                Retry loading
+              </button>
+            ) : null}
+            {selectedNotesDocumentId ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => focusSourceLibrary(selectedNotesDocumentId)}
+              >
+                Open source
+              </button>
+            ) : null}
           </div>
+        </div>
+      </div>
+    )
+  }
 
-          <div className="recall-detail-panel recall-note-empty-guidance-card recall-note-empty-guidance-card-quiet recall-note-empty-guidance-card-stage698 stack-gap">
-            <div className="section-header section-header-compact">
-              <h3>When a notebook note is open</h3>
-              <p>{emptyStateFollowOn}</p>
-            </div>
-            <span className="recall-note-empty-guidance-meta">{emptyStateFooter}</span>
+  function renderNewNoteDraftWorkbench() {
+    const selectedSourceReady = Boolean(selectedNotesDocument)
+    const selectedDraftSourceTitle = selectedNotesDocument?.title ?? 'Choose a saved source'
+    const selectedDraftSourceType = selectedNotesDocument?.source_type.toUpperCase() ?? 'No source selected'
+    const draftBodyTrimmed = newNoteDraftBody.trim()
+
+    return (
+      <div
+        className="recall-note-draft-workbench recall-note-draft-workbench-stage890"
+        data-notebook-new-note-draft-stage890="true"
+      >
+        <div className="recall-note-draft-copy-stage890">
+          <div className="reader-stage-kicker-row">
+            <span className="status-chip recall-notes-stage-badge">New note</span>
+            <span className="recall-notes-stage-note">{selectedDraftSourceTitle}</span>
+          </div>
+          <strong>Draft a source note</strong>
+          <p>
+            Keep this note attached to the selected saved source. Use Reader capture when you need a highlighted
+            sentence anchor.
+          </p>
+        </div>
+
+        <div className="reader-meta-row recall-note-draft-meta-stage890" role="list" aria-label="New note draft status">
+          <span className="status-chip reader-meta-chip" role="listitem">
+            Source-attached
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {selectedDraftSourceType}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {draftBodyTrimmed ? 'Ready to save' : 'Draft empty'}
+          </span>
+        </div>
+
+        <label className="field recall-note-draft-field-stage890">
+          <span>New note text</span>
+          <textarea
+            aria-label="New note text"
+            placeholder="Write the note you want to keep with this source"
+            value={newNoteDraftBody}
+            onChange={(event) => setNewNoteDraftBody(event.target.value)}
+          />
+        </label>
+
+        <div className="recall-note-draft-action-seam-stage890">
+          <span>
+            {selectedSourceReady
+              ? 'Saving keeps this note in the Notebook stream for the selected source.'
+              : 'Pick a source in the command row before saving.'}
+          </span>
+          <div className="recall-actions recall-actions-inline">
+            <button
+              disabled={!selectedSourceReady || !draftBodyTrimmed || noteBusyKey === 'new-note'}
+              type="button"
+              onClick={handleSaveNewNoteDraft}
+            >
+              {noteBusyKey === 'new-note' ? 'Saving…' : 'Save note'}
+            </button>
+            <button className="ghost-button" type="button" onClick={handleCancelNewNoteDraft}>
+              Cancel draft
+            </button>
+            {selectedNotesDocumentId ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => handleOpenDocumentInReader(selectedNotesDocumentId)}
+              >
+                Capture in Reader
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -11489,24 +15006,263 @@ export function RecallWorkspace({
       return null
     }
 
-    const noteSentenceLabel = formatSentenceSpanLabel(
-      activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
-      activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
-    )
+    const noteSentenceLabel = getNoteAnchorScopeLabel(activeNote)
     const noteDocumentTitle = getNoteDocumentTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)
-    const workbenchIntro = compactForFocusedSplit
+    const noteSourceDocument = documentById.get(activeNote.anchor.source_document_id) ?? null
+    const noteSourcePreview = noteSourceDocument ? getDocumentSourcePreview(noteSourceDocument) : 'Saved source'
+    const noteSourceTypeLabel = noteSourceDocument?.source_type.toUpperCase() ?? 'SOURCE'
+    const isSourceAnchoredNote = activeNote.anchor.kind === 'source'
+    const workbenchIntro = isSourceAnchoredNote
+      ? 'Keep the source context and editable note together before you reopen Reader or promote it.'
+      : compactForFocusedSplit
       ? 'Keep the saved anchor and editable note together here before you reopen Reader or promote it.'
       : 'Keep the saved anchor and editable note together here while the broader notebook stream stays nearby.'
-    const previewLabel = compactForFocusedSplit ? 'Saved anchor' : 'Highlighted passage'
-    const previewIntro = compactForFocusedSplit
+    const previewLabel = isSourceAnchoredNote
+      ? 'Source context'
+      : compactForFocusedSplit
+        ? 'Saved anchor'
+        : 'Highlighted passage'
+    const previewIntro = isSourceAnchoredNote
+      ? 'Use the saved source as the context for this note; no sentence highlight is attached.'
+      : compactForFocusedSplit
       ? 'Use the anchored excerpt as the grounded reference for this note.'
       : 'Use the saved anchor and nearby excerpt as the grounded reference for the note you keep here.'
-    const sourceHandoffIntro = compactForFocusedSplit
+    const sourceHandoffIntro = isSourceAnchoredNote
+      ? 'Open the whole source in Reader for context, or return to the saved source without a sentence anchor.'
+      : compactForFocusedSplit
       ? 'Reopen the source or Reader for surrounding context, then return here to keep editing.'
       : 'Reopen the source or Reader when you need surrounding passage, then keep promotion as the separate next step.'
-    const promoteIntro = compactForFocusedSplit
+    const promoteIntro = isSourceAnchoredNote
+      ? 'Branch into Graph or Study from this source note once the note text is stable.'
+      : compactForFocusedSplit
       ? 'Only branch into Graph or Study after the note and anchor feel stable.'
       : 'Branch into Graph or Study only after the anchor and note text look stable enough to keep.'
+    const contextPrimaryText = isSourceAnchoredNote ? noteDocumentTitle : activeNote.anchor.anchor_text
+    const contextSecondaryText = isSourceAnchoredNote
+      ? `${noteSourceTypeLabel} source · Whole source context · ${noteSourcePreview}`
+      : activeNote.anchor.excerpt_text
+
+    function renderNoteContextPanel(className: string) {
+      return (
+        <div
+          aria-label={isSourceAnchoredNote ? 'Source note context' : 'Selected note anchor'}
+          className={className}
+          data-notebook-highlight-panel={isSourceAnchoredNote ? undefined : 'true'}
+          data-notebook-note-anchor-kind={isSourceAnchoredNote ? 'source' : 'sentence'}
+          data-notebook-source-context-panel={isSourceAnchoredNote ? 'true' : undefined}
+        >
+          <div className="section-header section-header-compact">
+            <h3>{previewLabel}</h3>
+            <p>{previewIntro}</p>
+          </div>
+          <p>{contextPrimaryText}</p>
+          <span>{contextSecondaryText}</span>
+        </div>
+      )
+    }
+
+    if (!compactForFocusedSplit) {
+      return (
+        <div className="recall-note-detail recall-note-detail-single-surface recall-note-detail-stage872 recall-note-detail-single-surface-stage886">
+          <div
+            className="reader-meta-row recall-note-detail-meta recall-note-detail-meta-stage872 recall-note-detail-meta-stage886"
+            role="list"
+            aria-label="Selected note metadata"
+          >
+            <span className="status-chip reader-meta-chip" role="listitem">
+              Updated {dateFormatter.format(new Date(activeNote.updated_at))}
+            </span>
+            <span className="status-chip reader-meta-chip" role="listitem">
+              {noteSentenceLabel}
+            </span>
+            <span className="status-chip reader-meta-chip" role="listitem">
+              Export ready
+            </span>
+          </div>
+
+          <div
+            className="recall-note-workbench-grid recall-note-workbench-grid-stage698 recall-note-workbench-grid-stage872 recall-note-workbench-grid-stage886"
+            data-note-workbench-layout="fused"
+          >
+            {renderNoteContextPanel(
+              'recall-note-preview recall-note-preview-stage recall-note-workbench-preview recall-note-workbench-preview-stage698 recall-note-workbench-preview-stage872 recall-note-workbench-pane-flat-stage886',
+            )}
+
+            <div className="recall-note-workbench-editor recall-note-workbench-editor-stage698 recall-note-workbench-editor-stage872 recall-note-workbench-pane-flat-stage886 stack-gap">
+              <label className="field recall-note-workbench-field">
+                <span>Note text</span>
+                <textarea
+                  placeholder="Add context, a reminder, or a follow-up question"
+                  value={noteDraftBody}
+                  onChange={(event) => setNoteDraftBody(event.target.value)}
+                />
+              </label>
+
+              <div className="recall-note-editor-save-row-stage872">
+                <p className="small-note recall-note-workbench-note">Included in exports and merge previews.</p>
+                <div className="inline-actions recall-note-detail-actions">
+                  <button
+                    disabled={noteBusyKey === `save:${activeNote.id}`}
+                    type="button"
+                    onClick={handleSaveNoteChanges}
+                  >
+                    {noteBusyKey === `save:${activeNote.id}` ? 'Saving…' : 'Save changes'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="recall-note-inline-seams-stage872 recall-note-inline-seams-stage886">
+            <section
+              className="recall-note-inline-seam-stage872 recall-note-source-handoff-inline-stage872 recall-note-action-seam-stage886 recall-note-source-handoff-action-seam-stage886"
+              aria-label="Source handoff"
+              data-notebook-action-seam="source-handoff"
+            >
+              <div className="section-header section-header-compact">
+                <h3>Source handoff</h3>
+                <p>{sourceHandoffIntro}</p>
+              </div>
+              <div className="reader-meta-row recall-note-detail-meta" role="list" aria-label="Note source summary">
+                <span className="status-chip reader-meta-chip" role="listitem">
+                  {noteDocumentTitle}
+                </span>
+                <span className="status-chip reader-meta-chip" role="listitem">
+                  {noteSentenceLabel}
+                </span>
+              </div>
+              <div className="recall-actions recall-actions-inline recall-note-dock-actions">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => focusSourceLibrary(activeNote.anchor.source_document_id)}
+                >
+                  Open source
+                </button>
+                {includeReaderDockAction ? (
+                  <button className="ghost-button" type="button" onClick={() => handleOpenNoteInReader(activeNote, { returnToNotebook: true })}>
+                    Open in Reader
+                  </button>
+                ) : null}
+                <button
+                  className="ghost-button recall-note-delete-button"
+                  disabled={noteBusyKey === `delete:${activeNote.id}`}
+                  type="button"
+                  onClick={handleDeleteNote}
+                >
+                  {noteBusyKey === `delete:${activeNote.id}` ? 'Deleting…' : 'Delete note'}
+                </button>
+              </div>
+            </section>
+
+            <section
+              className="recall-note-inline-seam-stage872 recall-note-promote-inline-stage872 recall-note-action-seam-stage886 recall-note-promote-action-seam-stage886"
+              aria-label="Promote note"
+              data-notebook-action-seam="promote-note"
+            >
+              <div className="section-header section-header-compact">
+                <h3>Promote note</h3>
+                <p>{promoteIntro}</p>
+              </div>
+              <div className="recall-stage-tabs" aria-label="Note promotion" role="tablist">
+                <button
+                  aria-selected={notePromotionMode === 'graph'}
+                  className={notePromotionMode === 'graph' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                  disabled={noteBusyKey === `graph:${activeNote.id}`}
+                  role="tab"
+                  type="button"
+                  onClick={() => setNotePromotionMode('graph')}
+                >
+                  Promote to Graph
+                </button>
+                <button
+                  aria-selected={notePromotionMode === 'study'}
+                  className={notePromotionMode === 'study' ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+                  disabled={noteBusyKey === `study:${activeNote.id}`}
+                  role="tab"
+                  type="button"
+                  onClick={() => setNotePromotionMode('study')}
+                >
+                  Create Study Card
+                </button>
+              </div>
+
+              {notePromotionMode === 'graph' ? (
+                <div className="recall-note-promote-draft-stage872 stack-gap">
+                  <label className="field">
+                    <span>Graph label</span>
+                    <input
+                      type="text"
+                      value={noteGraphDraft.label}
+                      onChange={(event) =>
+                        setNoteGraphDraft((current) => ({ ...current, label: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Graph description</span>
+                    <textarea
+                      placeholder="Optional context for the promoted concept"
+                      value={noteGraphDraft.description ?? ''}
+                      onChange={(event) =>
+                        setNoteGraphDraft((current) => ({ ...current, description: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <div className="recall-actions recall-actions-inline">
+                    <button
+                      disabled={noteBusyKey === `graph:${activeNote.id}`}
+                      type="button"
+                      onClick={handlePromoteNoteToGraph}
+                    >
+                      {noteBusyKey === `graph:${activeNote.id}` ? 'Promoting…' : 'Promote node'}
+                    </button>
+                    <button className="ghost-button" type="button" onClick={() => setNotePromotionMode(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {notePromotionMode === 'study' ? (
+                <div className="recall-note-promote-draft-stage872 stack-gap">
+                  <label className="field">
+                    <span>Study prompt</span>
+                    <textarea
+                      value={noteStudyDraft.prompt}
+                      onChange={(event) =>
+                        setNoteStudyDraft((current) => ({ ...current, prompt: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Study answer</span>
+                    <textarea
+                      value={noteStudyDraft.answer}
+                      onChange={(event) =>
+                        setNoteStudyDraft((current) => ({ ...current, answer: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <div className="recall-actions recall-actions-inline">
+                    <button
+                      disabled={noteBusyKey === `study:${activeNote.id}`}
+                      type="button"
+                      onClick={handlePromoteNoteToStudyCard}
+                    >
+                      {noteBusyKey === `study:${activeNote.id}` ? 'Creating…' : 'Create card'}
+                    </button>
+                    <button className="ghost-button" type="button" onClick={() => setNotePromotionMode(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          </div>
+        </div>
+      )
+    }
 
     return (
       <div
@@ -11539,14 +15295,9 @@ export function RecallWorkspace({
               className="recall-note-workbench-grid recall-note-workbench-grid-stage698"
               data-note-workbench-layout={compactForFocusedSplit ? 'stacked' : 'split'}
             >
-              <div className="recall-note-preview recall-note-preview-stage recall-note-workbench-preview recall-note-workbench-preview-stage698">
-                <div className="section-header section-header-compact">
-                  <h3>{previewLabel}</h3>
-                  <p>{previewIntro}</p>
-                </div>
-                <p>{activeNote.anchor.anchor_text}</p>
-                <span>{activeNote.anchor.excerpt_text}</span>
-              </div>
+              {renderNoteContextPanel(
+                'recall-note-preview recall-note-preview-stage recall-note-workbench-preview recall-note-workbench-preview-stage698',
+              )}
 
               <div className="recall-note-workbench-editor recall-note-workbench-editor-stage698 stack-gap">
                 <label className="field recall-note-workbench-field">
@@ -11597,7 +15348,7 @@ export function RecallWorkspace({
                 Open source
               </button>
               {includeReaderDockAction ? (
-                <button className="ghost-button" type="button" onClick={() => handleOpenNoteInReader(activeNote)}>
+                <button className="ghost-button" type="button" onClick={() => handleOpenNoteInReader(activeNote, { returnToNotebook: true })}>
                   Open in Reader
                 </button>
               ) : null}
@@ -11776,10 +15527,14 @@ export function RecallWorkspace({
                     : 'recall-detail-panel recall-browse-summary-card recall-note-summary-card recall-note-summary-card-stage698'
                 }
               >
-                <strong>{activeNote?.anchor.anchor_text ?? selectedNotesDocumentTitle ?? 'No active note yet'}</strong>
+                <strong>
+                  {activeNote
+                    ? getNoteDisplayTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)
+                    : selectedNotesDocumentTitle ?? 'No active note yet'}
+                </strong>
                 <span>
                   {activeNote
-                    ? activeNote.body_text?.trim() || activeNote.anchor.excerpt_text
+                    ? getNoteRowPreview(activeNote)
                     : selectedNotesDocumentTitle
                       ? showFocusedNotesEmptyDetailLane
                       ? sourceWorkspaceNoteCountLabel
@@ -11798,10 +15553,7 @@ export function RecallWorkspace({
                 {activeNote ? (
                   <span className="recall-note-summary-meta">
                     {getNoteDocumentTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)} ·{' '}
-                    {formatSentenceSpanLabel(
-                      activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
-                      activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
-                    )}
+                    {getNoteAnchorScopeLabel(activeNote)}
                   </span>
                 ) : null}
                 {showFocusedNotesEmptyDetailLane ? null : (
@@ -11834,12 +15586,15 @@ export function RecallWorkspace({
                   ? 'card stack-gap recall-source-secondary-panel recall-note-detail-panel recall-note-detail-panel-stage698 recall-note-detail-panel-drawer-empty'
                   : 'card stack-gap recall-source-secondary-panel recall-note-detail-panel recall-note-detail-panel-stage698'
             }
+            aria-label={newNoteDraftOpen ? 'New note draft' : activeNote ? 'Selected note workbench' : 'Notebook workbench'}
           >
             <div className="toolbar recall-note-detail-panel-toolbar-stage698">
               <div className="section-header section-header-compact">
-                <h2>Note detail</h2>
+                <h2>{newNoteDraftOpen ? 'New note' : 'Note detail'}</h2>
                 <p>
-                  {activeNote
+                  {newNoteDraftOpen
+                    ? 'Draft a source-attached note without losing this source workspace.'
+                    : activeNote
                     ? 'Edit the saved note, inspect the anchor, and only branch out once the note is stable.'
                     : showFocusedNotesDrawerOpenEmptyDetailPanel
                       ? 'Select a saved note.'
@@ -11848,7 +15603,7 @@ export function RecallWorkspace({
                         : 'Choose a note to open its anchored passage.'}
                 </p>
               </div>
-              {activeNote ? (
+              {activeNote && !newNoteDraftOpen ? (
                 <div className="recall-actions">
                   {showFocusedNotesSplitView ? (
                     <button type="button" onClick={() => handleShowNoteInFocusedReader(activeNote)}>
@@ -11858,7 +15613,7 @@ export function RecallWorkspace({
                   <button
                     className={showFocusedNotesSplitView ? 'ghost-button' : undefined}
                     type="button"
-                    onClick={() => handleOpenNoteInReader(activeNote)}
+                    onClick={() => handleOpenNoteInReader(activeNote, { returnToNotebook: true })}
                   >
                     Open in Reader
                   </button>
@@ -11867,7 +15622,9 @@ export function RecallWorkspace({
             </div>
 
             {notesMessage ? <p className="small-note">{notesMessage}</p> : null}
-            {!activeNote ? (
+            {newNoteDraftOpen ? (
+              renderNewNoteDraftWorkbench()
+            ) : !activeNote ? (
               <p className={showFocusedNotesSplitView ? 'small-note recall-note-detail-empty-note' : 'small-note'}>
                 No active note yet.
               </p>
@@ -11884,125 +15641,160 @@ export function RecallWorkspace({
   }
 
   function renderDesktopNotesSection() {
-    const notesWorkspaceSummary = activeNote
-      ? 'Keep one saved note active here while the rest of the notebook stays nearby.'
+    const activeNoteSentenceLabel = activeNote
+      ? getNoteAnchorScopeLabel(activeNote)
+      : null
+    const activeNoteDocumentTitle = activeNote
+      ? getNoteDocumentTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)
       : selectedNotesDocumentTitle
-        ? 'Keep this source stream nearby so the next saved note can take over the main workbench.'
-        : 'Pick one saved source, search its notes, and let the next note take over the main workbench.'
     const notesWorkspaceBadge =
       documentsStatus === 'error'
         ? 'Notebook unavailable'
-        : activeNote
+        : newNoteDraftOpen
+          ? 'Draft note'
+          : activeNote
           ? 'Current note'
           : selectedNotesDocumentTitle
             ? 'Selected source'
             : 'Notebook workspace'
-    const notesBrowseSummary =
+    const notesCommandStatus =
       documentsStatus === 'error'
-        ? 'Reconnect the local library to reopen source-linked notebook notes here.'
-        : activeNote
+        ? 'Reconnect local library'
+        : newNoteDraftOpen
+          ? selectedNotesDocumentTitle
+            ? `Writing a source-attached note for ${selectedNotesDocumentTitle}.`
+            : 'Choose a source before saving this source-attached note.'
+          : activeNote
           ? getNoteRowPreview(activeNote)
           : selectedNotesDocumentTitle
             ? showingNoteSearch
-              ? `${selectedNotesCountLabel} in ${selectedNotesDocumentTitle}. Clear the query to return to the full notebook stream.`
-              : `${selectedNotesCountLabel} for ${selectedNotesDocumentTitle}. Open one anchored note when it deserves the main workbench.`
-            : 'Pick a saved source to keep its notebook stream nearby.'
+              ? `Search active in ${selectedNotesDocumentTitle}.`
+              : `${selectedNotesCountLabel} for ${selectedNotesDocumentTitle}.`
+            : 'Pick a saved source to open its notebook stream.'
+    const notesCommandRowClassName = activeNote
+      ? 'card recall-notes-command-row recall-notes-command-row-stage872 recall-notes-command-row-stage886 recall-notes-command-row-stage888 recall-notes-command-row-stage890'
+      : 'card recall-notes-command-row recall-notes-command-row-stage872 recall-notes-command-row-stage888 recall-notes-command-row-stage890'
+    const noteDetailPanelClassName = activeNote && !newNoteDraftOpen
+      ? 'card stack-gap recall-note-detail-panel recall-note-detail-stage recall-note-detail-stage698 recall-note-detail-stage872 recall-note-detail-stage886'
+      : 'card stack-gap recall-note-detail-panel recall-note-detail-stage recall-note-detail-stage698 recall-note-detail-stage872 recall-note-detail-stage888'
 
     return (
       <div className="recall-notes-workspace recall-notes-workspace-stage698 stack-gap">
-        <section className="card recall-notes-stage-shell recall-notes-stage-shell-stage698 priority-surface-stage-shell">
-          <div className="recall-notes-stage-shell-copy">
+        <section
+          className={notesCommandRowClassName}
+          aria-label="Notebook command row"
+          data-notebook-selected-note-lead-band={activeNote ? 'fused' : undefined}
+          data-notebook-new-note-draft-stage890={newNoteDraftOpen ? 'true' : undefined}
+        >
+          <div className="recall-notes-command-main-stage872">
             <div className="reader-stage-kicker-row">
               <span className="status-chip recall-notes-stage-badge">{notesWorkspaceBadge}</span>
               <span className="recall-notes-stage-note">
-                {selectedNotesDocumentTitle ?? (documentsStatus === 'error' ? 'Reconnect local library' : 'Pick a saved source')}
+                {activeNoteDocumentTitle ?? (documentsStatus === 'error' ? 'Reconnect local library' : 'Pick a saved source')}
               </span>
             </div>
-            <div className="recall-notes-stage-heading">
+            <div className="recall-notes-stage-heading recall-notes-command-heading-stage872">
               <h2>Notebook</h2>
-              <p>{notesWorkspaceSummary}</p>
+              {activeNote && !newNoteDraftOpen ? (
+                <strong className="recall-notes-command-active-title-stage886">
+                  {getNoteDisplayTitle(activeNote, documentTitleById, selectedNotesDocumentTitle)}
+                </strong>
+              ) : null}
+              <p>{notesCommandStatus}</p>
             </div>
           </div>
 
-          <div className="recall-notes-stage-actions recall-notes-stage-actions-stage698">
-            <div className="reader-meta-row recall-notes-stage-summary-stage698" role="list" aria-label="Notebook workspace summary">
+          <div className="recall-notes-command-controls-stage872">
+            <div
+              className="reader-meta-row recall-notes-stage-summary-stage698 recall-notes-command-summary-stage872"
+              role="list"
+              aria-label="Notebook workspace summary"
+            >
               <span className="status-chip reader-meta-chip" role="listitem">
                 {selectedNotesCountLabel}
               </span>
               <span className="status-chip reader-meta-chip" role="listitem">
                 {showingNoteSearch ? 'Search active' : 'Local-first notebook'}
               </span>
-              {activeNote ? (
+              {activeNote && activeNoteSentenceLabel ? (
                 <span className="status-chip reader-meta-chip" role="listitem">
-                  {formatSentenceSpanLabel(
-                    activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
-                    activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
-                  )}
+                  {activeNoteSentenceLabel}
                 </span>
               ) : null}
             </div>
-            {!activeNote && selectedNotesDocumentId ? (
-              <div className="recall-actions recall-actions-inline">
-                <button type="button" onClick={() => focusSourceLibrary(selectedNotesDocumentId)}>
-                  Open source
+            <div className="recall-notes-command-fields-stage872">
+              <label className="field recall-inline-field recall-notes-command-field-stage872">
+                <span>Source</span>
+                <select
+                  disabled={documentsStatus === 'error' || documents.length === 0}
+                  value={selectedNotesDocumentId ?? ''}
+                  onChange={(event) => handleSelectNotesDocument(event.target.value)}
+                >
+                  {documents.length === 0 ? <option value="">No documents yet</option> : null}
+                  {documents.map((document) => (
+                    <option key={document.id} value={document.id}>
+                      {document.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field recall-inline-field recall-notes-command-field-stage872">
+                <span>Search notebook</span>
+                <input
+                  type="search"
+                  placeholder="Search highlights or note text"
+                  value={noteSearchQuery}
+                  onChange={(event) =>
+                    updateNotesState((current) => ({ ...current, searchQuery: event.target.value }))
+                  }
+                />
+              </label>
+
+              {selectedNotesDocumentId ? (
+                <button
+                  className="ghost-button recall-notes-new-note-button-stage890"
+                  type="button"
+                  onClick={() => handleStartNewNotebookDraft(selectedNotesDocumentId)}
+                >
+                  New note
                 </button>
-              </div>
-            ) : null}
+              ) : null}
+              {selectedNotesDocumentId ? (
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => handleOpenDocumentInReader(selectedNotesDocumentId)}
+                >
+                  Capture in Reader
+                </button>
+              ) : null}
+            </div>
           </div>
         </section>
 
         <div className="recall-notes-stage-grid recall-notes-stage-grid-stage698">
-          <section className="card recall-notes-browser-card recall-notes-browser-card-stage698 stack-gap">
-            <div className="toolbar recall-notes-browser-toolbar recall-notes-browser-toolbar-stage698">
+          <section className="card recall-notes-browser-card recall-notes-browser-card-stage698 recall-notes-browser-card-stage872 recall-notes-browser-card-stage888 stack-gap">
+            <div className="toolbar recall-notes-browser-toolbar recall-notes-browser-toolbar-stage698 recall-notes-browser-toolbar-stage888">
               <div className="section-header section-header-compact">
                 <h3>Browse notebook</h3>
-                <p>Keep one source stream visible, then let the main workbench take over when a saved note needs editing.</p>
-              </div>
-            </div>
-            <div className="recall-notes-browser-glance recall-notes-browser-glance-stage698">
-              <div className="reader-stage-kicker-row">
-                <span className="status-chip recall-notes-stage-badge">
-                  {activeNote ? 'Active note' : selectedNotesDocumentTitle ? 'Selected source' : 'Choose a source'}
-                </span>
-                <span className="recall-notes-stage-note">{selectedNotesCountLabel}</span>
-              </div>
-              <strong>{activeNote?.anchor.anchor_text ?? selectedNotesDocumentTitle ?? 'Pick a saved source'}</strong>
-              <p>{notesBrowseSummary}</p>
-              <div className="reader-meta-row recall-notes-browser-glance-meta" role="list" aria-label="Notebook browse summary">
-                <span className="status-chip reader-meta-chip" role="listitem">
-                  {showingNoteSearch ? 'Search active' : 'Stream visible'}
-                </span>
-                {activeNote ? (
-                  <span className="status-chip reader-meta-chip" role="listitem">
-                    {formatSentenceSpanLabel(
-                      activeNote.anchor.global_sentence_start ?? activeNote.anchor.sentence_start,
-                      activeNote.anchor.global_sentence_end ?? activeNote.anchor.sentence_end,
-                    )}
-                  </span>
-                ) : null}
+                <p>{selectedNotesDocumentTitle ? selectedNotesCountLabel : 'Choose a source'}</p>
               </div>
             </div>
             {renderNotesBrowseContent({
-              emptyStateClassName: 'recall-surface-state recall-notes-browser-empty-state',
+              emptyStateClassName: 'recall-surface-state recall-notes-browser-empty-state recall-notes-browser-empty-state-stage888',
               filtersClassName: 'recall-collection-filters recall-notes-browser-filters',
               rowVariant: 'desktop',
+              showFilters: false,
             })}
           </section>
 
-          <section className="card stack-gap recall-note-detail-panel recall-note-detail-stage recall-note-detail-stage698">
-            <div className="toolbar recall-note-detail-toolbar recall-note-detail-toolbar-stage698">
-              <div className="section-header section-header-compact">
-                <h2>Note detail</h2>
-                <p>
-                  {activeNote
-                    ? 'Edit one note in a stronger workbench, then branch into Reader, Graph, or Study only when it is ready.'
-                    : 'Keep the selected source summary and next note handoff together here until one saved note takes over the workbench.'}
-                </p>
-              </div>
-            </div>
-
+          <section
+            className={noteDetailPanelClassName}
+            aria-label={newNoteDraftOpen ? 'New note draft' : activeNote ? 'Selected note workbench' : 'Notebook workbench'}
+          >
             {notesMessage ? <p className="small-note">{notesMessage}</p> : null}
-            {activeNote ? renderActiveNoteDetailBody() : renderDesktopNotesEmptyState()}
+            {newNoteDraftOpen ? renderNewNoteDraftWorkbench() : activeNote ? renderActiveNoteDetailBody() : renderDesktopNotesEmptyState()}
           </section>
         </div>
       </div>
@@ -12210,7 +16002,11 @@ export function RecallWorkspace({
 
                   {showHomeCompactControls ? (
                     <div
-                      className="recall-home-compact-control-deck recall-home-compact-control-deck-organizer-control-reset priority-surface-support-rail priority-surface-support-rail-quiet"
+                      className={
+                        homeOrganizerVisible
+                          ? 'recall-home-compact-control-deck recall-home-compact-control-deck-organizer-control-reset priority-surface-support-rail priority-surface-support-rail-quiet'
+                          : 'recall-home-compact-control-deck recall-home-compact-control-deck-organizer-control-reset recall-home-compact-control-deck-organizer-hidden-stage818 priority-surface-support-rail priority-surface-support-rail-quiet'
+                      }
                       role="group"
                       aria-label={homeCompactControlsHeading}
                     >
@@ -12226,7 +16022,13 @@ export function RecallWorkspace({
                           }
                         />
                       </label>
-                      <div className="recall-home-compact-control-actions recall-home-compact-control-actions-organizer-control-reset recall-home-compact-control-actions-stage467-reset">
+                      <div
+                        className={
+                          homeOrganizerVisible
+                            ? 'recall-home-compact-control-actions recall-home-compact-control-actions-organizer-control-reset recall-home-compact-control-actions-stage467-reset'
+                            : 'recall-home-compact-control-actions recall-home-compact-control-actions-organizer-control-reset recall-home-compact-control-actions-organizer-hidden-stage818 recall-home-compact-control-actions-stage467-reset'
+                        }
+                      >
                         <div className="recall-home-organizer-control-groups-stage467-reset">
                           <div
                             className="recall-home-organizer-control-pillbox-stage467-reset"
@@ -12390,7 +16192,7 @@ export function RecallWorkspace({
                             <button
                               className="ghost-button recall-home-browse-strip-tool"
                               type="button"
-                              onClick={() => updateLibraryState((current) => ({ ...current, filterQuery: '' }))}
+                              onClick={clearHomeLibraryFilter}
                             >
                               Clear search
                             </button>
@@ -12419,12 +16221,20 @@ export function RecallWorkspace({
                       <p>Your Home is empty. Use Add to bring in a source, then return here to reopen reading, notes, graph, and study work.</p>
                     </div>
                   ) : null}
-                  {!documentsLoading && documentsStatus !== 'error' && documents.length > 0 && visibleDocuments.length === 0 ? (
+                  {!documentsLoading &&
+                  documentsStatus !== 'error' &&
+                  documents.length > 0 &&
+                  visibleDocuments.length === 0 &&
+                  !libraryFilterActive &&
+                  !homeMemoryFilterActive ? (
                     <div className="recall-library-inline-state">
                       <p>No saved sources match that search. Try a different title, type, or locator.</p>
                     </div>
                   ) : null}
-                  {!documentsLoading && documentsStatus !== 'error' && visibleDocuments.length > 0 ? (
+                  {!documentsLoading &&
+                  documentsStatus !== 'error' &&
+                  documents.length > 0 &&
+                  (visibleDocuments.length > 0 || libraryFilterActive || homeMemoryFilterActive) ? (
                     <div
                       className={
                         homeOrganizerVisible
@@ -12438,11 +16248,6 @@ export function RecallWorkspace({
                           open={homeOrganizerVisible}
                           resizing={homeOrganizerRailResizing}
                           width={homeOrganizerRailWidth}
-                          onClose={() => {
-                            setHomeStage567RailMenuOpen(false)
-                            setHomeStage563SortMenuOpen(false)
-                            setHomeOrganizerVisible(false)
-                          }}
                           onOpen={() => setHomeOrganizerVisible(true)}
                           onResetWidth={handleResetHomeOrganizerRailWidth}
                           onResizeKeyDown={handleHomeOrganizerRailResizeKeyDown}
@@ -12777,6 +16582,12 @@ export function RecallWorkspace({
                                         .join(' ')
                                     }
                                     key={section.key}
+                                    data-home-personal-notes-organizer-section-stage898={
+                                      isHomePersonalNotesSection(section.key) ? 'true' : undefined
+                                    }
+                                    data-home-personal-notes-organizer-selected-stage898={
+                                      browseGroupActive && isHomePersonalNotesSection(section.key) ? 'true' : undefined
+                                    }
                                     role="listitem"
                                     onDragOver={(event) => handleHomeOrganizerSectionDragOver(section.key, event)}
                                     onDrop={(event) => handleHomeOrganizerSectionDrop(section.key, event)}
@@ -12811,9 +16622,18 @@ export function RecallWorkspace({
                                               Untagged
                                             </span>
                                           ) : null}
+                                          {isHomePersonalNotesSection(section.key) ? (
+                                            <span className="status-chip status-muted recall-home-browse-group-kind-stage495-reset recall-home-browse-group-kind-stage507-reset">
+                                              Personal
+                                            </span>
+                                          ) : null}
                                           {browseGroupActive ? (
                                             <span
-                                              aria-label={formatCountLabel(section.count, 'source', 'sources')}
+                                              aria-label={
+                                                isHomePersonalNotesSection(section.key)
+                                                  ? formatCountLabel(section.count, 'personal note', 'personal notes')
+                                                  : formatCountLabel(section.count, 'source', 'sources')
+                                              }
                                               className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-active-highlight-deflation-reset recall-home-browse-group-count-chip-active-readout-softening-reset recall-home-browse-group-count-chip-stage507-reset"
                                             >
                                               {section.count}
@@ -12822,7 +16642,11 @@ export function RecallWorkspace({
                                         </span>
                                         {!browseGroupActive ? (
                                           <span
-                                            aria-label={formatCountLabel(section.count, 'source', 'sources')}
+                                            aria-label={
+                                              isHomePersonalNotesSection(section.key)
+                                                ? formatCountLabel(section.count, 'personal note', 'personal notes')
+                                                : formatCountLabel(section.count, 'source', 'sources')
+                                            }
                                             className="recall-home-browse-group-count-chip recall-home-browse-group-count-chip-stage507-reset"
                                           >
                                             {section.count}
@@ -12841,7 +16665,7 @@ export function RecallWorkspace({
                                         </span>
                                       ) : null}
                                     </button>
-                                    {homeManualModeActive ? (
+                                    {homeManualModeActive && !isHomePersonalNotesSection(section.key) ? (
                                       <div className="recall-home-organizer-workbench-controls-stage487-reset">
                                         <button
                                           aria-label={`Drag ${section.label}`}
@@ -12978,7 +16802,11 @@ export function RecallWorkspace({
                             : 'recall-home-browser-stage recall-home-browser-stage-parity-reset recall-home-browser-stage-tree-reset recall-home-browser-stage-organizer-control-reset recall-home-browser-stage-board-first-reset recall-home-browser-stage-organizer-hidden-reset recall-home-browser-stage-results-sheet-reset'
                         }
                       >
-                        {showHomeReopenCluster || homeSelectedBrowseSection || showHomeBoardOverview || libraryFilterActive ? (
+                        {showHomeReopenCluster ||
+                        homeSelectedBrowseSection ||
+                        showHomeBoardOverview ||
+                        libraryFilterActive ||
+                        homeMemoryFilterActive ? (
                           showHomeStage563Canvas ? (
                             renderHomeStage563Canvas()
                           ) : (
@@ -12994,7 +16822,7 @@ export function RecallWorkspace({
                               className={
                                 homeOrganizerVisible
                                   ? 'recall-home-primary-flow-grid recall-home-primary-flow-grid-density-reset recall-home-primary-flow-grid-tree-reset recall-home-primary-flow-grid-board-reset recall-home-primary-flow-grid-fill-reset recall-home-primary-flow-grid-card-density-reset recall-home-primary-flow-grid-continuous-board-reset recall-home-primary-flow-grid-library-sheet-reset recall-home-primary-flow-grid-organizer-control-reset recall-home-primary-flow-grid-board-first-reset recall-home-primary-flow-grid-board-fusion-reset recall-home-primary-flow-grid-organizer-owned-reset recall-home-primary-flow-grid-unified-workbench-reset recall-home-primary-flow-grid-board-top-reset recall-home-primary-flow-grid-results-sheet-reset'
-                                  : 'recall-home-primary-flow-grid recall-home-primary-flow-grid-density-reset recall-home-primary-flow-grid-tree-reset recall-home-primary-flow-grid-board-reset recall-home-primary-flow-grid-fill-reset recall-home-primary-flow-grid-card-density-reset recall-home-primary-flow-grid-continuous-board-reset recall-home-primary-flow-grid-library-sheet-reset recall-home-primary-flow-grid-organizer-control-reset recall-home-primary-flow-grid-board-first-reset recall-home-primary-flow-grid-board-fusion-reset recall-home-primary-flow-grid-organizer-owned-reset recall-home-primary-flow-grid-organizer-hidden-reset recall-home-primary-flow-grid-unified-workbench-reset recall-home-primary-flow-grid-board-top-reset recall-home-primary-flow-grid-results-sheet-reset'
+                                  : 'recall-home-primary-flow-grid recall-home-primary-flow-grid-density-reset recall-home-primary-flow-grid-tree-reset recall-home-primary-flow-grid-board-reset recall-home-primary-flow-grid-fill-reset recall-home-primary-flow-grid-card-density-reset recall-home-primary-flow-grid-continuous-board-reset recall-home-primary-flow-grid-library-sheet-reset recall-home-primary-flow-grid-organizer-control-reset recall-home-primary-flow-grid-board-first-reset recall-home-primary-flow-grid-board-fusion-reset recall-home-primary-flow-grid-organizer-owned-reset recall-home-primary-flow-grid-organizer-hidden-stage820 recall-home-primary-flow-grid-unified-workbench-reset recall-home-primary-flow-grid-board-top-reset recall-home-primary-flow-grid-results-sheet-reset'
                               }
                             >
                               {libraryFilterActive ? (
@@ -13004,7 +16832,24 @@ export function RecallWorkspace({
                                 >
                                   <div className="recall-home-primary-board-direct-layout recall-home-primary-board-direct-layout-results-reset recall-home-primary-board-direct-layout-inline-reopen-reset">
                                     <div className="recall-home-primary-board-direct-main recall-home-primary-board-direct-main-results-reset recall-home-primary-board-direct-main-inline-reopen-reset stack-gap">
-                                      <div className="section-header section-header-compact recall-home-library-card-header recall-home-library-card-header-direct-board-reset recall-home-library-card-header-board-dominant-reset recall-home-library-card-header-direct-start-reset">
+                                      {showHiddenHomeBoardToolbar || (showOpenMatchesBoardToolbar && homeViewMode !== 'board')
+                                        ? renderHomeParityToolbar()
+                                        : null}
+                                      <div
+                                        className={[
+                                          'section-header',
+                                          'section-header-compact',
+                                          'recall-home-library-card-header',
+                                          'recall-home-library-card-header-direct-board-reset',
+                                          'recall-home-library-card-header-board-dominant-reset',
+                                          'recall-home-library-card-header-direct-start-reset',
+                                          homeOpenMatchesUsesSingleRowToolbarStage832
+                                            ? 'recall-home-library-card-header-open-toolbar-stage832'
+                                            : '',
+                                        ]
+                                          .filter(Boolean)
+                                          .join(' ')}
+                                      >
                                         <div className="recall-home-library-stage-heading">
                                           <div className="recall-library-section-heading-row">
                                             <h3>Matches</h3>
@@ -13014,6 +16859,9 @@ export function RecallWorkspace({
                                           </div>
                                           <p>Open a result, or clear search in the organizer.</p>
                                         </div>
+                                        {homeOpenMatchesUsesSingleRowToolbarStage832
+                                          ? renderHomeParityToolbar({ useSingleRowConvergenceStage832: true })
+                                          : null}
                                       </div>
                                       {!homeOrganizerVisible && showHomeReopenCluster ? renderHomeReopenCluster() : null}
                                       <div
@@ -13040,6 +16888,7 @@ export function RecallWorkspace({
                                 >
                                   <div className="recall-home-primary-board-direct-layout recall-home-primary-board-direct-layout-selected-reset recall-home-primary-board-direct-layout-inline-reopen-reset">
                                     <div className="recall-home-primary-board-direct-main recall-home-primary-board-direct-main-selected-reset recall-home-primary-board-direct-main-inline-reopen-reset recall-home-primary-board-direct-main-stage511-reset stack-gap">
+                                      {showHiddenHomeBoardToolbar ? renderHomeParityToolbar() : null}
                                       <div className="recall-home-stage-lane-header recall-home-stage-lane-header-board-top-reset recall-home-stage-lane-header-direct-board-reset recall-home-stage-lane-header-board-dominant-reset recall-home-stage-lane-header-results-sheet-reset recall-home-stage-lane-header-tree-branch-reset recall-home-stage-lane-header-direct-start-reset recall-home-stage-lane-header-stage513-reset">
                                         <div className="recall-home-library-stage-source recall-home-library-stage-source-stage513-reset">
                                           <h3>{homeSelectedGroupHeading}</h3>
@@ -13121,6 +16970,7 @@ export function RecallWorkspace({
                                     .join(' ')}
                                   aria-label="Saved library overview"
                                 >
+                                  {showHiddenHomeBoardToolbar ? renderHomeParityToolbar() : null}
                                   <div
                                     className={[
                                       'section-header',
@@ -13314,6 +17164,7 @@ export function RecallWorkspace({
                 ? 'recall-study-browser-layout'
                 : 'recall-study-browser-layout recall-study-browser-layout-condensed'
           }
+          data-study-source-scoped-queue-stage914={studySourceScopeDocumentId ? 'true' : undefined}
         >
           {showStudySidebar ? (
             <section
@@ -13421,6 +17272,32 @@ export function RecallWorkspace({
                     <span className="status-chip status-muted" role="listitem">{studyDueCountLabel}</span>
                     <span className="status-chip status-muted" role="listitem">{studyReviewCountLabel}</span>
                   </div>
+                  {studySourceScopeDocumentId && studyStatus !== 'error' ? (
+                    <div
+                      className="recall-study-focused-schedule-drilldowns-stage918"
+                      data-study-schedule-bucket-drilldowns-stage918="true"
+                      aria-label="Study source schedule drilldowns"
+                    >
+                      {([
+                        ['due-now', 'Due', studyScheduleSummary.dueCount],
+                        ['due-this-week', 'Week', studyScheduleSummary.dueThisWeekCount],
+                        ['upcoming', 'Upcoming', studyScheduleSummary.upcomingCount],
+                        ['new', 'New', studyScheduleSummary.newCount],
+                        ['reviewed', 'Reviewed', studyScheduleSummary.reviewedCount],
+                      ] as const).map(([drilldown, label, count]) => (
+                        <button
+                          className="recall-study-focused-schedule-button-stage918"
+                          data-study-schedule-bucket-stage918={drilldown}
+                          key={`focused-study-schedule:${drilldown}`}
+                          type="button"
+                          onClick={() => openStudyScheduleDrilldown(drilldown)}
+                        >
+                          <span>{label}</span>
+                          <strong>{count}</strong>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </>
             )}
@@ -13440,7 +17317,7 @@ export function RecallWorkspace({
                       className={studyFilter === filter ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
                       role="tab"
                       type="button"
-                      onClick={() => updateStudyState((current) => ({ ...current, filter }))}
+                      onClick={() => updateStudyState((current) => ({ ...current, filter, scheduleDrilldown: 'all' }))}
                     >
                       {label}
                     </button>
@@ -13455,6 +17332,38 @@ export function RecallWorkspace({
                   }
                   role="list"
                 >
+                  {studyBrowseDrawerOpen ? (
+                    <div
+                      className="recall-study-question-search-stage914"
+                      data-study-source-scoped-question-search-stage914="true"
+                    >
+                      {renderStudyScheduleDrilldownChip('focused')}
+                      <label className="field recall-study-question-search-field-stage914">
+                        <span>Search questions</span>
+                        <input
+                          placeholder="Find prompt, answer, evidence, or source"
+                          type="search"
+                          value={studyQuestionSearchQuery}
+                          onChange={(event) => setStudyQuestionSearchQuery(event.target.value)}
+                        />
+                      </label>
+                      {studyQuestionSearchActive ? (
+                        <div
+                          className="recall-source-memory-search-status-stage912"
+                          data-study-question-search-status-stage914={studyQuestionResultCount}
+                        >
+                          <span>
+                            {studyQuestionResultCount === 1
+                              ? '1 question match'
+                              : `${studyQuestionResultCount} question matches`}
+                          </span>
+                          <button className="ghost-button" type="button" onClick={() => setStudyQuestionSearchQuery('')}>
+                            Clear search
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {studyLoading ? <p className="small-note">Loading study cards…</p> : null}
                   {!studyLoading && studyStatus === 'error' ? (
                     <div className="recall-surface-state stack-gap">
@@ -13466,12 +17375,36 @@ export function RecallWorkspace({
                       </div>
                     </div>
                   ) : null}
-                  {!studyLoading && studyStatus !== 'error' && studyCards.length === 0 ? (
+                  {!studyLoading && studyStatus !== 'error' && scopedStudyCardCount === 0 ? (
                     <div className="recall-surface-state">
                       <p>No study cards are available for that filter yet.</p>
                     </div>
                   ) : null}
-                  {visibleStudyQueueCards.map((card) => (
+                  {!studyLoading && studyStatus !== 'error' && scopedStudyCardCount > 0 && studyBrowseDrawerOpen && studyQuestionResultCount === 0 ? (
+                    <div
+                      className="recall-surface-state"
+                      data-study-question-search-empty-stage914={studyQuestionSearchActive ? 'true' : undefined}
+                      data-study-schedule-empty-stage918={studyScheduleDrilldownActive ? 'true' : undefined}
+                    >
+                      <p>{getStudyQuestionsEmptyMessage()}</p>
+                      {studyQuestionSearchActive ? (
+                        <button className="ghost-button" type="button" onClick={() => setStudyQuestionSearchQuery('')}>
+                          Clear search
+                        </button>
+                      ) : null}
+                      {studyScheduleDrilldownActive ? (
+                        <button
+                          className="ghost-button"
+                          data-study-schedule-empty-clear-stage918="true"
+                          type="button"
+                          onClick={() => updateStudyState((current) => ({ ...current, scheduleDrilldown: 'all' }))}
+                        >
+                          Clear schedule
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {(studyBrowseDrawerOpen ? visibleStudyQuestionCards : visibleStudyQueueCards).map((card) => (
                     <button
                       key={card.id}
                       aria-pressed={activeStudyCard?.id === card.id}
@@ -13479,6 +17412,12 @@ export function RecallWorkspace({
                         activeStudyCard?.id === card.id
                           ? 'recall-document-item recall-document-item-compact recall-document-item-active recall-study-queue-item'
                           : 'recall-document-item recall-document-item-compact recall-study-queue-item'
+                      }
+                      data-study-question-search-result-stage914={
+                        studyBrowseDrawerOpen && studyQuestionSearchActive ? 'true' : undefined
+                      }
+                      data-study-schedule-question-result-stage918={
+                        studyBrowseDrawerOpen && studyScheduleDrilldownActive ? studyScheduleDrilldown : undefined
                       }
                       type="button"
                       onClick={() => handleSelectStudyCard(card)}
@@ -13503,7 +17442,7 @@ export function RecallWorkspace({
                     type="button"
                     onClick={() => setStudyQueueExpanded((current) => !current)}
                   >
-                    {studyQueueExpanded ? 'Show fewer cards' : `Show all ${studyCards.length} cards`}
+                    {studyQueueExpanded ? 'Show fewer cards' : `Show all ${filteredStudyCardCount} cards`}
                   </button>
                 ) : null}
               </>
@@ -13714,6 +17653,21 @@ export function RecallWorkspace({
                                   : 'recall-actions recall-actions-inline recall-study-focused-evidence-actions'
                               }
                             >
+                              {getRecordStringValue(focusedStudySourceSpan, 'note_id') ? (
+                                <button
+                                  className="ghost-button"
+                                  type="button"
+                                  onClick={() =>
+                                    focusSourceNotes(
+                                      activeStudyCard.source_document_id,
+                                      getRecordStringValue(focusedStudySourceSpan, 'note_id'),
+                                      { focused: false },
+                                    )
+                                  }
+                                >
+                                  Notebook
+                                </button>
+                              ) : null}
                               <button
                                 aria-label={buildShowReaderLabel(activeStudyCard.document_title)}
                                 type="button"
@@ -13749,7 +17703,7 @@ export function RecallWorkspace({
                                 onClick={() => setFocusedStudySourceSpanIndex(index)}
                               >
                                 Evidence {index + 1}
-                                {getRecordStringValue(sourceSpan, 'note_id') ? ' · Note' : ''}
+                                {getRecordStringValue(sourceSpan, 'note_id') ? ` · ${isSourceNoteSourceSpan(sourceSpan) ? 'Source note' : 'Note'}` : ''}
                               </button>
                             ))}
                           </div>
@@ -13763,7 +17717,9 @@ export function RecallWorkspace({
                             </span>
                             <span className="recall-collection-row-preview">{getStudyEvidenceExcerpt(focusedStudySourceSpan)}</span>
                             <span className="recall-collection-row-meta">
-                              {getRecordStringValue(focusedStudySourceSpan, 'note_id') ? <span className="status-chip">Anchored note</span> : null}
+                              {getStudyEvidenceNoteKindLabel(focusedStudySourceSpan) ? (
+                                <span className="status-chip">{getStudyEvidenceNoteKindLabel(focusedStudySourceSpan)}</span>
+                              ) : null}
                               {getRecordStringValue(focusedStudySourceSpan, 'edge_id') ? <span className="status-chip">Graph-backed</span> : null}
                               {getRecordStringValue(focusedStudySourceSpan, 'chunk_id') ? <span className="status-chip">Chunk excerpt</span> : null}
                               {getRecordNumberValue(focusedStudySourceSpan, 'global_sentence_start') !== null ? (
@@ -13809,13 +17765,30 @@ export function RecallWorkspace({
                               </button>
                             ) : null}
                             {focusedStudySourceSpan ? (
-                              <button
-                                className="ghost-button recall-study-evidence-reader-button"
-                                type="button"
-                                onClick={() => handleOpenStudyCardInReader(activeStudyCard, focusedStudySourceSpan)}
-                              >
-                                {buildOpenReaderLabel(activeStudyCard.document_title)}
-                              </button>
+                              <>
+                                {getRecordStringValue(focusedStudySourceSpan, 'note_id') ? (
+                                  <button
+                                    className="ghost-button recall-study-evidence-note-button"
+                                    type="button"
+                                    onClick={() =>
+                                      focusSourceNotes(
+                                        activeStudyCard.source_document_id,
+                                        getRecordStringValue(focusedStudySourceSpan, 'note_id'),
+                                        { focused: false },
+                                      )
+                                    }
+                                  >
+                                    Open note
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="ghost-button recall-study-evidence-reader-button"
+                                  type="button"
+                                  onClick={() => handleOpenStudyCardInReader(activeStudyCard, focusedStudySourceSpan)}
+                                >
+                                  {buildOpenReaderLabel(activeStudyCard.document_title)}
+                                </button>
+                              </>
                             ) : null}
                           </div>
                         </div>
@@ -13836,7 +17809,7 @@ export function RecallWorkspace({
                                 onClick={() => setFocusedStudySourceSpanIndex(index)}
                               >
                                 Evidence {index + 1}
-                                {getRecordStringValue(sourceSpan, 'note_id') ? ' · Note' : ''}
+                                {getRecordStringValue(sourceSpan, 'note_id') ? ` · ${isSourceNoteSourceSpan(sourceSpan) ? 'Source note' : 'Note'}` : ''}
                               </button>
                             ))}
                           </div>
@@ -13850,7 +17823,9 @@ export function RecallWorkspace({
                             </span>
                             <span className="recall-collection-row-preview">{getStudyEvidenceExcerpt(focusedStudySourceSpan)}</span>
                             <span className="recall-collection-row-meta">
-                              {getRecordStringValue(focusedStudySourceSpan, 'note_id') ? <span className="status-chip">Anchored note</span> : null}
+                              {getStudyEvidenceNoteKindLabel(focusedStudySourceSpan) ? (
+                                <span className="status-chip">{getStudyEvidenceNoteKindLabel(focusedStudySourceSpan)}</span>
+                              ) : null}
                               {getRecordStringValue(focusedStudySourceSpan, 'edge_id') ? <span className="status-chip">Graph-backed</span> : null}
                               {getRecordStringValue(focusedStudySourceSpan, 'chunk_id') ? <span className="status-chip">Chunk excerpt</span> : null}
                               {getRecordNumberValue(focusedStudySourceSpan, 'global_sentence_start') !== null ? (
@@ -13912,4 +17887,3 @@ export function RecallWorkspace({
     </div>
   )
 }
-

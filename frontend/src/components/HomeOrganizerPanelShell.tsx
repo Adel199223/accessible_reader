@@ -2,7 +2,6 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 
 interface HomeOrganizerPanelShellProps {
   children: ReactNode
-  onClose: () => void
   onOpen: () => void
   onResetWidth: () => void
   onResizeKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
@@ -29,7 +28,6 @@ function HomeOrganizerLauncherIcon() {
 
 export function HomeOrganizerPanelShell({
   children,
-  onClose,
   onOpen,
   onResetWidth,
   onResizeKeyDown,
@@ -88,15 +86,6 @@ export function HomeOrganizerPanelShell({
           aria-hidden="true"
         />
       </div>
-      <button
-        aria-label="Hide organizer"
-        className="ghost-button workspace-section-panel-close recall-home-organizer-panel-close recall-home-organizer-panel-close-stage696"
-        title="Hide organizer"
-        type="button"
-        onClick={onClose}
-      >
-        ‹
-      </button>
     </aside>
   )
 }

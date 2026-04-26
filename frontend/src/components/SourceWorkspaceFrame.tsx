@@ -31,6 +31,7 @@ export interface SourceWorkspaceFrameState {
 
 interface SourceWorkspaceFrameProps extends SourceWorkspaceFrameState {
   actions?: ReactNode
+  hideTitle?: boolean
 }
 
 const sourceWorkspaceTabs: Array<{
@@ -74,12 +75,17 @@ function buildCountLabel(document: SourceWorkspaceDocumentSummary) {
   return `${document.availableModes?.length ?? 0} ${(document.availableModes?.length ?? 0) === 1 ? 'view' : 'views'}`
 }
 
+function shouldShowCompactReaderSourceType(document: SourceWorkspaceDocumentSummary) {
+  return document.sourceType.trim().toLocaleLowerCase() !== 'paste'
+}
+
 export function SourceWorkspaceFrame({
   activeTab,
   actions,
   counts = [],
   description,
   document,
+  hideTitle = false,
   onSelectTab,
   readerLayout,
   readerLineWidthCh,
@@ -87,13 +93,17 @@ export function SourceWorkspaceFrame({
   const [compactReaderNavOpen, setCompactReaderNavOpen] = useState(false)
   const compactReaderNavRef = useRef<HTMLDivElement | null>(null)
   const readerActive = activeTab === 'reader'
+  const compactReaderHeaderLane = readerActive && readerLayout === 'compact'
+  const compactReaderHeaderActions = compactReaderHeaderLane && Boolean(actions)
   const showCompactReaderNav = readerActive
+  const compactReaderInlineNav = showCompactReaderNav && compactReaderHeaderLane
   const sourcePreview = readerActive ? null : buildSourcePreview(document)
   const compactReaderNavTabs = sourceWorkspaceTabs.filter((tab) => tab.value !== activeTab)
   const frameClassName = [
     'source-workspace-frame',
     readerActive ? 'source-workspace-frame-reader-active' : '',
     readerActive && readerLayout === 'compact' ? 'source-workspace-frame-reader-compact' : '',
+    compactReaderHeaderActions ? 'source-workspace-frame-reader-compact-actions' : '',
     readerActive && readerLayout === 'expanded' ? 'source-workspace-frame-reader-expanded' : '',
   ]
     .filter(Boolean)
@@ -105,10 +115,14 @@ export function SourceWorkspaceFrame({
         } as CSSProperties)
       : undefined
   const sourceMetaItems = [
-    {
-      label: document.sourceType.toUpperCase(),
-      tone: 'default' as const,
-    },
+    ...(compactReaderHeaderLane && !shouldShowCompactReaderSourceType(document)
+      ? []
+      : [
+          {
+            label: document.sourceType.toUpperCase(),
+            tone: 'default' as const,
+          },
+        ]),
     ...(readerActive
       ? []
       : [
@@ -141,11 +155,77 @@ export function SourceWorkspaceFrame({
       </div>
     </div>
   ) : null
-  const sourceTitle = readerActive ? (
-    <h2 className="source-workspace-title source-workspace-title-heading">{document.title}</h2>
-  ) : (
-    <strong className="source-workspace-title">{document.title}</strong>
-  )
+  const showVisibleTitle = !(readerActive && hideTitle)
+  const sourceTitle = showVisibleTitle
+    ? readerActive
+      ? <h2 className="source-workspace-title source-workspace-title-heading">{document.title}</h2>
+      : <strong className="source-workspace-title">{document.title}</strong>
+    : null
+  const sourceMeta = sourceMetaItems.length ? (
+    <div
+      className={`source-workspace-meta${
+        compactReaderHeaderLane ? ' source-workspace-meta-inline source-workspace-meta-inline-quiet' : ''
+      }`}
+      role="list"
+      aria-label="Active source summary"
+    >
+      {sourceMetaItems.map((item) => {
+        if (compactReaderHeaderLane) {
+          if (item.onSelect) {
+            return (
+              <span
+                key={item.label}
+                className="source-workspace-meta-item source-workspace-meta-inline-entry"
+                role="listitem"
+              >
+                <button
+                  aria-label={item.ariaLabel ?? item.label}
+                  className="source-workspace-meta-action source-workspace-meta-inline-button"
+                  type="button"
+                  onClick={item.onSelect}
+                >
+                  {item.label}
+                </button>
+              </span>
+            )
+          }
+
+          return (
+            <span
+              key={item.label}
+              className="source-workspace-meta-inline-entry source-workspace-meta-inline-label"
+              role="listitem"
+            >
+              {item.label}
+            </span>
+          )
+        }
+
+        const chipClassName =
+          item.tone === 'muted' ? 'status-chip status-muted' : 'status-chip reader-meta-chip'
+        if (item.onSelect) {
+          return (
+            <span key={item.label} className="source-workspace-meta-item" role="listitem">
+              <button
+                aria-label={item.ariaLabel ?? item.label}
+                className={`${chipClassName} source-workspace-meta-action`}
+                type="button"
+                onClick={item.onSelect}
+              >
+                {item.label}
+              </button>
+            </span>
+          )
+        }
+
+        return (
+          <span key={item.label} className={chipClassName} role="listitem">
+            {item.label}
+          </span>
+        )
+      })}
+    </div>
+  ) : null
 
   useEffect(() => {
     if (!showCompactReaderNav) {
@@ -181,11 +261,19 @@ export function SourceWorkspaceFrame({
       <div className="source-workspace-frame-inner">
         <div className="source-workspace-strip-main">
           <div className="source-workspace-strip-overview">
-            <div className="source-workspace-strip-heading">
+            <div
+              className={`source-workspace-strip-heading${
+                compactReaderHeaderLane ? ' source-workspace-strip-heading-inline-meta' : ''
+              }${
+                !showVisibleTitle ? ' source-workspace-strip-heading-title-hidden' : ''
+              }`}
+            >
               {showCompactReaderNav ? (
                 <div
                   ref={compactReaderNavRef}
-                  className={`source-workspace-nav-overflow source-workspace-nav-overflow-badge${
+                  className={`source-workspace-nav-overflow ${
+                    compactReaderInlineNav ? 'source-workspace-nav-overflow-inline' : 'source-workspace-nav-overflow-badge'
+                  }${
                     compactReaderNavOpen ? ' source-workspace-nav-overflow-open' : ''
                   }`}
                 >
@@ -193,11 +281,23 @@ export function SourceWorkspaceFrame({
                     aria-expanded={compactReaderNavOpen}
                     aria-haspopup="true"
                     aria-label="Open source workspace destinations"
-                    className="status-chip source-workspace-strip-badge source-workspace-strip-badge-button source-workspace-nav-trigger"
+                    className={
+                      compactReaderInlineNav
+                        ? 'source-workspace-nav-trigger source-workspace-nav-trigger-inline'
+                        : 'status-chip source-workspace-strip-badge source-workspace-strip-badge-button source-workspace-nav-trigger'
+                    }
                     type="button"
                     onClick={() => setCompactReaderNavOpen((current) => !current)}
                   >
-                    <span className="source-workspace-strip-badge-button-label">{badgeLabel}</span>
+                    <span
+                      className={
+                        compactReaderInlineNav
+                          ? 'source-workspace-nav-trigger-label'
+                          : 'source-workspace-strip-badge-button-label'
+                      }
+                    >
+                      {badgeLabel}
+                    </span>
                     <ChevronDownIcon />
                   </button>
                   {compactReaderNavPanel}
@@ -206,38 +306,16 @@ export function SourceWorkspaceFrame({
                 <span className="status-chip source-workspace-strip-badge">{badgeLabel}</span>
               )}
               {sourceTitle}
+              {compactReaderHeaderLane ? sourceMeta : null}
             </div>
             {sourcePreview ? <p className="source-workspace-source">{sourcePreview}</p> : null}
           </div>
-          <div className="source-workspace-strip-context">
-            {!readerActive ? <p className="source-workspace-description">{description}</p> : null}
-            <div className="source-workspace-meta" role="list" aria-label="Active source summary">
-              {sourceMetaItems.map((item) => {
-                const chipClassName =
-                  item.tone === 'muted' ? 'status-chip status-muted' : 'status-chip reader-meta-chip'
-                if (item.onSelect) {
-                  return (
-                    <span key={item.label} className="source-workspace-meta-item" role="listitem">
-                      <button
-                        aria-label={item.ariaLabel ?? item.label}
-                        className={`${chipClassName} source-workspace-meta-action`}
-                        type="button"
-                        onClick={item.onSelect}
-                      >
-                        {item.label}
-                      </button>
-                    </span>
-                  )
-                }
-
-                return (
-                  <span key={item.label} className={chipClassName} role="listitem">
-                    {item.label}
-                  </span>
-                )
-              })}
+          {!compactReaderHeaderLane ? (
+            <div className="source-workspace-strip-context">
+              {!readerActive ? <p className="source-workspace-description">{description}</p> : null}
+              {sourceMeta}
             </div>
-          </div>
+          ) : null}
         </div>
 
         {!showCompactReaderNav || actions ? (

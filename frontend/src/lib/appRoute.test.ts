@@ -71,11 +71,12 @@ test('defaultRecallWorkspaceContinuityState keeps Home organizer sorting default
     pathSelectedNodeIds: [],
     selectedNodeId: null,
     tourDismissed: false,
-    tourStep: 0,
+    tourStep: null,
   })
   expect(defaultRecallWorkspaceContinuityState.library).toMatchObject({
     activeSurface: 'home',
     filterQuery: '',
+    homeMemoryFilter: 'all',
     homeOrganizerLens: 'collections',
     homeOrganizerVisible: true,
     homeSortDirection: 'desc',

@@ -2,10 +2,12 @@ export type AppSection = 'recall' | 'reader'
 export type RecallSection = 'library' | 'graph' | 'study' | 'notes'
 export type RecallLibrarySurface = 'home' | 'notebook'
 export type RecallHomeOrganizerLens = 'collections' | 'recent'
+export type RecallHomeMemoryFilter = 'all' | 'any' | 'notes' | 'graph' | 'study'
 export type RecallHomeViewMode = 'board' | 'list'
 export type RecallLibrarySortDirection = 'asc' | 'desc'
 export type RecallLibrarySortMode = 'updated' | 'created' | 'title' | 'manual'
 export type RecallStudyFilter = 'all' | 'new' | 'due' | 'scheduled'
+export type RecallStudyScheduleDrilldown = 'all' | 'due-now' | 'due-this-week' | 'upcoming' | 'new' | 'reviewed'
 export type SourceWorkspaceTab = 'overview' | 'reader' | 'notes' | 'graph' | 'study'
 export type SourceWorkspaceMode = 'browse' | 'focused'
 export type WorkspaceSection = RecallSection | 'reader'
@@ -54,9 +56,11 @@ export interface RecallWorkspaceFocusRequest {
   cardId?: string | null
   documentId?: string | null
   librarySurface?: RecallLibrarySurface | null
+  newNote?: boolean | null
   nodeId?: string | null
   noteId?: string | null
   section: RecallSection
+  sourceMemorySearchFocus?: boolean | null
   sourceTab?: SourceWorkspaceTab | null
   token: number
 }
@@ -78,6 +82,7 @@ export interface RecallWorkspaceContinuityState {
   library: {
     activeSurface: RecallLibrarySurface
     filterQuery: string
+    homeMemoryFilter: RecallHomeMemoryFilter
     homeOrganizerLens: RecallHomeOrganizerLens
     homeOrganizerVisible: boolean
     homeSortDirection: RecallLibrarySortDirection
@@ -93,10 +98,15 @@ export interface RecallWorkspaceContinuityState {
   study: {
     activeCardId: string | null
     filter: RecallStudyFilter
+    questionSearchQuery: string
+    scheduleDrilldown: RecallStudyScheduleDrilldown
+    sourceScopeDocumentId: string | null
   }
   sourceWorkspace: {
     activeDocumentId: string | null
     activeTab: SourceWorkspaceTab
+    memorySearchFocusToken: number | null
+    memorySearchQuery: string
     mode: SourceWorkspaceMode
     readerAnchor: ReaderAnchorRange | null
   }
@@ -122,11 +132,12 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
     pathSelectedNodeIds: [],
     selectedNodeId: null,
     tourDismissed: false,
-    tourStep: 0,
+    tourStep: null,
   },
   library: {
     activeSurface: 'home',
     filterQuery: '',
+    homeMemoryFilter: 'all',
     homeOrganizerLens: 'collections',
     homeOrganizerVisible: true,
     homeSortDirection: 'desc',
@@ -142,10 +153,15 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
   study: {
     activeCardId: null,
     filter: 'all',
+    questionSearchQuery: '',
+    scheduleDrilldown: 'all',
+    sourceScopeDocumentId: null,
   },
   sourceWorkspace: {
     activeDocumentId: null,
     activeTab: 'overview',
+    memorySearchFocusToken: null,
+    memorySearchQuery: '',
     mode: 'browse',
     readerAnchor: null,
   },

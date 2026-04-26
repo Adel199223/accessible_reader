@@ -180,18 +180,22 @@ export function ImportPanel({
           ) : null}
         </div>
       ) : null}
-      <div className="import-panel-entry-hero">
-        <div className="import-panel-entry-copy">
+      <section
+        aria-label="Add content capture gateway"
+        className="import-panel-command-row import-panel-command-row-stage880"
+        data-add-content-command-row-stage880="true"
+      >
+        <div className="import-panel-entry-copy import-panel-command-copy-stage880">
           <p className="import-panel-entry-eyebrow">One place to add things</p>
           <h3>{activeMode.heroTitle}</h3>
           <p>{activeMode.heroDescription}</p>
         </div>
-        <div className="import-panel-entry-helper" aria-label="Active import guidance">
+        <div className="import-panel-command-status-stage880" aria-label="Active import guidance">
           <strong>{activeMode.helperLabel}</strong>
           <p>{activeMode.helperText}</p>
         </div>
-      </div>
-      <div className="import-panel-mode-tabs" aria-label="Import modes" role="tablist">
+      </section>
+      <div className="import-panel-mode-tabs import-panel-mode-tabs-stage880" aria-label="Import modes" role="tablist">
         {importModes.map((item) => (
           <button
             key={item.value}
@@ -212,14 +216,32 @@ export function ImportPanel({
         ))}
       </div>
 
-      <div className="import-panel-layout">
-        <div className="import-panel-primary stack-gap">
+      <div className="import-panel-layout import-panel-layout-stage880">
+        <div
+          aria-label="Selected import workbench"
+          className="import-panel-primary import-panel-primary-stage880 stack-gap"
+          data-add-content-primary-workbench-stage880="true"
+        >
           <div className="import-panel-primary-header">
             <span className="import-panel-primary-kicker">{activeMode.label}</span>
             <div className="section-header section-header-compact">
               <h3>{activeMode.panelTitle}</h3>
               <p>{activeMode.helperText}</p>
             </div>
+          </div>
+
+          <div
+            aria-label="Import support"
+            className="import-panel-support-seam import-panel-support-seam-stage880"
+            data-add-content-support-seam-stage880="true"
+          >
+            <strong>{activeMode.supportTitle}</strong>
+            <div className="import-panel-support-seam-list">
+              {activeMode.supportPoints.map((point) => (
+                <span key={point}>{point}</span>
+              ))}
+            </div>
+            <span className="import-panel-support-seam-note">{helperText}</span>
           </div>
 
           {mode === 'text' ? (
@@ -236,7 +258,7 @@ export function ImportPanel({
               <label className="field">
                 <span>Paste text</span>
                 <textarea
-                  rows={8}
+                  rows={5}
                   placeholder="Paste text here"
                   value={text}
                   onChange={(event) => setText(event.target.value)}
@@ -294,19 +316,6 @@ export function ImportPanel({
               </label>
             </section>
           ) : null}
-        </div>
-
-        <div className="import-panel-support-inline stack-gap" aria-label="Import support">
-          <div className="import-panel-support-callout">
-            <strong>{activeMode.supportTitle}</strong>
-            <p>{description}</p>
-          </div>
-          <ul className="import-panel-support-list">
-            {activeMode.supportPoints.map((point) => (
-              <li key={point}>{point}</li>
-            ))}
-          </ul>
-          <p className="small-note">{helperText}</p>
         </div>
       </div>
     </section>

@@ -318,7 +318,7 @@ function makeContinuityState(section: RecallSection): RecallWorkspaceContinuityS
       pathSelectedNodeIds: [],
       selectedNodeId: 'node-knowledge-graphs',
       tourDismissed: false,
-      tourStep: 0,
+      tourStep: null,
     },
     library: {
       ...structuredClone(defaultRecallWorkspaceContinuityState.library),
@@ -336,6 +336,7 @@ function makeContinuityState(section: RecallSection): RecallWorkspaceContinuityS
       selectedNoteId: 'note-search-1',
     },
     sourceWorkspace: {
+      ...structuredClone(defaultRecallWorkspaceContinuityState.sourceWorkspace),
       activeDocumentId: 'doc-search',
       activeTab: section === 'library' ? 'overview' : section,
       mode: 'focused',
@@ -344,6 +345,9 @@ function makeContinuityState(section: RecallSection): RecallWorkspaceContinuityS
     study: {
       activeCardId: 'card-1',
       filter: 'all',
+      questionSearchQuery: '',
+      scheduleDrilldown: 'all',
+      sourceScopeDocumentId: null,
     },
   }
 }

@@ -298,6 +298,7 @@ class RecallDocumentRecord(BaseModel):
 
 
 class RecallNoteAnchor(BaseModel):
+    kind: Literal["sentence", "source"] = "sentence"
     source_document_id: str
     variant_id: str
     block_id: str
@@ -395,6 +396,11 @@ class KnowledgeMentionRecord(BaseModel):
     block_id: str | None = None
     chunk_id: str | None = None
     excerpt: str
+    anchor_kind: Literal["sentence", "source"] | None = None
+    manual_source: str | None = None
+    note_anchor_text: str | None = None
+    note_body: str | None = None
+    note_id: str | None = None
 
 
 class KnowledgeNodeDetail(BaseModel):

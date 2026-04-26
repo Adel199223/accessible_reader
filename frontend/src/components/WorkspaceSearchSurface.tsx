@@ -61,6 +61,27 @@ function formatDocumentBadge(document: DocumentRecord) {
   return document.source_type.toUpperCase()
 }
 
+function sourceNoteMatchesVisibleContext(note: RecallNoteSearchHit, query: string) {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery || note.anchor.kind !== 'source') {
+    return true
+  }
+  return [note.body_text ?? '', note.document_title].some((value) => value.toLowerCase().includes(normalizedQuery))
+}
+
+function recallSourceNoteHitMatchesVisibleContext(hit: RecallRetrievalHit, query: string) {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery || hit.hit_type !== 'note' || hit.note_anchor?.kind !== 'source') {
+    return true
+  }
+  const hitExcerpt = hit.excerpt.trim()
+  const syntheticExcerpt =
+    hitExcerpt === hit.note_anchor.anchor_text.trim() || hitExcerpt === hit.note_anchor.excerpt_text.trim()
+  return [hit.document_title, syntheticExcerpt ? '' : hit.excerpt].some((value) =>
+    value.toLowerCase().includes(normalizedQuery),
+  )
+}
+
 function buildDocumentResult(
   document: DocumentRecord,
   onOpenReader: WorkspaceSearchSurfaceProps['onOpenReader'],
@@ -87,6 +108,8 @@ function buildNoteResult(
   onOpenNote: WorkspaceSearchSurfaceProps['onOpenNote'],
   onOpenReader: WorkspaceSearchSurfaceProps['onOpenReader'],
 ): WorkspaceSearchNormalizedResult {
+  const sourceNote = note.anchor.kind === 'source'
+  const preview = note.body_text?.trim() || (sourceNote ? 'Personal note attached to this saved source.' : note.anchor.excerpt_text)
   return {
     actions: [
       {
@@ -101,12 +124,12 @@ function buildNoteResult(
         tone: 'secondary',
       },
     ],
-    badges: ['Note', note.document_title],
+    badges: [sourceNote ? 'Source note' : 'Note', note.document_title],
     group: 'notes',
     key: buildWorkspaceSearchNoteKey(note.id),
-    preview: note.body_text?.trim() || note.anchor.excerpt_text,
+    preview,
     subtitle: note.document_title,
-    title: note.anchor.anchor_text,
+    title: sourceNote ? `${note.document_title} personal note` : note.anchor.anchor_text,
   }
 }
 
@@ -118,6 +141,11 @@ function buildRecallHitResult(
   onOpenStudy: WorkspaceSearchSurfaceProps['onOpenStudy'],
 ): WorkspaceSearchNormalizedResult {
   const actions: WorkspaceSearchAction[] = []
+  const sourceNoteHit = hit.hit_type === 'note' && hit.note_anchor?.kind === 'source'
+  const syntheticSourceNoteExcerpt =
+    sourceNoteHit &&
+    (hit.excerpt.trim() === hit.note_anchor?.anchor_text.trim() ||
+      hit.excerpt.trim() === hit.note_anchor?.excerpt_text.trim())
 
   if (hit.hit_type === 'node') {
     actions.push({
@@ -156,12 +184,12 @@ function buildRecallHitResult(
 
   return {
     actions,
-    badges: [formatRetrievalKind(hit.hit_type), hit.document_title, ...hit.reasons],
+    badges: [sourceNoteHit ? 'Source note' : formatRetrievalKind(hit.hit_type), hit.document_title, ...hit.reasons],
     group: 'recall',
     key: buildWorkspaceSearchRecallHitKey(hit.id),
-    preview: hit.excerpt,
-    subtitle: `${formatRetrievalKind(hit.hit_type)} · ${hit.document_title}`,
-    title: hit.title,
+    preview: syntheticSourceNoteExcerpt ? 'Personal note attached to this saved source.' : hit.excerpt,
+    subtitle: `${sourceNoteHit ? 'Personal note' : formatRetrievalKind(hit.hit_type)} · ${hit.document_title}`,
+    title: sourceNoteHit ? `${hit.document_title} personal note` : hit.title,
   }
 }
 
@@ -169,8 +197,12 @@ function normalizeSearchResults(props: WorkspaceSearchSurfaceProps) {
   const { onOpenGraph, onOpenNote, onOpenReader, onOpenStudy, searchSession } = props
   return {
     recentDocuments: searchSession.recentDocuments.map((document) => buildDocumentResult(document, onOpenReader)),
-    recallHits: searchSession.hits.map((hit) => buildRecallHitResult(hit, onOpenGraph, onOpenNote, onOpenReader, onOpenStudy)),
-    notes: searchSession.notes.map((note) => buildNoteResult(note, onOpenNote, onOpenReader)),
+    recallHits: searchSession.hits
+      .filter((hit) => recallSourceNoteHitMatchesVisibleContext(hit, searchSession.query))
+      .map((hit) => buildRecallHitResult(hit, onOpenGraph, onOpenNote, onOpenReader, onOpenStudy)),
+    notes: searchSession.notes
+      .filter((note) => sourceNoteMatchesVisibleContext(note, searchSession.query))
+      .map((note) => buildNoteResult(note, onOpenNote, onOpenReader)),
     sourceResults: searchSession.sourceResults.map((document) => buildDocumentResult(document, onOpenReader)),
   }
 }
@@ -337,7 +369,7 @@ export function WorkspaceSearchSurface({
             )}
             {renderResultList(
               'Notebook',
-              'Compare saved notebook notes before jumping back to the anchored passage.',
+              'Open saved notebook notes, with source notes returning to Notebook first.',
               notes,
               searchSession.selectedResultKey,
               onSelectResult,

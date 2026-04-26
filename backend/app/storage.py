@@ -103,7 +103,7 @@ from .study import (
 
 DEFAULT_DEVICE_ID = "desktop-local"
 DEFAULT_SESSION_KIND = "reader"
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 STUDY_SCHEMA_VERSION = "1"
 AUTO_SELECTION_PROMPT_THRESHOLD = 0.56
 AUTO_PAGE_PROMPT_THRESHOLD = 0.9
@@ -391,6 +391,7 @@ class Repository:
                 """
                 INSERT INTO recall_notes (
                     id,
+                    anchor_kind,
                     source_document_id,
                     variant_id,
                     block_id,
@@ -403,10 +404,11 @@ class Repository:
                     body_text,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     note_id,
+                    anchor.kind,
                     anchor.source_document_id,
                     anchor.variant_id,
                     anchor.block_id,
@@ -436,6 +438,7 @@ class Repository:
                 event_type="created",
                 payload={
                     "source_document_id": document_id,
+                    "anchor_kind": anchor.kind,
                     "variant_id": anchor.variant_id,
                     "block_id": anchor.block_id,
                     "sentence_start": anchor.sentence_start,
@@ -640,16 +643,22 @@ class Repository:
                 else build_initial_scheduling_state(card_id, created_at=timestamp)
             )
             scheduling_state["status"] = study_card_status(scheduling_state)
+            evidence_values = self._manual_note_evidence_values(note_row)
+            source_note_span = str(note_row["anchor_kind"] or "sentence") == "source"
             source_spans = [
                 {
                     "note_id": note_id,
+                    "anchor_kind": note_row["anchor_kind"],
                     "block_id": note_row["block_id"],
-                    "sentence_start": note_row["sentence_start"],
-                    "sentence_end": note_row["sentence_end"],
-                    "global_sentence_start": note_row["global_sentence_start"],
-                    "global_sentence_end": note_row["global_sentence_end"],
-                    "anchor_text": note_row["anchor_text"],
-                    "excerpt": note_row["excerpt_text"],
+                    "chunk_id": None if source_note_span else self._chunk_id_for_note_row_with_connection(connection, note_row),
+                    "sentence_start": None if source_note_span else note_row["sentence_start"],
+                    "sentence_end": None if source_note_span else note_row["sentence_end"],
+                    "global_sentence_start": None if source_note_span else note_row["global_sentence_start"],
+                    "global_sentence_end": None if source_note_span else note_row["global_sentence_end"],
+                    "anchor_text": evidence_values["anchor_text"],
+                    "excerpt": evidence_values["excerpt"],
+                    "note_body": evidence_values["note_body"],
+                    "source_title": evidence_values["source_title"],
                 }
             ]
             connection.execute(
@@ -1530,9 +1539,21 @@ class Repository:
                 connection.execute("SELECT COUNT(*) FROM source_documents").fetchone()[0]
             )
 
+        manual_note_node_ids = {
+            str(row["id"])
+            for row in node_rows
+            if self._metadata_from_row(row).get("promoted_note_ids")
+        }
         all_nodes = [self._row_to_knowledge_node_record(row) for row in node_rows]
         all_edges = [self._row_to_knowledge_edge_record(row) for row in edge_rows]
-        visible_nodes = [node for node in all_nodes if node.status != "rejected"][:limit_nodes]
+        unrejected_nodes = [node for node in all_nodes if node.status != "rejected"]
+        manual_note_nodes = [node for node in unrejected_nodes if node.id in manual_note_node_ids]
+        non_manual_nodes = [node for node in unrejected_nodes if node.id not in manual_note_node_ids]
+        remaining_node_limit = max(0, limit_nodes - len(manual_note_nodes))
+        visible_nodes = [
+            *manual_note_nodes,
+            *non_manual_nodes[:remaining_node_limit],
+        ]
         visible_edges = [edge for edge in all_edges if edge.status != "rejected"][:limit_edges]
         return KnowledgeGraphSnapshot(
             nodes=visible_nodes,
@@ -2469,6 +2490,7 @@ class Repository:
 
             CREATE TABLE IF NOT EXISTS recall_notes (
                 id TEXT PRIMARY KEY,
+                anchor_kind TEXT NOT NULL DEFAULT 'sentence',
                 source_document_id TEXT NOT NULL,
                 variant_id TEXT NOT NULL,
                 block_id TEXT NOT NULL,
@@ -2523,6 +2545,12 @@ class Repository:
             CREATE INDEX IF NOT EXISTS recall_notes_source_document_idx
             ON recall_notes (source_document_id, updated_at DESC);
             """
+        )
+        self._ensure_column_with_connection(
+            connection,
+            table_name="recall_notes",
+            column_name="anchor_kind",
+            column_sql="TEXT NOT NULL DEFAULT 'sentence'",
         )
         self._ensure_column_with_connection(
             connection,
@@ -3613,6 +3641,32 @@ class Repository:
         ).fetchone()
         if not variant_row:
             raise ValueError("Notes require the reflowed/default view for this document.")
+        if anchor.kind == "source":
+            document_row = connection.execute(
+                """
+                SELECT title
+                FROM source_documents
+                WHERE id = ?
+                """,
+                (document_id,),
+            ).fetchone()
+            if not document_row:
+                raise ValueError("Note anchor source document was not found.")
+            document_title = normalize_whitespace(str(document_row["title"] or "")) or "Saved source"
+            anchor_text = normalize_whitespace(anchor.anchor_text) or f"Source note for {document_title}"
+            excerpt_text = normalize_whitespace(anchor.excerpt_text) or f"Manual note attached to {document_title}."
+            return RecallNoteAnchor(
+                kind="source",
+                source_document_id=document_id,
+                variant_id=str(variant_row["id"]),
+                block_id=f"source:{document_id}",
+                sentence_start=0,
+                sentence_end=0,
+                global_sentence_start=0,
+                global_sentence_end=0,
+                anchor_text=anchor_text,
+                excerpt_text=excerpt_text,
+            )
         if anchor.variant_id != variant_row["id"]:
             raise ValueError("Notes can only target the reflowed/default variant for this document.")
         if anchor.sentence_start > anchor.sentence_end:
@@ -3638,6 +3692,7 @@ class Repository:
         anchor_text = " ".join(sentence_texts[anchor.sentence_start : anchor.sentence_end + 1]).strip()
         excerpt_text = build_note_excerpt(sentence_texts, anchor.sentence_start, anchor.sentence_end) or anchor_text
         return RecallNoteAnchor(
+            kind="sentence",
             source_document_id=document_id,
             variant_id=variant_row["id"],
             block_id=anchor.block_id,
@@ -3758,6 +3813,7 @@ class Repository:
             connection,
             document_id=document_id,
             anchor=RecallNoteAnchor(
+                kind="sentence",
                 source_document_id=document_id,
                 variant_id=str(variant_row["id"]),
                 block_id=block_id,
@@ -3789,6 +3845,30 @@ class Repository:
             if sentence_start <= int(note_row["sentence_start"]) <= int(note_row["sentence_end"]) <= sentence_end:
                 return str(chunk_row["id"])
         return None
+
+    def _manual_note_evidence_values(self, note_row: sqlite3.Row) -> dict[str, str | None]:
+        anchor_kind = str(note_row["anchor_kind"] or "sentence")
+        body_text = normalize_whitespace(note_row["body_text"] or "")
+        document_title = normalize_whitespace(note_row["document_title"] or "") or "Saved source"
+        if anchor_kind == "source":
+            fallback = f"{document_title} personal note"
+            return {
+                "anchor_text": fallback,
+                "evidence_label": "Source note",
+                "excerpt": body_text or fallback,
+                "note_body": body_text or None,
+                "source_title": document_title,
+            }
+
+        anchor_text = normalize_whitespace(note_row["anchor_text"] or "")
+        excerpt_text = normalize_whitespace(note_row["excerpt_text"] or "")
+        return {
+            "anchor_text": anchor_text or excerpt_text or body_text or document_title,
+            "evidence_label": "Saved note",
+            "excerpt": excerpt_text or anchor_text or body_text or document_title,
+            "note_body": body_text or None,
+            "source_title": document_title,
+        }
 
     def _upsert_manual_note_knowledge_node_with_connection(
         self,
@@ -3875,14 +3955,20 @@ class Repository:
             ),
         )
 
+        evidence_values = self._manual_note_evidence_values(note_row)
+        source_note_mention = str(note_row["anchor_kind"] or "sentence") == "source"
         mention_metadata = {
-            "chunk_id": self._chunk_id_for_note_row_with_connection(connection, note_row),
+            "chunk_id": None if source_note_mention else self._chunk_id_for_note_row_with_connection(connection, note_row),
             "document_title": note_row["document_title"],
-            "excerpt": note_row["excerpt_text"],
+            "evidence_label": evidence_values["evidence_label"],
+            "excerpt": evidence_values["excerpt"],
             "graph_schema_version": GRAPH_SCHEMA_VERSION,
+            "anchor_kind": note_row["anchor_kind"],
             "manual_source": "note",
-            "note_anchor_text": note_row["anchor_text"],
+            "note_anchor_text": evidence_values["anchor_text"],
+            "note_body": evidence_values["note_body"],
             "note_id": note_id,
+            "source_title": evidence_values["source_title"],
         }
         mention_id = f"mention:{sha256_text(f'manual_note|{note_id}|{canonical_key}')[:16]}"
         connection.execute(
@@ -4075,6 +4161,7 @@ class Repository:
 
     def _row_to_recall_note_anchor(self, row: sqlite3.Row) -> RecallNoteAnchor:
         return RecallNoteAnchor(
+            kind=row["anchor_kind"] or "sentence",
             source_document_id=row["source_document_id"],
             variant_id=row["variant_id"],
             block_id=row["block_id"],
@@ -4153,6 +4240,11 @@ class Repository:
             block_id=row["block_id"],
             chunk_id=metadata.get("chunk_id"),
             excerpt=str(metadata.get("excerpt", row["text"])),
+            anchor_kind=metadata.get("anchor_kind"),
+            manual_source=metadata.get("manual_source"),
+            note_anchor_text=metadata.get("note_anchor_text"),
+            note_body=metadata.get("note_body"),
+            note_id=metadata.get("note_id"),
         )
 
     def _row_to_study_card_record(self, row: sqlite3.Row) -> StudyCardRecord:
@@ -4454,6 +4546,7 @@ class Repository:
             """
             SELECT
                 rn.id,
+                rn.anchor_kind,
                 rn.source_document_id,
                 sd.content_hash,
                 rn.block_id,
@@ -4473,6 +4566,7 @@ class Repository:
         ).fetchall()
         for row in note_rows:
             identity_payload = {
+                "anchor_kind": row["anchor_kind"],
                 "block_id": row["block_id"],
                 "created_at": row["created_at"],
                 "sentence_end": row["sentence_end"],
@@ -4496,6 +4590,7 @@ class Repository:
                     payload_digest=build_payload_digest(payload),
                     source_document_id=row["source_document_id"],
                     metadata={
+                        "anchor_kind": row["anchor_kind"],
                         "block_id": row["block_id"],
                         "created_at": row["created_at"],
                         "excerpt_text": row["excerpt_text"],

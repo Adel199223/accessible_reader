@@ -56,7 +56,6 @@ export function GraphSettingsPanelShell({
         <div className="recall-graph-settings-panel-header" aria-label="Graph settings panel">
           <div className="recall-graph-settings-panel-heading">
             <strong>Graph Settings</strong>
-            <span>Tune presets, filters, and groups while the canvas stays in view.</span>
           </div>
           <button
             aria-label="Hide graph settings"

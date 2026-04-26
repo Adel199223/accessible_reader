@@ -168,7 +168,18 @@ export function RecallShellFrame(props: RecallShellFrameProps) {
                 </div>
               </div>
             ) : null}
-            {headerActions ? <div className="workspace-topbar-actions">{headerActions}</div> : null}
+            {headerActions ? (
+              <div
+                className={[
+                  'workspace-topbar-actions',
+                  compactReaderTopbar ? 'workspace-topbar-actions-reader-compact' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                {headerActions}
+              </div>
+            ) : null}
           </header>
         ) : null}
 

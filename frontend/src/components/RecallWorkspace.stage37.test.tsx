@@ -1064,6 +1064,7 @@ beforeEach(() => {
   fetchRecallStudyOverviewMock.mockImplementation(async () => studyOverview)
   fetchRecallStudyCardsMock.mockImplementation(async () => studyCards)
   fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => views[`${documentId}:${mode}`])
+  searchRecallNotesMock.mockImplementation(async () => [])
   generateRecallStudyCardsMock.mockImplementation(async () => ({ generated_count: 0, total_count: studyCards.length }))
   reviewRecallStudyCardMock.mockImplementation(async () => studyCards[0])
 })
@@ -1087,6 +1088,7 @@ function makeBrowseContinuityState(): RecallWorkspaceContinuityState {
       selectedNoteId: 'note-stage10',
     },
     sourceWorkspace: {
+      ...structuredClone(defaultRecallWorkspaceContinuityState.sourceWorkspace),
       activeDocumentId: 'doc-stage10',
       activeTab: 'notes',
       mode: 'browse',
@@ -1095,6 +1097,9 @@ function makeBrowseContinuityState(): RecallWorkspaceContinuityState {
     study: {
       activeCardId: 'card-stage10',
       filter: 'all',
+      questionSearchQuery: '',
+      scheduleDrilldown: 'all',
+      sourceScopeDocumentId: null,
     },
   }
 }
@@ -1118,6 +1123,7 @@ function makeNoResumeHomeContinuityState(): RecallWorkspaceContinuityState {
       selectedNoteId: null,
     },
     sourceWorkspace: {
+      ...structuredClone(defaultRecallWorkspaceContinuityState.sourceWorkspace),
       activeDocumentId: null,
       activeTab: 'overview',
       mode: 'browse',
@@ -1126,6 +1132,9 @@ function makeNoResumeHomeContinuityState(): RecallWorkspaceContinuityState {
     study: {
       activeCardId: 'card-stage10',
       filter: 'all',
+      questionSearchQuery: '',
+      scheduleDrilldown: 'all',
+      sourceScopeDocumentId: null,
     },
   }
 }
@@ -2766,29 +2775,9 @@ test('Home board cards now render source-aware preview media for web, paste, and
   expect(pasteCard.querySelector('.recall-home-parity-card-source-stage647')).not.toBeNull()
   expect(pasteCard.querySelector('.recall-home-parity-card-source-stage649')).not.toBeNull()
   expect(pasteCard.querySelector('.recall-home-parity-card-source-stage651')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage571')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage603')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage605')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage607')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage611')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage621')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage623')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage625')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage627')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage629')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage631')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage633')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage635')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage637')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage639')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage641')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage643')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage645')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage647')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage649')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage651')).not.toBeNull()
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage563')).toHaveTextContent('Captures')
-  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage563')?.textContent?.trim()).toBe('Captures')
+  expect(pasteCard.querySelector('.recall-home-parity-card-meta-stack-selected-meta-stage836')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-source-row-selected-meta-stage836')).not.toBeNull()
+  expect(pasteCard.querySelector('.recall-home-parity-card-chip-stage563')).toBeNull()
 
   fireEvent.click(getHomeRailSectionButton('Web', rail as HTMLElement))
 
@@ -2961,29 +2950,9 @@ test('Home board cards now render source-aware preview media for web, paste, and
   expect(webCard.querySelector('.recall-home-parity-card-source-stage647')).not.toBeNull()
   expect(webCard.querySelector('.recall-home-parity-card-source-stage649')).not.toBeNull()
   expect(webCard.querySelector('.recall-home-parity-card-source-stage651')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage571')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage603')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage605')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage607')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage611')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage621')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage623')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage625')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage627')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage629')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage631')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage633')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage635')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage637')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage639')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage641')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage643')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage645')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage647')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage649')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage651')).not.toBeNull()
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage563')).toHaveTextContent('Web')
-  expect(webCard.querySelector('.recall-home-parity-card-chip-stage563')?.textContent?.trim()).toBe('Web')
+  expect(webCard.querySelector('.recall-home-parity-card-meta-stack-selected-meta-stage836')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-source-row-selected-meta-stage836')).not.toBeNull()
+  expect(webCard.querySelector('.recall-home-parity-card-chip-stage563')).toBeNull()
 
   fireEvent.click(getHomeRailSectionButton('Documents', rail as HTMLElement))
 
@@ -3156,32 +3125,33 @@ test('Home board cards now render source-aware preview media for web, paste, and
   expect(fileCard.querySelector('.recall-home-parity-card-source-stage647')).not.toBeNull()
   expect(fileCard.querySelector('.recall-home-parity-card-source-stage649')).not.toBeNull()
   expect(fileCard.querySelector('.recall-home-parity-card-source-stage651')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage571')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage603')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage605')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage607')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage611')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage621')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage623')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage625')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage627')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage629')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage631')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage633')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage635')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage637')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage639')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage641')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage643')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage645')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage647')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage649')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage651')).not.toBeNull()
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage563')).toHaveTextContent('Documents')
-  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage563')?.textContent?.trim()).toBe('Documents')
+  expect(fileCard.querySelector('.recall-home-parity-card-meta-stack-selected-meta-stage836')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-source-row-selected-meta-stage836')).not.toBeNull()
+  expect(fileCard.querySelector('.recall-home-parity-card-chip-stage563')).toBeNull()
 })
 
 test('Home fetches preview content and media for cards revealed past the initial board limit', async () => {
+  fetchRecallDocumentPreviewMock.mockImplementation(async (documentId: string) => {
+    if (documentId === 'doc-archive-30') {
+      return {
+        document_id: documentId,
+        kind: 'image',
+        source: 'content-rendered-preview',
+        asset_url: '/api/recall/documents/doc-archive-30/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
+        updated_at: '2026-03-27T08:00:00Z',
+      }
+    }
+    return (
+      recallDocumentPreviews[documentId] ?? {
+        document_id: documentId,
+        kind: 'fallback',
+        source: 'fallback',
+        asset_url: null,
+        updated_at: '2026-03-27T08:00:00Z',
+      }
+    )
+  })
+
   renderHarness()
   await waitForHomeLanding()
 
@@ -3193,27 +3163,27 @@ test('Home fetches preview content and media for cards revealed past the initial
     expect(canvas).toHaveAccessibleName('Documents collection canvas')
   })
 
-  expect(within(canvas).queryByRole('button', { name: 'Open Archived Reference 13' })).not.toBeInTheDocument()
+  expect(within(canvas).queryByRole('button', { name: 'Open Archived Reference 30' })).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: /Show all documents/i }))
 
   await waitFor(() => {
-    expect(within(canvas).getByRole('button', { name: 'Open Archived Reference 13' })).toBeInTheDocument()
+    expect(within(canvas).getByRole('button', { name: 'Open Archived Reference 30' })).toBeInTheDocument()
   })
 
   await waitFor(() => {
-    expect(fetchDocumentViewMock).toHaveBeenCalledWith('doc-archive-13', 'original')
-    expect(fetchRecallDocumentPreviewMock).toHaveBeenCalledWith('doc-archive-13')
+    expect(fetchDocumentViewMock).toHaveBeenCalledWith('doc-archive-30', 'original')
+    expect(fetchRecallDocumentPreviewMock).toHaveBeenCalledWith('doc-archive-30')
   })
 
   await waitFor(() => {
-    const laterCard = within(canvas).getByRole('button', { name: 'Open Archived Reference 13' })
+    const laterCard = within(canvas).getByRole('button', { name: 'Open Archived Reference 30' })
     const laterPreview = laterCard.querySelector('.recall-home-parity-card-preview-file-stage565')
     expect(laterPreview).toHaveAttribute('data-preview-media-kind', 'image')
     expect(laterPreview).toHaveAttribute('data-preview-media-source', 'content-rendered-preview')
     expect(laterPreview?.querySelector('.recall-home-parity-card-preview-image-stage657')).toHaveAttribute(
       'src',
-      '/api/recall/documents/doc-archive-13/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
+      '/api/recall/documents/doc-archive-30/preview/asset?updated_at=2026-03-27T08%3A00%3A00Z',
     )
   })
 })
@@ -4010,7 +3980,10 @@ test('graph browse mode now opens settings by default, shows the guided tour, an
   })
   expect(screen.queryByLabelText('Graph focus tray')).toBeNull()
   expect(screen.queryByLabelText('Node detail dock')).toBeNull()
-  expect(screen.queryByRole('group', { name: 'Graph help controls' })).toBeNull()
+  const graphHelpControls = screen.getByRole('group', { name: 'Graph help controls' })
+  expect(within(graphHelpControls).getByRole('button', { name: 'Take Graph tour' })).toBeInTheDocument()
+  expect(within(graphHelpControls).getByRole('button', { name: 'Graph help' })).toBeInTheDocument()
+  expect(screen.queryByLabelText('Graph View tour')).toBeNull()
 
   fireEvent.click(within(graphRail).getByRole('button', { name: 'Save as preset' }))
 
@@ -4024,6 +3997,8 @@ test('graph browse mode now opens settings by default, shows the guided tour, an
     expect(within(graphRail).queryByLabelText('Graph preset name')).toBeNull()
   })
 
+  fireEvent.click(within(graphHelpControls).getByRole('button', { name: 'Take Graph tour' }))
+
   const graphTour = screen.getByLabelText('Graph View tour')
   expect(graphTour).toHaveTextContent('Welcome to GraphView 2.0')
   fireEvent.click(within(graphTour).getByRole('button', { name: 'Close Graph tour' }))
@@ -4032,9 +4007,9 @@ test('graph browse mode now opens settings by default, shows the guided tour, an
     expect(screen.queryByLabelText('Graph View tour')).not.toBeInTheDocument()
   })
 
-  const graphHelpControls = screen.getByRole('group', { name: 'Graph help controls' })
-  expect(within(graphHelpControls).getByRole('button', { name: 'Replay Graph tour' })).toBeInTheDocument()
-  expect(within(graphHelpControls).getByRole('button', { name: 'Graph help' })).toBeInTheDocument()
+  const graphHelpControlsAfterDismiss = screen.getByRole('group', { name: 'Graph help controls' })
+  expect(within(graphHelpControlsAfterDismiss).getByRole('button', { name: 'Replay Graph tour' })).toBeInTheDocument()
+  expect(within(graphHelpControlsAfterDismiss).getByRole('button', { name: 'Graph help' })).toBeInTheDocument()
 
   const graphViewportStage = graphSurface?.querySelector('.recall-graph-canvas-viewport-stage') as HTMLElement | null
   expect(graphViewportStage).not.toBeNull()
@@ -4131,7 +4106,7 @@ test('graph browse mode now opens settings by default, shows the guided tour, an
   expect(within(screen.getByLabelText('Graph focus tray')).getByRole('list', { name: 'Graph focus trail' })).toBeInTheDocument()
   expect(within(screen.getByLabelText('Node detail dock')).getByText('Card drawer')).toBeInTheDocument()
 
-  fireEvent.click(within(graphHelpControls).getByRole('button', { name: 'Graph help' }))
+  fireEvent.click(within(graphHelpControlsAfterDismiss).getByRole('button', { name: 'Graph help' }))
 
   await waitFor(() => {
     expect(screen.getByLabelText('Graph View tour')).toHaveTextContent('Need help?')
@@ -4163,11 +4138,14 @@ test('study browse mode now lands on a review dashboard while keeping the review
   const studyHeader = screen.getByLabelText('Study workspace header')
   const studyDashboardMetrics = screen.getByLabelText('Study dashboard metrics')
   const currentReviewSummary = screen.getByLabelText('Current review summary')
-  expect(within(studyHeader).getByText('Review dashboard')).toBeInTheDocument()
-  expect(within(studyDashboardMetrics).getByText('Ready now')).toBeInTheDocument()
+  expect(within(studyHeader).getByText('Current review')).toBeInTheDocument()
+  expect(within(studyHeader).queryByText('Review dashboard')).not.toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Due now')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('This week')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Upcoming')).toBeInTheDocument()
   expect(within(studyDashboardMetrics).getByText('New')).toBeInTheDocument()
-  expect(within(studyDashboardMetrics).getByText('Scheduled')).toBeInTheDocument()
-  expect(within(studyDashboardMetrics).getByText('Logged')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Reviewed')).toBeInTheDocument()
+  expect(within(studyDashboardMetrics).getByText('Total')).toBeInTheDocument()
   expect(within(currentReviewSummary).getByRole('tab', { name: 'Review', selected: true })).toBeInTheDocument()
   expect(within(currentReviewSummary).getByRole('tab', { name: 'Questions', selected: false })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Show answer' })).toBeInTheDocument()
@@ -4176,7 +4154,6 @@ test('study browse mode now lands on a review dashboard while keeping the review
   const studyQueueDock = screen.getByLabelText('Study queue support')
   const studyEvidenceDock = screen.getByLabelText('Study evidence support')
   const browseStudySupportStrip = screen.getByLabelText('Browse study support')
-  const studyReviewFlow = screen.getByLabelText('Study review flow')
   expect(within(studyQueueSummary).queryByText(/^\d+\s+cards$/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText(/reviews logged/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).getByText(/^Questions$/)).toBeInTheDocument()
@@ -4188,19 +4165,17 @@ test('study browse mode now lands on a review dashboard while keeping the review
   expect(browseStudySupportStrip).not.toBeNull()
   expect(studyQueueDock).not.toBeNull()
   expect(studyEvidenceDock).not.toBeNull()
-  expect(studyReviewFlow).not.toBeNull()
   expect(activeCardSection).toHaveClass('recall-study-review-stage')
   expect(browseStudySupportStrip).toHaveClass('recall-study-toolbar-utility')
   expect(studyQueueDock).toContainElement(browseStudySupportStrip)
   expect(document.querySelector('.recall-study-sidebar-collapsed-hidden')).toBeNull()
-  expect(within(studyReviewFlow).getByText('Questions')).toBeInTheDocument()
-  expect(within(studyReviewFlow).getByText('Recall')).toBeInTheDocument()
-  expect(within(studyReviewFlow).getByText('Rate')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Study review flow')).not.toBeInTheDocument()
   expect(within(activeCardSection as HTMLElement).queryByRole('button', { name: /Open .* in Reader/ })).toBeNull()
   expect(within(studyEvidenceDock).getByRole('button', { name: /Open .* in Reader/ })).toBeInTheDocument()
-  expect(within(studyQueueSummary).getByText(/Grounded:/i)).toBeInTheDocument()
-  expect(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
-  expect(within(studyQueueSummary).getByText(/Source evidence/i)).toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText(/Grounded:/i)).not.toBeInTheDocument()
+  expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Preview evidence' })).not.toBeInTheDocument()
+  expect(within(studyEvidenceDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+  expect(within(studyQueueSummary).queryByText(/Source evidence/i)).not.toBeInTheDocument()
   expect(within(studyQueueSummary).queryByText('Hidden until needed.')).not.toBeInTheDocument()
   expect(within(studyEvidenceDock).getByText('Stage ten sentence three.')).toBeInTheDocument()
   expect(screen.getByText('Reveal the answer to rate recall.')).toBeInTheDocument()
@@ -4225,10 +4200,11 @@ test('study browse can preview evidence before revealing the answer', async () =
   const studyEvidenceDock = screen.getByLabelText('Study evidence support')
 
   await waitFor(() => {
-    expect(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+    expect(within(studyEvidenceDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
+    expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Preview evidence' })).not.toBeInTheDocument()
   })
 
-  fireEvent.click(within(browseStudySupportStrip).getByRole('button', { name: 'Preview evidence' }))
+  fireEvent.click(within(studyEvidenceDock).getByRole('button', { name: 'Preview evidence' }))
 
   await waitFor(() => {
     expect(within(studyEvidenceDock).getByRole('button', { name: 'Hide preview' })).toBeInTheDocument()
@@ -4238,7 +4214,7 @@ test('study browse can preview evidence before revealing the answer', async () =
   expect(within(studyEvidenceDock).getByText('Stage ten sentence three.')).toBeInTheDocument()
 })
 
-test('study browse queue stays intentionally truncated until expanded', async () => {
+test('study browse question list keeps expansion controls beside the schedule dashboard', async () => {
   renderHarness({ initialSection: 'study' })
 
   await waitFor(() => {
@@ -4251,10 +4227,11 @@ test('study browse queue stays intentionally truncated until expanded', async ()
     expect(screen.getByRole('button', { name: 'Show all 5 questions' })).toBeInTheDocument()
   })
 
-  expect(screen.queryByText('Which fallback flow stays source-grounded?')).not.toBeInTheDocument()
+  const collapsedQuestionManager = screen.getByLabelText('Study questions manager')
+  expect(within(collapsedQuestionManager).getByText('Which fallback flow stays source-grounded?')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Show all 5 questions' }))
 
-  expect(screen.getByText('Which fallback flow stays source-grounded?')).toBeInTheDocument()
+  expect(within(screen.getByLabelText('Study questions manager')).getByText('Which fallback flow stays source-grounded?')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Show fewer questions' })).toBeInTheDocument()
 })

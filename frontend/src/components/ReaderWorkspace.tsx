@@ -17,7 +17,9 @@ import {
   deleteDocumentRecord,
   fetchDocumentView,
   fetchDocuments,
+  fetchRecallGraph,
   fetchRecallNotes,
+  fetchRecallStudyCards,
   generateDocumentView,
   promoteRecallNoteToGraphNode,
   promoteRecallNoteToStudyCard,
@@ -50,7 +52,7 @@ import { buildRenderableBlocks, type RenderSentence, type RenderableBlock } from
 interface ReaderWorkspaceProps {
   health: HealthResponse | null
   onOpenRecallGraph: (documentId: string) => void
-  onOpenRecallLibrary: (documentId: string) => void
+  onOpenRecallLibrary: (documentId: string, options?: { focusMemorySearch?: boolean | null }) => void
   onOpenRecallNotes: (documentId: string, noteId?: string | null) => void
   onOpenRecallStudy: (documentId: string) => void
   onRequestNewSource: () => void
@@ -104,11 +106,11 @@ const viewModeOptions: Array<{
   },
 ]
 
-function TransportIcon({ children }: { children: ReactNode }) {
+function TransportIcon({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <svg
       aria-hidden="true"
-      className="transport-icon"
+      className={className ? `transport-icon ${className}` : 'transport-icon'}
       fill="none"
       stroke="currentColor"
       strokeLinecap="round"
@@ -118,6 +120,16 @@ function TransportIcon({ children }: { children: ReactNode }) {
     >
       {children}
     </svg>
+  )
+}
+
+function ReadAloudStartIcon() {
+  return (
+    <TransportIcon className="transport-icon-read-aloud-start">
+      <path d="M5.75 10.25h2.9L12.1 7.45v9.1l-3.45-2.8h-2.9Z" fill="currentColor" stroke="none" />
+      <path d="M15.1 9.35a3.55 3.55 0 0 1 0 5.3" />
+      <path d="M17.35 7.3a6.3 6.3 0 0 1 0 9.4" />
+    </TransportIcon>
   )
 }
 
@@ -211,6 +223,39 @@ function buildAccessibilitySnapshot(settings: ReaderSettings) {
   }
 }
 
+function normalizeReaderTitleCandidate(text: string | null | undefined) {
+  return (text ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+}
+
+const orderedReaderTitlePrefixPattern = /^(?:(?:\d+|[ivxlcdm]+)[.)])\s+/i
+
+function stripOrderedReaderTitlePrefix(text: string) {
+  const stripped = text.replace(orderedReaderTitlePrefixPattern, '').trim()
+  return stripped && stripped !== text ? stripped : null
+}
+
+function titlesShareCompactReaderHeading(textA: string | null | undefined, textB: string | null | undefined) {
+  const normalizedA = normalizeReaderTitleCandidate(textA)
+  const normalizedB = normalizeReaderTitleCandidate(textB)
+
+  if (!normalizedA || !normalizedB) {
+    return false
+  }
+
+  if (normalizedA === normalizedB) {
+    return true
+  }
+
+  const strippedA = stripOrderedReaderTitlePrefix(normalizedA)
+  const strippedB = stripOrderedReaderTitlePrefix(normalizedB)
+
+  return Boolean(
+    (strippedA && strippedA === normalizedB) ||
+      (strippedB && strippedB === normalizedA) ||
+      (strippedA && strippedB && strippedA === strippedB),
+  )
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
@@ -235,7 +280,26 @@ function formatSentenceSpanLabel(start: number | null | undefined, end: number |
   return `${sentenceCount} ${sentenceCount === 1 ? 'anchored sentence' : 'anchored sentences'}`
 }
 
-function buildSavedNoteSecondaryText(note: RecallNoteRecord) {
+function isSourceAttachedReaderNote(note: RecallNoteRecord) {
+  return note.anchor.kind === 'source'
+}
+
+function getReaderSourceNoteBodyPreview(note: RecallNoteRecord) {
+  return note.body_text?.trim() || 'Personal note attached to this source.'
+}
+
+function getSavedNotePrimaryText(note: RecallNoteRecord) {
+  if (isSourceAttachedReaderNote(note)) {
+    return getReaderSourceNoteBodyPreview(note)
+  }
+  return note.anchor.anchor_text
+}
+
+function buildSavedNoteSecondaryText(note: RecallNoteRecord, documentTitle?: string | null) {
+  if (isSourceAttachedReaderNote(note)) {
+    return documentTitle ? `${documentTitle} · Personal note` : 'Personal note'
+  }
+
   const noteBody = note.body_text?.replace(/\s+/g, ' ').trim()
   if (noteBody) {
     return noteBody
@@ -264,6 +328,9 @@ function buildSentenceRangeSet(range: SentenceRange | null) {
 function buildNoteHighlightSet(notes: RecallNoteRecord[]) {
   const indexes = new Set<number>()
   for (const note of notes) {
+    if (isSourceAttachedReaderNote(note)) {
+      continue
+    }
     const start = note.anchor.global_sentence_start
     const end = note.anchor.global_sentence_end
     if (start === null || start === undefined || end === null || end === undefined) {
@@ -295,6 +362,9 @@ function findMatchingNoteByRange(notes: RecallNoteRecord[], range: SentenceRange
   }
   return (
     notes.find((note) => {
+      if (isSourceAttachedReaderNote(note)) {
+        return false
+      }
       const start = note.anchor.global_sentence_start ?? note.anchor.sentence_start
       const end = note.anchor.global_sentence_end ?? note.anchor.sentence_end
       return start === range.start && end === range.end
@@ -303,6 +373,12 @@ function findMatchingNoteByRange(notes: RecallNoteRecord[], range: SentenceRange
 }
 
 function buildInitialNoteStudyDraft(note: RecallNoteRecord | null): RecallNoteStudyPromotionRequest {
+  if (note && isSourceAttachedReaderNote(note)) {
+    return {
+      prompt: 'What should you remember from this source note?',
+      answer: getReaderSourceNoteBodyPreview(note),
+    }
+  }
   return {
     prompt: note?.body_text?.trim() || 'What should you remember from this note?',
     answer: note?.anchor.anchor_text ?? '',
@@ -398,6 +474,15 @@ export function ReaderWorkspace({
   const [notes, setNotes] = useState<RecallNoteRecord[]>([])
   const [notesStatus, setNotesStatus] = useState<LoadState>('idle')
   const [notesError, setNotesError] = useState<string | null>(null)
+  const [readerSourceMemoryCounts, setReaderSourceMemoryCounts] = useState<{
+    graph: number
+    status: LoadState
+    study: number
+  }>({
+    graph: 0,
+    status: 'idle',
+    study: 0,
+  })
   const [noteCaptureActive, setNoteCaptureActive] = useState(false)
   const [noteSelection, setNoteSelection] = useState<NoteSelection | null>(null)
   const [noteDraftBody, setNoteDraftBody] = useState('')
@@ -550,6 +635,49 @@ export function ReaderWorkspace({
   }, [activeDocument, documentsLoading])
 
   const selectedDocument = activeDocument
+  useEffect(() => {
+    if (!selectedDocument) {
+      setReaderSourceMemoryCounts({
+        graph: 0,
+        status: 'idle',
+        study: 0,
+      })
+      return
+    }
+
+    let active = true
+    setReaderSourceMemoryCounts((current) => ({
+      ...current,
+      status: 'loading',
+    }))
+    void Promise.all([fetchRecallGraph(80, 120), fetchRecallStudyCards('all', 200)])
+      .then(([graphSnapshot, studyCards]) => {
+        if (!active) {
+          return
+        }
+        const documentId = selectedDocument.id
+        setReaderSourceMemoryCounts({
+          graph: graphSnapshot.nodes.filter((node) => node.source_document_ids.includes(documentId)).length,
+          status: 'success',
+          study: studyCards.filter((card) => card.source_document_id === documentId).length,
+        })
+      })
+      .catch(() => {
+        if (!active) {
+          return
+        }
+        setReaderSourceMemoryCounts({
+          graph: 0,
+          status: 'error',
+          study: 0,
+        })
+      })
+
+    return () => {
+      active = false
+    }
+  }, [selectedDocument])
+
   const initialSentenceIndex = selectedDocument?.progress_by_mode[activeMode] ?? 0
   const { blocks: renderBlocks, flatSentences } = buildRenderableBlocks(view)
   const readerTextCharacterCount = useMemo(
@@ -573,6 +701,23 @@ export function ReaderWorkspace({
       readerTextCharacterCount <= 320,
     [flatSentences.length, readerTextCharacterCount, renderBlocks.length],
   )
+  const compactReaderDuplicateTitleHidden = useMemo(() => {
+    if (!selectedDocument || readerSupportExpanded || !view || renderBlocks.length === 0) {
+      return false
+    }
+
+    const leadingBlock = renderBlocks[0]
+    if (!leadingBlock || leadingBlock.kind !== 'heading') {
+      return false
+    }
+
+    const headingLevel = Math.min(Math.max(leadingBlock.level ?? 2, 1), 4)
+    if (headingLevel > 2) {
+      return false
+    }
+
+    return titlesShareCompactReaderHeading(leadingBlock.text, selectedDocument.title)
+  }, [readerSupportExpanded, renderBlocks, selectedDocument, view])
   const canAnnotateCurrentView = activeMode === 'reflowed' && view?.detail_level === 'default' && Boolean(view)
   const noteHighlightIndexes = useMemo(
     () => (canAnnotateCurrentView ? buildNoteHighlightSet(notes) : new Set<number>()),
@@ -597,8 +742,11 @@ export function ReaderWorkspace({
     findMatchingNoteByRange(notes, routeAnchorRange) ??
     notes[0] ??
     null
+  const activeReaderNoteIsSourceAttached = activeReaderNote ? isSourceAttachedReaderNote(activeReaderNote) : false
   const activeReaderNoteSentenceSpanLabel = activeReaderNote
-    ? formatSentenceSpanLabel(
+    ? activeReaderNoteIsSourceAttached
+      ? 'Source note'
+      : formatSentenceSpanLabel(
         activeReaderNote.anchor.global_sentence_start ?? activeReaderNote.anchor.sentence_start,
         activeReaderNote.anchor.global_sentence_end ?? activeReaderNote.anchor.sentence_end,
       )
@@ -615,13 +763,49 @@ export function ReaderWorkspace({
               ariaLabel: 'Open nearby notebook notes',
               label: notes.length === 1 ? '1 note' : `${notes.length} notes`,
               onSelect: () => {
-                setReaderContextTab('notes')
-                setReaderSupportExpanded(true)
+                onOpenRecallNotes(selectedDocument.id, activeReaderNote?.id ?? notes[0]?.id ?? null)
               },
+            },
+            {
+              ariaLabel: 'Find source memory',
+              label: 'Find memory',
+              onSelect: () => {
+                onOpenRecallLibrary(selectedDocument.id, { focusMemorySearch: true })
+              },
+              tone: 'muted' as const,
+            },
+            {
+              ariaLabel: 'Open source graph memory',
+              label:
+                readerSourceMemoryCounts.graph === 1
+                  ? '1 graph node'
+                  : `${readerSourceMemoryCounts.graph} graph nodes`,
+              onSelect: () => onOpenRecallGraph(selectedDocument.id),
+              tone: readerSourceMemoryCounts.status === 'error' ? ('muted' as const) : undefined,
+            },
+            {
+              ariaLabel: 'Open source study memory',
+              label:
+                readerSourceMemoryCounts.study === 1
+                  ? '1 study card'
+                  : `${readerSourceMemoryCounts.study} study cards`,
+              onSelect: () => onOpenRecallStudy(selectedDocument.id),
+              tone: readerSourceMemoryCounts.status === 'error' ? ('muted' as const) : undefined,
             },
           ]
         : [],
-    [notes.length, selectedDocument],
+    [
+      activeReaderNote?.id,
+      notes,
+      onOpenRecallGraph,
+      onOpenRecallLibrary,
+      onOpenRecallNotes,
+      onOpenRecallStudy,
+      readerSourceMemoryCounts.graph,
+      readerSourceMemoryCounts.status,
+      readerSourceMemoryCounts.study,
+      selectedDocument,
+    ],
   )
 
   useEffect(() => {
@@ -1099,9 +1283,21 @@ export function ReaderWorkspace({
   const noteSaveDisabled = !noteSelection || noteSaveBusy
   const selectedReaderNoteSaveDisabled = !activeReaderNote || noteBusyKey === `save:${activeReaderNote.id}`
   const currentSentenceLabel = `Sentence ${flatSentences.length === 0 ? 0 : speech.currentSentenceIndex + 1} of ${flatSentences.length}`
+  const currentSpeechSentence = flatSentences[speech.currentSentenceIndex] ?? null
+  const currentSpeechSentenceText = currentSpeechSentence?.text.trim() ?? ''
+  const readerTransportExpanded = speech.isSpeaking || speech.isPaused
   const readerOriginalParityMode = hasActiveDocument && activeMode === 'original'
   const showReaderDerivedContext = hasActiveDocument && (activeMode === 'simplified' || activeMode === 'summary')
-  const readerTransportExpanded = speech.isSpeaking || speech.isPaused
+  const readerShortDocumentCompactContinuity =
+    readerShortDocumentLayout && (activeMode === 'original' || activeMode === 'reflowed')
+  const readerShortDocumentSupportOpenContinuity = readerShortDocumentCompactContinuity && readerSupportExpanded
+  const readerShortDocumentContentFit = readerShortDocumentCompactContinuity
+  const showReaderShortDocumentCompletionStrip =
+    Boolean(selectedDocument && view) &&
+    readerShortDocumentContentFit &&
+    !readerSupportExpanded &&
+    !showReaderDerivedContext &&
+    !readerTransportExpanded
   const readerSupportLockedOpen = noteCaptureActive || Boolean(routeAnchorRange) || notePromotionMode !== null
   const transportAction =
     speech.isSpeaking && !speech.isPaused
@@ -1123,7 +1319,7 @@ export function ReaderWorkspace({
         : {
             active: false,
             ariaLabel: 'Start read aloud',
-            icon: <PlayIcon />,
+            icon: <ReadAloudStartIcon />,
             onClick: handleTransportStart,
             title: 'Start read aloud',
           }
@@ -1230,13 +1426,194 @@ export function ReaderWorkspace({
         ]
       : []),
   ]
+  const compactReaderHeaderFusionActive = !readerSupportExpanded || readerShortDocumentSupportOpenContinuity
+  const readerCompactLayoutActive = !readerSupportExpanded || readerShortDocumentSupportOpenContinuity
+  const readerControlRibbon = (
+    <div
+      className={`reader-stage-control-ribbon${
+        readerOriginalParityMode ? ' reader-stage-control-ribbon-original-parity' : ''
+      }${readerCompactLayoutActive ? ' reader-stage-control-ribbon-compact' : ' reader-stage-control-ribbon-expanded'}${
+        compactReaderHeaderFusionActive ? ' reader-stage-control-ribbon-clustered' : ''
+      }${compactReaderHeaderFusionActive ? ' reader-stage-control-ribbon-embedded reader-stage-control-ribbon-embedded-compact' : ''}${
+        readerTransportExpanded ? ' reader-stage-control-ribbon-active-listen-stage878' : ''
+      }`}
+    >
+      <div
+        aria-label="Reader views"
+        className={`reader-stage-mode-strip${readerOriginalParityMode ? ' reader-stage-mode-strip-original-parity' : ''}`}
+      >
+        <div className="recall-stage-tabs recall-stage-tabs-compact" aria-label="Reader views" role="tablist">
+          {visibleViewModeOptions.map((option) => (
+            <button
+              key={option.mode}
+              aria-selected={activeMode === option.mode}
+              className={activeMode === option.mode ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
+              role="tab"
+              type="button"
+              onClick={() => handleSetActiveMode(option.mode)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        aria-label="Read aloud controls"
+        className={`reader-stage-transport-strip${
+          readerOriginalParityMode ? ' reader-stage-transport-strip-original-parity' : ''
+        }${readerTransportExpanded ? ' reader-stage-transport-strip-active-listen-stage878' : ''}`}
+      >
+        {readerTransportExpanded ? (
+          <section
+            aria-label="Active read aloud"
+            className="reader-active-listen-seam reader-active-listen-seam-stage878"
+            data-reader-active-listen-seam-stage878="true"
+          >
+            <div className="reader-active-listen-copy">
+              <span className="reader-active-listen-status">{speech.isPaused ? 'Paused' : 'Listening'}</span>
+              <span className="reader-active-listen-progress">{currentSentenceLabel}</span>
+              <span className="reader-active-listen-excerpt" title={currentSpeechSentenceText}>
+                {currentSpeechSentenceText || 'Reading this saved source.'}
+              </span>
+            </div>
+            <div className="reader-active-listen-controls">
+              <div className="transport-bar reader-active-listen-control-row" aria-label="Read aloud transport" role="toolbar">
+                <button
+                  aria-label="Previous sentence"
+                  className="transport-button reader-active-listen-control-button"
+                  disabled={!canUseSpeechTransport}
+                  title="Previous sentence"
+                  type="button"
+                  onClick={handleTransportPrevious}
+                >
+                  <PreviousIcon />
+                </button>
+                <button
+                  aria-label={transportAction.ariaLabel}
+                  className={`transport-button transport-button-primary reader-active-listen-primary${
+                    transportAction.active ? ' transport-button-active' : ''
+                  }`}
+                  disabled={!canUseSpeechTransport}
+                  title={transportAction.title}
+                  type="button"
+                  onClick={transportAction.onClick}
+                >
+                  {transportAction.icon}
+                  <span className="reader-active-listen-primary-label">
+                    {speech.isPaused ? 'Resume' : 'Pause'}
+                  </span>
+                </button>
+                <button
+                  aria-label="Next sentence"
+                  className="transport-button reader-active-listen-control-button"
+                  disabled={!canUseSpeechTransport}
+                  title="Next sentence"
+                  type="button"
+                  onClick={handleTransportNext}
+                >
+                  <NextIcon />
+                </button>
+                <button
+                  aria-label="Stop read aloud"
+                  className="transport-button transport-button-quiet reader-active-listen-control-button"
+                  disabled={!canUseSpeechTransport || (!speech.isSpeaking && !speech.isPaused)}
+                  title="Stop read aloud"
+                  type="button"
+                  onClick={handleTransportStop}
+                >
+                  <StopIcon />
+                </button>
+              </div>
+              <div className="reader-stage-overflow reader-active-listen-overflow">
+                <ControlsOverflow
+                  actions={readerOverflowActions}
+                  contrastTheme={settings.contrast_theme}
+                  preferredVoice={settings.preferred_voice}
+                  speechRate={settings.speech_rate}
+                  voiceChoices={speech.voiceChoices}
+                  onContrastThemeChange={(nextTheme) =>
+                    onSettingsChange((currentSettings) => ({
+                      ...currentSettings,
+                      contrast_theme: nextTheme,
+                    }))
+                  }
+                  onPreferredVoiceChange={(nextVoice) =>
+                    onSettingsChange((currentSettings) => ({
+                      ...currentSettings,
+                      preferred_voice: nextVoice,
+                    }))
+                  }
+                  onSpeechRateChange={(nextRate) =>
+                    onSettingsChange((currentSettings) => ({
+                      ...currentSettings,
+                      speech_rate: nextRate,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          </section>
+        ) : (
+          <div
+            className={`reader-stage-transport-tools${
+              readerSupportExpanded ? '' : ' reader-stage-transport-tools-inline-support'
+            }`}
+          >
+            <div className="transport-bar" aria-label="Read aloud transport" role="toolbar">
+              <button
+                aria-label={transportAction.ariaLabel}
+                className="transport-button transport-button-primary transport-button-primary-labeled"
+                disabled={!canUseSpeechTransport}
+                title={transportAction.title}
+                type="button"
+                onClick={transportAction.onClick}
+              >
+                {transportAction.icon}
+                <span className="transport-button-label">Read aloud</span>
+              </button>
+            </div>
+            <div className="reader-stage-overflow">
+              <ControlsOverflow
+                actions={readerOverflowActions}
+                contrastTheme={settings.contrast_theme}
+                preferredVoice={settings.preferred_voice}
+                speechRate={settings.speech_rate}
+                voiceChoices={speech.voiceChoices}
+                onContrastThemeChange={(nextTheme) =>
+                  onSettingsChange((currentSettings) => ({
+                    ...currentSettings,
+                    contrast_theme: nextTheme,
+                  }))
+                }
+                onPreferredVoiceChange={(nextVoice) =>
+                  onSettingsChange((currentSettings) => ({
+                    ...currentSettings,
+                    preferred_voice: nextVoice,
+                  }))
+                }
+                onSpeechRateChange={(nextRate) =>
+                  onSettingsChange((currentSettings) => ({
+                    ...currentSettings,
+                    speech_rate: nextRate,
+                  }))
+                }
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
   const notesPanelSummary = selectedDocument
     ? notesLoading
       ? 'Loading notebook notes for the active source.'
       : notesStatus === 'error'
         ? 'Notebook notes are temporarily unavailable for this source.'
         : activeReaderNote
-          ? `Working note: ${activeReaderNote.anchor.anchor_text}`
+          ? activeReaderNoteIsSourceAttached
+            ? `Working source note: ${getReaderSourceNoteBodyPreview(activeReaderNote)}`
+            : `Working note: ${activeReaderNote.anchor.anchor_text}`
           : readerOriginalParityMode
             ? `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} stay nearby in Notebook for this source.`
             : `${notes.length} saved ${notes.length === 1 ? 'note' : 'notes'} for ${selectedDocument.title}.`
@@ -1244,7 +1621,8 @@ export function ReaderWorkspace({
   const visibleSavedNotes = !noteCaptureActive && activeReaderNote ? notes.filter((note) => note.id !== activeReaderNote.id) : notes
   const visibleSavedNoteItems = visibleSavedNotes.map((note) => ({
     note,
-    secondaryText: buildSavedNoteSecondaryText(note),
+    primaryText: getSavedNotePrimaryText(note),
+    secondaryText: buildSavedNoteSecondaryText(note, selectedDocument?.title ?? null),
   }))
   const savedNotesListLabel = !noteCaptureActive && activeReaderNote ? 'Other saved notes' : 'Saved notes'
   const shellContext = useMemo<WorkspaceDockContext | null>(() => {
@@ -1444,7 +1822,7 @@ export function ReaderWorkspace({
         }
         onOpenRecallStudy(selectedDocument.id)
       },
-      readerLayout: readerSupportExpanded ? 'expanded' : 'compact',
+      readerLayout: readerCompactLayoutActive ? 'compact' : 'expanded',
       readerLineWidthCh: settings.line_width,
     })
   }, [
@@ -1455,6 +1833,7 @@ export function ReaderWorkspace({
     onOpenRecallNotes,
     onOpenRecallStudy,
     onShellSourceWorkspaceChange,
+    readerCompactLayoutActive,
     readerSupportExpanded,
     settings.line_width,
     selectedDocument,
@@ -1481,6 +1860,7 @@ export function ReaderWorkspace({
           {selectedDocument ? (
             <SourceWorkspaceFrame
               activeTab="reader"
+              actions={compactReaderHeaderFusionActive ? readerControlRibbon : undefined}
               counts={sourceWorkspaceCounts}
               description="Attached source context for the active document."
               document={{
@@ -1490,7 +1870,8 @@ export function ReaderWorkspace({
                 sourceType: selectedDocument.source_type,
                 title: selectedDocument.title,
               }}
-              readerLayout={readerSupportExpanded ? 'expanded' : 'compact'}
+              hideTitle={compactReaderDuplicateTitleHidden}
+              readerLayout={readerCompactLayoutActive ? 'compact' : 'expanded'}
               readerLineWidthCh={settings.line_width}
               onSelectTab={(tab) => {
                 if (tab === 'reader') {
@@ -1516,13 +1897,19 @@ export function ReaderWorkspace({
             <section
               className={`reader-card reader-reading-stage${
                 readerOriginalParityMode ? ' reader-reading-stage-original-parity' : ''
+              }${compactReaderHeaderFusionActive ? ' reader-reading-stage-header-fused' : ''}${
+                readerShortDocumentSupportOpenContinuity ? ' reader-reading-stage-short-support-open-stage866' : ''
+              }${
+                !readerOriginalParityMode && !readerSupportExpanded && !compactReaderHeaderFusionActive
+                  ? ' reader-reading-stage-compact-leading'
+                  : ''
               }`}
               style={readerStageStyle}
             >
               {readerStageMetadata.length ? (
                 <div
                   className={`reader-stage-shell${readerOriginalParityMode ? ' reader-stage-shell-original-parity' : ''}${
-                    readerSupportExpanded ? ' reader-stage-shell-expanded' : ' reader-stage-shell-compact'
+                    readerCompactLayoutActive ? ' reader-stage-shell-compact' : ' reader-stage-shell-expanded'
                   }`}
                 >
                   <div className={`reader-stage-context${readerOriginalParityMode ? ' reader-stage-context-original-parity' : ''}`}>
@@ -1549,135 +1936,20 @@ export function ReaderWorkspace({
                 </div>
               ) : null}
 
-              <div
-                className={`reader-stage-control-ribbon${
-                  readerOriginalParityMode ? ' reader-stage-control-ribbon-original-parity' : ''
-                }${readerSupportExpanded ? ' reader-stage-control-ribbon-expanded' : ' reader-stage-control-ribbon-compact'}`}
-              >
-                <div
-                  aria-label="Reader views"
-                  className={`reader-stage-mode-strip${readerOriginalParityMode ? ' reader-stage-mode-strip-original-parity' : ''}`}
-                >
-                  <div className="recall-stage-tabs recall-stage-tabs-compact" aria-label="Reader views" role="tablist">
-                    {visibleViewModeOptions.map((option) => (
-                      <button
-                        key={option.mode}
-                        aria-selected={activeMode === option.mode}
-                        className={activeMode === option.mode ? 'recall-stage-tab recall-stage-tab-active' : 'recall-stage-tab'}
-                        role="tab"
-                        type="button"
-                        onClick={() => handleSetActiveMode(option.mode)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div
-                  aria-label="Read aloud controls"
-                  className={`reader-stage-transport-strip${
-                    readerOriginalParityMode ? ' reader-stage-transport-strip-original-parity' : ''
-                  }`}
-                >
-                  {readerTransportExpanded ? (
-                    <span className="status-chip reader-meta-chip reader-stage-progress-chip">{currentSentenceLabel}</span>
-                  ) : null}
-                  <div
-                    className={`reader-stage-transport-tools${
-                      readerSupportExpanded ? '' : ' reader-stage-transport-tools-inline-support'
-                    }`}
-                  >
-                    <div className="transport-bar" aria-label="Read aloud transport" role="toolbar">
-                      {readerTransportExpanded ? (
-                        <button
-                          aria-label="Previous sentence"
-                          className="transport-button"
-                          disabled={!canUseSpeechTransport}
-                          title="Previous sentence"
-                          type="button"
-                          onClick={handleTransportPrevious}
-                        >
-                          <PreviousIcon />
-                        </button>
-                      ) : null}
-                      <button
-                        aria-label={transportAction.ariaLabel}
-                        className={`transport-button transport-button-primary${
-                          readerTransportExpanded ? '' : ' transport-button-primary-labeled'
-                        }${transportAction.active ? ' transport-button-active' : ''}`}
-                        disabled={!canUseSpeechTransport}
-                        title={transportAction.title}
-                        type="button"
-                        onClick={transportAction.onClick}
-                      >
-                        {transportAction.icon}
-                        {!readerTransportExpanded ? <span className="transport-button-label">Read aloud</span> : null}
-                      </button>
-                      {readerTransportExpanded ? (
-                        <button
-                          aria-label="Next sentence"
-                          className="transport-button"
-                          disabled={!canUseSpeechTransport}
-                          title="Next sentence"
-                          type="button"
-                          onClick={handleTransportNext}
-                        >
-                          <NextIcon />
-                        </button>
-                      ) : null}
-                      {readerTransportExpanded ? (
-                        <button
-                          aria-label="Stop read aloud"
-                          className="transport-button transport-button-quiet"
-                          disabled={!canUseSpeechTransport || (!speech.isSpeaking && !speech.isPaused)}
-                          title="Stop read aloud"
-                          type="button"
-                          onClick={handleTransportStop}
-                        >
-                          <StopIcon />
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className="reader-stage-overflow">
-                      <ControlsOverflow
-                        actions={readerOverflowActions}
-                        contrastTheme={settings.contrast_theme}
-                        preferredVoice={settings.preferred_voice}
-                        speechRate={settings.speech_rate}
-                        voiceChoices={speech.voiceChoices}
-                        onContrastThemeChange={(nextTheme) =>
-                          onSettingsChange((currentSettings) => ({
-                            ...currentSettings,
-                            contrast_theme: nextTheme,
-                          }))
-                        }
-                        onPreferredVoiceChange={(nextVoice) =>
-                          onSettingsChange((currentSettings) => ({
-                            ...currentSettings,
-                            preferred_voice: nextVoice,
-                          }))
-                        }
-                        onSpeechRateChange={(nextRate) =>
-                          onSettingsChange((currentSettings) => ({
-                            ...currentSettings,
-                            speech_rate: nextRate,
-                          }))
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {!compactReaderHeaderFusionActive ? readerControlRibbon : null}
               <div
                 className={`reader-reading-deck-layout${
                   readerOriginalParityMode ? ' reader-reading-deck-layout-original-parity' : ''
-                }${readerSupportExpanded ? ' reader-reading-deck-layout-expanded' : ' reader-reading-deck-layout-compact'}`}
+                }${readerCompactLayoutActive ? ' reader-reading-deck-layout-compact' : ' reader-reading-deck-layout-expanded'}${
+                  readerShortDocumentSupportOpenContinuity
+                    ? ' reader-reading-deck-layout-short-support-open-stage866'
+                    : ''
+                }`}
               >
                 <div
                   className={`reader-document-shell reader-reading-lane${
                     readerOriginalParityMode ? ' reader-document-shell-original-parity' : ''
-                  }`}
+                  }${showReaderShortDocumentCompletionStrip ? ' reader-document-shell-short-completion-stage876' : ''}`}
                 >
                   {showReaderDerivedContext ? (
                     <section
@@ -1773,7 +2045,10 @@ export function ReaderWorkspace({
                       <div
                         className={`reader-article-field${
                           readerOriginalParityMode ? ' reader-article-field-original-parity' : ''
-                        }${readerShortDocumentLayout ? ' reader-article-field-short-document' : ''}`}
+                        }${readerShortDocumentLayout ? ' reader-article-field-short-document' : ''}${
+                          readerShortDocumentContentFit ? ' reader-article-field-short-document-content-fit-stage864' : ''
+                        }`}
+                        data-reader-short-document-content-fit-stage864={readerShortDocumentContentFit ? 'true' : undefined}
                       >
                         <ReaderSurface
                           accessibleLabel={selectedDocument.title}
@@ -1787,6 +2062,36 @@ export function ReaderWorkspace({
                         />
                       </div>
                     </div>
+                  ) : null}
+                  {showReaderShortDocumentCompletionStrip ? (
+                    <section
+                      aria-label="Short document completion"
+                      className="reader-short-document-completion-strip reader-short-document-completion-strip-stage876"
+                      data-reader-short-document-completion-strip-stage876="true"
+                    >
+                      <div className="reader-short-document-completion-copy">
+                        <span className="reader-short-document-completion-kicker">Short source complete</span>
+                        <span>Keep working from this saved source without leaving Reader.</span>
+                      </div>
+                      <div className="reader-short-document-completion-actions">
+                        <button
+                          aria-label="Open Source from short document completion"
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => openReaderSupport('source')}
+                        >
+                          Source
+                        </button>
+                        <button
+                          aria-label="Open Notebook notes from short document completion"
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => openReaderSupport('notes')}
+                        >
+                          Notebook notes
+                        </button>
+                      </div>
+                    </section>
                   ) : null}
                 </div>
 
@@ -1887,6 +2192,7 @@ export function ReaderWorkspace({
                 {selectedDocument ? (
                   <button
                     className="ghost-button"
+                    data-reader-source-notebook-continuity-stage900="true"
                     type="button"
                     onClick={() => onOpenRecallNotes(selectedDocument.id, activeReaderNote?.id ?? notes[0]?.id ?? null)}
                   >
@@ -1955,7 +2261,7 @@ export function ReaderWorkspace({
 
               {visibleSavedNoteItems.length ? (
                 <div aria-label={savedNotesListLabel} className="reader-saved-notes" role="list">
-                  {visibleSavedNoteItems.map(({ note, secondaryText }) => (
+                  {visibleSavedNoteItems.map(({ note, primaryText, secondaryText }) => (
                     <button
                       key={note.id}
                       aria-pressed={activeReaderNote?.id === note.id}
@@ -1967,7 +2273,9 @@ export function ReaderWorkspace({
                       type="button"
                       onClick={() => handleOpenSavedNote(note)}
                     >
-                      <strong>{note.anchor.anchor_text}</strong>
+                      <strong data-reader-source-note-memory-preview-stage900={isSourceAttachedReaderNote(note) ? 'body' : undefined}>
+                        {primaryText}
+                      </strong>
                       {secondaryText ? <span className="reader-saved-note-secondary">{secondaryText}</span> : null}
                     </button>
                   ))}
@@ -1996,12 +2304,25 @@ export function ReaderWorkspace({
                           </div>
                         </div>
 
-                        <div className="recall-note-preview reader-note-anchor-preview" aria-label="Selected note anchor">
+                        <div
+                          className="recall-note-preview reader-note-anchor-preview"
+                          aria-label={activeReaderNoteIsSourceAttached ? 'Selected note source context' : 'Selected note anchor'}
+                          data-reader-source-note-context-stage900={activeReaderNoteIsSourceAttached ? 'true' : undefined}
+                        >
                           {activeReaderNoteSentenceSpanLabel ? (
                             <span className="reader-note-preview-meta">{activeReaderNoteSentenceSpanLabel}</span>
                           ) : null}
-                          <p>{activeReaderNote.anchor.anchor_text}</p>
-                          <span>{activeReaderNote.anchor.excerpt_text}</span>
+                          {activeReaderNoteIsSourceAttached ? (
+                            <>
+                              <p>{selectedDocument?.title ?? 'Saved source'}</p>
+                              <span>{getReaderSourceNoteBodyPreview(activeReaderNote)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <p>{activeReaderNote.anchor.anchor_text}</p>
+                              <span>{activeReaderNote.anchor.excerpt_text}</span>
+                            </>
+                          )}
                         </div>
 
                         <label className="field">

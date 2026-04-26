@@ -66,6 +66,12 @@ export function buildWorkspaceSearchAnchorOptions(note: RecallNoteSearchHit | Re
   if (!anchor) {
     return undefined
   }
+  if (anchor.kind === 'source') {
+    return {
+      sentenceEnd: null,
+      sentenceStart: null,
+    }
+  }
   return {
     sentenceEnd: anchor.global_sentence_end ?? anchor.sentence_end,
     sentenceStart: anchor.global_sentence_start ?? anchor.sentence_start,

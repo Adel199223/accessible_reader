@@ -62,6 +62,7 @@ export interface RecallDocumentPreview {
 }
 
 export interface RecallNoteAnchor {
+  kind?: 'sentence' | 'source'
   source_document_id: string
   variant_id: string
   block_id: string
@@ -164,6 +165,11 @@ export interface KnowledgeMentionRecord {
   block_id?: string | null
   chunk_id?: string | null
   excerpt: string
+  anchor_kind?: 'sentence' | 'source' | null
+  manual_source?: string | null
+  note_anchor_text?: string | null
+  note_body?: string | null
+  note_id?: string | null
 }
 
 export interface KnowledgeNodeDetail {

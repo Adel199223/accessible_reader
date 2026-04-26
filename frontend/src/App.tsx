@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useDeferredValue, useEffect, useRef, useState, type CSSProperties, type SetStateAction } from 'react'
 
 import {
   fetchDocuments,
@@ -102,6 +102,7 @@ export default function App() {
   const [activeRecallSection, setActiveRecallSection] = useState<RecallSection>(() =>
     resolveVisibleRecallSection(parseAppRoute(window.location).recallSection),
   )
+  const recallContinuityStateRef = useRef<RecallWorkspaceContinuityState>(defaultRecallWorkspaceContinuityState)
   const [recallContinuityState, setRecallContinuityState] = useState<RecallWorkspaceContinuityState>(
     defaultRecallWorkspaceContinuityState,
   )
@@ -127,6 +128,15 @@ export default function App() {
     section: RecallSection
   } | null>(null)
   const deferredWorkspaceSearchQuery = useDeferredValue(workspaceSearchSession.query)
+
+  const updateRecallContinuityState = useCallback((action: SetStateAction<RecallWorkspaceContinuityState>) => {
+    const nextState =
+      typeof action === 'function'
+        ? (action as (current: RecallWorkspaceContinuityState) => RecallWorkspaceContinuityState)(recallContinuityStateRef.current)
+        : action
+    recallContinuityStateRef.current = nextState
+    setRecallContinuityState(nextState)
+  }, [])
 
   useEffect(() => {
     syncRouteFromLocation(setRoute)
@@ -165,12 +175,14 @@ export default function App() {
     if (route.path !== 'reader' || !route.documentId) {
       return
     }
-    setRecallContinuityState((current) => ({
+    updateRecallContinuityState((current) => ({
       ...current,
       sourceWorkspace: {
         ...current.sourceWorkspace,
         activeDocumentId: route.documentId,
         activeTab: 'reader',
+        memorySearchQuery:
+          current.sourceWorkspace.activeDocumentId === route.documentId ? current.sourceWorkspace.memorySearchQuery : '',
         mode: 'focused',
         readerAnchor:
           route.sentenceStart !== null && route.sentenceEnd !== null
@@ -193,12 +205,13 @@ export default function App() {
     if (recallSnapshot) {
       recallSnapshotBeforeReaderRef.current = null
       setActiveRecallSection(recallSnapshot.section)
-      setRecallContinuityState(recallSnapshot.continuityState)
+      setRecallFocusRequest(null)
+      updateRecallContinuityState(recallSnapshot.continuityState)
       return
     }
     if (route.recallSection === 'notes') {
       setActiveRecallSection('library')
-      setRecallContinuityState((current) => ({
+      updateRecallContinuityState((current) => ({
         ...current,
         library: {
           ...current.library,
@@ -214,7 +227,7 @@ export default function App() {
       return
     }
     setActiveRecallSection(route.recallSection)
-  }, [route.path, route.recallSection])
+  }, [route.path, route.recallSection, updateRecallContinuityState])
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -239,11 +252,14 @@ export default function App() {
       sentenceStart?: number | null
     },
   ) => {
-    if (path === 'reader' && route.path === 'recall') {
+    if (path === 'reader' && route.path === 'recall' && !recallSnapshotBeforeReaderRef.current) {
       recallSnapshotBeforeReaderRef.current = {
-        continuityState: recallContinuityState,
+        continuityState: recallContinuityStateRef.current,
         section: activeRecallSection,
       }
+    }
+    if (path === 'reader') {
+      setRecallFocusRequest(null)
     } else if (path === 'recall') {
       recallSnapshotBeforeReaderRef.current = null
     }
@@ -255,7 +271,7 @@ export default function App() {
     }
     window.history.pushState({}, '', href)
     setRoute(parseAppRoute(window.location))
-  }, [activeRecallSection, recallContinuityState, route.path])
+  }, [activeRecallSection, route.path])
 
   const syncRecallSectionRoute = useCallback((section: RecallSection) => {
     if (route.path !== 'recall') {
@@ -289,9 +305,11 @@ export default function App() {
           : null)
     const resolvedBrowseDrawerSection =
       resolvedSection === 'library' && resolvedLibrarySurface === 'notebook' ? 'notes' : resolvedSection
-    const hasFocusedTarget = Boolean(options?.documentId || options?.noteId || options?.nodeId || options?.cardId)
+    const hasFocusedTarget = Boolean(
+      !options?.newNote && (options?.documentId || options?.noteId || options?.nodeId || options?.cardId),
+    )
     handleRecallSectionChange(resolvedSection)
-    setRecallContinuityState((current) => ({
+    updateRecallContinuityState((current) => ({
       ...current,
       browseDrawers: {
         ...current.browseDrawers,
@@ -311,8 +329,27 @@ export default function App() {
         ...current.sourceWorkspace,
         activeDocumentId: options?.documentId ?? current.sourceWorkspace.activeDocumentId,
         activeTab: resolvedSourceTab ?? mapRecallSectionToSourceTab(resolvedSection),
+        memorySearchFocusToken: options?.sourceMemorySearchFocus ? Date.now() : current.sourceWorkspace.memorySearchFocusToken,
+        memorySearchQuery:
+          options?.documentId && options.documentId !== current.sourceWorkspace.activeDocumentId
+            ? ''
+            : current.sourceWorkspace.memorySearchQuery,
         mode: hasFocusedTarget ? 'focused' : 'browse',
       },
+      study:
+        resolvedSection === 'study'
+          ? {
+              ...current.study,
+              activeCardId: options?.cardId ?? current.study.activeCardId,
+              filter: options?.documentId ? 'all' : current.study.filter,
+              questionSearchQuery:
+                options?.documentId && options.documentId === current.study.sourceScopeDocumentId
+                  ? current.study.questionSearchQuery
+                  : '',
+              scheduleDrilldown: 'all',
+              sourceScopeDocumentId: options?.documentId ?? null,
+            }
+          : current.study,
     }))
     setRecallFocusRequest({
       section: resolvedSection,
@@ -324,13 +361,49 @@ export default function App() {
     if (route.path !== 'recall') {
       navigate('recall', null, { recallSection: resolvedSection })
     }
-  }, [handleRecallSectionChange, navigate, route.path])
+  }, [handleRecallSectionChange, navigate, route.path, updateRecallContinuityState])
 
   const handleOpenReader = useCallback(
-    (documentId: string, options?: { sentenceEnd?: number | null; sentenceStart?: number | null }) => {
-      navigate('reader', documentId, options)
+    (
+      documentId: string,
+      options?: {
+        returnNoteId?: string | null
+        returnToNotebook?: boolean | null
+        sentenceEnd?: number | null
+        sentenceStart?: number | null
+      },
+    ) => {
+      const { returnNoteId, returnToNotebook, sentenceEnd, sentenceStart } = options ?? {}
+      if (route.path === 'recall') {
+        const continuitySnapshot =
+          returnToNotebook === true
+            ? {
+                ...recallContinuityStateRef.current,
+                library: {
+                  ...recallContinuityStateRef.current.library,
+                  activeSurface: 'notebook' as RecallLibrarySurface,
+                  selectedDocumentId: documentId,
+                },
+                notes: {
+                  ...recallContinuityStateRef.current.notes,
+                  selectedDocumentId: documentId,
+                  selectedNoteId: returnNoteId ?? recallContinuityStateRef.current.notes.selectedNoteId,
+                },
+                sourceWorkspace: {
+                  ...recallContinuityStateRef.current.sourceWorkspace,
+                  activeDocumentId: documentId,
+                  activeTab: 'notes' as SourceWorkspaceTab,
+                },
+              }
+            : recallContinuityStateRef.current
+        recallSnapshotBeforeReaderRef.current = {
+          continuityState: continuitySnapshot,
+          section: activeRecallSection,
+        }
+      }
+      navigate('reader', documentId, { sentenceEnd, sentenceStart })
     },
-    [navigate],
+    [activeRecallSection, navigate, route.path],
   )
 
   const handleOpenRecallGraph = useCallback(
@@ -341,8 +414,13 @@ export default function App() {
   )
 
   const handleOpenRecallLibrary = useCallback(
-    (documentId: string) => {
-      openRecallSection('library', { documentId, librarySurface: 'home', sourceTab: 'overview' })
+    (documentId: string, options?: { focusMemorySearch?: boolean | null }) => {
+      openRecallSection('library', {
+        documentId,
+        librarySurface: 'home',
+        sourceMemorySearchFocus: options?.focusMemorySearch ?? false,
+        sourceTab: 'overview',
+      })
     },
     [openRecallSection],
   )
@@ -355,17 +433,21 @@ export default function App() {
   )
 
   const handleOpenRecallNotebook = useCallback(
-    (options?: { documentId?: string | null; noteId?: string | null }) => {
+    (options?: { documentId?: string | null; newNote?: boolean | null; noteId?: string | null }) => {
       const nextFocusRequest: Omit<RecallWorkspaceFocusRequest, 'section' | 'token'> = {
         librarySurface: 'notebook',
       }
-      const hasExplicitTarget = options?.documentId !== undefined || options?.noteId !== undefined
+      const wantsNotebookDraft = options?.newNote === true
+      const hasExplicitTarget = options?.documentId !== undefined || options?.noteId !== undefined || wantsNotebookDraft
 
       if (options?.documentId !== undefined) {
         nextFocusRequest.documentId = options.documentId
       }
       if (options?.noteId !== undefined) {
         nextFocusRequest.noteId = options.noteId
+      }
+      if (options?.newNote !== undefined) {
+        nextFocusRequest.newNote = options.newNote
       }
       if (hasExplicitTarget) {
         nextFocusRequest.sourceTab = 'notes'
@@ -475,7 +557,7 @@ export default function App() {
       const activeSourceDocumentId =
         recallContinuityState.sourceWorkspace.activeDocumentId ?? route.documentId ?? recallContinuityState.library.selectedDocumentId
       if (activeSourceDocumentId) {
-        setRecallContinuityState((current) => ({
+        updateRecallContinuityState((current) => ({
           ...current,
           sourceWorkspace: {
             ...current.sourceWorkspace,
@@ -492,7 +574,7 @@ export default function App() {
     }
     const resolvedSection = resolveVisibleRecallSection(section)
     handleRecallSectionChange(resolvedSection)
-    setRecallContinuityState((current) => ({
+    updateRecallContinuityState((current) => ({
       ...current,
       browseDrawers: {
         ...current.browseDrawers,
@@ -702,11 +784,16 @@ export default function App() {
         headerActions={
           shellLayoutMode === 'home' ? undefined : (
             <>
-              <button className="shell-nav-button" type="button" onClick={handleOpenSearch}>
+              <button aria-label="Search" className="shell-nav-button" type="button" onClick={handleOpenSearch}>
                 Search
                 <span className="shell-nav-hint">Ctrl+K</span>
               </button>
-              <button className="shell-nav-button shell-nav-button-active shell-nav-button-add" type="button" onClick={handleRequestNewSource}>
+              <button
+                aria-label="Add"
+                className="shell-nav-button shell-nav-button-active shell-nav-button-add"
+                type="button"
+                onClick={handleRequestNewSource}
+              >
                 <span className="shell-nav-button-leading" aria-hidden="true">
                   <AddLauncherIcon />
                 </span>
@@ -727,7 +814,7 @@ export default function App() {
           <RecallWorkspace
             continuityState={recallContinuityState}
             focusRequest={recallFocusRequest}
-            onContinuityStateChange={setRecallContinuityState}
+            onContinuityStateChange={updateRecallContinuityState}
             onOpenNotebook={handleOpenRecallNotebook}
             onShellContextChange={setShellContext}
             onSectionChange={handleRecallSectionChange}
