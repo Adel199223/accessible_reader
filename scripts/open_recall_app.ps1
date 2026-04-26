@@ -5,16 +5,14 @@ $repoRoot = Split-Path -Parent $scriptDir
 $backendDir = Join-Path $repoRoot 'backend'
 $frontendDir = Join-Path $repoRoot 'frontend'
 $frontendDistIndex = Join-Path $frontendDir 'dist\index.html'
+$ensureWslReadyScript = Join-Path $scriptDir 'ensure_wsl_ready.ps1'
 $edgeOpenerScript = Join-Path $repoRoot 'scripts\playwright\open_recall_in_edge.mjs'
 $backendVenvPythonWindows = Join-Path $backendDir '.venv\bin\python'
 $healthUrl = 'http://127.0.0.1:8000/api/health'
 $recallUrl = 'http://127.0.0.1:8000/recall'
 $targetUrl = if ($env:RECALL_OPEN_APP_URL) { $env:RECALL_OPEN_APP_URL } else { $recallUrl }
-$playwrightHarness = if ($env:RECALL_OPEN_APP_PLAYWRIGHT_HARNESS) {
-  $env:RECALL_OPEN_APP_PLAYWRIGHT_HARNESS
-} else {
-  'C:\Users\FA507\AppData\Local\Temp\accessible-reader-playwright'
-}
+$defaultPlaywrightHarness = 'C:\Users\FA507\AppData\Local\Temp\accessible-reader-playwright'
+$codexRuntimePlaywrightHarness = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\node'
 $backendStdoutLog = Join-Path $env:TEMP 'accessible-reader-open-app-backend.stdout.log'
 $backendStderrLog = Join-Path $env:TEMP 'accessible-reader-open-app-backend.stderr.log'
 $startupTimeoutSeconds = 45
@@ -39,6 +37,60 @@ function Convert-ToWslPath {
   }
 
   throw "Could not convert Windows path '$fullPath' into a WSL path."
+}
+
+function Get-PlaywrightEntryPath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$HarnessPath
+  )
+
+  return Join-Path $HarnessPath 'node_modules\playwright\index.mjs'
+}
+
+function Resolve-PlaywrightHarnessPath {
+  param(
+    [string]$RequestedPath
+  )
+
+  if ($RequestedPath) {
+    $requestedEntry = Get-PlaywrightEntryPath -HarnessPath $RequestedPath
+    if (Test-Path $requestedEntry) {
+      return $RequestedPath
+    }
+
+    throw @"
+Playwright harness override '$RequestedPath' is unavailable.
+
+Expected to find:
+  $requestedEntry
+
+Point RECALL_OPEN_APP_PLAYWRIGHT_HARNESS at a valid harness root and try again.
+"@
+  }
+
+  $candidateHarnesses = @(
+    $defaultPlaywrightHarness
+    $codexRuntimePlaywrightHarness
+  ) | Select-Object -Unique
+
+  $checkedEntries = @()
+  foreach ($candidate in $candidateHarnesses) {
+    $entryPath = Get-PlaywrightEntryPath -HarnessPath $candidate
+    $checkedEntries += $entryPath
+    if (Test-Path $entryPath) {
+      return $candidate
+    }
+  }
+
+  throw @"
+No usable Playwright harness was found for the Windows Edge launcher.
+
+Checked:
+  $($checkedEntries -join [Environment]::NewLine + '  ')
+
+Repair the temporary harness or set RECALL_OPEN_APP_PLAYWRIGHT_HARNESS to a valid harness root before retrying.
+"@
 }
 
 function Test-Url200 {
@@ -183,12 +235,19 @@ if (-not (Test-Path $edgeOpenerScript)) {
   throw "Edge opener script not found at '$edgeOpenerScript'."
 }
 
-if (-not (Test-Path $playwrightHarness)) {
-  throw "Playwright harness directory not found at '$playwrightHarness'. Set RECALL_OPEN_APP_PLAYWRIGHT_HARNESS to the correct Windows path and try again."
+if (-not (Test-Path $ensureWslReadyScript)) {
+  throw "WSL preflight script not found at '$ensureWslReadyScript'."
 }
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw "Windows node is not available on PATH. Install Node.js on Windows or expose 'node' before running this launcher."
+}
+
+& $ensureWslReadyScript -RepoRootWindowsPath $repoRoot
+
+$playwrightHarness = Resolve-PlaywrightHarnessPath -RequestedPath $env:RECALL_OPEN_APP_PLAYWRIGHT_HARNESS
+if (-not $env:RECALL_OPEN_APP_PLAYWRIGHT_HARNESS -and $playwrightHarness -ne $defaultPlaywrightHarness) {
+  Write-Host "Using fallback Playwright harness at '$playwrightHarness'."
 }
 
 $wslRepoRoot = Convert-ToWslPath -WindowsPath $repoRoot

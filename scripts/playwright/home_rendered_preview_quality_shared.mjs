@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -45,8 +46,7 @@ export async function launchBrowserContext({
   preferredChannel,
   repoRoot,
 }) {
-  const resolvedHarnessDir = resolveHarnessDir(repoRoot, harnessDir)
-  const playwrightModuleUrl = pathToFileURL(path.join(resolvedHarnessDir, 'node_modules', 'playwright', 'index.mjs')).href
+  const playwrightModuleUrl = pathToFileURL(resolvePlaywrightEntry(repoRoot, harnessDir)).href
   const { chromium } = await import(playwrightModuleUrl)
   return launchBrowser(chromium, { allowChromiumFallback, headless, preferredChannel })
 }
@@ -1547,4 +1547,41 @@ function resolveHarnessDir(repoRoot, configuredHarnessDir) {
     return path.posix.normalize(`/mnt/${driveLetter}/${relativeSegments}`)
   }
   return path.resolve(repoRoot, trimmed)
+}
+
+function resolvePlaywrightEntry(repoRoot, configuredHarnessDir) {
+  const codexRuntimeHarness =
+    process.env.USERPROFILE &&
+    path.join(process.env.USERPROFILE, '.cache', 'codex-runtimes', 'codex-primary-runtime', 'dependencies', 'node')
+  const inferredWindowsUser =
+    process.platform === 'win32' ? null : process.env.USERNAME || process.env.USER || null
+  const inferredWslCodexRuntimeHarness =
+    !process.env.USERPROFILE && inferredWindowsUser
+      ? path.posix.join(
+          '/mnt/c/Users',
+          inferredWindowsUser,
+          '.cache',
+          'codex-runtimes',
+          'codex-primary-runtime',
+          'dependencies',
+          'node',
+        )
+      : null
+  const harnessCandidates = [configuredHarnessDir, codexRuntimeHarness, inferredWslCodexRuntimeHarness].filter(Boolean)
+  const checkedEntryPaths = []
+
+  for (const candidate of harnessCandidates) {
+    const resolvedHarnessDir = resolveHarnessDir(repoRoot, candidate)
+    for (const entryFile of ['index.mjs', 'index.js']) {
+      const entryPath = path.join(resolvedHarnessDir, 'node_modules', 'playwright', entryFile)
+      checkedEntryPaths.push(entryPath)
+      if (existsSync(entryPath)) {
+        return entryPath
+      }
+    }
+  }
+
+  throw new Error(
+    `Playwright harness not found. Checked:\n${checkedEntryPaths.map((entryPath) => `  ${entryPath}`).join('\n')}`,
+  )
 }

@@ -41,6 +41,7 @@ export async function captureGraphRecallStyleEvidence({
   const settingsSidebar = page.getByRole('complementary', { name: 'Graph settings sidebar' }).first()
   const countPill = page.locator('.recall-graph-canvas-count-pill').first()
   const utilityCorners = page.getByLabel('Graph utility corners').first()
+  const helpControls = page.getByRole('group', { name: 'Graph help controls' }).first()
   const tour = page.getByLabel('Graph View tour').first()
 
   await Promise.all([
@@ -50,7 +51,7 @@ export async function captureGraphRecallStyleEvidence({
     settingsSidebar.waitFor({ state: 'visible', timeout: 20000 }),
     countPill.waitFor({ state: 'visible', timeout: 20000 }),
     utilityCorners.waitFor({ state: 'visible', timeout: 20000 }),
-    tour.waitFor({ state: 'visible', timeout: 20000 }),
+    helpControls.waitFor({ state: 'visible', timeout: 20000 }),
   ])
   await page.waitForTimeout(350)
 
@@ -59,17 +60,34 @@ export async function captureGraphRecallStyleEvidence({
   if (!initialMetrics.settingsOpenByDefault) {
     throw new Error(`${stageLabel} expected Graph settings to open by default.`)
   }
-  if (!initialMetrics.tourVisible) {
-    throw new Error(`${stageLabel} expected the Graph View tour to be visible on first open.`)
+  if (initialMetrics.tourVisible) {
+    throw new Error(`${stageLabel} expected the Graph View tour to stay hidden until started explicitly.`)
   }
   if (initialMetrics.idleFocusTrayVisible || initialMetrics.idleDetailDockVisible) {
     throw new Error(`${stageLabel} expected idle Graph browse to stay contextual with no focus tray or detail dock.`)
   }
-  if (initialMetrics.helpControlsVisible) {
-    throw new Error(`${stageLabel} expected help controls to stay hidden while the Graph View tour is visible.`)
+  if (!initialMetrics.helpControlsVisible) {
+    throw new Error(`${stageLabel} expected compact help controls to stay visible on first open.`)
+  }
+  if (initialMetrics.graphTourEntryLabel !== 'Take Graph tour') {
+    throw new Error(
+      `${stageLabel} expected the first-open Graph tour entry label to be "Take Graph tour", found "${initialMetrics.graphTourEntryLabel}".`,
+    )
   }
   if (initialMetrics.floatingLegendVisible) {
     throw new Error(`${stageLabel} expected no floating Graph legend outside the settings sidebar.`)
+  }
+  if (initialMetrics.graphSettingsHeaderHelperVisible) {
+    throw new Error(`${stageLabel} expected the Graph settings header helper copy to stay retired at rest.`)
+  }
+  if (!initialMetrics.graphSettingsRailTopStartCompact) {
+    throw new Error(`${stageLabel} expected the Graph settings rail to start earlier beneath the compact header.`)
+  }
+  if (initialMetrics.graphSettingsPresetPrimaryActionFullWidth) {
+    throw new Error(`${stageLabel} expected the Graph preset save affordance to avoid a full-width hero treatment.`)
+  }
+  if (!initialMetrics.graphSettingsPresetSummaryInline) {
+    throw new Error(`${stageLabel} expected the Graph preset summary to stay inline with the section-owned metadata.`)
   }
   if (initialMetrics.sectionTitles.slice(0, 3).join('|') !== 'Presets|Filters|Groups') {
     throw new Error(`${stageLabel} expected Graph settings to lead with Presets, Filters, and Groups.`)
@@ -109,6 +127,15 @@ export async function captureGraphRecallStyleEvidence({
   }
 
   const graphWideTop = await captureViewportScreenshot(page, directory, `${stagePrefix}-graph-wide-top.png`)
+  const graphHelpControlsWideTop = await captureLocatorScreenshot(
+    page,
+    helpControls,
+    directory,
+    `${stagePrefix}-graph-help-controls.png`,
+  )
+
+  await page.getByRole('button', { name: 'Take Graph tour' }).click()
+  await waitForTourStep(page, graphTourTitles[0])
 
   const tourCaptures = {}
   for (let index = 0; index < graphTourTitles.length; index += 1) {
@@ -129,7 +156,6 @@ export async function captureGraphRecallStyleEvidence({
   await page.getByLabel('Graph View tour').getByRole('button', { name: 'Start exploring' }).click()
   await waitForTourHidden(page)
 
-  const helpControls = page.getByRole('group', { name: 'Graph help controls' }).first()
   await Promise.all([
     helpControls.waitFor({ state: 'visible', timeout: 20000 }),
     page.getByRole('button', { name: 'Replay Graph tour' }).waitFor({ state: 'visible', timeout: 20000 }),
@@ -140,6 +166,11 @@ export async function captureGraphRecallStyleEvidence({
   const idleMetrics = await readGraphBrowseMetrics(page)
   if (!idleMetrics.helpControlsVisible) {
     throw new Error(`${stageLabel} expected compact help controls after dismissing the Graph View tour.`)
+  }
+  if (idleMetrics.graphTourEntryLabel !== 'Replay Graph tour') {
+    throw new Error(
+      `${stageLabel} expected the post-tour Graph entry label to be "Replay Graph tour", found "${idleMetrics.graphTourEntryLabel}".`,
+    )
   }
   if (idleMetrics.idleFocusTrayVisible || idleMetrics.idleDetailDockVisible) {
     throw new Error(`${stageLabel} expected the Graph idle state to keep the focus tray and detail dock hidden after the tour.`)
@@ -234,6 +265,7 @@ export async function captureGraphRecallStyleEvidence({
     captures: {
       graphFilteredWideTop,
       graphBottomUtilityWideTop,
+      graphHelpControlsWideTop,
       graphIdleWideTop,
       graphPathReadyWideTop,
       graphPathResultWideTop,
@@ -247,7 +279,11 @@ export async function captureGraphRecallStyleEvidence({
       advancedFiltersCollapsed: initialMetrics.advancedFiltersCollapsed,
       advancedLayoutCollapsed: initialMetrics.advancedLayoutCollapsed,
       filterGroupLabel: groupFilterLabel,
+      graphCanvasObscuredByTourOnOpen: initialMetrics.tourVisible,
+      graphHelpControlsVisibleAtRest: initialMetrics.helpControlsVisible,
       graphSearchPlaceholder: searchPlaceholder,
+      graphTourEntryLabel: initialMetrics.graphTourEntryLabel,
+      graphTourEntryLabelAfterDismiss: idleMetrics.graphTourEntryLabel,
       helpControlsVisibleAfterDismiss: idleMetrics.helpControlsVisible,
       idleCountPillClearsSidebar: idleMetrics.countPillClearsSidebar,
       idleCountPillLabelText: idleMetrics.countPillLabelText,
@@ -283,6 +319,11 @@ export async function captureGraphRecallStyleEvidence({
       pathOutcomeTitle,
       pathStartNodeLabel,
       floatingLegendVisible: initialMetrics.floatingLegendVisible,
+      graphSettingsHeaderHelperVisible: initialMetrics.graphSettingsHeaderHelperVisible,
+      graphSettingsHeaderToFirstSectionGap: initialMetrics.graphSettingsHeaderToFirstSectionGap,
+      graphSettingsPresetPrimaryActionFullWidth: initialMetrics.graphSettingsPresetPrimaryActionFullWidth,
+      graphSettingsPresetSummaryInline: initialMetrics.graphSettingsPresetSummaryInline,
+      graphSettingsRailTopStartCompact: initialMetrics.graphSettingsRailTopStartCompact,
     },
   }
 }
@@ -584,12 +625,25 @@ async function getPathNodeLabels(page) {
 async function readGraphBrowseMetrics(page) {
   return page.evaluate(() => {
     const settingsSidebar = document.querySelector('[aria-label="Graph settings sidebar"]')
+    const settingsSurface = document.querySelector('.recall-graph-settings-panel-surface')
+    const settingsHeader = document.querySelector('.recall-graph-settings-panel-header')
+    const settingsHeaderHelper = document.querySelector('.recall-graph-settings-panel-heading span')
+    const firstSection = document.querySelector('.recall-graph-sidebar-section')
+    const presetSummaryInline = document.querySelector('.recall-graph-sidebar-preset-summary-inline')
+    const presetPrimaryAction = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.replace(/\s+/g, ' ').trim() === 'Save as preset',
+    )
     const tour = document.querySelector('[aria-label="Graph View tour"]')
     const helpControls = document.querySelector('[aria-label="Graph help controls"]')
+    const graphTourEntryButton = helpControls?.querySelector('button')
     const countPill = document.querySelector('.recall-graph-canvas-count-pill')
     const countPillLabel = document.querySelector('.recall-graph-canvas-count-pill-label')
     const countPillRect = countPill?.getBoundingClientRect() ?? null
     const settingsSidebarRect = settingsSidebar?.getBoundingClientRect() ?? null
+    const settingsSurfaceRect = settingsSurface?.getBoundingClientRect() ?? null
+    const settingsHeaderRect = settingsHeader?.getBoundingClientRect() ?? null
+    const firstSectionRect = firstSection?.getBoundingClientRect() ?? null
+    const presetPrimaryActionRect = presetPrimaryAction?.getBoundingClientRect() ?? null
     const focusTray = document.querySelector('[aria-label="Graph focus tray"]')
     const detailDock = document.querySelector('[aria-label="Node detail dock"]')
     const floatingLegend = document.querySelector('[aria-label="Graph legend"]')
@@ -624,6 +678,8 @@ async function readGraphBrowseMetrics(page) {
     const showAllGroupsVisible = Array.from(document.querySelectorAll('button')).some(
       (button) => button.textContent?.trim() === 'Show all groups',
     )
+    const graphSettingsHeaderToFirstSectionGap =
+      settingsHeaderRect && firstSectionRect ? Number((firstSectionRect.top - settingsHeaderRect.bottom).toFixed(3)) : null
     return {
       advancedFiltersCollapsed: advancedFiltersButton?.getAttribute('aria-expanded') === 'false',
       advancedLayoutCollapsed: advancedLayoutButton?.getAttribute('aria-expanded') === 'false',
@@ -635,6 +691,19 @@ async function readGraphBrowseMetrics(page) {
       countPillLabelText,
       countPillText,
       floatingLegendVisible: Boolean(floatingLegend),
+      graphSettingsHeaderHelperVisible: Boolean(settingsHeaderHelper?.textContent?.trim()),
+      graphSettingsHeaderToFirstSectionGap,
+      graphSettingsPresetPrimaryActionFullWidth: Boolean(
+        presetPrimaryActionRect &&
+          (settingsSurfaceRect ?? settingsSidebarRect) &&
+          presetPrimaryActionRect.width >= ((settingsSurfaceRect ?? settingsSidebarRect)?.width ?? 0) * 0.72,
+      ),
+      graphSettingsPresetSummaryInline: Boolean(presetSummaryInline?.textContent?.trim()),
+      graphSettingsRailTopStartCompact: graphSettingsHeaderToFirstSectionGap !== null && graphSettingsHeaderToFirstSectionGap <= 16,
+      graphTourEntryLabel:
+        graphTourEntryButton?.getAttribute('aria-label') ??
+        graphTourEntryButton?.textContent?.replace(/\s+/g, ' ').trim() ??
+        '',
       helpControlsVisible: Boolean(helpControls),
       idleDetailDockVisible: Boolean(detailDock),
       idleFocusTrayVisible: Boolean(focusTray),

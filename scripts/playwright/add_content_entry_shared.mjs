@@ -77,8 +77,31 @@ async function readHomeAddEntryMetrics(page, dialog) {
   const { labels, selectedLabel } = await readDialogModeLabels(dialog)
   const dialogTitle = normalizeText(await dialog.locator('h2').first().textContent().catch(() => ''))
   const dialogEyebrow = normalizeText(await dialog.locator('.workspace-dialog-eyebrow').first().textContent().catch(() => ''))
+  const dialogBox = await dialog.boundingBox()
+  const modeTabs = dialog.locator('.import-panel-mode')
+  const modeCount = await modeTabs.count()
+  const modeHeights = []
+  for (let index = 0; index < modeCount; index += 1) {
+    const box = await modeTabs.nth(index).boundingBox().catch(() => null)
+    if (box) {
+      modeHeights.push(box.height)
+    }
+  }
+  const maxModeHeight = modeHeights.length > 0 ? Math.max(...modeHeights) : 0
 
   return {
+    addContentCommandRowCompact:
+      (await dialog.locator('[data-add-content-command-row-stage880="true"]').count()) > 0,
+    addContentDialogHeight: dialogBox?.height ?? 0,
+    addContentLegacyHeroVisible: await dialog.locator('.import-panel-entry-hero').isVisible().catch(() => false),
+    addContentModeOrderStable: labels.join('|') === ['Paste text', 'Web page', 'Choose file'].join('|'),
+    addContentModeTabsCompact: maxModeHeight > 0 && maxModeHeight <= 86,
+    addContentModeTabMaxHeight: maxModeHeight,
+    addContentPrimaryWorkbenchVisible:
+      (await dialog.locator('[data-add-content-primary-workbench-stage880="true"]').count()) > 0,
+    addContentSupportRailVisible: await dialog.locator('.import-panel-support-inline').isVisible().catch(() => false),
+    addContentSupportSeamInline:
+      (await dialog.locator('[data-add-content-support-seam-stage880="true"]').count()) > 0,
     defaultModeLabel: selectedLabel,
     dialogEyebrow,
     dialogTitle,
@@ -119,6 +142,26 @@ export async function captureAddContentEntryEvidence({
   if (homeDialogMetrics.notebookActionEmbeddedInDialog) {
     throw new Error(`${stageLabel} expected Add content to stay separate from Notebook creation.`)
   }
+  if (!homeDialogMetrics.addContentCommandRowCompact) {
+    throw new Error(`${stageLabel} expected Add content to expose the compact command row.`)
+  }
+  if (homeDialogMetrics.addContentLegacyHeroVisible) {
+    throw new Error(`${stageLabel} expected Add content to retire the old internal hero shell.`)
+  }
+  if (homeDialogMetrics.addContentSupportRailVisible) {
+    throw new Error(`${stageLabel} expected Add content support to be inline instead of a side rail.`)
+  }
+  if (!homeDialogMetrics.addContentSupportSeamInline) {
+    throw new Error(`${stageLabel} expected Add content to expose an inline support seam.`)
+  }
+  if (!homeDialogMetrics.addContentModeTabsCompact) {
+    throw new Error(
+      `${stageLabel} expected Add content mode tabs to stay compact; max height was ${homeDialogMetrics.addContentModeTabMaxHeight}.`,
+    )
+  }
+  if (!homeDialogMetrics.addContentPrimaryWorkbenchVisible) {
+    throw new Error(`${stageLabel} expected Add content to expose the selected import workbench.`)
+  }
   if (homeDialogMetrics.dialogTitle !== 'Add content') {
     throw new Error(`${stageLabel} expected the dialog title to stay Add content, found ${homeDialogMetrics.dialogTitle}.`)
   }
@@ -136,9 +179,7 @@ export async function captureAddContentEntryEvidence({
       `${stageLabel} expected Home to keep the same route while the Add content dialog opens, found ${homeDialogOpen.routeBefore} -> ${homeDialogOpen.routeAfter}.`,
     )
   }
-  if (
-    homeDialogMetrics.modeLabels.join('|') !== ['Paste text', 'Web page', 'Choose file'].join('|')
-  ) {
+  if (!homeDialogMetrics.addContentModeOrderStable) {
     throw new Error(`${stageLabel} expected the Add content mode order to stay Paste text / Web page / Choose file, found ${homeDialogMetrics.modeLabels.join(', ')}.`)
   }
 

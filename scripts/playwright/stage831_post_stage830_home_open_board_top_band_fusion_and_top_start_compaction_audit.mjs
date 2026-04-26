@@ -1,0 +1,117 @@
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import {
+  captureHomeOrganizerErgonomicsEvidence,
+  desktopViewport,
+  focusedViewport,
+} from './home_organizer_ergonomics_shared.mjs'
+import { launchBrowserContext } from './home_rendered_preview_quality_shared.mjs'
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url))
+const repoRoot = path.resolve(scriptDir, '..', '..')
+const outputDir = process.env.RECALL_STAGE831_OUTPUT_DIR ?? path.join(repoRoot, 'output', 'playwright')
+const harnessDir =
+  process.env.RECALL_STAGE831_PLAYWRIGHT_HARNESS ??
+  'C:\\Users\\FA507\\AppData\\Local\\Temp\\accessible-reader-playwright'
+const baseUrl = process.env.RECALL_STAGE831_BASE_URL ?? 'http://127.0.0.1:8000'
+const headless = process.env.RECALL_STAGE831_HEADLESS === '0' ? false : true
+const preferredChannel = process.env.RECALL_STAGE831_BROWSER_CHANNEL ?? 'msedge'
+const allowChromiumFallback = process.env.RECALL_STAGE831_ALLOW_CHROMIUM_FALLBACK === '0' ? false : true
+
+await mkdir(outputDir, { recursive: true })
+for (const failureFile of [
+  'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-home.png',
+  'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-graph.png',
+  'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-notebook.png',
+  'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-reader.png',
+  'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-study.png',
+  'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-focused.png',
+]) {
+  await rm(path.join(outputDir, failureFile), { force: true })
+}
+
+const { browser, runtimeBrowser } = await launchBrowserContext({
+  allowChromiumFallback,
+  harnessDir,
+  headless,
+  preferredChannel,
+  repoRoot,
+})
+
+let homePage
+let graphPage
+let notebookPage
+let readerPage
+let studyPage
+let focusedPage
+try {
+  homePage = await browser.newPage({ viewport: desktopViewport })
+  graphPage = await browser.newPage({ viewport: desktopViewport })
+  notebookPage = await browser.newPage({ viewport: desktopViewport })
+  readerPage = await browser.newPage({ viewport: desktopViewport })
+  studyPage = await browser.newPage({ viewport: desktopViewport })
+  focusedPage = await browser.newPage({ viewport: focusedViewport })
+
+  const evidence = await captureHomeOrganizerErgonomicsEvidence({
+    baseUrl,
+    directory: outputDir,
+    focusedPage,
+    graphPage,
+    homePage,
+    notebookPage,
+    readerPage,
+    stageLabel: 'Stage 831 audit',
+    stagePrefix: 'stage831',
+    studyPage,
+  })
+
+  await writeFile(
+    path.join(outputDir, 'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-validation.json'),
+    JSON.stringify(
+      {
+        auditFocus: [
+          'The Stage 831 audit must prove that open organizer-visible Home no longer leaves a separate toolbar band above the first visible day-group work.',
+          'The first visible day header and the toolbar should now share one lead band, and the day header should begin materially earlier in the canvas than the Stage 829 baseline while preserving the Stage 829 density lift.',
+          'Hidden Home, Graph, embedded Notebook, original-only Reader, and Study remain regression surfaces while the open Home board stays the active parity benchmark.',
+        ],
+        baseUrl,
+        benchmarkMatrix: 'docs/ux/recall_benchmark_matrix.md',
+        captures: evidence.captures,
+        desktopViewport,
+        focusedViewport,
+        headless,
+        metrics: evidence.metrics,
+        runtimeBrowser,
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  )
+} catch (error) {
+  await Promise.all([
+    captureFailure(homePage, outputDir, 'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-home.png'),
+    captureFailure(graphPage, outputDir, 'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-graph.png'),
+    captureFailure(notebookPage, outputDir, 'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-notebook.png'),
+    captureFailure(readerPage, outputDir, 'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-reader.png'),
+    captureFailure(studyPage, outputDir, 'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-study.png'),
+    captureFailure(focusedPage, outputDir, 'stage831-post-stage830-home-open-board-top-band-fusion-and-top-start-compaction-audit-failure-focused.png'),
+  ])
+  throw error
+} finally {
+  await browser.close()
+}
+
+async function captureFailure(page, directory, filename) {
+  if (!page) {
+    return
+  }
+  await page
+    .screenshot({
+      fullPage: true,
+      path: path.join(directory, filename),
+    })
+    .catch(() => undefined)
+}

@@ -51,6 +51,96 @@ export async function captureStudyReviewDashboardEvidence({
   if (!(openMetrics.reviewSectionWidth > openMetrics.supportColumnWidth)) {
     throw new Error(`${stageLabel} expected the review lane to remain wider than the questions lane.`)
   }
+  if (openMetrics.studyTopStartDeadZoneVisible) {
+    throw new Error(`${stageLabel} expected Study to retire the empty upper-left top-start dead zone.`)
+  }
+  if (!openMetrics.studyReviewLeadBandAboveFold) {
+    throw new Error(`${stageLabel} expected the compact review lead band to be visible above the fold.`)
+  }
+  if (openMetrics.studyDashboardHeroShellVisible) {
+    throw new Error(`${stageLabel} expected the old dashboard hero shell to be retired.`)
+  }
+  if (!openMetrics.studySupportDockTopAligned) {
+    throw new Error(`${stageLabel} expected the Study support dock to align with the review lead band.`)
+  }
+  if (!openMetrics.studyReviewActiveCardPromptFirst) {
+    throw new Error(`${stageLabel} expected Review to use one prompt-first active card.`)
+  }
+  if (!openMetrics.studyReviewActiveCardSingleSurface) {
+    throw new Error(`${stageLabel} expected Review prompt, reveal, metadata, and heading to live inside one active card surface.`)
+  }
+  if (openMetrics.studyReviewPromptSurfaceCount !== 1) {
+    throw new Error(`${stageLabel} expected exactly one visible Review prompt surface, found ${openMetrics.studyReviewPromptSurfaceCount}.`)
+  }
+  if (openMetrics.studyReviewNestedPromptPanelVisible) {
+    throw new Error(`${stageLabel} expected the nested Review prompt panel shell to be retired.`)
+  }
+  if (openMetrics.studyReviewDetachedRevealBandVisible) {
+    throw new Error(`${stageLabel} expected the pre-answer reveal action to be attached to the active card, not a detached band.`)
+  }
+  if (openMetrics.studyReviewDetachedManagerHeaderVisible) {
+    throw new Error(`${stageLabel} expected the Review heading seam to be owned by the active card.`)
+  }
+  if (openMetrics.studyReviewLeadPromptDuplicateVisible) {
+    throw new Error(`${stageLabel} expected the Study lead band to stop duplicating the active prompt.`)
+  }
+  if (openMetrics.studyReviewGlancePanelVisible) {
+    throw new Error(`${stageLabel} expected the detached current-question glance panel to be retired.`)
+  }
+  if (openMetrics.studyReviewDuplicateRefreshControls) {
+    throw new Error(`${stageLabel} expected one Review refresh control owned by the lead band.`)
+  }
+  if (openMetrics.studyReviewQueueDockUtilityStripVisible || openMetrics.studyReviewQueueDockEvidencePreviewVisible) {
+    throw new Error(`${stageLabel} expected the queue support dock to stop owning duplicate evidence/refresh actions.`)
+  }
+  if (!openMetrics.studyLeadBandCommandRowCompact) {
+    throw new Error(`${stageLabel} expected the Study lead band to use the compact Stage 858 command-row layout.`)
+  }
+  if (openMetrics.studyLeadMetricTilesVisible) {
+    throw new Error(`${stageLabel} expected Study metrics to render as compact command-row pills, not dashboard tiles.`)
+  }
+  if (openMetrics.studyLeadCurrentSummaryCardVisible) {
+    throw new Error(`${stageLabel} expected the current review summary to become an inline command-row seam.`)
+  }
+  if (openMetrics.studyLeadBandHeight > 150) {
+    throw new Error(`${stageLabel} expected the Study command row to stay under 150px tall, found ${openMetrics.studyLeadBandHeight}.`)
+  }
+  if (openMetrics.studyReviewCardTopOffset > 185) {
+    throw new Error(`${stageLabel} expected the active Review card to start higher after command-row compaction, found ${openMetrics.studyReviewCardTopOffset}.`)
+  }
+  if (!openMetrics.studySupportDockSingleRailCompact) {
+    throw new Error(`${stageLabel} expected the Study support dock to render as one compact Stage 860 rail.`)
+  }
+  if (openMetrics.studySupportDockSeparateCardCount > 0) {
+    throw new Error(`${stageLabel} expected the Study support rail to retire separate heavy support cards, found ${openMetrics.studySupportDockSeparateCardCount}.`)
+  }
+  if (openMetrics.studyReviewQueuePreviewAtRestCount > 1) {
+    throw new Error(`${stageLabel} expected at most one upcoming Review queue preview at rest, found ${openMetrics.studyReviewQueuePreviewAtRestCount}.`)
+  }
+  if (openMetrics.studyGroundingHelperCopyVisible) {
+    throw new Error(`${stageLabel} expected Grounding helper copy to be retired from the compact support rail.`)
+  }
+  if (!openMetrics.studyEvidenceReaderHandoffVisible) {
+    throw new Error(`${stageLabel} expected the evidence rail to keep the Reader handoff visible.`)
+  }
+  if (!openMetrics.studyReviewTaskWorkbenchFused) {
+    throw new Error(`${stageLabel} expected the Review command row and active card to share one task workbench.`)
+  }
+  if (!openMetrics.studyReviewCommandRowInsideWorkbench) {
+    throw new Error(`${stageLabel} expected the compact Study command row to be owned by the Review task workbench.`)
+  }
+  if (openMetrics.studyReviewCommandToCardGap > 18) {
+    throw new Error(`${stageLabel} expected the Review command row and active card gap to stay compact, found ${openMetrics.studyReviewCommandToCardGap}.`)
+  }
+  if (!openMetrics.studyReviewActiveCardPanelWeightReduced) {
+    throw new Error(`${stageLabel} expected the active Review card to use the lighter Stage 882 panel treatment.`)
+  }
+  if (openMetrics.studyReviewSupportRailCompetingCardCount > 0) {
+    throw new Error(`${stageLabel} expected the Study support rail to stop competing as separate cards, found ${openMetrics.studyReviewSupportRailCompetingCardCount}.`)
+  }
+  if (!openMetrics.studyReviewGroundingAttached) {
+    throw new Error(`${stageLabel} expected Grounding to stay attached inside the lighter support rail.`)
+  }
 
   const studyWideTop = await captureViewportScreenshot(page, directory, `${stagePrefix}-study-wide-top.png`)
   const studyDashboardWideTop = await captureLocatorScreenshot(
@@ -70,12 +160,19 @@ export async function captureStudyReviewDashboardEvidence({
   await page.getByRole('tab', { name: 'Questions', selected: true }).waitFor({ state: 'visible', timeout: 20000 })
   await page.waitForTimeout(250)
 
+  const questionsManager = page.getByLabel('Study questions manager').first()
+  const reviewHandoff = page.getByLabel('Study review handoff').first()
+  await Promise.all([
+    questionsManager.waitFor({ state: 'visible', timeout: 20000 }),
+    reviewHandoff.waitFor({ state: 'visible', timeout: 20000 }),
+  ])
+
   const questionMetrics = await readQuestionManagerMetrics(page)
   if (!questionMetrics.questionsSelected) {
     throw new Error(`${stageLabel} expected the Questions view to open when requested.`)
   }
   if (questionMetrics.questionManagerHeading !== 'Questions') {
-    throw new Error(`${stageLabel} expected the queue manager heading to stay Questions, found ${questionMetrics.questionManagerHeading}.`)
+    throw new Error(`${stageLabel} expected the fused Questions lead band heading, found ${questionMetrics.questionManagerHeading}.`)
   }
   if (questionMetrics.visibleQuestionCount < 1) {
     throw new Error(`${stageLabel} expected at least one visible question in the manager lane.`)
@@ -83,13 +180,85 @@ export async function captureStudyReviewDashboardEvidence({
   if (!questionMetrics.filterTabs.includes('Due')) {
     throw new Error(`${stageLabel} expected the questions manager to keep the filter tabs.`)
   }
+  if (!questionMetrics.studyQuestionsViewPrimaryCanvasVisible) {
+    throw new Error(`${stageLabel} expected Questions to render as the primary Study canvas.`)
+  }
+  if (questionMetrics.studyQuestionsViewReviewStageVisible) {
+    throw new Error(`${stageLabel} expected Questions to retire the large Review stage from the main canvas.`)
+  }
+  if (questionMetrics.studyQuestionsSupportDockListVisible) {
+    throw new Error(`${stageLabel} expected the Questions support dock to stop duplicating the full question list.`)
+  }
+  if (!questionMetrics.studyQuestionsReviewHandoffVisible) {
+    throw new Error(`${stageLabel} expected Questions to keep a compact Review handoff in the support dock.`)
+  }
+  if (!questionMetrics.studyQuestionsActiveRowListState) {
+    throw new Error(`${stageLabel} expected the active question row to use the flatter selected list state.`)
+  }
+  if (!questionMetrics.studyQuestionsViewTopStartCompact) {
+    throw new Error(`${stageLabel} expected the Questions view to keep the compact top-start Study lead band.`)
+  }
+  if (!questionMetrics.studyQuestionsManagerTopStartCompact) {
+    throw new Error(`${stageLabel} expected the Questions manager to start directly below the Study lead band.`)
+  }
+  if (!questionMetrics.studyQuestionsLeadActionsVisible) {
+    throw new Error(`${stageLabel} expected the fused Questions lead band to own the view toggle and refresh action.`)
+  }
+  if (questionMetrics.studyQuestionsLeadBandDuplicated) {
+    throw new Error(`${stageLabel} expected only one visible Questions h2 after lead-band fusion.`)
+  }
+  if (questionMetrics.studyQuestionsManagerHeaderDuplicated) {
+    throw new Error(`${stageLabel} expected the duplicate Questions manager header/actions to be retired.`)
+  }
+  if (questionMetrics.studyQuestionsDuplicateRefreshControls) {
+    throw new Error(`${stageLabel} expected a single Refresh control in Questions view.`)
+  }
+  if (questionMetrics.studyQuestionsSelectedSummaryCanvasVisible) {
+    throw new Error(`${stageLabel} expected the canvas-level selected question summary block to be retired.`)
+  }
+  if (!questionMetrics.studyQuestionsFiltersStartUnderLeadBand) {
+    throw new Error(`${stageLabel} expected Questions filters to begin directly under the fused lead band.`)
+  }
+  if (!questionMetrics.studyQuestionsLeadBandCommandRowCompact) {
+    throw new Error(`${stageLabel} expected Questions to reuse the compact Study command row.`)
+  }
+  if (questionMetrics.studyQuestionsFiltersTopOffset > 185) {
+    throw new Error(`${stageLabel} expected Questions filters to start higher under the compact command row, found ${questionMetrics.studyQuestionsFiltersTopOffset}.`)
+  }
+  if (!questionMetrics.studySupportDockSingleRailCompact) {
+    throw new Error(`${stageLabel} expected Questions support to share the single compact Study rail.`)
+  }
+  if (questionMetrics.studySupportDockSeparateCardCount > 0) {
+    throw new Error(`${stageLabel} expected Questions support to retire separate heavy support cards, found ${questionMetrics.studySupportDockSeparateCardCount}.`)
+  }
+  if (!questionMetrics.studyQuestionsReviewHandoffCompact) {
+    throw new Error(`${stageLabel} expected Questions Review handoff to be a compact seam.`)
+  }
+  if (questionMetrics.studyGroundingHelperCopyVisible) {
+    throw new Error(`${stageLabel} expected Questions Grounding helper copy to stay retired.`)
+  }
+  if (!questionMetrics.studyEvidenceReaderHandoffVisible) {
+    throw new Error(`${stageLabel} expected Questions Grounding to keep the Reader handoff visible.`)
+  }
 
-  const studyQuestionsSupportWideTop = await captureLocatorScreenshot(
+  const studyQuestionsWideTop = await captureViewportScreenshot(
     page,
-    queueSection,
     directory,
-    `${stagePrefix}-study-questions-support-wide-top.png`,
+    `${stagePrefix}-study-questions-wide-top.png`,
   )
+  const studyQuestionsManagerWideTop = await captureLocatorScreenshot(
+    page,
+    questionsManager,
+    directory,
+    `${stagePrefix}-study-questions-manager-wide-top.png`,
+  )
+  const studyReviewHandoffWideTop = await captureLocatorScreenshot(
+    page,
+    reviewHandoff,
+    directory,
+    `${stagePrefix}-study-review-handoff-wide-top.png`,
+  )
+  const studyQuestionsSupportWideTop = studyReviewHandoffWideTop
 
   await page.getByRole('tab', { name: 'Review', selected: false }).click()
   await page.getByRole('tab', { name: 'Review', selected: true }).waitFor({ state: 'visible', timeout: 20000 })
@@ -101,8 +270,20 @@ export async function captureStudyReviewDashboardEvidence({
   if (!answerMetrics.goodRatingVisible) {
     throw new Error(`${stageLabel} expected the answer-shown state to expose the rating row.`)
   }
+  if (!answerMetrics.studyReviewAnswerAttachedToCard) {
+    throw new Error(`${stageLabel} expected the answer to stay attached to the active Review card.`)
+  }
+  if (!answerMetrics.studyReviewRatingAttachedToCard) {
+    throw new Error(`${stageLabel} expected the rating controls to stay attached to the active Review card.`)
+  }
   if (answerMetrics.evidenceHeading !== 'Evidence') {
     throw new Error(`${stageLabel} expected the evidence dock to expand into Evidence after reveal, found ${answerMetrics.evidenceHeading}.`)
+  }
+  if (!answerMetrics.studyEvidenceReaderHandoffVisible) {
+    throw new Error(`${stageLabel} expected answer-shown Evidence to keep the Reader handoff visible.`)
+  }
+  if (answerMetrics.studyGroundingHelperCopyVisible) {
+    throw new Error(`${stageLabel} expected answer-shown Evidence helper copy to stay retired.`)
   }
 
   const studyAnswerShownWideTop = await captureViewportScreenshot(
@@ -129,6 +310,9 @@ export async function captureStudyReviewDashboardEvidence({
       studyAnswerShownWideTop,
       studyDashboardWideTop,
       studyEvidenceSupportWideTop,
+      studyQuestionsManagerWideTop,
+      studyQuestionsWideTop,
+      studyReviewHandoffWideTop,
       studyQuestionsSupportWideTop,
       studyReviewLaneWideTop,
       studyWideTop,
@@ -334,16 +518,62 @@ async function revealStudyAnswer(page) {
 
 async function readWideStudyMetrics(page) {
   return page.evaluate(() => {
+    const compactText = (node) => node?.textContent?.replace(/\s+/g, ' ').trim() ?? ''
     const dashboard = document.querySelector('[aria-label="Study workspace header"]')
     const currentSummary = document.querySelector('[aria-label="Current review summary"]')
     const queueSection = document.querySelector('[aria-label="Study queue support"]')
     const evidenceSection = document.querySelector('[aria-label="Study evidence support"]')
+    const activeReviewCard = document.querySelector('[aria-label="Active review card"]')
+    const singleReviewSurface = document.querySelector('[data-study-review-single-surface-stage862="true"]')
+    const reviewTaskWorkbench = document.querySelector('[data-study-review-task-workbench-stage882="true"]')
+    const promptSurface = document.querySelector('[data-study-review-prompt-surface-stage856="true"]')
+    const oldGlancePanel = document.querySelector('.recall-study-review-glance')
+    const oldPromptPanel = document.querySelector('.recall-study-review-prompt-panel')
+    const oldPromptCard = document.querySelector('.recall-study-review-prompt-card')
+    const oldRevealBand = document.querySelector('.recall-study-review-reveal-band')
+    const oldReviewFlow = document.querySelector('[aria-label="Study review flow"]')
+    const reviewManagerHeader = document.querySelector('.recall-study-review-card-head')
+    const reviewHeaderDetached =
+      reviewManagerHeader instanceof HTMLElement &&
+      (!reviewManagerHeader.hasAttribute('data-study-review-card-top-seam-stage862') ||
+        reviewManagerHeader.closest('[data-study-review-single-surface-stage862="true"]') !== singleReviewSurface)
+    const revealActionAttached =
+      document
+        .querySelector('[data-study-review-reveal-attached-stage862="true"]')
+        ?.closest('[data-study-review-single-surface-stage862="true"]') === singleReviewSurface
+    const promptText = compactText(promptSurface?.querySelector('p'))
+    const dashboardText = compactText(dashboard)
+    const leadPromptDuplicateVisible = Boolean(promptText && dashboardText.includes(promptText))
+    const refreshButtonCount = Array.from(document.querySelectorAll('.recall-study-workspace button')).filter((button) => {
+      const label = button.getAttribute('aria-label') ?? button.textContent ?? ''
+      return /refresh(?:ing)? cards|^refresh(?:ing)?$/i.test(label.replace(/\s+/g, ' ').trim())
+    }).length
+    const queueButtons = Array.from(queueSection?.querySelectorAll('button') ?? [])
+    const queueDockEvidencePreviewVisible = queueButtons.some(
+      (button) => compactText(button) === 'Preview evidence' || button.getAttribute('aria-label') === 'Preview evidence',
+    )
+    const queueDockRefreshVisible = queueButtons.some((button) => {
+      const label = button.getAttribute('aria-label') ?? button.textContent ?? ''
+      return /refresh(?:ing)? cards|^refresh(?:ing)?$/i.test(label.replace(/\s+/g, ' ').trim())
+    })
+    const promptSurfaceCount = [
+      promptSurface instanceof HTMLElement,
+      leadPromptDuplicateVisible,
+      oldGlancePanel instanceof HTMLElement,
+      oldPromptPanel instanceof HTMLElement,
+      oldPromptCard instanceof HTMLElement,
+    ].filter(Boolean).length
     const reviewHeading = Array.from(document.querySelectorAll('h2')).find(
       (heading) => heading.textContent?.replace(/\s+/g, ' ').trim() === 'Review',
     )
     const metricLabels = Array.from(document.querySelectorAll('.recall-study-dashboard-metric-label'))
       .map((node) => node.textContent?.replace(/\s+/g, ' ').trim() ?? '')
       .filter(Boolean)
+    const leadMetricTilesVisible = Array.from(dashboard?.querySelectorAll('.recall-study-dashboard-metric') ?? []).some(
+      (node) => !node.hasAttribute('data-study-lead-metric-pill-stage858'),
+    )
+    const leadCurrentSummaryCardVisible =
+      currentSummary instanceof HTMLElement && !currentSummary.classList.contains('recall-study-command-status-stage858')
     const selectedStudyView =
       Array.from(document.querySelectorAll('[aria-label="Study views"] [role="tab"]'))
         .find((tab) => tab.getAttribute('aria-selected') === 'true')
@@ -357,10 +587,54 @@ async function readWideStudyMetrics(page) {
     const reviewRect = reviewSection instanceof HTMLElement ? reviewSection.getBoundingClientRect() : null
     const queueRect = queueSection instanceof HTMLElement ? queueSection.getBoundingClientRect() : null
     const evidenceRect = evidenceSection instanceof HTMLElement ? evidenceSection.getBoundingClientRect() : null
+    const workspace = document.querySelector('.recall-study-workspace')
+    const supportDock = document.querySelector('.recall-study-support-dock')
+    const workspaceRect = workspace instanceof HTMLElement ? workspace.getBoundingClientRect() : null
+    const supportDockRect = supportDock instanceof HTMLElement ? supportDock.getBoundingClientRect() : null
+    const workbenchRect = reviewTaskWorkbench instanceof HTMLElement ? reviewTaskWorkbench.getBoundingClientRect() : null
+    const supportDockSingleRail =
+      supportDock instanceof HTMLElement && supportDock.getAttribute('data-study-support-single-rail-stage860') === 'true'
+    const supportDockSeparateCardCount = supportDockSingleRail
+      ? 0
+      : Array.from(supportDock?.children ?? []).filter((node) => node instanceof HTMLElement && node.classList.contains('card')).length
+    const supportRailStage882 =
+      supportDock instanceof HTMLElement && supportDock.getAttribute('data-study-review-support-rail-stage882') === 'true'
+    const queueAttachedStage882 =
+      queueSection instanceof HTMLElement && queueSection.getAttribute('data-study-review-queue-attached-stage882') === 'true'
+    const groundingAttachedStage882 =
+      evidenceSection instanceof HTMLElement && evidenceSection.getAttribute('data-study-review-grounding-attached-stage882') === 'true'
+    const commandRowInsideWorkbench =
+      dashboard instanceof HTMLElement &&
+      dashboard.getAttribute('data-study-review-command-inside-workbench-stage882') === 'true' &&
+      dashboard.closest('[data-study-review-task-workbench-stage882="true"]') === reviewTaskWorkbench
+    const activeCardPanelReduced =
+      activeReviewCard instanceof HTMLElement &&
+      activeReviewCard.getAttribute('data-study-review-active-card-panel-reduced-stage882') === 'true' &&
+      activeReviewCard.closest('[data-study-review-task-workbench-stage882="true"]') === reviewTaskWorkbench
+    const commandToCardGap =
+      dashboardRect && reviewRect ? Math.max(0, reviewRect.top - dashboardRect.bottom) : Number.POSITIVE_INFINITY
+    const supportRailCompetingCardCount =
+      supportRailStage882 && queueAttachedStage882 && groundingAttachedStage882
+        ? 0
+        : Array.from(supportDock?.children ?? []).filter((node) => node instanceof HTMLElement && node.classList.contains('card')).length
+    const reviewQueuePreviewAtRestCount = queueSection?.querySelectorAll('.recall-study-queue-preview-row').length ?? 0
+    const groundingHelperCopyVisible = Array.from(evidenceSection?.querySelectorAll('.recall-study-dock-heading p') ?? []).some(
+      (node) => node instanceof HTMLElement && node.getClientRects().length > 0 && compactText(node).length > 0,
+    )
+    const evidenceReaderHandoffVisible =
+      evidenceSection?.querySelector('.recall-study-evidence-reader-button') instanceof HTMLElement
+    const dashboardTopOffset = dashboardRect && workspaceRect ? dashboardRect.top - workspaceRect.top : 0
+    const reviewStageTopOffset = reviewRect && workspaceRect ? reviewRect.top - workspaceRect.top : 0
+    const supportDockTopDelta =
+      dashboardRect && supportDockRect ? Math.abs(supportDockRect.top - dashboardRect.top) : Number.POSITIVE_INFINITY
+    const dashboardHeroShellVisible =
+      dashboard instanceof HTMLElement &&
+      (dashboard.classList.contains('priority-surface-stage-shell') || (dashboardRect?.height ?? 0) > 260)
 
     return {
       currentReviewSummaryVisible: currentSummary instanceof HTMLElement,
       dashboardHeight: dashboardRect?.height ?? 0,
+      dashboardHeroShellVisible,
       dashboardMetricLabels: metricLabels,
       dashboardVisible: dashboard instanceof HTMLElement,
       evidenceHeading,
@@ -372,6 +646,74 @@ async function readWideStudyMetrics(page) {
       reviewHeading: reviewHeading?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       reviewSectionWidth: reviewRect?.width ?? 0,
       selectedStudyView,
+      studyDashboardHeroShellVisible: dashboardHeroShellVisible,
+      studyLeadBandCommandRowCompact:
+        dashboard instanceof HTMLElement &&
+        dashboard.hasAttribute('data-study-lead-command-row-stage858') &&
+        (dashboardRect?.height ?? Number.POSITIVE_INFINITY) <= 150 &&
+        !leadMetricTilesVisible &&
+        !leadCurrentSummaryCardVisible,
+      studyLeadBandHeight: dashboardRect?.height ?? 0,
+      studyLeadCurrentSummaryCardVisible: leadCurrentSummaryCardVisible,
+      studyLeadMetricTilesVisible: leadMetricTilesVisible,
+      studyReviewActiveCardPromptFirst:
+        activeReviewCard instanceof HTMLElement &&
+        promptSurface instanceof HTMLElement &&
+        activeReviewCard.contains(promptSurface) &&
+        !(oldGlancePanel instanceof HTMLElement) &&
+        !(oldPromptPanel instanceof HTMLElement) &&
+        !(oldPromptCard instanceof HTMLElement) &&
+        !(oldReviewFlow instanceof HTMLElement),
+      studyReviewActiveCardSingleSurface:
+        activeReviewCard instanceof HTMLElement &&
+        singleReviewSurface instanceof HTMLElement &&
+        activeReviewCard === singleReviewSurface &&
+        activeReviewCard.contains(promptSurface) &&
+        revealActionAttached &&
+        !reviewHeaderDetached &&
+        !(oldPromptPanel instanceof HTMLElement) &&
+        !(oldPromptCard instanceof HTMLElement) &&
+        !(oldRevealBand instanceof HTMLElement),
+      studyReviewActiveCardPanelWeightReduced: activeCardPanelReduced,
+      studyReviewCommandRowInsideWorkbench: commandRowInsideWorkbench,
+      studyReviewCommandToCardGap: commandToCardGap,
+      studyReviewDetachedManagerHeaderVisible: reviewHeaderDetached,
+      studyReviewDetachedRevealBandVisible: oldRevealBand instanceof HTMLElement,
+      studyReviewDuplicateRefreshControls: refreshButtonCount > 1,
+      studyReviewGlancePanelVisible: oldGlancePanel instanceof HTMLElement,
+      studyReviewLeadBandAboveFold:
+        Boolean(dashboardRect) && (dashboardRect?.top ?? 0) < window.innerHeight * 0.35 && (dashboardRect?.bottom ?? 0) < window.innerHeight,
+      studyReviewLeadPromptDuplicateVisible: leadPromptDuplicateVisible,
+      studyReviewNestedPromptPanelVisible: oldPromptPanel instanceof HTMLElement || oldPromptCard instanceof HTMLElement,
+      studyReviewPromptSurfaceCount: promptSurfaceCount,
+      studyReviewQueueDockEvidencePreviewVisible: queueDockEvidencePreviewVisible,
+      studyReviewQueueDockUtilityStripVisible: queueDockEvidencePreviewVisible || queueDockRefreshVisible,
+      studyReviewQueuePreviewAtRestCount: reviewQueuePreviewAtRestCount,
+      studyReviewGroundingAttached:
+        supportRailStage882 &&
+        groundingAttachedStage882 &&
+        evidenceSection instanceof HTMLElement &&
+        evidenceSection.closest('[data-study-review-support-rail-stage882="true"]') === supportDock,
+      studyReviewSupportRailCompetingCardCount: supportRailCompetingCardCount,
+      studyReviewTaskWorkbenchFused:
+        reviewTaskWorkbench instanceof HTMLElement &&
+        commandRowInsideWorkbench &&
+        activeCardPanelReduced &&
+        Boolean(workbenchRect) &&
+        commandToCardGap <= 18,
+      studySupportDockSeparateCardCount: supportDockSeparateCardCount,
+      studySupportDockSingleRailCompact:
+        supportDockSingleRail &&
+        supportDockSeparateCardCount === 0 &&
+        reviewQueuePreviewAtRestCount <= 1 &&
+        !groundingHelperCopyVisible &&
+        evidenceReaderHandoffVisible,
+      studyReviewCardTopOffset: reviewStageTopOffset,
+      studyReviewStageTopOffset: reviewStageTopOffset,
+      studyGroundingHelperCopyVisible: groundingHelperCopyVisible,
+      studyEvidenceReaderHandoffVisible: evidenceReaderHandoffVisible,
+      studySupportDockTopAligned: supportDockTopDelta <= 36,
+      studyTopStartDeadZoneVisible: dashboardTopOffset > 84 || reviewStageTopOffset > 390,
       supportColumnWidth: Math.max(queueRect?.width ?? 0, evidenceRect?.width ?? 0),
     }
   })
@@ -379,35 +721,137 @@ async function readWideStudyMetrics(page) {
 
 async function readQuestionManagerMetrics(page) {
   return page.evaluate(() => {
+    const questionsManager = document.querySelector('[aria-label="Study questions manager"]')
+    const reviewHandoff = document.querySelector('[aria-label="Study review handoff"]')
     const queueSection = document.querySelector('[aria-label="Study queue support"]')
-    const filterTabs = Array.from(queueSection?.querySelectorAll('[aria-label="Study filters"] [role="tab"]') ?? [])
+    const evidenceSection = document.querySelector('[aria-label="Study evidence support"]')
+    const dashboard = document.querySelector('[aria-label="Study workspace header"]')
+    const questionsLeadActions = document.querySelector('[aria-label="Questions lead actions"]')
+    const filters = questionsManager?.querySelector('[aria-label="Study filters"]')
+    const managerToolbar = questionsManager?.querySelector('.recall-study-questions-toolbar')
+    const selectedSummary = questionsManager?.querySelector('[aria-label="Selected question summary"]')
+    const filterTabs = Array.from(questionsManager?.querySelectorAll('[aria-label="Study filters"] [role="tab"]') ?? [])
       .map((tab) => tab.textContent?.replace(/\s+/g, ' ').trim() ?? '')
       .filter(Boolean)
     const selectedStudyView =
       Array.from(document.querySelectorAll('[aria-label="Study views"] [role="tab"]'))
         .find((tab) => tab.getAttribute('aria-selected') === 'true')
         ?.textContent?.replace(/\s+/g, ' ').trim() ?? null
+    const workspace = document.querySelector('.recall-study-workspace')
+    const dashboardRect = dashboard instanceof HTMLElement ? dashboard.getBoundingClientRect() : null
+    const managerRect = questionsManager instanceof HTMLElement ? questionsManager.getBoundingClientRect() : null
+    const filtersRect = filters instanceof HTMLElement ? filters.getBoundingClientRect() : null
+    const workspaceRect = workspace instanceof HTMLElement ? workspace.getBoundingClientRect() : null
+    const dashboardTopOffset = dashboardRect && workspaceRect ? dashboardRect.top - workspaceRect.top : Number.POSITIVE_INFINITY
+    const managerTopOffset = managerRect && workspaceRect ? managerRect.top - workspaceRect.top : Number.POSITIVE_INFINITY
+    const filtersTopOffset = filtersRect && workspaceRect ? filtersRect.top - workspaceRect.top : Number.POSITIVE_INFINITY
+    const filtersStartDelta = filtersRect && dashboardRect ? filtersRect.top - dashboardRect.bottom : Number.POSITIVE_INFINITY
+    const leadMetricTilesVisible = Array.from(dashboard?.querySelectorAll('.recall-study-dashboard-metric') ?? []).some(
+      (node) => !node.hasAttribute('data-study-lead-metric-pill-stage858'),
+    )
+    const leadCurrentSummaryCardVisible =
+      questionsLeadActions instanceof HTMLElement && !questionsLeadActions.classList.contains('recall-study-command-status-stage858')
+    const supportDock = document.querySelector('.recall-study-support-dock')
+    const supportDockSingleRail =
+      supportDock instanceof HTMLElement && supportDock.getAttribute('data-study-support-single-rail-stage860') === 'true'
+    const supportDockSeparateCardCount = supportDockSingleRail
+      ? 0
+      : Array.from(supportDock?.children ?? []).filter((node) => node instanceof HTMLElement && node.classList.contains('card')).length
+    const groundingHelperCopyVisible = Array.from(evidenceSection?.querySelectorAll('.recall-study-dock-heading p') ?? []).some(
+      (node) => node instanceof HTMLElement && node.getClientRects().length > 0 && (node.textContent?.replace(/\s+/g, ' ').trim() ?? '').length > 0,
+    )
+    const evidenceReaderHandoffVisible =
+      evidenceSection?.querySelector('.recall-study-evidence-reader-button') instanceof HTMLElement
+    const reviewHandoffCompact =
+      reviewHandoff instanceof HTMLElement && reviewHandoff.classList.contains('recall-study-review-handoff-compact-stage860')
+    const questionHeadings = Array.from(document.querySelectorAll('h2')).filter(
+      (heading) => heading.textContent?.replace(/\s+/g, ' ').trim() === 'Questions',
+    )
+    const refreshButtonCount = Array.from(document.querySelectorAll('.recall-study-workspace button')).filter((button) => {
+      const label = button.getAttribute('aria-label') ?? button.textContent ?? ''
+      return /refresh(?:ing)? cards|^refresh(?:ing)?/i.test(label.replace(/\s+/g, ' ').trim())
+    }).length
     return {
       filterTabs,
       questionManagerHeading:
-        queueSection?.querySelector('h3')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+        dashboard?.querySelector('h2')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       questionsSelected: selectedStudyView === 'Questions',
-      visibleQuestionCount: queueSection?.querySelectorAll('.recall-study-queue-item').length ?? 0,
+      studyQuestionsActiveRowListState:
+        document.querySelector('[data-study-questions-active-row-stage852="true"].recall-study-questions-row-active') instanceof HTMLElement,
+      studyQuestionsCanvasTopOffset: managerTopOffset,
+      studyQuestionsDuplicateRefreshControls: refreshButtonCount > 1,
+      studyQuestionsFiltersStartUnderLeadBand:
+        Boolean(filtersRect) && Boolean(dashboardRect) && filtersStartDelta >= 0 && filtersStartDelta <= 72,
+      studyQuestionsFiltersTopOffset: filtersTopOffset,
+      studyQuestionsLeadBandCommandRowCompact:
+        dashboard instanceof HTMLElement &&
+        dashboard.hasAttribute('data-study-lead-command-row-stage858') &&
+        (dashboardRect?.height ?? Number.POSITIVE_INFINITY) <= 150 &&
+        !leadMetricTilesVisible &&
+        !leadCurrentSummaryCardVisible,
+      studyQuestionsLeadBandHeight: dashboardRect?.height ?? 0,
+      studyQuestionsLeadBandDuplicated: questionHeadings.length > 1,
+      studyQuestionsManagerHeaderDuplicated:
+        managerToolbar instanceof HTMLElement || questionsManager?.querySelector('h2') instanceof HTMLElement,
+      studyQuestionsManagerTopStartCompact:
+        managerTopOffset <= 330 && Boolean(managerRect) && (managerRect?.top ?? 0) < window.innerHeight * 0.48,
+      studyQuestionsReviewHandoffCompact: reviewHandoffCompact,
+      studyQuestionsReviewHandoffVisible: reviewHandoff instanceof HTMLElement,
+      studyQuestionsSelectedSummaryCanvasVisible: selectedSummary instanceof HTMLElement,
+      studyQuestionsSupportDockListVisible:
+        Boolean(reviewHandoff?.querySelector('.recall-study-queue-dock-list')) ||
+        Boolean(queueSection?.querySelector('.recall-study-queue-dock-list')),
+      studyQuestionsViewPrimaryCanvasVisible: questionsManager instanceof HTMLElement,
+      studyQuestionsViewReviewStageVisible: document.querySelector('.recall-study-review-stage') instanceof HTMLElement,
+      studyQuestionsViewTopStartCompact:
+        dashboardTopOffset <= 84 && Boolean(dashboardRect) && (dashboardRect?.bottom ?? 0) < window.innerHeight * 0.46,
+      studyQuestionsLeadActionsVisible: questionsLeadActions instanceof HTMLElement,
+      studySupportDockSeparateCardCount: supportDockSeparateCardCount,
+      studySupportDockSingleRailCompact:
+        supportDockSingleRail &&
+        supportDockSeparateCardCount === 0 &&
+        reviewHandoffCompact &&
+        !groundingHelperCopyVisible &&
+        evidenceReaderHandoffVisible,
+      studyGroundingHelperCopyVisible: groundingHelperCopyVisible,
+      studyEvidenceReaderHandoffVisible: evidenceReaderHandoffVisible,
+      visibleQuestionCount: questionsManager?.querySelectorAll('.recall-study-questions-row').length ?? 0,
     }
   })
 }
 
 async function readWideStudyAnswerMetrics(page) {
   return page.evaluate(() => {
+    const singleReviewSurface = document.querySelector('[data-study-review-single-surface-stage862="true"]')
+    const attachedAnswer = document.querySelector('[data-study-review-answer-attached-stage862="true"]')
+    const attachedRating = document.querySelector('[data-study-review-rating-attached-stage862="true"]')
     const evidenceSection = document.querySelector('[aria-label="Study evidence support"]')
+    const oldAnswerPanel = document.querySelector('.recall-study-review-answer-panel')
+    const oldRatingBand = document.querySelector('.recall-study-review-rating-band')
+    const oldRevealBand = document.querySelector('.recall-study-review-reveal-band')
     const ratingLabels = Array.from(document.querySelectorAll('.recall-study-review-rating-row button'))
       .map((button) => button.textContent?.replace(/\s+/g, ' ').trim() ?? '')
       .filter(Boolean)
+    const groundingHelperCopyVisible = Array.from(evidenceSection?.querySelectorAll('.recall-study-dock-heading p') ?? []).some(
+      (node) => node instanceof HTMLElement && node.getClientRects().length > 0 && (node.textContent?.replace(/\s+/g, ' ').trim() ?? '').length > 0,
+    )
     return {
       evidenceHeading:
         evidenceSection?.querySelector('h3')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       goodRatingVisible: ratingLabels.includes('Good'),
       ratingLabels,
+      studyEvidenceReaderHandoffVisible:
+        evidenceSection?.querySelector('.recall-study-evidence-reader-button') instanceof HTMLElement,
+      studyGroundingHelperCopyVisible: groundingHelperCopyVisible,
+      studyReviewAnswerAttachedToCard:
+        attachedAnswer instanceof HTMLElement &&
+        attachedAnswer.closest('[data-study-review-single-surface-stage862="true"]') === singleReviewSurface &&
+        !(oldAnswerPanel instanceof HTMLElement),
+      studyReviewDetachedRevealBandVisible: oldRevealBand instanceof HTMLElement,
+      studyReviewRatingAttachedToCard:
+        attachedRating instanceof HTMLElement &&
+        attachedRating.closest('[data-study-review-single-surface-stage862="true"]') === singleReviewSurface &&
+        !(oldRatingBand instanceof HTMLElement),
     }
   })
 }

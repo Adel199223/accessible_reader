@@ -1,0 +1,135 @@
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import {
+  captureFocusedStudyEvidence,
+  captureStudyRegressionEvidence,
+  captureStudyReviewDashboardEvidence,
+  desktopViewport,
+  focusedViewport,
+} from './study_review_dashboard_reset_shared.mjs'
+import { launchBrowserContext } from './home_rendered_preview_quality_shared.mjs'
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url))
+const repoRoot = path.resolve(scriptDir, '..', '..')
+const outputDir = process.env.RECALL_STAGE855_OUTPUT_DIR ?? path.join(repoRoot, 'output', 'playwright')
+const harnessDir =
+  process.env.RECALL_STAGE855_PLAYWRIGHT_HARNESS ??
+  'C:\\Users\\FA507\\AppData\\Local\\Temp\\accessible-reader-playwright'
+const baseUrl = process.env.RECALL_STAGE855_BASE_URL ?? 'http://127.0.0.1:8000'
+const headless = process.env.RECALL_STAGE855_HEADLESS === '0' ? false : true
+const preferredChannel = process.env.RECALL_STAGE855_BROWSER_CHANNEL ?? 'msedge'
+const allowChromiumFallback = process.env.RECALL_STAGE855_ALLOW_CHROMIUM_FALLBACK === '0' ? false : true
+
+await mkdir(outputDir, { recursive: true })
+await rm(path.join(outputDir, 'stage855-post-stage854-study-questions-lead-band-fusion-audit-failure.png'), {
+  force: true,
+})
+
+const { browser, runtimeBrowser } = await launchBrowserContext({
+  allowChromiumFallback,
+  harnessDir,
+  headless,
+  preferredChannel,
+  repoRoot,
+})
+
+let studyPage
+let focusedPage
+let homePage
+let graphPage
+let notebookPage
+let readerPage
+try {
+  studyPage = await browser.newPage({ viewport: desktopViewport })
+  const studyEvidence = await captureStudyReviewDashboardEvidence({
+    baseUrl,
+    directory: outputDir,
+    page: studyPage,
+    stageLabel: 'Stage 855',
+    stagePrefix: 'stage855',
+  })
+
+  focusedPage = await browser.newPage({ viewport: focusedViewport })
+  const focusedEvidence = await captureFocusedStudyEvidence({
+    baseUrl,
+    directory: outputDir,
+    page: focusedPage,
+    stageLabel: 'Stage 855',
+    stagePrefix: 'stage855',
+  })
+
+  homePage = await browser.newPage({ viewport: desktopViewport })
+  graphPage = await browser.newPage({ viewport: desktopViewport })
+  notebookPage = await browser.newPage({ viewport: desktopViewport })
+  readerPage = await browser.newPage({ viewport: desktopViewport })
+  const regressionEvidence = await captureStudyRegressionEvidence({
+    baseUrl,
+    directory: outputDir,
+    graphPage,
+    homePage,
+    notebookPage,
+    readerPage,
+    stagePrefix: 'stage855',
+  })
+
+  if (regressionEvidence.metrics.notesSidebarVisible) {
+    throw new Error('Stage 855 expected Notebook placement to stay embedded with no visible Notes sidebar entry.')
+  }
+  if (!regressionEvidence.metrics.homeVisible || !regressionEvidence.metrics.graphCanvasVisible || !regressionEvidence.metrics.notebookVisible) {
+    throw new Error('Stage 855 expected Home, Graph, and Notebook regression surfaces to remain visible.')
+  }
+
+  await writeFile(
+    path.join(outputDir, 'stage855-post-stage854-study-questions-lead-band-fusion-and-duplicate-chrome-retirement-audit.json'),
+    JSON.stringify(
+      {
+        auditFocus: [
+          'wide Study Review keeps the Stage 851 compact top-start baseline',
+          'Questions view fuses its lead band and retires duplicate manager chrome, duplicate Refresh, and canvas selected-summary',
+          'Home, Graph, embedded Notebook, original-only Reader, and focused Reader-led Study regression captures after the Study pass',
+        ],
+        baseUrl,
+        benchmarkMatrix: 'docs/ux/recall_benchmark_matrix.md',
+        captures: {
+          ...studyEvidence.captures,
+          ...focusedEvidence.captures,
+          ...regressionEvidence.captures,
+        },
+        desktopViewport,
+        focusedViewport,
+        headless,
+        metrics: {
+          ...studyEvidence.metrics,
+          ...focusedEvidence.metrics,
+          ...regressionEvidence.metrics,
+        },
+        runtimeBrowser,
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  )
+} catch (error) {
+  if (studyPage) {
+    await studyPage
+      .screenshot({
+        path: path.join(outputDir, 'stage855-post-stage854-study-questions-lead-band-fusion-audit-failure.png'),
+        fullPage: true,
+      })
+      .catch(() => undefined)
+  }
+  if (focusedPage && focusedPage !== studyPage) {
+    await focusedPage
+      .screenshot({
+        path: path.join(outputDir, 'stage855-post-stage854-study-questions-lead-band-fusion-audit-failure-focused.png'),
+        fullPage: true,
+      })
+      .catch(() => undefined)
+  }
+  throw error
+} finally {
+  await browser.close()
+}

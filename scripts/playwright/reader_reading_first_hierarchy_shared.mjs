@@ -4,6 +4,10 @@ function round(value) {
   return Number(value.toFixed(3))
 }
 
+function normalizeMetricText(value) {
+  return (value ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+}
+
 export async function selectReaderView(page, viewLabel) {
   const didSelect = await trySelectReaderView(page, viewLabel)
   if (!didSelect) {
@@ -135,6 +139,75 @@ async function openReaderDocument(page, baseUrl, documentId, title) {
   await page.waitForTimeout(300)
 }
 
+async function installReaderSpeechHarness(page) {
+  await page.addInitScript(() => {
+    class RecallHarnessSpeechSynthesisUtterance {
+      constructor(text) {
+        this.text = text
+        this.lang = ''
+        this.voice = null
+        this.volume = 1
+        this.rate = 1
+        this.pitch = 1
+        this.onend = null
+        this.onerror = null
+      }
+    }
+
+    const voices = [
+      {
+        default: true,
+        lang: 'en-US',
+        localService: true,
+        name: 'Default voice',
+        voiceURI: 'default',
+      },
+    ]
+
+    const synthesis = {
+      paused: false,
+      pending: false,
+      speaking: false,
+      addEventListener() {},
+      cancel() {
+        this.paused = false
+        this.pending = false
+        this.speaking = false
+      },
+      getVoices() {
+        return voices
+      },
+      pause() {
+        if (this.speaking) {
+          this.paused = true
+        }
+      },
+      removeEventListener() {},
+      resume() {
+        if (this.speaking) {
+          this.paused = false
+        }
+      },
+      speak(utterance) {
+        window.__recallReaderHarnessLastUtterance = utterance
+        this.paused = false
+        this.pending = false
+        this.speaking = true
+      },
+    }
+
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+      configurable: true,
+      value: RecallHarnessSpeechSynthesisUtterance,
+      writable: true,
+    })
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: synthesis,
+    })
+  })
+}
+
 async function openReaderControlsOverflow(page) {
   const panel = page.getByRole('group', { name: 'More reading controls' })
   if (await panel.isVisible().catch(() => false)) {
@@ -263,6 +336,7 @@ async function openReaderSupportTab(page, label) {
 async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
   return page.evaluate(({ currentTitle, expectedGeneratedSnippet }) => {
     const round = (value) => Number(value.toFixed(3))
+    const normalizeMetricText = (value) => (value ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
     const isVisible = (node) => {
       if (!(node instanceof HTMLElement)) {
         return false
@@ -277,22 +351,38 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
       const rect = node.getBoundingClientRect()
       return rect.width > 4 && rect.height > 4
     }
+    const sharesRow = (leftRect, rightRect) => {
+      if (!leftRect || !rightRect) {
+        return false
+      }
+      const leftCenter = (leftRect.top + leftRect.bottom) / 2
+      const rightCenter = (rightRect.top + rightRect.bottom) / 2
+      return Math.abs(leftCenter - rightCenter) <= Math.max(leftRect.height, rightRect.height)
+    }
     const topbar = document.querySelector('header.workspace-topbar')
     const topbarTitle = topbar?.querySelector('h1')
     const stage = document.querySelector('.reader-reading-stage')
+    const sourceWorkspace = document.querySelector('.source-workspace-frame-reader-active')
     const stageShell = stage?.querySelector('.reader-stage-shell')
-    const controlRibbon = stage?.querySelector('.reader-stage-control-ribbon')
+    const controlRibbon =
+      sourceWorkspace?.querySelector('.reader-stage-control-ribbon') ??
+      stage?.querySelector('.reader-stage-control-ribbon')
     const deckLayout = stage?.querySelector('.reader-reading-deck-layout')
     const article = stage?.querySelector('.reader-article-shell')
     const articleField = stage?.querySelector('.reader-article-field')
+    const shortDocumentCompletionStrip = stage?.querySelector('.reader-short-document-completion-strip')
+    const activeListenSeam =
+      sourceWorkspace?.querySelector('.reader-active-listen-seam-stage878') ??
+      stage?.querySelector('.reader-active-listen-seam-stage878')
     const dock = stage?.querySelector('.reader-support-dock')
     const inlineSupport = stage?.querySelector('.reader-inline-support')
     const supportSurface = dock instanceof HTMLElement ? dock : inlineSupport instanceof HTMLElement ? inlineSupport : null
-    const sourceWorkspace = document.querySelector('.source-workspace-frame-reader-active')
     const sourceWorkspaceInner =
       sourceWorkspace instanceof HTMLElement
         ? sourceWorkspace.querySelector('.source-workspace-frame-inner')
         : null
+    const sourceWorkspaceActions = sourceWorkspace?.querySelector('.source-workspace-strip-actions')
+    const sourceWorkspaceMain = sourceWorkspace?.querySelector('.source-workspace-strip-main')
     const sourceLibraryPane =
       supportSurface instanceof HTMLElement ? supportSurface.querySelector('.library-pane') : document.querySelector('.library-pane')
     const sourceLibraryHeading = Array.from(supportSurface?.querySelectorAll('h2') ?? []).find(
@@ -356,6 +446,20 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
       .map((item) => item.textContent?.replace(/\s+/g, ' ').trim() ?? '')
       .filter(Boolean)
     const generatedEmptyState = stage?.querySelector('.reader-generated-empty-state')
+    const shortDocumentCompletionStripBox =
+      shortDocumentCompletionStrip instanceof HTMLElement ? shortDocumentCompletionStrip.getBoundingClientRect() : null
+    const activeListenSeamBox =
+      activeListenSeam instanceof HTMLElement ? activeListenSeam.getBoundingClientRect() : null
+    const activeListenStatus = activeListenSeam?.querySelector('.reader-active-listen-status')
+    const activeListenProgress = activeListenSeam?.querySelector('.reader-active-listen-progress')
+    const activeListenExcerpt = activeListenSeam?.querySelector('.reader-active-listen-excerpt')
+    const activeListenPrimary = activeListenSeam?.querySelector('.reader-active-listen-primary')
+    const shortDocumentCompletionSourceHandoff = shortDocumentCompletionStrip?.querySelector(
+      '[aria-label="Open Source from short document completion"]',
+    )
+    const shortDocumentCompletionNotebookHandoff = shortDocumentCompletionStrip?.querySelector(
+      '[aria-label="Open Notebook notes from short document completion"]',
+    )
     const derivedContextActionLabels = Array.from(derivedContext?.querySelectorAll('.reader-derived-context-branch-group button') ?? [])
       .filter((button) => isVisible(button))
       .map((button) => button.getAttribute('aria-label') ?? button.textContent?.replace(/\s+/g, ' ').trim() ?? '')
@@ -363,6 +467,8 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
     const stageHeading = stage?.querySelector('.reader-stage-heading')
     const stageMetadataRow = stage?.querySelector('.reader-stage-glance-meta')
     const workspaceInlineError = document.querySelector('.reader-workspace > .inline-error')
+    const sourceStripHeading = sourceWorkspace?.querySelector('.source-workspace-strip-heading')
+    const sourceMeta = sourceWorkspace?.querySelector('.source-workspace-meta')
     const stripTitleHeading = sourceWorkspace?.querySelector('.source-workspace-title-heading')
     const sourcePreview = sourceWorkspace?.querySelector('.source-workspace-source')
     const stageUtility = stage?.querySelector('.reader-stage-utility')
@@ -412,13 +518,73 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
     const stageBox = stage.getBoundingClientRect()
     const stageShellBox = stageShell instanceof HTMLElement ? stageShell.getBoundingClientRect() : null
     const controlRibbonBox = controlRibbon.getBoundingClientRect()
+    const firstModeTab =
+      controlRibbon.querySelector('.reader-stage-mode-strip [role="tab"]') instanceof HTMLElement
+        ? controlRibbon.querySelector('.reader-stage-mode-strip [role="tab"]')
+        : null
+    const modeStripBox =
+      controlRibbon.querySelector('.reader-stage-mode-strip') instanceof HTMLElement
+        ? controlRibbon.querySelector('.reader-stage-mode-strip').getBoundingClientRect()
+        : null
+    const primaryTransportButton =
+      controlRibbon.querySelector('.reader-stage-transport-tools .transport-button-primary-labeled') instanceof HTMLElement
+        ? controlRibbon.querySelector('.reader-stage-transport-tools .transport-button-primary-labeled')
+        : null
+    const primaryTransportLabel =
+      primaryTransportButton?.querySelector('.transport-button-label') instanceof HTMLElement
+        ? primaryTransportButton.querySelector('.transport-button-label')
+        : null
+    const primaryTransportIcon =
+      primaryTransportButton?.querySelector('.transport-icon') instanceof SVGElement
+        ? primaryTransportButton.querySelector('.transport-icon')
+        : null
+    const primaryTransportUsesSpeechIcon =
+      primaryTransportButton?.querySelector('.transport-icon-read-aloud-start') instanceof SVGElement
+    const transportStripBox =
+      controlRibbon.querySelector('.reader-stage-transport-strip') instanceof HTMLElement
+        ? controlRibbon.querySelector('.reader-stage-transport-strip').getBoundingClientRect()
+        : null
+    const firstModeTabBox = firstModeTab instanceof HTMLElement ? firstModeTab.getBoundingClientRect() : null
+    const primaryTransportButtonBox =
+      primaryTransportButton instanceof HTMLElement ? primaryTransportButton.getBoundingClientRect() : null
+    const primaryTransportLabelBox =
+      primaryTransportLabel instanceof HTMLElement ? primaryTransportLabel.getBoundingClientRect() : null
+    const primaryTransportIconBox =
+      primaryTransportIcon instanceof SVGElement ? primaryTransportIcon.getBoundingClientRect() : null
+    const primaryTransportButtonStyle =
+      primaryTransportButton instanceof HTMLElement ? window.getComputedStyle(primaryTransportButton) : null
+    const primaryTransportGapValue = primaryTransportButtonStyle?.columnGap || primaryTransportButtonStyle?.gap || '0'
+    const primaryTransportGap = Number.isFinite(Number.parseFloat(primaryTransportGapValue))
+      ? Number.parseFloat(primaryTransportGapValue)
+      : 0
+    const primaryTransportHorizontalPadding = primaryTransportButtonStyle
+      ? Number.parseFloat(primaryTransportButtonStyle.paddingLeft || '0') +
+        Number.parseFloat(primaryTransportButtonStyle.paddingRight || '0')
+      : 0
+    const primaryTransportExpectedWidth =
+      primaryTransportLabelBox && primaryTransportButtonBox
+        ? primaryTransportLabelBox.width +
+          (primaryTransportIconBox?.width ?? 0) +
+          (primaryTransportIconBox ? primaryTransportGap : 0) +
+          primaryTransportHorizontalPadding
+        : null
+    const primaryTransportLabelClipped =
+      primaryTransportButtonBox && primaryTransportExpectedWidth
+        ? primaryTransportButtonBox.width + 0.5 < primaryTransportExpectedWidth
+        : false
     const deckBox = deckLayout instanceof HTMLElement ? deckLayout.getBoundingClientRect() : null
     const articleBox = article instanceof HTMLElement ? article.getBoundingClientRect() : null
     const articleFieldBox = articleField instanceof HTMLElement ? articleField.getBoundingClientRect() : null
+    const articleFieldShortDocument =
+      articleField instanceof HTMLElement && articleField.classList.contains('reader-article-field-short-document')
+    const articleFieldContentFitStage864 =
+      articleFieldShortDocument &&
+      articleField.classList.contains('reader-article-field-short-document-content-fit-stage864') &&
+      articleField.getAttribute('data-reader-short-document-content-fit-stage864') === 'true'
     const derivedContextBox = derivedContext instanceof HTMLElement ? derivedContext.getBoundingClientRect() : null
     const dockBox = dock instanceof HTMLElement ? dock.getBoundingClientRect() : null
     const activeViewLabel =
-      Array.from(stage?.querySelectorAll('.reader-stage-mode-strip [role="tab"]') ?? []).find((tab) => {
+      Array.from(controlRibbon?.querySelectorAll('.reader-stage-mode-strip [role="tab"]') ?? []).find((tab) => {
         if (!(tab instanceof HTMLElement)) {
           return false
         }
@@ -467,10 +633,47 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
       const hasVisibleShadow = shadow && shadow !== 'none'
       return borderTopWidth > 0.5 || hasVisibleBackground || hasVisibleShadow || borderBottomWidth > 1.5
     })()
+    const sourceWorkspaceStyle = window.getComputedStyle(sourceWorkspace)
+    const sourceStripDividerVisible =
+      Number.parseFloat(sourceWorkspaceStyle.borderBottomWidth || '0') > 0.5 &&
+      sourceWorkspaceStyle.borderBottomStyle !== 'none' &&
+      sourceWorkspaceStyle.borderBottomColor !== 'rgba(0, 0, 0, 0)' &&
+      sourceWorkspaceStyle.borderBottomColor !== 'transparent'
+    const controlRibbonEmbeddedInSourceWorkspace =
+      sourceWorkspace instanceof HTMLElement &&
+      controlRibbon instanceof HTMLElement &&
+      sourceWorkspace.contains(controlRibbon)
+    const sourceWorkspaceMainBox =
+      sourceWorkspaceMain instanceof HTMLElement ? sourceWorkspaceMain.getBoundingClientRect() : null
+    const sourceWorkspaceActionsBox =
+      sourceWorkspaceActions instanceof HTMLElement ? sourceWorkspaceActions.getBoundingClientRect() : null
+    const sourceToControlGap = controlRibbonEmbeddedInSourceWorkspace
+      ? 0
+      : round(Math.max(0, controlRibbonBox.top - sourceWorkspaceBox.bottom))
+    const compactHeaderSharedRow =
+      controlRibbonEmbeddedInSourceWorkspace &&
+      sourceWorkspaceMainBox &&
+      sourceWorkspaceActionsBox
+        ? sharesRow(sourceWorkspaceMainBox, sourceWorkspaceActionsBox)
+        : false
+    const deckCompact =
+      deckLayout instanceof HTMLElement &&
+      (deckLayout.classList.contains('reader-reading-deck-layout-compact') ||
+        deckLayout.classList.contains('reader-reading-deck-layout-short-support-open-stage866'))
 
     const headingCountForSourceTitle = Array.from(document.querySelectorAll('h1, h2, h3'))
       .map((node) => node.textContent?.trim() ?? '')
       .filter((text) => text === currentTitle).length
+    const visibleArticleHeadings = Array.from(article?.querySelectorAll('h1, h2, h3, h4') ?? []).filter((node) =>
+      isVisible(node),
+    )
+    const leadingArticleHeadingText =
+      visibleArticleHeadings[0] instanceof HTMLElement
+        ? visibleArticleHeadings[0].textContent?.replace(/\s+/g, ' ').trim() ?? null
+        : null
+    const leadingArticleHeadingMatchesSourceTitle =
+      Boolean(leadingArticleHeadingText) &&
+      normalizeMetricText(leadingArticleHeadingText) === normalizeMetricText(currentTitle)
     const stageHeadingVisible =
       stageHeading instanceof HTMLElement &&
       window.getComputedStyle(stageHeading).display !== 'none' &&
@@ -506,6 +709,41 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
     const sourceWorkspaceNavTriggerInlineInHeading =
       sourceWorkspaceNavTrigger instanceof HTMLElement &&
       sourceWorkspaceNavTrigger.closest('.source-workspace-strip-heading') instanceof HTMLElement
+    const sourceNavTriggerUsesBadgeChrome =
+      sourceWorkspaceNavTrigger instanceof HTMLElement &&
+      isVisible(sourceWorkspaceNavTrigger) &&
+      ['status-chip', 'source-workspace-strip-badge', 'source-workspace-strip-badge-button'].some((className) =>
+        sourceWorkspaceNavTrigger.classList.contains(className),
+      )
+    const sourceNavTriggerQuietInline =
+      sourceWorkspaceNavTrigger instanceof HTMLElement &&
+      isVisible(sourceWorkspaceNavTrigger) &&
+      sourceWorkspaceNavTrigger.classList.contains('source-workspace-nav-trigger-inline')
+    const sourceMetaInlineInHeading =
+      sourceMeta instanceof HTMLElement &&
+      sourceStripHeading instanceof HTMLElement &&
+      sourceMeta.closest('.source-workspace-strip-heading') === sourceStripHeading &&
+      isVisible(sourceMeta)
+    const sourceMetaInlineQuiet =
+      sourceMeta instanceof HTMLElement &&
+      sourceMeta.classList.contains('source-workspace-meta-inline-quiet') &&
+      isVisible(sourceMeta)
+    const sourceMetaChipCount = Array.from(sourceMeta?.querySelectorAll('.status-chip') ?? []).filter((item) =>
+      isVisible(item),
+    ).length
+    const sourceMetaInlineLabelVisible = Array.from(
+      sourceMeta?.querySelectorAll('.source-workspace-meta-inline-label') ?? [],
+    ).some((item) => isVisible(item))
+    const sourceInlineTextLabels = Array.from(
+      sourceMeta?.querySelectorAll('.source-workspace-meta-inline-label') ?? [],
+    )
+      .filter((item) => isVisible(item))
+      .map((item) => item.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+      .filter(Boolean)
+    const sourceNoteTriggerUsesInlineText =
+      sourceWorkspaceNoteChipTrigger instanceof HTMLElement &&
+      sourceWorkspaceNoteChipTrigger.classList.contains('source-workspace-meta-inline-button') &&
+      isVisible(sourceWorkspaceNoteChipTrigger)
     const sourceLibraryToggleButton = supportSurface?.querySelector('.library-pane-toolbar .ghost-button')
     const supportHideButtonCount = Array.from(supportSurface?.querySelectorAll('button') ?? [])
       .filter((button) => isVisible(button))
@@ -528,6 +766,12 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
       .filter((button) => isVisible(button))
       .map((button) => button.getAttribute('aria-label') ?? button.textContent?.replace(/\s+/g, ' ').trim() ?? '')
       .filter(Boolean)
+    const topbarActionButtonHeights = Array.from(topbar?.querySelectorAll('.workspace-topbar-actions button') ?? [])
+      .filter((button) => isVisible(button))
+      .map((button) => round(button.getBoundingClientRect().height))
+    const topbarShortcutHintVisible = Array.from(topbar?.querySelectorAll('.workspace-topbar-actions .shell-nav-hint') ?? []).some(
+      (node) => isVisuallyPresent(node),
+    )
     const visibleUtilityLabels = Array.from(
       stage?.querySelectorAll(
         '.reader-stage-transport-tools > button, .reader-stage-transport-tools > .reader-stage-overflow .controls-overflow > button',
@@ -545,9 +789,54 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
 
     return {
       articleFieldHeight: articleFieldBox ? round(articleFieldBox.height) : null,
+      articleFieldScrollHeight:
+        articleField instanceof HTMLElement ? round(articleField.scrollHeight) : null,
       dockExpanded: dock instanceof HTMLElement && dock.classList.contains('reader-support-dock-expanded'),
-      articleFieldShortDocument:
-        articleField instanceof HTMLElement && articleField.classList.contains('reader-article-field-short-document'),
+      articleFieldShortDocument,
+      articleFieldContentFitStage864,
+      articleFieldEmptySlabVisible:
+        articleFieldShortDocument &&
+        !articleFieldContentFitStage864 &&
+        articleFieldBox !== null &&
+        articleFieldBox.height >= 260,
+      readerShortDocumentCompletionStripVisible:
+        shortDocumentCompletionStrip instanceof HTMLElement && isVisible(shortDocumentCompletionStrip),
+      readerShortDocumentCompletionStripHeight: shortDocumentCompletionStripBox
+        ? round(shortDocumentCompletionStripBox.height)
+        : null,
+      readerShortDocumentFirstViewportDeadZoneVisible:
+        articleFieldShortDocument &&
+        articleFieldContentFitStage864 &&
+        !(shortDocumentCompletionStrip instanceof HTMLElement && isVisible(shortDocumentCompletionStrip)) &&
+        !(dock instanceof HTMLElement && dock.classList.contains('reader-support-dock-expanded')),
+      readerShortDocumentNotebookHandoffVisible:
+        shortDocumentCompletionNotebookHandoff instanceof HTMLElement && isVisible(shortDocumentCompletionNotebookHandoff),
+      readerShortDocumentSourceHandoffVisible:
+        shortDocumentCompletionSourceHandoff instanceof HTMLElement && isVisible(shortDocumentCompletionSourceHandoff),
+      readerActiveListenSeamVisible: activeListenSeam instanceof HTMLElement && isVisible(activeListenSeam),
+      readerActiveListenSeamHeight: activeListenSeamBox ? round(activeListenSeamBox.height) : null,
+      readerActiveListenStatusLabel:
+        activeListenStatus instanceof HTMLElement && isVisible(activeListenStatus)
+          ? activeListenStatus.textContent?.replace(/\s+/g, ' ').trim() ?? null
+          : null,
+      readerActiveSentenceProgressInline:
+        activeListenProgress instanceof HTMLElement &&
+        isVisible(activeListenProgress) &&
+        activeListenProgress.closest('.reader-active-listen-seam-stage878') === activeListenSeam,
+      readerActiveCurrentSentenceExcerptVisible:
+        activeListenExcerpt instanceof HTMLElement &&
+        isVisible(activeListenExcerpt) &&
+        (activeListenExcerpt.textContent?.trim()?.length ?? 0) > 0,
+      readerActivePrimaryPlaybackLabel:
+        activeListenPrimary instanceof HTMLElement && isVisible(activeListenPrimary)
+          ? activeListenPrimary.textContent?.replace(/\s+/g, ' ').trim() ?? null
+          : null,
+      readerActiveTransportToolbarBloomVisible:
+        !(activeListenSeam instanceof HTMLElement && isVisible(activeListenSeam)) &&
+        ((sourceWorkspace?.querySelector('.reader-stage-progress-chip') instanceof HTMLElement &&
+          isVisible(sourceWorkspace.querySelector('.reader-stage-progress-chip'))) ||
+          (stage?.querySelector('.reader-stage-progress-chip') instanceof HTMLElement &&
+            isVisible(stage.querySelector('.reader-stage-progress-chip')))),
       articleFieldCenteredOffset:
         articleBox && articleFieldBox
           ? round(
@@ -618,6 +907,14 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
         derivedContextSummary instanceof HTMLElement && isVisible(derivedContextSummary),
       readerCurrentViewLabel: activeViewLabel,
       readerPrimaryTransportLabeledVisible: primaryTransportLabeledVisible,
+      readerPrimaryTransportLabelClipped: primaryTransportLabelClipped,
+      readerPrimaryTransportUsesSpeechIcon: primaryTransportUsesSpeechIcon,
+      readerPrimaryTransportWidth: primaryTransportButtonBox ? round(primaryTransportButtonBox.width) : null,
+      readerShortDocumentReadAloudAvailable:
+        articleFieldShortDocument &&
+        primaryTransportButton instanceof HTMLButtonElement &&
+        isVisible(primaryTransportButton) &&
+        !primaryTransportButton.disabled,
       readerTransportProgressVisible: transportProgressChipVisible,
       readerVisibleUtilityLabels: visibleUtilityLabels,
       readerVisibleViewLabels: visibleViewLabels,
@@ -634,9 +931,14 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
       readerStageLeft: round(stageBox.left),
       readerStageWidth: round(stageBox.width),
       readerTopbarActionLabels: topbarActionLabels,
+      readerTopbarActionMaxHeight: topbarActionButtonHeights.length ? Math.max(...topbarActionButtonHeights) : null,
+      readerTopbarActionsCompact:
+        topbar?.querySelector('.workspace-topbar-actions') instanceof HTMLElement &&
+        topbar.querySelector('.workspace-topbar-actions')?.classList.contains('workspace-topbar-actions-reader-compact'),
       readerTopbarCompact:
         topbar instanceof HTMLElement && topbar.classList.contains('workspace-topbar-reader-compact'),
       readerTopbarHeight: topbar instanceof HTMLElement ? round(topbar.getBoundingClientRect().height) : null,
+      readerTopbarShortcutHintVisible: topbarShortcutHintVisible,
       readerTopbarTitleVisible: topbarTitle instanceof HTMLElement && isVisuallyPresent(topbarTitle),
       notebookHeadingVisible: notebookHeading instanceof HTMLElement,
       readerNoteWorkbenchHeadingVisible: noteWorkbenchHeading instanceof HTMLElement && isVisible(noteWorkbenchHeading),
@@ -650,15 +952,36 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
           : null,
       readerArticleTop: articleBox ? round(articleBox.top) : null,
       readerContentHeadingCount: headingCountForSourceTitle,
+      readerLeadingArticleHeadingMatchesSourceTitle: leadingArticleHeadingMatchesSourceTitle,
+      readerLeadingArticleHeadingText: leadingArticleHeadingText,
+      readerCompactHeaderWidthRatio: round(
+        Math.max(controlRibbonBox.width, sourceWorkspaceInnerBox.width) / stageBox.width,
+      ),
+      readerControlClusterGap:
+        modeStripBox && transportStripBox && sharesRow(modeStripBox, transportStripBox)
+          ? round(Math.max(0, transportStripBox.left - modeStripBox.right))
+          : null,
+      readerControlClusterGapRatio:
+        modeStripBox && transportStripBox && sharesRow(modeStripBox, transportStripBox)
+          ? round(Math.max(0, transportStripBox.left - modeStripBox.right) / controlRibbonBox.width)
+          : null,
+      readerControlClusterSameRow:
+        modeStripBox && transportStripBox ? sharesRow(modeStripBox, transportStripBox) : false,
+      readerControlRibbonEmbeddedInSourceWorkspace: controlRibbonEmbeddedInSourceWorkspace,
       readerControlRibbonCenteredOffset: round(
         Math.abs(controlRibbonBox.left + controlRibbonBox.width / 2 - (stageBox.left + stageBox.width / 2)),
       ),
+      readerCompactHeaderSharedRow: compactHeaderSharedRow,
       readerControlRibbonWidthRatio: round(controlRibbonBox.width / stageBox.width),
+      readerEmbeddedCompactControlDensity:
+        controlRibbon.classList.contains('reader-stage-control-ribbon-embedded-compact'),
+      readerEmbeddedModeTabHeight: firstModeTabBox ? round(firstModeTabBox.height) : null,
+      readerEmbeddedPrimaryTransportHeight: primaryTransportButtonBox ? round(primaryTransportButtonBox.height) : null,
       readerDeckCenteredOffset:
         deckBox
           ? round(Math.abs(deckBox.left + deckBox.width / 2 - (stageBox.left + stageBox.width / 2)))
           : null,
-      readerDeckCompact: deckLayout instanceof HTMLElement && deckLayout.classList.contains('reader-reading-deck-layout-compact'),
+      readerDeckCompact: deckCompact,
       readerDeckWidthRatio: deckBox ? round(deckBox.width / stageBox.width) : null,
       readerRetiredCopyVisible: retiredCopyVisible,
       readerSourceLibraryVisible: sourceLibraryPane instanceof HTMLElement && isVisible(sourceLibraryPane),
@@ -666,16 +989,28 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
       readerSourceLibrarySearchLabelVisible:
         sourceLibrarySearchLabel instanceof HTMLElement && isVisible(sourceLibrarySearchLabel),
       readerSourceLibraryStatusVisible: sourceLibraryStatus instanceof HTMLElement && isVisible(sourceLibraryStatus),
+      readerSourceMetaChipCount: sourceMetaChipCount,
+      readerSourceInlineTextLabels: sourceInlineTextLabels,
+      readerSourceMetaInlineInHeading: sourceMetaInlineInHeading,
+      readerSourceMetaInlineLabelVisible: sourceMetaInlineLabelVisible,
+      readerSourceMetaInlineQuiet: sourceMetaInlineQuiet,
+      readerSourceTypeVisible: sourceInlineTextLabels.length > 0,
       readerSourceStripMetaLabels: sourceStripMetaLabels,
+      readerSourceNavTriggerQuietInline: sourceNavTriggerQuietInline,
       readerSourceNavTriggerInlineInHeading: sourceWorkspaceNavTriggerInlineInHeading,
       readerSourceNavTriggerText: sourceWorkspaceNavTriggerText,
+      readerSourceNavTriggerUsesBadgeChrome: sourceNavTriggerUsesBadgeChrome,
       readerSourceNavTriggerVisible: sourceWorkspaceNavTrigger instanceof HTMLElement && isVisible(sourceWorkspaceNavTrigger),
+      readerSourceToControlGap: sourceToControlGap,
       readerSourceStripNoteChipTriggerText: sourceWorkspaceNoteChipTriggerText,
       readerSourceStripNoteChipTriggerVisible:
         sourceWorkspaceNoteChipTrigger instanceof HTMLElement && isVisible(sourceWorkspaceNoteChipTrigger),
+      readerSourceStripNoteTriggerUsesInlineText: sourceNoteTriggerUsesInlineText,
       readerSourceStripCompact: sourceWorkspace.classList.contains('source-workspace-frame-reader-compact'),
+      readerSourceStripDividerVisible: sourceStripDividerVisible,
       readerSourceStripExpanded: sourceWorkspace.classList.contains('source-workspace-frame-reader-expanded'),
       readerSourceStripHeadingVisible: stripTitleHeadingVisible,
+      readerSourceTitleVisible: stripTitleHeadingVisible,
       readerSourceLibraryToggleVisible:
         sourceLibraryToggleButton instanceof HTMLElement && isVisible(sourceLibraryToggleButton),
       readerSourcePreviewText: sourcePreviewText,
@@ -699,6 +1034,10 @@ async function readReaderMetrics(page, expectedTitle, expectedSnippet) {
       readerSourceStripLeft: round(sourceWorkspaceInnerBox.left),
       readerSourceStripShellWidthRatio: round(sourceWorkspaceBox.width / stageBox.width),
       readerSourceStripWidthRatio: round(sourceWorkspaceInnerBox.width / stageBox.width),
+      readerTransportClusterNearModes:
+        modeStripBox && transportStripBox
+          ? transportStripBox.left - modeStripBox.right <= Math.max(160, controlRibbonBox.width * 0.44)
+          : false,
       readerStageChromeHeight: round((stageShellBox?.height ?? 0) + controlRibbonBox.height),
       readerStageHeadingVisible: stageHeadingVisible,
       readerStageMetadataChipCount: stageMetadataItems.length,
@@ -795,6 +1134,7 @@ export async function captureReaderReadingFirstEvidence({
   regressionPage,
   stagePrefix,
 }) {
+  await installReaderSpeechHarness(page)
   const originalReader = await openOriginalReaderFromHome(page, directory, stagePrefix, baseUrl)
   const defaultReaderDocumentId = new URL(page.url()).searchParams.get('document')
   const defaultReaderDocument =
@@ -823,11 +1163,66 @@ export async function captureReaderReadingFirstEvidence({
     `${stagePrefix}-reader-source-strip.png`,
   )
   const defaultWideTop = await captureViewportScreenshot(page, directory, `${stagePrefix}-reader-default-wide-top.png`)
+  const defaultArticleFieldCapture = await captureLocatorScreenshot(
+    page,
+    page.locator('.reader-article-field').first(),
+    directory,
+    `${stagePrefix}-reader-short-document-article-field.png`,
+  )
+  const defaultCompletionStripCapture = await captureLocatorScreenshot(
+    page,
+    page.locator('.reader-short-document-completion-strip').first(),
+    directory,
+    `${stagePrefix}-reader-short-document-completion-strip.png`,
+  )
+  await page.keyboard.press('Escape').catch(() => undefined)
+  await page.waitForTimeout(150)
+  await page.getByRole('button', { name: 'Start read aloud' }).click()
+  await page.getByRole('region', { name: 'Active read aloud' }).waitFor({ state: 'visible', timeout: 20000 })
+  await page.waitForTimeout(250)
+  const activeListenMetrics = await readReaderMetrics(page, originalReader.sourceTitle, null)
+  const activeListenSeamCapture = await captureLocatorScreenshot(
+    page,
+    page.locator('.reader-active-listen-seam-stage878').first(),
+    directory,
+    `${stagePrefix}-reader-active-listen-seam.png`,
+  )
+  const activeListenWideTop = await captureViewportScreenshot(
+    page,
+    directory,
+    `${stagePrefix}-reader-active-listen-wide-top.png`,
+  )
+  await page.getByRole('button', { name: 'Pause read aloud' }).click()
+  await page.getByRole('button', { name: 'Resume read aloud' }).waitFor({ state: 'visible', timeout: 20000 })
+  await page.waitForTimeout(250)
+  const pausedListenMetrics = await readReaderMetrics(page, originalReader.sourceTitle, null)
+  const pausedListenSeamCapture = await captureLocatorScreenshot(
+    page,
+    page.locator('.reader-active-listen-seam-stage878').first(),
+    directory,
+    `${stagePrefix}-reader-paused-listen-seam.png`,
+  )
+  await page.getByRole('button', { name: 'Stop read aloud' }).click()
+  await page.getByRole('button', { name: 'Start read aloud' }).waitFor({ state: 'visible', timeout: 20000 })
+  await page.waitForTimeout(250)
+  const idleAfterStopMetrics = await readReaderMetrics(page, originalReader.sourceTitle, null)
 
   await selectReaderView(page, 'Reflowed')
   await page.waitForTimeout(250)
   const reflowedMetrics = await readReaderMetrics(page, originalReader.sourceTitle, null)
   const reflowedWideTop = await captureViewportScreenshot(page, directory, `${stagePrefix}-reader-reflowed-wide-top.png`)
+  const reflowedArticleFieldCapture = await captureLocatorScreenshot(
+    page,
+    page.locator('.reader-article-field').first(),
+    directory,
+    `${stagePrefix}-reader-reflowed-short-document-article-field.png`,
+  )
+  const reflowedCompletionStripCapture = await captureLocatorScreenshot(
+    page,
+    page.locator('.reader-short-document-completion-strip').first(),
+    directory,
+    `${stagePrefix}-reader-reflowed-short-document-completion-strip.png`,
+  )
   await selectReaderView(page, 'Original')
   await page.waitForTimeout(250)
 
@@ -853,9 +1248,34 @@ export async function captureReaderReadingFirstEvidence({
     directory,
     `${stagePrefix}-reader-source-support-open.png`,
   )
+  const sourceSupportArticleFieldCapture = await captureLocatorScreenshot(
+    page,
+    page.locator('.reader-article-field').first(),
+    directory,
+    `${stagePrefix}-reader-source-open-short-document-article-field.png`,
+  )
+  await page.getByRole('button', { name: 'Start read aloud' }).click()
+  await page.getByRole('region', { name: 'Active read aloud' }).waitFor({ state: 'visible', timeout: 20000 })
+  await page.waitForTimeout(250)
+  const sourceSupportActiveListenMetrics = await readReaderMetrics(page, originalReader.sourceTitle, null)
+  const sourceSupportActiveListenCapture = await captureLocatorScreenshot(
+    page,
+    page.locator('.reader-active-listen-seam-stage878').first(),
+    directory,
+    `${stagePrefix}-reader-source-open-active-listen-seam.png`,
+  )
+  await page.getByRole('button', { name: 'Stop read aloud' }).click()
+  await page.getByRole('button', { name: 'Start read aloud' }).waitFor({ state: 'visible', timeout: 20000 })
+  await page.waitForTimeout(250)
 
   const notebookWorkbenchCapture = await captureNotebookWorkbench(page, stagePrefix, directory)
   const notebookSupportMetrics = await readReaderMetrics(page, originalReader.sourceTitle, null)
+  const notebookSupportArticleFieldCapture = await captureLocatorScreenshot(
+    page,
+    page.locator('.reader-article-field').first(),
+    directory,
+    `${stagePrefix}-reader-notebook-open-short-document-article-field.png`,
+  )
 
   const summaryTarget = await fetchGeneratedModeTarget(baseUrl, 'summary')
   await openReaderDocument(page, baseUrl, summaryTarget.documentId, summaryTarget.title)
@@ -891,18 +1311,28 @@ export async function captureReaderReadingFirstEvidence({
   return {
     captures: {
       defaultWideTop,
+      defaultArticleFieldCapture,
+      activeListenSeamCapture,
+      activeListenWideTop,
+      defaultCompletionStripCapture,
       graphWideTop,
       homeWideTop,
       notebookSupportCapture: notebookWorkbenchCapture,
+      notebookSupportArticleFieldCapture,
       notebookWideTop,
       originalWideTop,
       previewBackedWideTop,
+      pausedListenSeamCapture,
       reflowedWideTop,
+      reflowedArticleFieldCapture,
+      reflowedCompletionStripCapture,
       controlRibbonCapture,
       controlOverflowCapture,
       ...(simplifiedWideTop ? { simplifiedWideTop } : {}),
       sourceStripCapture,
+      sourceSupportActiveListenCapture,
       sourceSupportCapture,
+      sourceSupportArticleFieldCapture,
       studyWideTop,
       summaryWideTop,
     },
@@ -933,6 +1363,15 @@ export async function captureReaderReadingFirstEvidence({
         Object.entries(defaultMetrics).map(([key, value]) => [`default${key.charAt(0).toUpperCase()}${key.slice(1)}`, value]),
       ),
       ...Object.fromEntries(
+        Object.entries(activeListenMetrics).map(([key, value]) => [`active${key.charAt(0).toUpperCase()}${key.slice(1)}`, value]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(pausedListenMetrics).map(([key, value]) => [`paused${key.charAt(0).toUpperCase()}${key.slice(1)}`, value]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(idleAfterStopMetrics).map(([key, value]) => [`idleAfterStop${key.charAt(0).toUpperCase()}${key.slice(1)}`, value]),
+      ),
+      ...Object.fromEntries(
         Object.entries(reflowedMetrics).map(([key, value]) => [`reflowed${key.charAt(0).toUpperCase()}${key.slice(1)}`, value]),
       ),
       ...Object.fromEntries(
@@ -940,6 +1379,12 @@ export async function captureReaderReadingFirstEvidence({
       ),
       ...Object.fromEntries(
         Object.entries(sourceSupportMetrics).map(([key, value]) => [`sourceOpen${key.charAt(0).toUpperCase()}${key.slice(1)}`, value]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(sourceSupportActiveListenMetrics).map(([key, value]) => [
+          `sourceOpenActive${key.charAt(0).toUpperCase()}${key.slice(1)}`,
+          value,
+        ]),
       ),
       ...Object.fromEntries(
         Object.entries(notebookSupportMetrics).map(([key, value]) => [`notebookOpen${key.charAt(0).toUpperCase()}${key.slice(1)}`, value]),
@@ -950,6 +1395,76 @@ export async function captureReaderReadingFirstEvidence({
       ...Object.fromEntries(
         Object.entries(summaryMetrics).map(([key, value]) => [`summary${key.charAt(0).toUpperCase()}${key.slice(1)}`, value]),
       ),
+      readerShortDocumentEmptySlabVisible:
+        Boolean(defaultMetrics.articleFieldEmptySlabVisible) || Boolean(reflowedMetrics.articleFieldEmptySlabVisible),
+      readerShortDocumentArticleFieldContentFit:
+        Boolean(defaultMetrics.articleFieldContentFitStage864) && Boolean(reflowedMetrics.articleFieldContentFitStage864),
+      readerShortDocumentArticleFieldHeight: Math.max(
+        defaultMetrics.articleFieldHeight ?? 0,
+        reflowedMetrics.articleFieldHeight ?? 0,
+      ),
+      readerShortDocumentCompletionStripVisible:
+        Boolean(defaultMetrics.readerShortDocumentCompletionStripVisible) &&
+        Boolean(reflowedMetrics.readerShortDocumentCompletionStripVisible),
+      readerShortDocumentCompletionStripHeight: Math.max(
+        defaultMetrics.readerShortDocumentCompletionStripHeight ?? 0,
+        reflowedMetrics.readerShortDocumentCompletionStripHeight ?? 0,
+      ),
+      readerShortDocumentFirstViewportDeadZoneVisible:
+        Boolean(defaultMetrics.readerShortDocumentFirstViewportDeadZoneVisible) ||
+        Boolean(reflowedMetrics.readerShortDocumentFirstViewportDeadZoneVisible),
+      readerShortDocumentNotebookHandoffVisible:
+        Boolean(defaultMetrics.readerShortDocumentNotebookHandoffVisible) &&
+        Boolean(reflowedMetrics.readerShortDocumentNotebookHandoffVisible),
+      readerShortDocumentSourceHandoffVisible:
+        Boolean(defaultMetrics.readerShortDocumentSourceHandoffVisible) &&
+        Boolean(reflowedMetrics.readerShortDocumentSourceHandoffVisible),
+      readerActiveListenSeamVisible:
+        Boolean(activeListenMetrics.readerActiveListenSeamVisible) &&
+        Boolean(pausedListenMetrics.readerActiveListenSeamVisible),
+      readerActiveTransportToolbarBloomVisible:
+        Boolean(activeListenMetrics.readerActiveTransportToolbarBloomVisible) ||
+        Boolean(pausedListenMetrics.readerActiveTransportToolbarBloomVisible),
+      readerActiveListenStatusLabel: activeListenMetrics.readerActiveListenStatusLabel,
+      readerPausedListenStatusLabel: pausedListenMetrics.readerActiveListenStatusLabel,
+      readerActiveSentenceProgressInline:
+        Boolean(activeListenMetrics.readerActiveSentenceProgressInline) &&
+        Boolean(pausedListenMetrics.readerActiveSentenceProgressInline),
+      readerActiveCurrentSentenceExcerptVisible:
+        Boolean(activeListenMetrics.readerActiveCurrentSentenceExcerptVisible) &&
+        Boolean(pausedListenMetrics.readerActiveCurrentSentenceExcerptVisible),
+      readerActivePrimaryPlaybackLabel: activeListenMetrics.readerActivePrimaryPlaybackLabel,
+      readerPausedPrimaryPlaybackLabel: pausedListenMetrics.readerActivePrimaryPlaybackLabel,
+      readerShortDocumentCompletionStripHiddenWhileListening:
+        !Boolean(activeListenMetrics.readerShortDocumentCompletionStripVisible) &&
+        !Boolean(pausedListenMetrics.readerShortDocumentCompletionStripVisible),
+      readerIdleCompletionStripReturnsAfterStop: Boolean(idleAfterStopMetrics.readerShortDocumentCompletionStripVisible),
+      readerShortDocumentSupportOpenEmptySlabVisible:
+        Boolean(sourceSupportMetrics.articleFieldEmptySlabVisible) || Boolean(notebookSupportMetrics.articleFieldEmptySlabVisible),
+      readerShortDocumentSourceOpenArticleFieldContentFit: Boolean(sourceSupportMetrics.articleFieldContentFitStage864),
+      readerShortDocumentNotebookOpenArticleFieldContentFit: Boolean(notebookSupportMetrics.articleFieldContentFitStage864),
+      readerShortDocumentSupportOpenCompactHeaderSharedRow:
+        Boolean(sourceSupportMetrics.readerCompactHeaderSharedRow) &&
+        Boolean(notebookSupportMetrics.readerCompactHeaderSharedRow),
+      readerShortDocumentSupportOpenDeckCompact:
+        Boolean(sourceSupportMetrics.readerDeckCompact) && Boolean(notebookSupportMetrics.readerDeckCompact),
+      readerSupportOpenShortDocumentContentFitStable:
+        Boolean(sourceSupportMetrics.articleFieldContentFitStage864) &&
+        Boolean(notebookSupportMetrics.articleFieldContentFitStage864) &&
+        !Boolean(sourceSupportMetrics.readerShortDocumentCompletionStripVisible) &&
+        !Boolean(notebookSupportMetrics.readerShortDocumentCompletionStripVisible),
+      readerSupportOpenActiveListenSeamVisible: Boolean(sourceSupportActiveListenMetrics.readerActiveListenSeamVisible),
+      readerLongDocumentArticleFieldStable:
+        !previewBackedMetrics.articleFieldShortDocument && !previewBackedMetrics.articleFieldContentFitStage864,
+      readerLongDocumentCompletionStripVisible: Boolean(previewBackedMetrics.readerShortDocumentCompletionStripVisible),
+      readerGeneratedOutputsFrozen:
+        !summaryMetrics.readerGeneratedContextContainsSnippet &&
+        (typeof summaryTarget.snippet !== 'string' ||
+          summaryTarget.snippet.length === 0 ||
+          Boolean(summaryMetrics.readerGeneratedArticleContainsSnippet)),
+      readerShortDocumentReadAloudAvailable:
+        Boolean(defaultMetrics.readerShortDocumentReadAloudAvailable) &&
+        Boolean(reflowedMetrics.readerShortDocumentReadAloudAvailable),
       summaryReaderOverflowActionLabels: summaryOverflowMetrics.actionLabels,
       summaryReaderOverflowPanelHeight: summaryOverflowMetrics.panelHeight,
       summaryReaderOverflowPanelWidth: summaryOverflowMetrics.panelWidth,
