@@ -846,6 +846,261 @@ export async function captureHomeMemoryFilterEvidence({
   )
 }
 
+export async function captureHomeReviewScheduleLensEvidence({
+  baseUrl,
+  directory,
+  page,
+  stageLabel,
+  stagePrefix,
+}) {
+  return withStageHarnessNoteCleanup(
+    {
+      baseUrl,
+      directory,
+      page,
+      stageLabel,
+      stagePrefix,
+    },
+    captureHomeReviewScheduleLensEvidenceImpl,
+  )
+}
+
+async function captureHomeReviewScheduleLensEvidenceImpl({
+  baseUrl,
+  directory,
+  harnessNoteTracker,
+  page,
+  stageLabel,
+  stagePrefix,
+}) {
+  const reviewSource = await findHomeReviewScheduleLensSource(baseUrl)
+  if (!reviewSource?.document?.id) {
+    throw new Error(`${stageLabel} expected at least one source with local Study cards for Home review filters.`)
+  }
+
+  const draftText = `Stage ${stagePrefix} home review schedule lens note ${Date.now()}`
+  await fetchJson(`${baseUrl}/api/recall/documents/${encodeURIComponent(reviewSource.document.id)}/notes`, {
+    body: JSON.stringify({
+      anchor: {
+        anchor_text: `Source note for ${reviewSource.document.title}`,
+        block_id: `source:${reviewSource.document.id}`,
+        excerpt_text: `Manual note attached to ${reviewSource.document.title}.`,
+        global_sentence_end: 0,
+        global_sentence_start: 0,
+        kind: 'source',
+        sentence_end: 0,
+        sentence_start: 0,
+        source_document_id: reviewSource.document.id,
+        variant_id: '',
+      },
+      body_text: draftText,
+    }),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  })
+  await trackStageHarnessCreatedNote({
+    baseUrl,
+    bodyText: draftText,
+    context: `${stagePrefix}:home-review-schedule-lens`,
+    tracker: harnessNoteTracker,
+  })
+
+  const response = await page.goto(`${baseUrl}/recall`, { waitUntil: 'networkidle' })
+  if (!response || !response.ok()) {
+    throw new Error(`Home navigation failed with status ${response?.status() ?? 'unknown'}.`)
+  }
+
+  await page.getByRole('button', { name: /Sort Home sources/i }).first().waitFor({ state: 'visible', timeout: 20000 })
+  if ((await readHomeReviewFilterMetrics(page)).homeReviewScheduleActiveFilter !== 'all') {
+    await selectHomeReviewFilterOption(page, 'All')
+  }
+  const controlsVisible = await openHomeReviewFilterControls(page)
+  if (!controlsVisible) {
+    throw new Error(`${stageLabel} expected compact Review controls inside the Home sort menu.`)
+  }
+
+  const homeReviewScheduleLensVisible = (await readHomeReviewFilterMetrics(page)).homeReviewScheduleLensVisible
+  const homeSearchField = await openHomeOrganizerSearchField(page)
+  await homeSearchField.fill(reviewSource.document.title)
+  await page.waitForTimeout(900)
+  await page
+    .locator('[data-home-review-ready-signal-stage916="true"][data-home-review-ready-signal-surface-stage916="card"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 20000 })
+
+  const inactiveMetrics = await readHomeReviewFilterMetrics(page)
+  const homeReviewScheduleInactiveSignalCapture = await captureViewportScreenshot(
+    page,
+    directory,
+    `${stagePrefix}-home-review-schedule-inactive-review-signal.png`,
+  )
+  if (inactiveMetrics.homeReviewScheduleSignalDestination !== 'review') {
+    throw new Error(`${stageLabel} expected inactive Home review signals to keep the Review handoff.`)
+  }
+
+  await page
+    .locator('[data-home-review-ready-signal-stage916="true"][data-home-review-ready-signal-opens-stage920="review"]')
+    .first()
+    .click()
+  await page.locator('[data-study-source-scoped-queue-stage914="true"]').first().waitFor({
+    state: 'visible',
+    timeout: 20000,
+  })
+  const homeReviewScheduleInactiveSignalOpensSourceScopedReview = await readStudySourceScopedQueueVisible(page)
+  if (!homeReviewScheduleInactiveSignalOpensSourceScopedReview) {
+    throw new Error(`${stageLabel} expected inactive Home review signal to open source-scoped Study Review.`)
+  }
+  const homeReviewScheduleInactiveStudyCapture = await captureViewportScreenshot(
+    page,
+    directory,
+    `${stagePrefix}-home-review-schedule-inactive-review-handoff.png`,
+  )
+
+  await page.getByRole('tab', { name: 'Home' }).first().click()
+  const searchFieldAfterReview = await openHomeOrganizerSearchField(page)
+  await searchFieldAfterReview.fill(reviewSource.document.title)
+  await page.waitForTimeout(700)
+  await selectHomeReviewFilterOption(page, reviewSource.label)
+  await waitForHomeReviewFilter(page, reviewSource.drilldown)
+  await page
+    .locator('[data-home-review-ready-signal-stage916="true"][data-home-review-ready-signal-opens-stage920="questions"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 20000 })
+
+  const filteredMetrics = await readHomeReviewFilterMetrics(page)
+  const homeReviewScheduleFilterNarrowsSourceBoard =
+    filteredMetrics.homeReviewScheduleActiveFilter === reviewSource.drilldown &&
+    filteredMetrics.homeReviewScheduleVisibleCount > 0 &&
+    filteredMetrics.homeReviewScheduleSignalDestination === 'questions' &&
+    filteredMetrics.homeReviewScheduleActiveSignalFilter === reviewSource.drilldown
+  if (!homeReviewScheduleFilterNarrowsSourceBoard) {
+    throw new Error(`${stageLabel} expected active review filter ${reviewSource.drilldown} to narrow Home source cards.`)
+  }
+
+  const homeReviewScheduleFilteredCapture = await captureViewportScreenshot(
+    page,
+    directory,
+    `${stagePrefix}-home-review-schedule-filtered-source-board.png`,
+  )
+
+  await selectHomeMemoryFilterOption(page, 'Notes')
+  await waitForHomeMemoryFilter(page, 'notes')
+  await waitForHomeReviewFilter(page, reviewSource.drilldown)
+  const composedMetrics = await readHomeReviewFilterMetrics(page)
+  if (!composedMetrics.homeReviewScheduleComposesWithMemoryFilter) {
+    throw new Error(`${stageLabel} expected active review filter to compose with the Notes memory filter.`)
+  }
+
+  const homeReviewScheduleComposedCapture = await captureViewportScreenshot(
+    page,
+    directory,
+    `${stagePrefix}-home-review-schedule-memory-composed-matches.png`,
+  )
+
+  await page
+    .locator('[data-home-review-ready-signal-stage916="true"][data-home-review-ready-signal-opens-stage920="questions"]')
+    .first()
+    .click()
+  await page.locator('[data-study-source-scoped-question-search-stage914="true"]').first().waitFor({
+    state: 'visible',
+    timeout: 20000,
+  })
+  await page
+    .locator(
+      `[data-study-schedule-filter-chip-stage918="true"][data-study-schedule-filter-value-stage918="${reviewSource.drilldown}"]`,
+    )
+    .first()
+    .waitFor({ state: 'visible', timeout: 12000 })
+  const questionHandoffMetrics = await readHomeReviewScheduleQuestionHandoffMetrics(page, reviewSource.drilldown)
+  if (!questionHandoffMetrics.homeReviewScheduleFilteredSignalOpensSourceScopedQuestions) {
+    throw new Error(`${stageLabel} expected filtered Home review signal to open matching source-scoped Questions.`)
+  }
+
+  const homeReviewScheduleQuestionsCapture = await captureViewportScreenshot(
+    page,
+    directory,
+    `${stagePrefix}-home-review-schedule-filtered-questions-handoff.png`,
+  )
+
+  await page.getByRole('tab', { name: 'Home' }).first().click()
+  const searchFieldAfterQuestions = await openHomeOrganizerSearchField(page)
+  await searchFieldAfterQuestions.fill('')
+  await page.waitForTimeout(700)
+  const personalNotesSection = page.locator('[data-home-personal-notes-organizer-section-stage898="true"]').first()
+  await personalNotesSection.waitFor({ state: 'visible', timeout: 20000 })
+  await personalNotesSection.getByRole('button').first().evaluate((button) => button.click())
+  await page.locator('[data-home-personal-notes-board-stage898="true"]').first().waitFor({ state: 'visible', timeout: 20000 })
+  const personalNotesMetrics = await readHomeReviewFilterMetrics(page)
+  if (!personalNotesMetrics.homeReviewSchedulePersonalNotesStayNoteOwned) {
+    throw new Error(`${stageLabel} expected Personal notes to remain note-owned under active review filters.`)
+  }
+
+  const homeReviewSchedulePersonalNotesCapture = await captureViewportScreenshot(
+    page,
+    directory,
+    `${stagePrefix}-home-review-schedule-personal-notes-note-owned.png`,
+  )
+
+  const clearChip = page.locator('button.recall-home-review-filter-chip-stage920').first()
+  if (await clearChip.isVisible().catch(() => false)) {
+    await clearChip.click()
+  } else {
+    await selectHomeReviewFilterOption(page, 'All')
+  }
+  await waitForHomeReviewFilter(page, 'all')
+  const memoryClearChip = page.locator('button.recall-home-memory-filter-chip-stage910').first()
+  if (await memoryClearChip.isVisible().catch(() => false)) {
+    await memoryClearChip.click()
+  } else {
+    await selectHomeMemoryFilterOption(page, 'All')
+  }
+  await waitForHomeMemoryFilter(page, 'all')
+  const clearMetrics = await readHomeReviewFilterMetrics(page)
+  const homeReviewScheduleClearable = clearMetrics.homeReviewScheduleActiveFilter === 'all'
+  if (!homeReviewScheduleClearable) {
+    throw new Error(`${stageLabel} expected Home review filter chip to clear back to All.`)
+  }
+
+  const homeReviewScheduleClearCapture = await captureViewportScreenshot(
+    page,
+    directory,
+    `${stagePrefix}-home-review-schedule-clearable.png`,
+  )
+
+  return {
+    captures: {
+      homeReviewScheduleClearCapture,
+      homeReviewScheduleComposedCapture,
+      homeReviewScheduleFilteredCapture,
+      homeReviewScheduleInactiveSignalCapture,
+      homeReviewScheduleInactiveStudyCapture,
+      homeReviewSchedulePersonalNotesCapture,
+      homeReviewScheduleQuestionsCapture,
+    },
+    metrics: {
+      ...inactiveMetrics,
+      ...filteredMetrics,
+      ...composedMetrics,
+      ...personalNotesMetrics,
+      ...questionHandoffMetrics,
+      homeReviewScheduleActiveFilter: reviewSource.drilldown,
+      homeReviewScheduleActiveSignalFilter: filteredMetrics.homeReviewScheduleActiveSignalFilter,
+      homeReviewScheduleClearable,
+      homeReviewScheduleComposesWithMemoryFilter: composedMetrics.homeReviewScheduleComposesWithMemoryFilter,
+      homeReviewScheduleFilterControlsVisible: controlsVisible,
+      homeReviewScheduleFilterNarrowsSourceBoard,
+      homeReviewScheduleInactiveSignalOpensSourceScopedReview,
+      homeReviewScheduleLensVisible,
+      homeReviewScheduleMatchesComposeWithSearch: filteredMetrics.homeReviewScheduleMatchesComposeWithSearch,
+      homeReviewSchedulePersonalNotesStayNoteOwned:
+        personalNotesMetrics.homeReviewSchedulePersonalNotesStayNoteOwned,
+      homeReviewScheduleSignalDestination: filteredMetrics.homeReviewScheduleSignalDestination,
+      homeReviewScheduleSignalsDoNotMixBoardItems: filteredMetrics.homeReviewScheduleSignalsDoNotMixBoardItems,
+      homeReviewScheduleVisibleCount: filteredMetrics.homeReviewScheduleVisibleCount,
+    },
+  }
+}
+
 async function captureHomeMemoryFilterEvidenceImpl({
   baseUrl,
   directory,
@@ -993,6 +1248,11 @@ async function captureHomeMemoryFilterEvidenceImpl({
   await filteredSignal.waitFor({ state: 'visible', timeout: 20000 })
   await filteredSignal.click()
   await page.getByRole('heading', { name: 'Source overview', level: 2 }).waitFor({ state: 'visible', timeout: 20000 })
+  const sourceMemorySearchClear = page.locator('[data-source-memory-search-clear-stage912="true"]').first()
+  if (await sourceMemorySearchClear.isVisible().catch(() => false)) {
+    await sourceMemorySearchClear.click()
+    await page.waitForTimeout(500)
+  }
   await page.locator('[data-source-overview-memory-stack-stage906="true"]').first().waitFor({ state: 'visible', timeout: 20000 })
   const openedStackMetrics = await readHomeSourceMemoryOpenedStackMetrics(page)
   if (!openedStackMetrics.homeSourceMemorySignalOpensSourceOverviewStack) {
@@ -2910,6 +3170,40 @@ async function openHomeMemoryFilterControls(page) {
   })
 }
 
+async function openHomeReviewFilterControls(page) {
+  const existingGroup = page.getByRole('group', { name: 'Review filter' }).first()
+  if (await existingGroup.isVisible().catch(() => false)) {
+    return readHomeReviewFilterControlsVisible(page)
+  }
+
+  const trigger = page.getByRole('button', { name: /Sort Home sources/i }).first()
+  await trigger.waitFor({ state: 'visible', timeout: 12000 })
+  await trigger.click()
+  const group = page.getByRole('group', { name: 'Review filter' }).first()
+  await group.waitFor({ state: 'visible', timeout: 12000 })
+  return readHomeReviewFilterControlsVisible(page)
+}
+
+async function readHomeReviewFilterControlsVisible(page) {
+  return page.getByRole('group', { name: 'Review filter' }).first().evaluate((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return false
+    }
+    const labels = [...element.querySelectorAll('button')]
+      .map((button) => button.textContent?.trim())
+      .filter(Boolean)
+    const style = window.getComputedStyle(element)
+    const box = element.getBoundingClientRect()
+    return (
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      box.width > 1 &&
+      box.height > 1 &&
+      ['All', 'Due now', 'This week', 'Upcoming', 'New', 'Reviewed'].every((label) => labels.includes(label))
+    )
+  })
+}
+
 async function openHomeOrganizerSearchField(page) {
   const searchField = page.getByRole('searchbox', { name: 'Filter saved sources' }).first()
   if (await searchField.isVisible().catch(() => false)) {
@@ -2934,12 +3228,31 @@ async function selectHomeMemoryFilterOption(page, label) {
   await page.waitForTimeout(500)
 }
 
+async function selectHomeReviewFilterOption(page, label) {
+  const groupVisible = await page.getByRole('group', { name: 'Review filter' }).first().isVisible().catch(() => false)
+  if (!groupVisible) {
+    await openHomeReviewFilterControls(page)
+  }
+  const group = page.getByRole('group', { name: 'Review filter' }).first()
+  await group.getByRole('button', { name: label }).click()
+  await page.waitForTimeout(500)
+}
+
 async function waitForHomeMemoryFilter(page, expectedFilter) {
   await page.waitForFunction((filter) => {
     const canvas = document.querySelector(
       '.recall-home-parity-canvas-stage563[data-home-memory-filter-active-stage910]',
     )
     return canvas?.getAttribute('data-home-memory-filter-active-stage910') === filter
+  }, expectedFilter)
+}
+
+async function waitForHomeReviewFilter(page, expectedFilter) {
+  await page.waitForFunction((filter) => {
+    const canvas = document.querySelector(
+      '.recall-home-parity-canvas-stage563[data-home-review-filter-active-stage920]',
+    )
+    return canvas?.getAttribute('data-home-review-filter-active-stage920') === filter
   }, expectedFilter)
 }
 
@@ -3013,6 +3326,99 @@ async function readHomeMemoryFilterMetrics(page) {
       homeMemoryFilterVisibleCount: visibleCount,
     }
   })
+}
+
+async function readHomeReviewFilterMetrics(page) {
+  return page.evaluate(() => {
+    const isVisibleElement = (element) => {
+      if (!(element instanceof HTMLElement)) {
+        return false
+      }
+      const style = window.getComputedStyle(element)
+      const box = element.getBoundingClientRect()
+      return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 1 && box.height > 1
+    }
+    const visibleElements = (selector) => [...document.querySelectorAll(selector)].filter(isVisibleElement)
+    const canvas = document.querySelector(
+      '.recall-home-parity-canvas-stage563[data-home-review-filter-active-stage920]',
+    )
+    const activeFilter = canvas?.getAttribute('data-home-review-filter-active-stage920') ?? null
+    const visibleCount = Number(canvas?.getAttribute('data-home-review-filter-visible-count-stage920') ?? '0')
+    const memoryFilter = canvas?.getAttribute('data-home-memory-filter-active-stage910') ?? null
+    const controls = document.querySelector('[data-home-review-filter-controls-stage920="true"]')
+    const controlLabels = [...(controls?.querySelectorAll('button') ?? [])]
+      .map((button) => button.textContent?.trim())
+      .filter(Boolean)
+    const signals = visibleElements('[data-home-review-ready-signal-stage916="true"]')
+    const firstSignal = signals[0] ?? null
+    const sourceCards = visibleElements('.recall-home-parity-card-stage563')
+    const sourceRows = visibleElements('.recall-home-parity-list-row-stage563')
+    const memorySignals = visibleElements('[data-home-source-memory-signal-stage908="true"]')
+    const personalNoteBoard = document.querySelector('[data-home-personal-notes-board-stage898="true"]')
+    const personalNoteBoardItems = visibleElements('[data-home-personal-note-board-item-stage898="true"]')
+    const matchesHeadingVisible = [...document.querySelectorAll('h3')].some(
+      (heading) => heading.textContent?.trim() === 'Matches' && isVisibleElement(heading),
+    )
+
+    return {
+      homeReviewScheduleActiveFilter: activeFilter,
+      homeReviewScheduleActiveSignalFilter:
+        firstSignal?.getAttribute('data-home-review-ready-active-filter-stage920') ?? null,
+      homeReviewScheduleComposesWithMemoryFilter:
+        activeFilter !== 'all' &&
+        memoryFilter === 'notes' &&
+        matchesHeadingVisible &&
+        signals.length > 0 &&
+        memorySignals.length > 0 &&
+        sourceCards.length + sourceRows.length > 0 &&
+        personalNoteBoardItems.length === 0,
+      homeReviewScheduleFilterControlsVisible:
+        isVisibleElement(controls) &&
+        ['All', 'Due now', 'This week', 'Upcoming', 'New', 'Reviewed'].every((label) =>
+          controlLabels.includes(label),
+        ),
+      homeReviewScheduleLensVisible: isVisibleElement(canvas),
+      homeReviewScheduleMatchesComposeWithSearch:
+        activeFilter !== 'all' &&
+        matchesHeadingVisible &&
+        signals.length > 0 &&
+        sourceCards.length + sourceRows.length > 0 &&
+        personalNoteBoardItems.length === 0,
+      homeReviewSchedulePersonalNotesStayNoteOwned:
+        activeFilter !== 'all' &&
+        isVisibleElement(personalNoteBoard) &&
+        personalNoteBoardItems.length > 0 &&
+        sourceCards.length === 0 &&
+        sourceRows.length === 0,
+      homeReviewScheduleSignalDestination:
+        firstSignal?.getAttribute('data-home-review-ready-signal-opens-stage920') ?? null,
+      homeReviewScheduleSignalsDoNotMixBoardItems:
+        personalNoteBoardItems.length === 0 && sourceCards.length + sourceRows.length > 0,
+      homeReviewScheduleVisibleCount: visibleCount,
+    }
+  })
+}
+
+async function readHomeReviewScheduleQuestionHandoffMetrics(page, expectedDrilldown) {
+  return page.evaluate((expected) => {
+    const isVisibleElement = (element) => {
+      if (!(element instanceof HTMLElement)) {
+        return false
+      }
+      const style = window.getComputedStyle(element)
+      const box = element.getBoundingClientRect()
+      return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 1 && box.height > 1
+    }
+    const questionsSurface = document.querySelector('[data-study-source-scoped-question-search-stage914="true"]')
+    const sourceScope = document.querySelector('[data-study-source-scoped-queue-stage914="true"]')
+    const chip = document.querySelector('[data-study-schedule-filter-chip-stage918="true"]')
+    const activeFilter = chip?.getAttribute('data-study-schedule-filter-value-stage918') ?? 'all'
+    return {
+      homeReviewScheduleFilteredSignalOpensSourceScopedQuestions:
+        isVisibleElement(questionsSurface) && isVisibleElement(sourceScope) && activeFilter === expected,
+      homeReviewScheduleQuestionsActiveFilter: activeFilter,
+    }
+  }, expectedDrilldown)
 }
 
 async function readHomeSourceMemorySignalMetrics(page, surface) {
@@ -3773,6 +4179,70 @@ async function findSourceMemoryStackDocument(baseUrl) {
       (document) => document?.id && graphDocumentIds.has(document.id) && studyDocumentIds.has(document.id),
     ) ?? null
   )
+}
+
+async function findHomeReviewScheduleLensSource(baseUrl) {
+  const [documents, studyCards] = await Promise.all([
+    fetchJson(`${baseUrl}/api/documents`),
+    fetchJson(`${baseUrl}/api/recall/study/cards?status=all&limit=200`),
+  ])
+  const documentById = new Map(
+    (Array.isArray(documents) ? documents : [])
+      .filter((document) => document?.id && document?.title)
+      .map((document) => [document.id, document]),
+  )
+  const cards = Array.isArray(studyCards) ? studyCards : []
+  const drilldowns = [
+    ['due-now', 'Due now'],
+    ['due-this-week', 'This week'],
+    ['upcoming', 'Upcoming'],
+    ['new', 'New'],
+    ['reviewed', 'Reviewed'],
+  ]
+
+  for (const [drilldown, label] of drilldowns) {
+    const card = cards.find((candidate) => {
+      const documentId = candidate?.source_document_id
+      return documentId && documentById.has(documentId) && homeReviewScheduleCardMatches(candidate, drilldown)
+    })
+    if (card?.source_document_id) {
+      return {
+        document: documentById.get(card.source_document_id),
+        drilldown,
+        label,
+      }
+    }
+  }
+
+  return null
+}
+
+function homeReviewScheduleCardMatches(card, drilldown, now = new Date()) {
+  if (drilldown === 'due-now') {
+    return card?.status === 'due'
+  }
+  if (drilldown === 'due-this-week') {
+    return homeReviewScheduleCardDueThisWeek(card, now)
+  }
+  if (drilldown === 'upcoming') {
+    return card?.status === 'scheduled' && !homeReviewScheduleCardDueThisWeek(card, now)
+  }
+  if (drilldown === 'new') {
+    return card?.status === 'new'
+  }
+  return Number(card?.review_count ?? 0) > 0
+}
+
+function homeReviewScheduleCardDueThisWeek(card, now = new Date()) {
+  if (card?.status !== 'scheduled') {
+    return false
+  }
+  const dueAt = new Date(card?.due_at).getTime()
+  if (!Number.isFinite(dueAt)) {
+    return false
+  }
+  const nowTime = now.getTime()
+  return dueAt > nowTime && dueAt <= nowTime + 7 * 24 * 60 * 60 * 1000
 }
 
 async function findSourceMemoryTextQuery(baseUrl, document) {

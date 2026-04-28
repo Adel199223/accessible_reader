@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib
 import json
@@ -1997,10 +1998,1109 @@ def test_recall_hybrid_retrieval_and_study_review_cycle(tmp_path, monkeypatch) -
     assert reviewed_card["review_count"] == 1
     assert reviewed_card["last_rating"] == "good"
     assert reviewed_card["status"] in {"due", "scheduled"}
+    assert reviewed_card["knowledge_stage"] in {"learning", "practiced", "confident", "mastered"}
 
     refreshed_overview_response = client.get("/api/recall/study/overview")
     assert refreshed_overview_response.status_code == 200
     assert refreshed_overview_response.json()["review_event_count"] >= 1
+
+    progress_response = client.get("/api/recall/study/progress")
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    assert progress["total_reviews"] >= 1
+    assert progress["today_count"] >= 1
+    assert progress["current_daily_streak"] >= 1
+    assert progress["recent_reviews"][0]["review_card_id"] == cards[0]["id"]
+    assert progress["recent_reviews"][0]["rating"] == "good"
+    assert sum(entry["count"] for entry in progress["knowledge_stage_counts"]) >= 1
+
+
+def test_recall_study_card_schedule_state_controls(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Manual scheduling guide",
+            "text": (
+                "Manual scheduling keeps recall questions available when the learner chooses. "
+                "Unscheduled questions should leave the review queue until their pause expires."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+
+    cards_response = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100})
+    assert cards_response.status_code == 200
+    cards = cards_response.json()
+    assert cards
+    card_id = cards[0]["id"]
+
+    unschedule_response = client.post(
+        f"/api/recall/study/cards/{card_id}/schedule-state",
+        json={"action": "unschedule"},
+    )
+    assert unschedule_response.status_code == 200
+    unscheduled_card = unschedule_response.json()
+    assert unscheduled_card["status"] == "unscheduled"
+    assert unscheduled_card["scheduling_state"]["manual_schedule_state"] == "unscheduled"
+    unscheduled_at = datetime.fromisoformat(unscheduled_card["scheduling_state"]["unscheduled_at"])
+    unscheduled_until = datetime.fromisoformat(unscheduled_card["scheduling_state"]["unscheduled_until"])
+    assert timedelta(days=6, hours=23) < unscheduled_until - unscheduled_at < timedelta(days=7, minutes=1)
+
+    unscheduled_list_response = client.get("/api/recall/study/cards", params={"status": "unscheduled", "limit": 100})
+    assert unscheduled_list_response.status_code == 200
+    assert any(card["id"] == card_id for card in unscheduled_list_response.json())
+
+    schedule_response = client.post(
+        f"/api/recall/study/cards/{card_id}/schedule-state",
+        json={"action": "schedule"},
+    )
+    assert schedule_response.status_code == 200
+    scheduled_now_card = schedule_response.json()
+    assert scheduled_now_card["status"] == "new"
+    assert "manual_schedule_state" not in scheduled_now_card["scheduling_state"]
+    assert "unscheduled_until" not in scheduled_now_card["scheduling_state"]
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{card_id}/review",
+        json={"rating": "good"},
+    )
+    assert review_response.status_code == 200
+    reviewed_card = review_response.json()
+    assert reviewed_card["review_count"] == 1
+    assert reviewed_card["status"] in {"due", "scheduled"}
+
+    progress_before = client.get("/api/recall/study/progress").json()
+    reviewed_unschedule_response = client.post(
+        f"/api/recall/study/cards/{card_id}/schedule-state",
+        json={"action": "unschedule"},
+    )
+    assert reviewed_unschedule_response.status_code == 200
+    assert reviewed_unschedule_response.json()["status"] == "unscheduled"
+    progress_after = client.get("/api/recall/study/progress").json()
+    assert progress_after["total_reviews"] == progress_before["total_reviews"]
+    assert progress_after["recent_reviews"][0]["review_card_id"] == card_id
+
+    from app import main as main_module
+
+    expired_state = reviewed_unschedule_response.json()["scheduling_state"]
+    expired_state["unscheduled_until"] = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    with main_module.repository.connect() as connection:
+        connection.execute(
+            """
+            UPDATE review_cards
+            SET scheduling_state_json = ?
+            WHERE id = ?
+            """,
+            (json.dumps(expired_state, sort_keys=True), card_id),
+        )
+
+    expired_cards_response = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100})
+    assert expired_cards_response.status_code == 200
+    expired_card = next(card for card in expired_cards_response.json() if card["id"] == card_id)
+    assert expired_card["status"] in {"due", "scheduled"}
+
+    reviewed_schedule_response = client.post(
+        f"/api/recall/study/cards/{card_id}/schedule-state",
+        json={"action": "schedule"},
+    )
+    assert reviewed_schedule_response.status_code == 200
+    rescheduled_card = reviewed_schedule_response.json()
+    assert rescheduled_card["status"] == "due"
+    assert "unscheduled_at" not in rescheduled_card["scheduling_state"]
+
+
+def test_recall_study_card_edit_and_soft_delete_management(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    for index in range(3):
+        import_response = client.post(
+            "/api/documents/import-text",
+            json={
+                "title": f"Question management guide {index}",
+                "text": (
+                    f"Question management topic {index} keeps Study cards editable and removable. "
+                    f"Bulk deletion should hide selected questions without deleting source material. "
+                    f"Edited generated questions should survive a later regeneration pass for topic {index}."
+                ),
+            },
+        )
+        assert import_response.status_code == 200
+
+    cards_response = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100})
+    assert cards_response.status_code == 200
+    cards = cards_response.json()
+    assert len(cards) >= 3
+    edited_id = cards[0]["id"]
+    deleted_id = cards[1]["id"]
+    bulk_deleted_id = cards[2]["id"]
+
+    blank_response = client.patch(
+        f"/api/recall/study/cards/{edited_id}",
+        json={"prompt": "   ", "answer": "Still blank"},
+    )
+    assert blank_response.status_code == 422
+
+    edit_response = client.patch(
+        f"/api/recall/study/cards/{edited_id}",
+        json={
+            "prompt": " What should the edited Study question preserve? ",
+            "answer": " Manual prompt and answer edits. ",
+        },
+    )
+    assert edit_response.status_code == 200
+    edited_card = edit_response.json()
+    assert edited_card["prompt"] == "What should the edited Study question preserve?"
+    assert edited_card["answer"] == "Manual prompt and answer edits."
+    assert "manual_content_edited_at" in edited_card["scheduling_state"]
+
+    regenerate_response = client.post("/api/recall/study/cards/generate")
+    assert regenerate_response.status_code == 200
+    regenerated_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    regenerated_edited_card = next(card for card in regenerated_cards if card["id"] == edited_id)
+    assert regenerated_edited_card["prompt"] == "What should the edited Study question preserve?"
+    assert regenerated_edited_card["answer"] == "Manual prompt and answer edits."
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{deleted_id}/review",
+        json={"rating": "good"},
+    )
+    assert review_response.status_code == 200
+    progress_before_delete = client.get("/api/recall/study/progress").json()
+    assert progress_before_delete["total_reviews"] == 1
+
+    delete_response = client.delete(f"/api/recall/study/cards/{deleted_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"id": deleted_id, "deleted": True}
+
+    cards_after_delete = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    assert all(card["id"] != deleted_id for card in cards_after_delete)
+    assert client.post(f"/api/recall/study/cards/{deleted_id}/review", json={"rating": "easy"}).status_code == 404
+    assert client.post(
+        f"/api/recall/study/cards/{deleted_id}/schedule-state",
+        json={"action": "schedule"},
+    ).status_code == 404
+    assert client.patch(
+        f"/api/recall/study/cards/{deleted_id}",
+        json={"prompt": "Restore?", "answer": "No"},
+    ).status_code == 404
+
+    progress_after_delete = client.get("/api/recall/study/progress").json()
+    assert progress_after_delete["total_reviews"] == 0
+    assert progress_after_delete["recent_reviews"] == []
+
+    bulk_response = client.post(
+        "/api/recall/study/cards/bulk-delete",
+        json={"card_ids": [bulk_deleted_id, "missing-card"]},
+    )
+    assert bulk_response.status_code == 200
+    bulk_result = bulk_response.json()
+    assert bulk_result["deleted_ids"] == [bulk_deleted_id]
+    assert bulk_result["missing_ids"] == ["missing-card"]
+
+    regenerate_after_delete_response = client.post("/api/recall/study/cards/generate")
+    assert regenerate_after_delete_response.status_code == 200
+    final_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    final_ids = {card["id"] for card in final_cards}
+    assert deleted_id not in final_ids
+    assert bulk_deleted_id not in final_ids
+    assert next(card for card in final_cards if card["id"] == edited_id)["prompt"] == "What should the edited Study question preserve?"
+
+
+def test_recall_study_manual_question_creation_preserves_source_owned_cards(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    missing_source_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": "missing-source",
+            "prompt": "What is missing?",
+            "answer": "A saved source.",
+        },
+    )
+    assert missing_source_response.status_code == 404
+
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Manual card source",
+            "text": (
+                "Manual Study questions stay grounded to saved sources. "
+                "A flashcard can be scheduled, reviewed, edited, or deleted without changing source content."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    blank_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "   ",
+            "answer": "Manual answer",
+        },
+    )
+    assert blank_response.status_code == 422
+
+    create_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": " Which manual card type is supported? ",
+            "answer": " Flashcard. ",
+            "card_type": "flashcard",
+        },
+    )
+    assert create_response.status_code == 200
+    created_card = create_response.json()
+    assert created_card["id"].startswith("card:manual:")
+    assert created_card["source_document_id"] == document["id"]
+    assert created_card["document_title"] == "Manual card source"
+    assert created_card["prompt"] == "Which manual card type is supported?"
+    assert created_card["answer"] == "Flashcard."
+    assert created_card["card_type"] == "flashcard"
+    assert created_card["status"] == "new"
+    assert created_card["review_count"] == 0
+    assert created_card["knowledge_stage"] == "new"
+    assert created_card["scheduling_state"]["manual_content_created_at"]
+    assert created_card["scheduling_state"]["manual_content_edited_at"]
+    assert created_card["scheduling_state"]["manual_card_type"] == "flashcard"
+    assert created_card["source_spans"][0]["manual_source"] == "study_manual"
+
+    default_type_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "What is the default manual type?",
+            "answer": "Short answer.",
+        },
+    )
+    assert default_type_response.status_code == 200
+    assert default_type_response.json()["card_type"] == "short_answer"
+
+    list_response = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100})
+    assert list_response.status_code == 200
+    listed_cards = list_response.json()
+    assert any(card["id"] == created_card["id"] for card in listed_cards)
+
+    progress_response = client.get("/api/recall/study/progress", params={"source_document_id": document["id"]})
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    assert progress["scope_source_document_id"] == document["id"]
+    assert any(entry["stage"] == "new" and entry["count"] >= 2 for entry in progress["knowledge_stage_counts"])
+
+    retrieve_response = client.get("/api/recall/retrieve", params={"query": "Which manual card type"})
+    assert retrieve_response.status_code == 200
+    assert any(hit.get("card_id") == created_card["id"] for hit in retrieve_response.json())
+
+    regenerate_response = client.post("/api/recall/study/cards/generate")
+    assert regenerate_response.status_code == 200
+    regenerated_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    regenerated_manual_card = next(card for card in regenerated_cards if card["id"] == created_card["id"])
+    assert regenerated_manual_card["prompt"] == "Which manual card type is supported?"
+    assert regenerated_manual_card["card_type"] == "flashcard"
+
+    unschedule_response = client.post(
+        f"/api/recall/study/cards/{created_card['id']}/schedule-state",
+        json={"action": "unschedule"},
+    )
+    assert unschedule_response.status_code == 200
+    assert unschedule_response.json()["status"] == "unscheduled"
+    schedule_response = client.post(
+        f"/api/recall/study/cards/{created_card['id']}/schedule-state",
+        json={"action": "schedule"},
+    )
+    assert schedule_response.status_code == 200
+    assert schedule_response.json()["status"] == "new"
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{created_card['id']}/review",
+        json={"rating": "easy"},
+    )
+    assert review_response.status_code == 200
+    assert review_response.json()["last_rating"] == "easy"
+
+    delete_response = client.delete(f"/api/recall/study/cards/{created_card['id']}")
+    assert delete_response.status_code == 200
+    final_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    assert all(card["id"] != created_card["id"] for card in final_cards)
+
+
+def test_recall_study_choice_question_types_validate_and_review(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Choice card source",
+            "text": (
+                "Choice Study questions can ask about retrieval practice, active recall, "
+                "and true false scheduling while staying grounded to a saved source."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    missing_payload_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which answer is missing choices?",
+            "answer": "Active recall",
+            "card_type": "multiple_choice",
+        },
+    )
+    assert missing_payload_response.status_code == 400
+
+    duplicate_choice_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which duplicate should fail?",
+            "answer": "Active recall",
+            "card_type": "multiple_choice",
+            "question_payload": {
+                "kind": "multiple_choice",
+                "choices": [
+                    {"id": "a", "text": "Active recall"},
+                    {"id": "b", "text": "active recall"},
+                ],
+                "correct_choice_id": "a",
+            },
+        },
+    )
+    assert duplicate_choice_response.status_code == 400
+
+    create_mc_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which practice asks you to retrieve from memory?",
+            "answer": "This value is normalized from the correct choice",
+            "card_type": "multiple_choice",
+            "question_payload": {
+                "kind": "multiple_choice",
+                "choices": [
+                    {"id": "a", "text": "Passive rereading"},
+                    {"id": "b", "text": "Active recall"},
+                    {"id": "c", "text": "Highlighting only"},
+                ],
+                "correct_choice_id": "b",
+            },
+        },
+    )
+    assert create_mc_response.status_code == 200
+    multiple_choice_card = create_mc_response.json()
+    assert multiple_choice_card["card_type"] == "multiple_choice"
+    assert multiple_choice_card["answer"] == "Active recall"
+    assert multiple_choice_card["question_payload"]["kind"] == "multiple_choice"
+    assert multiple_choice_card["question_payload"]["correct_choice_id"] == "b"
+    assert multiple_choice_card["scheduling_state"]["manual_question_payload"]["choices"][1]["text"] == "Active recall"
+
+    retrieve_distractor_response = client.get("/api/recall/retrieve", params={"query": "Passive rereading"})
+    assert retrieve_distractor_response.status_code == 200
+    assert any(hit.get("card_id") == multiple_choice_card["id"] for hit in retrieve_distractor_response.json())
+
+    create_tf_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "True or false: review attempts are stored in Stage 940.",
+            "answer": "false",
+            "card_type": "true_false",
+            "question_payload": {
+                "kind": "true_false",
+                "choices": [
+                    {"id": "true", "text": "True"},
+                    {"id": "false", "text": "False"},
+                ],
+                "correct_choice_id": "false",
+            },
+        },
+    )
+    assert create_tf_response.status_code == 200
+    true_false_card = create_tf_response.json()
+    assert true_false_card["card_type"] == "true_false"
+    assert true_false_card["answer"] == "False"
+    assert true_false_card["question_payload"]["correct_choice_id"] == "false"
+    assert true_false_card["question_payload"]["choices"] == [
+        {"id": "true", "text": "True"},
+        {"id": "false", "text": "False"},
+    ]
+
+    update_response = client.patch(
+        f"/api/recall/study/cards/{multiple_choice_card['id']}",
+        json={
+            "prompt": "Which practice best checks memory?",
+            "answer": "Active recall",
+            "question_payload": {
+                "kind": "multiple_choice",
+                "choices": [
+                    {"id": "a", "text": "Copying notes"},
+                    {"id": "b", "text": "Active recall"},
+                    {"id": "c", "text": "Skipping review"},
+                ],
+                "correct_choice_id": "b",
+            },
+        },
+    )
+    assert update_response.status_code == 200
+    updated_card = update_response.json()
+    assert updated_card["prompt"] == "Which practice best checks memory?"
+    assert updated_card["answer"] == "Active recall"
+    assert updated_card["question_payload"]["choices"][0]["text"] == "Copying notes"
+    assert updated_card["scheduling_state"]["manual_question_payload"]["choices"][0]["text"] == "Copying notes"
+
+    schedule_response = client.post(
+        f"/api/recall/study/cards/{updated_card['id']}/schedule-state",
+        json={"action": "unschedule"},
+    )
+    assert schedule_response.status_code == 200
+    assert schedule_response.json()["status"] == "unscheduled"
+    reschedule_response = client.post(
+        f"/api/recall/study/cards/{updated_card['id']}/schedule-state",
+        json={"action": "schedule"},
+    )
+    assert reschedule_response.status_code == 200
+    assert reschedule_response.json()["status"] == "new"
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{updated_card['id']}/review",
+        json={"rating": "good"},
+    )
+    assert review_response.status_code == 200
+    assert review_response.json()["last_rating"] == "good"
+
+    progress_response = client.get("/api/recall/study/progress", params={"source_document_id": document["id"]})
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    assert progress["scope_source_document_id"] == document["id"]
+    assert any(source["source_document_id"] == document["id"] and source["card_count"] >= 2 for source in progress["source_breakdown"])
+
+    regenerate_response = client.post("/api/recall/study/cards/generate")
+    assert regenerate_response.status_code == 200
+    regenerated_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    regenerated_mc = next(card for card in regenerated_cards if card["id"] == updated_card["id"])
+    assert regenerated_mc["question_payload"]["choices"][0]["text"] == "Copying notes"
+
+    delete_response = client.delete(f"/api/recall/study/cards/{true_false_card['id']}")
+    assert delete_response.status_code == 200
+    final_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    assert all(card["id"] != true_false_card["id"] for card in final_cards)
+
+
+def test_recall_study_fill_in_blank_cards_validate_and_review(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Fill blank card source",
+            "text": (
+                "Fill in the blank Study questions ask the learner to choose the missing phrase "
+                "from a grounded sentence template before rating recall."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    missing_marker_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which template is invalid?",
+            "answer": "active recall",
+            "card_type": "fill_in_blank",
+            "question_payload": {
+                "kind": "fill_in_blank",
+                "template": "Active recall strengthens memory.",
+                "choices": [
+                    {"id": "a", "text": "active recall"},
+                    {"id": "b", "text": "passive rereading"},
+                ],
+                "correct_choice_id": "a",
+            },
+        },
+    )
+    assert missing_marker_response.status_code == 400
+
+    duplicate_choice_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which duplicate should fail?",
+            "answer": "active recall",
+            "card_type": "fill_in_blank",
+            "question_payload": {
+                "kind": "fill_in_blank",
+                "template": "{{blank}} strengthens memory.",
+                "choices": [
+                    {"id": "a", "text": "Active recall"},
+                    {"id": "b", "text": "active recall"},
+                ],
+                "correct_choice_id": "a",
+            },
+        },
+    )
+    assert duplicate_choice_response.status_code == 400
+
+    create_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which phrase completes the retrieval sentence?",
+            "answer": "This value is normalized from the correct blank choice",
+            "card_type": "fill_in_blank",
+            "question_payload": {
+                "kind": "fill_in_blank",
+                "template": "{{blank}} strengthens memory better than rereading.",
+                "choices": [
+                    {"id": "a", "text": "Passive rereading"},
+                    {"id": "b", "text": "Active recall"},
+                    {"id": "c", "text": "Skipping review"},
+                ],
+                "correct_choice_id": "b",
+            },
+        },
+    )
+    assert create_response.status_code == 200
+    fill_card = create_response.json()
+    assert fill_card["card_type"] == "fill_in_blank"
+    assert fill_card["answer"] == "Active recall"
+    assert fill_card["question_payload"]["kind"] == "fill_in_blank"
+    assert fill_card["question_payload"]["template"] == "{{blank}} strengthens memory better than rereading."
+    assert fill_card["question_payload"]["correct_choice_id"] == "b"
+    assert fill_card["scheduling_state"]["manual_question_payload"]["choices"][1]["text"] == "Active recall"
+
+    scoped_list_response = client.get(
+        "/api/recall/study/cards",
+        params={"status": "all", "limit": 100},
+    )
+    assert scoped_list_response.status_code == 200
+    assert any(card["id"] == fill_card["id"] for card in scoped_list_response.json())
+
+    retrieve_template_response = client.get(
+        "/api/recall/retrieve",
+        params={"query": "strengthens memory better"},
+    )
+    assert retrieve_template_response.status_code == 200
+    assert any(hit.get("card_id") == fill_card["id"] for hit in retrieve_template_response.json())
+
+    update_response = client.patch(
+        f"/api/recall/study/cards/{fill_card['id']}",
+        json={
+            "prompt": "Which phrase completes the updated sentence?",
+            "answer": "Active recall",
+            "question_payload": {
+                "kind": "fill_in_blank",
+                "template": "Durable memory improves with {{blank}}.",
+                "choices": [
+                    {"id": "a", "text": "Copying notes"},
+                    {"id": "b", "text": "Active recall"},
+                    {"id": "c", "text": "Skipping review"},
+                ],
+                "correct_choice_id": "b",
+            },
+        },
+    )
+    assert update_response.status_code == 200
+    updated_card = update_response.json()
+    assert updated_card["answer"] == "Active recall"
+    assert updated_card["question_payload"]["template"] == "Durable memory improves with {{blank}}."
+    assert updated_card["question_payload"]["choices"][0]["text"] == "Copying notes"
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{updated_card['id']}/review",
+        json={"rating": "good"},
+    )
+    assert review_response.status_code == 200
+    assert review_response.json()["last_rating"] == "good"
+
+    progress_response = client.get("/api/recall/study/progress", params={"source_document_id": document["id"]})
+    assert progress_response.status_code == 200
+    assert any(
+        source["source_document_id"] == document["id"] and source["card_count"] >= 1
+        for source in progress_response.json()["source_breakdown"]
+    )
+
+    regenerate_response = client.post("/api/recall/study/cards/generate")
+    assert regenerate_response.status_code == 200
+    regenerated_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    regenerated_fill = next(card for card in regenerated_cards if card["id"] == updated_card["id"])
+    assert regenerated_fill["question_payload"]["template"] == "Durable memory improves with {{blank}}."
+    assert regenerated_fill["question_payload"]["choices"][0]["text"] == "Copying notes"
+
+    delete_response = client.delete(f"/api/recall/study/cards/{updated_card['id']}")
+    assert delete_response.status_code == 200
+    final_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    assert all(card["id"] != updated_card["id"] for card in final_cards)
+
+
+def test_recall_study_matching_and_ordering_cards_validate_and_review(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Matching ordering card source",
+            "text": (
+                "Matching Study questions connect concepts to definitions, while ordering questions "
+                "ask the learner to arrange steps in the correct sequence."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    duplicate_pair_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which matching pair is invalid?",
+            "answer": "manual summary",
+            "card_type": "matching",
+            "question_payload": {
+                "kind": "matching",
+                "pairs": [
+                    {"id": "a", "left": "Concept", "right": "Definition"},
+                    {"id": "b", "left": "concept", "right": "Another definition"},
+                ],
+            },
+        },
+    )
+    assert duplicate_pair_response.status_code == 400
+
+    short_order_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which ordering item list is invalid?",
+            "answer": "manual summary",
+            "card_type": "ordering",
+            "question_payload": {
+                "kind": "ordering",
+                "items": [
+                    {"id": "one", "text": "Read source"},
+                ],
+            },
+        },
+    )
+    assert short_order_response.status_code == 400
+
+    create_matching_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Match the learning terms to their definitions.",
+            "answer": "This value is normalized from matching pairs",
+            "card_type": "matching",
+            "question_payload": {
+                "kind": "matching",
+                "pairs": [
+                    {"id": "pair-a", "left": "Active recall", "right": "Retrieving from memory"},
+                    {"id": "pair-b", "left": "Spacing", "right": "Reviewing over time"},
+                    {"id": "pair-c", "left": "Interleaving", "right": "Mixing related topics"},
+                ],
+            },
+        },
+    )
+    assert create_matching_response.status_code == 200
+    matching_card = create_matching_response.json()
+    assert matching_card["card_type"] == "matching"
+    assert matching_card["answer"] == (
+        "Active recall -> Retrieving from memory; "
+        "Spacing -> Reviewing over time; "
+        "Interleaving -> Mixing related topics"
+    )
+    assert matching_card["question_payload"]["kind"] == "matching"
+    assert matching_card["question_payload"]["pairs"][0]["right"] == "Retrieving from memory"
+
+    create_ordering_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Order the review workflow.",
+            "answer": "This value is normalized from ordering items",
+            "card_type": "ordering",
+            "question_payload": {
+                "kind": "ordering",
+                "items": [
+                    {"id": "step-a", "text": "Read the source"},
+                    {"id": "step-b", "text": "Answer from memory"},
+                    {"id": "step-c", "text": "Reveal and rate"},
+                ],
+            },
+        },
+    )
+    assert create_ordering_response.status_code == 200
+    ordering_card = create_ordering_response.json()
+    assert ordering_card["card_type"] == "ordering"
+    assert ordering_card["answer"] == "Read the source; Answer from memory; Reveal and rate"
+    assert ordering_card["question_payload"]["items"][1]["text"] == "Answer from memory"
+
+    retrieve_pair_response = client.get("/api/recall/retrieve", params={"query": "Retrieving from memory"})
+    assert retrieve_pair_response.status_code == 200
+    assert any(hit.get("card_id") == matching_card["id"] for hit in retrieve_pair_response.json())
+
+    retrieve_order_response = client.get("/api/recall/retrieve", params={"query": "Reveal and rate"})
+    assert retrieve_order_response.status_code == 200
+    assert any(hit.get("card_id") == ordering_card["id"] for hit in retrieve_order_response.json())
+
+    update_matching_response = client.patch(
+        f"/api/recall/study/cards/{matching_card['id']}",
+        json={
+            "prompt": "Match updated learning terms.",
+            "answer": matching_card["answer"],
+            "question_payload": {
+                "kind": "matching",
+                "pairs": [
+                    {"id": "pair-a", "left": "Retrieval", "right": "Answering from memory"},
+                    {"id": "pair-b", "left": "Spacing", "right": "Reviewing over time"},
+                    {"id": "pair-c", "left": "Interleaving", "right": "Mixing related topics"},
+                ],
+            },
+        },
+    )
+    assert update_matching_response.status_code == 200
+    updated_matching = update_matching_response.json()
+    assert updated_matching["prompt"] == "Match updated learning terms."
+    assert updated_matching["answer"].startswith("Retrieval -> Answering from memory")
+    assert updated_matching["question_payload"]["pairs"][0]["left"] == "Retrieval"
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{updated_matching['id']}/review",
+        json={"rating": "good"},
+    )
+    assert review_response.status_code == 200
+    assert review_response.json()["last_rating"] == "good"
+
+    progress_response = client.get("/api/recall/study/progress", params={"source_document_id": document["id"]})
+    assert progress_response.status_code == 200
+    assert any(
+        source["source_document_id"] == document["id"] and source["card_count"] >= 2
+        for source in progress_response.json()["source_breakdown"]
+    )
+
+    regenerate_response = client.post("/api/recall/study/cards/generate")
+    assert regenerate_response.status_code == 200
+    regenerated_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    regenerated_matching = next(card for card in regenerated_cards if card["id"] == updated_matching["id"])
+    regenerated_ordering = next(card for card in regenerated_cards if card["id"] == ordering_card["id"])
+    assert regenerated_matching["question_payload"]["pairs"][0]["right"] == "Answering from memory"
+    assert regenerated_ordering["question_payload"]["items"][2]["text"] == "Reveal and rate"
+
+    delete_response = client.delete(f"/api/recall/study/cards/{ordering_card['id']}")
+    assert delete_response.status_code == 200
+    final_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    assert all(card["id"] != ordering_card["id"] for card in final_cards)
+
+
+def test_recall_study_progress_empty_activity_range_and_validation(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    progress_response = client.get("/api/recall/study/progress", params={"period_days": 365})
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    assert progress["total_reviews"] == 0
+    assert progress["today_count"] == 0
+    assert progress["active_days"] == 0
+    assert progress["current_daily_streak"] == 0
+    assert progress["period_days"] == 365
+    assert len(progress["daily_activity"]) == 365
+    assert all(day["review_count"] == 0 for day in progress["daily_activity"])
+    assert len(progress["memory_progress"]) == 365
+    assert all(snapshot["total_count"] == 0 for snapshot in progress["memory_progress"])
+    assert all(
+        {entry["stage"]: entry["count"] for entry in snapshot["stage_counts"]} == {
+            "new": 0,
+            "learning": 0,
+            "practiced": 0,
+            "confident": 0,
+            "mastered": 0,
+        }
+        for snapshot in progress["memory_progress"]
+    )
+    assert {entry["rating"]: entry["count"] for entry in progress["rating_counts"]} == {
+        "forgot": 0,
+        "hard": 0,
+        "good": 0,
+        "easy": 0,
+    }
+
+    invalid_response = client.get("/api/recall/study/progress", params={"period_days": 366})
+    assert invalid_response.status_code == 422
+
+
+def test_recall_study_progress_summarizes_review_events_and_source_scope(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    first_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Progress first source",
+            "text": (
+                "Progress reviews need durable memory. "
+                "Daily activity keeps the Study dashboard honest. "
+                "A source row should reopen scoped questions."
+            ),
+        },
+    )
+    second_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Progress second source",
+            "text": (
+                "Another review source keeps scope filtering clear. "
+                "Rating mix should include event fallback values. "
+                "Recent reviews sort newest first."
+            ),
+        },
+    )
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    first_document = first_response.json()
+    second_document = second_response.json()
+
+    cards_response = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100})
+    assert cards_response.status_code == 200
+    cards = cards_response.json()
+    first_card = next(card for card in cards if card["source_document_id"] == first_document["id"])
+    second_card = next(card for card in cards if card["source_document_id"] == second_document["id"])
+    first_card_count = sum(1 for card in cards if card["source_document_id"] == first_document["id"])
+    second_card_count = sum(1 for card in cards if card["source_document_id"] == second_document["id"])
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    yesterday = now - timedelta(days=1)
+    two_days_ago = now - timedelta(days=2)
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        connection.execute(
+            "UPDATE review_cards SET created_at = ? WHERE id IN (?, ?)",
+            (two_days_ago.isoformat(), first_card["id"], second_card["id"]),
+        )
+        connection.executemany(
+            """
+            INSERT INTO review_events (
+                id,
+                review_card_id,
+                rating,
+                scheduling_state_json,
+                reviewed_at,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "progress-event-today",
+                    first_card["id"],
+                    3,
+                    json.dumps({"last_rating": "good", "due_at": first_card["due_at"]}),
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+                (
+                    "progress-event-yesterday",
+                    first_card["id"],
+                    2,
+                    json.dumps({"due_at": first_card["due_at"]}),
+                    yesterday.isoformat(),
+                    yesterday.isoformat(),
+                ),
+                (
+                    "progress-event-two-days-ago",
+                    second_card["id"],
+                    4,
+                    json.dumps({"last_rating": "easy", "due_at": second_card["due_at"]}),
+                    two_days_ago.isoformat(),
+                    two_days_ago.isoformat(),
+                ),
+            ],
+        )
+
+    progress_response = client.get("/api/recall/study/progress")
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    assert progress["scope_source_document_id"] is None
+    assert progress["total_reviews"] == 3
+    assert progress["today_count"] == 1
+    assert progress["active_days"] == 3
+    assert progress["current_daily_streak"] == 3
+    assert progress["period_days"] == 14
+    assert progress["daily_activity"][-1] == {"date": now.date().isoformat(), "review_count": 1}
+    assert len(progress["memory_progress"]) == 14
+    latest_memory_counts = {entry["stage"]: entry["count"] for entry in progress["memory_progress"][-1]["stage_counts"]}
+    assert progress["memory_progress"][-1]["date"] == now.date().isoformat()
+    assert progress["memory_progress"][-1]["total_count"] == first_card_count + second_card_count
+    assert latest_memory_counts["practiced"] >= 2
+    assert latest_memory_counts["new"] == first_card_count + second_card_count - latest_memory_counts["practiced"]
+    yesterday_memory_counts = {entry["stage"]: entry["count"] for entry in progress["memory_progress"][-2]["stage_counts"]}
+    assert yesterday_memory_counts["learning"] >= 1
+    assert yesterday_memory_counts["practiced"] >= 1
+    assert {entry["rating"]: entry["count"] for entry in progress["rating_counts"]} == {
+        "forgot": 0,
+        "hard": 1,
+        "good": 1,
+        "easy": 1,
+    }
+    assert [review["id"] for review in progress["recent_reviews"]] == [
+        "progress-event-today",
+        "progress-event-yesterday",
+        "progress-event-two-days-ago",
+    ]
+    assert progress["recent_reviews"][1]["rating"] == "hard"
+    assert {entry["stage"]: entry["count"] for entry in progress["knowledge_stage_counts"]}["new"] >= 2
+    assert progress["source_breakdown"][0]["source_document_id"] == first_document["id"]
+    assert progress["source_breakdown"][0]["review_count"] == 2
+    assert progress["source_breakdown"][0]["card_count"] == first_card_count
+    assert progress["source_breakdown"][0]["dominant_knowledge_stage"] == "new"
+    assert (
+        {entry["stage"]: entry["count"] for entry in progress["source_breakdown"][0]["knowledge_stage_counts"]}["new"]
+        == first_card_count
+    )
+
+    range_response = client.get("/api/recall/study/progress", params={"period_days": 30})
+    assert range_response.status_code == 200
+    ranged_progress = range_response.json()
+    assert ranged_progress["period_days"] == 30
+    assert len(ranged_progress["daily_activity"]) == 30
+    assert len(ranged_progress["memory_progress"]) == 30
+    assert ranged_progress["daily_activity"][-1] == {"date": now.date().isoformat(), "review_count": 1}
+    assert ranged_progress["current_daily_streak"] == 3
+
+    ninety_day_response = client.get("/api/recall/study/progress", params={"period_days": 90})
+    assert ninety_day_response.status_code == 200
+    ninety_day_progress = ninety_day_response.json()
+    assert ninety_day_progress["period_days"] == 90
+    assert len(ninety_day_progress["daily_activity"]) == 90
+    assert len(ninety_day_progress["memory_progress"]) == 90
+
+    scoped_response = client.get(
+        "/api/recall/study/progress",
+        params={"source_document_id": second_document["id"], "period_days": 365},
+    )
+    assert scoped_response.status_code == 200
+    scoped = scoped_response.json()
+    assert scoped["scope_source_document_id"] == second_document["id"]
+    assert scoped["period_days"] == 365
+    assert len(scoped["daily_activity"]) == 365
+    assert len(scoped["memory_progress"]) == 365
+    assert scoped["total_reviews"] == 1
+    assert scoped["today_count"] == 0
+    assert scoped["current_daily_streak"] == 0
+    assert scoped["daily_activity"][-3]["review_count"] == 1
+    assert [review["source_document_id"] for review in scoped["recent_reviews"]] == [second_document["id"]]
+    assert [source["source_document_id"] for source in scoped["source_breakdown"]] == [second_document["id"]]
+    assert scoped["source_breakdown"][0]["card_count"] == second_card_count
+    assert {entry["stage"]: entry["count"] for entry in scoped["knowledge_stage_counts"]}["new"] == second_card_count
+    scoped_latest_memory_counts = {entry["stage"]: entry["count"] for entry in scoped["memory_progress"][-1]["stage_counts"]}
+    assert scoped["memory_progress"][-1]["total_count"] == second_card_count
+    assert scoped_latest_memory_counts["practiced"] >= 1
+
+
+def test_recall_study_knowledge_stages_serialize_cards_and_progress_counts(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Knowledge stage source",
+            "text": (
+                "Knowledge stages are derived locally from review state. "
+                "Weak ratings should stay visible as learning. "
+                "Higher stability should move questions toward mastery."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    cards_response = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100})
+    assert cards_response.status_code == 200
+    generated_cards = [card for card in cards_response.json() if card["source_document_id"] == document["id"]]
+    generated_card = generated_cards[0]
+    generated_new_count = len(generated_cards)
+    assert generated_card["knowledge_stage"] == "new"
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    synthetic_cards = [
+        (
+            "stage-card-learning",
+            "Learning knowledge prompt?",
+            {"due_at": now.isoformat(), "review_count": 1, "last_rating": "hard", "fsrs": {"state": 2, "stability": 2.0}},
+        ),
+        (
+            "stage-card-practiced",
+            "Practiced knowledge prompt?",
+            {"due_at": now.isoformat(), "review_count": 2, "last_rating": "good", "fsrs": {"state": 2, "stability": 3.0}},
+        ),
+        (
+            "stage-card-confident",
+            "Confident knowledge prompt?",
+            {"due_at": now.isoformat(), "review_count": 3, "last_rating": "good", "fsrs": {"state": 2, "stability": 10.0}},
+        ),
+        (
+            "stage-card-mastered",
+            "Mastered knowledge prompt?",
+            {"due_at": now.isoformat(), "review_count": 5, "last_rating": "easy", "fsrs": {"state": 2, "stability": 45.0}},
+        ),
+    ]
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        connection.executemany(
+            """
+            INSERT INTO review_cards (
+                id,
+                source_document_id,
+                prompt,
+                answer,
+                card_type,
+                source_spans_json,
+                scheduling_state_json,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    card_id,
+                    document["id"],
+                    prompt,
+                    "Derived from scheduling state.",
+                    "fact",
+                    "[]",
+                    json.dumps(state, sort_keys=True),
+                    now.isoformat(),
+                    now.isoformat(),
+                )
+                for card_id, prompt, state in synthetic_cards
+            ],
+        )
+
+    refreshed_cards_response = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100})
+    assert refreshed_cards_response.status_code == 200
+    cards_by_id = {card["id"]: card for card in refreshed_cards_response.json()}
+    assert cards_by_id[generated_card["id"]]["knowledge_stage"] == "new"
+    assert cards_by_id["stage-card-learning"]["knowledge_stage"] == "learning"
+    assert cards_by_id["stage-card-practiced"]["knowledge_stage"] == "practiced"
+    assert cards_by_id["stage-card-confident"]["knowledge_stage"] == "confident"
+    assert cards_by_id["stage-card-mastered"]["knowledge_stage"] == "mastered"
+
+    progress_response = client.get("/api/recall/study/progress")
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    stage_counts = {entry["stage"]: entry["count"] for entry in progress["knowledge_stage_counts"]}
+    assert stage_counts == {
+        "new": generated_new_count,
+        "learning": 1,
+        "practiced": 1,
+        "confident": 1,
+        "mastered": 1,
+    }
+    assert progress["source_breakdown"][0]["source_document_id"] == document["id"]
+    assert progress["source_breakdown"][0]["card_count"] == generated_new_count + 4
+    assert progress["source_breakdown"][0]["dominant_knowledge_stage"] == (
+        "new" if generated_new_count > 1 else "mastered"
+    )
+
+    scoped_response = client.get("/api/recall/study/progress", params={"source_document_id": document["id"]})
+    assert scoped_response.status_code == 200
+    scoped = scoped_response.json()
+    assert scoped["scope_source_document_id"] == document["id"]
+    assert {entry["stage"]: entry["count"] for entry in scoped["knowledge_stage_counts"]} == stage_counts
 
 
 def test_recall_notes_create_list_update_delete_and_change_events(tmp_path, monkeypatch) -> None:

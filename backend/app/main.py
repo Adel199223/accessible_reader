@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,9 +38,16 @@ from .models import (
     RecallDocumentRecord,
     RecallSearchHit,
     StudyCardGenerationResult,
+    StudyCardBulkDeleteRequest,
+    StudyCardBulkDeleteResult,
+    StudyCardCreateRequest,
+    StudyCardDeleteResult,
     StudyCardRecord,
+    StudyCardUpdateRequest,
     StudyOverview,
+    StudyReviewProgress,
     StudyReviewRequest,
+    StudyScheduleStateRequest,
     TransformRequest,
     WorkspaceChangeLogPage,
     WorkspaceExportManifest,
@@ -339,10 +346,32 @@ def get_recall_study_overview() -> StudyOverview:
     return repository.get_study_overview()
 
 
+@app.get("/api/recall/study/progress", response_model=StudyReviewProgress)
+def get_recall_study_progress(
+    source_document_id: str | None = None,
+    period_days: int = Query(default=14, ge=1, le=365),
+) -> StudyReviewProgress:
+    return repository.get_study_review_progress(
+        source_document_id=source_document_id,
+        period_days=period_days,
+    )
+
+
 @app.get("/api/recall/study/cards", response_model=list[StudyCardRecord])
 def list_recall_study_cards(status: str = "all", limit: int = 20) -> list[StudyCardRecord]:
     capped_limit = min(max(limit, 1), 100)
     return repository.list_study_cards(status=status, limit=capped_limit)
+
+
+@app.post("/api/recall/study/cards", response_model=StudyCardRecord)
+def create_recall_study_card(payload: StudyCardCreateRequest) -> StudyCardRecord:
+    try:
+        card = repository.create_study_card(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not card:
+        raise HTTPException(status_code=404, detail="Source document not found.")
+    return card
 
 
 @app.post("/api/recall/study/cards/generate", response_model=StudyCardGenerationResult)
@@ -350,9 +379,44 @@ def generate_recall_study_cards() -> StudyCardGenerationResult:
     return repository.regenerate_study_cards()
 
 
+@app.post("/api/recall/study/cards/bulk-delete", response_model=StudyCardBulkDeleteResult)
+def bulk_delete_recall_study_cards(payload: StudyCardBulkDeleteRequest) -> StudyCardBulkDeleteResult:
+    return repository.bulk_delete_study_cards(payload.card_ids)
+
+
+@app.patch("/api/recall/study/cards/{card_id}", response_model=StudyCardRecord)
+def update_recall_study_card(card_id: str, payload: StudyCardUpdateRequest) -> StudyCardRecord:
+    try:
+        card = repository.update_study_card(card_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not card:
+        raise HTTPException(status_code=404, detail="Study card not found.")
+    return card
+
+
+@app.delete("/api/recall/study/cards/{card_id}", response_model=StudyCardDeleteResult)
+def delete_recall_study_card(card_id: str) -> StudyCardDeleteResult:
+    result = repository.delete_study_card(card_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Study card not found.")
+    return result
+
+
 @app.post("/api/recall/study/cards/{card_id}/review", response_model=StudyCardRecord)
 def review_recall_study_card(card_id: str, payload: StudyReviewRequest) -> StudyCardRecord:
     card = repository.review_study_card(card_id, payload.rating)
+    if not card:
+        raise HTTPException(status_code=404, detail="Study card not found.")
+    return card
+
+
+@app.post("/api/recall/study/cards/{card_id}/schedule-state", response_model=StudyCardRecord)
+def set_recall_study_card_schedule_state(
+    card_id: str,
+    payload: StudyScheduleStateRequest,
+) -> StudyCardRecord:
+    card = repository.set_study_card_schedule_state(card_id, payload.action)
     if not card:
         raise HTTPException(status_code=404, detail="Study card not found.")
     return card

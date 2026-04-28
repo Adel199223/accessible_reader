@@ -833,6 +833,7 @@ const studyCards: StudyCardRecord[] = [
     review_count: 0,
     status: 'due',
     last_rating: null,
+    knowledge_stage: 'new',
   },
   {
     id: 'card-stage10-new',
@@ -855,6 +856,7 @@ const studyCards: StudyCardRecord[] = [
     review_count: 0,
     status: 'new',
     last_rating: null,
+    knowledge_stage: 'new',
   },
   {
     id: 'card-stage10-scheduled',
@@ -877,6 +879,7 @@ const studyCards: StudyCardRecord[] = [
     review_count: 2,
     status: 'scheduled',
     last_rating: 'good',
+    knowledge_stage: 'practiced',
   },
   {
     id: 'card-stage10-due-late',
@@ -899,6 +902,7 @@ const studyCards: StudyCardRecord[] = [
     review_count: 1,
     status: 'due',
     last_rating: 'hard',
+    knowledge_stage: 'learning',
   },
   {
     id: 'card-stage10-hidden',
@@ -921,6 +925,7 @@ const studyCards: StudyCardRecord[] = [
     review_count: 4,
     status: 'new',
     last_rating: 'easy',
+    knowledge_stage: 'confident',
   },
 ]
 
@@ -968,11 +973,16 @@ const {
   fetchRecallNotesMock,
   fetchRecallStudyCardsMock,
   fetchRecallStudyOverviewMock,
+  fetchRecallStudyProgressMock,
   generateRecallStudyCardsMock,
+  bulkDeleteRecallStudyCardsMock,
+  deleteRecallStudyCardMock,
   promoteRecallNoteToGraphNodeMock,
   promoteRecallNoteToStudyCardMock,
   reviewRecallStudyCardMock,
   searchRecallNotesMock,
+  setRecallStudyCardScheduleStateMock,
+  updateRecallStudyCardMock,
   updateRecallNoteMock,
 } = vi.hoisted(() => ({
   decideRecallGraphEdgeMock: vi.fn(),
@@ -987,16 +997,23 @@ const {
   fetchRecallNotesMock: vi.fn(),
   fetchRecallStudyCardsMock: vi.fn(),
   fetchRecallStudyOverviewMock: vi.fn(),
+  fetchRecallStudyProgressMock: vi.fn(),
   generateRecallStudyCardsMock: vi.fn(),
+  bulkDeleteRecallStudyCardsMock: vi.fn(),
+  deleteRecallStudyCardMock: vi.fn(),
   promoteRecallNoteToGraphNodeMock: vi.fn(),
   promoteRecallNoteToStudyCardMock: vi.fn(),
   reviewRecallStudyCardMock: vi.fn(),
   searchRecallNotesMock: vi.fn(),
+  setRecallStudyCardScheduleStateMock: vi.fn(),
+  updateRecallStudyCardMock: vi.fn(),
   updateRecallNoteMock: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
   buildRecallExportUrl: vi.fn((documentId: string) => `/api/recall/documents/${documentId}/export.md`),
+  bulkDeleteRecallStudyCards: bulkDeleteRecallStudyCardsMock,
+  deleteRecallStudyCard: deleteRecallStudyCardMock,
   deleteRecallNote: deleteRecallNoteMock,
   decideRecallGraphEdge: decideRecallGraphEdgeMock,
   decideRecallGraphNode: decideRecallGraphNodeMock,
@@ -1009,11 +1026,14 @@ vi.mock('../api', () => ({
   fetchRecallNotes: fetchRecallNotesMock,
   fetchRecallStudyCards: fetchRecallStudyCardsMock,
   fetchRecallStudyOverview: fetchRecallStudyOverviewMock,
+  fetchRecallStudyProgress: fetchRecallStudyProgressMock,
   generateRecallStudyCards: generateRecallStudyCardsMock,
   promoteRecallNoteToGraphNode: promoteRecallNoteToGraphNodeMock,
   promoteRecallNoteToStudyCard: promoteRecallNoteToStudyCardMock,
   reviewRecallStudyCard: reviewRecallStudyCardMock,
   searchRecallNotes: searchRecallNotesMock,
+  setRecallStudyCardScheduleState: setRecallStudyCardScheduleStateMock,
+  updateRecallStudyCard: updateRecallStudyCardMock,
   updateRecallNote: updateRecallNoteMock,
 }))
 
@@ -1036,7 +1056,12 @@ beforeEach(() => {
   fetchRecallNotesMock.mockReset()
   fetchRecallStudyCardsMock.mockReset()
   fetchRecallStudyOverviewMock.mockReset()
+  fetchRecallStudyProgressMock.mockReset()
   searchRecallNotesMock.mockReset()
+  bulkDeleteRecallStudyCardsMock.mockReset()
+  deleteRecallStudyCardMock.mockReset()
+  setRecallStudyCardScheduleStateMock.mockReset()
+  updateRecallStudyCardMock.mockReset()
   updateRecallNoteMock.mockReset()
   deleteRecallNoteMock.mockReset()
   promoteRecallNoteToGraphNodeMock.mockReset()
@@ -1062,11 +1087,40 @@ beforeEach(() => {
   fetchRecallGraphMock.mockImplementation(async () => recallGraph)
   fetchRecallGraphNodeMock.mockImplementation(async (nodeId: string) => nodeDetailById[nodeId] ?? nodeDetail)
   fetchRecallStudyOverviewMock.mockImplementation(async () => studyOverview)
+  fetchRecallStudyProgressMock.mockImplementation(async () => ({
+    scope_source_document_id: null,
+    total_reviews: 0,
+    today_count: 0,
+    active_days: 0,
+    current_daily_streak: 0,
+    period_days: 14,
+    last_reviewed_at: null,
+    daily_activity: [],
+    rating_counts: [
+      { rating: 'forgot', count: 0 },
+      { rating: 'hard', count: 0 },
+      { rating: 'good', count: 0 },
+      { rating: 'easy', count: 0 },
+    ],
+    knowledge_stage_counts: [
+      { stage: 'new', count: 2 },
+      { stage: 'learning', count: 1 },
+      { stage: 'practiced', count: 1 },
+      { stage: 'confident', count: 1 },
+      { stage: 'mastered', count: 0 },
+    ],
+    recent_reviews: [],
+    source_breakdown: [],
+  }))
   fetchRecallStudyCardsMock.mockImplementation(async () => studyCards)
   fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => views[`${documentId}:${mode}`])
   searchRecallNotesMock.mockImplementation(async () => [])
   generateRecallStudyCardsMock.mockImplementation(async () => ({ generated_count: 0, total_count: studyCards.length }))
   reviewRecallStudyCardMock.mockImplementation(async () => studyCards[0])
+  setRecallStudyCardScheduleStateMock.mockImplementation(async () => studyCards[0])
+  updateRecallStudyCardMock.mockImplementation(async () => studyCards[0])
+  deleteRecallStudyCardMock.mockImplementation(async (cardId: string) => ({ id: cardId, deleted: true }))
+  bulkDeleteRecallStudyCardsMock.mockImplementation(async (cardIds: string[]) => ({ deleted_ids: cardIds, missing_ids: [] }))
 })
 
 function makeBrowseContinuityState(): RecallWorkspaceContinuityState {
@@ -1096,8 +1150,12 @@ function makeBrowseContinuityState(): RecallWorkspaceContinuityState {
     },
     study: {
       activeCardId: 'card-stage10',
+      collectionFilter: 'all',
       filter: 'all',
+      knowledgeStageFilter: 'all',
+      progressPeriodDays: 14,
       questionSearchQuery: '',
+      reviewHistoryFilter: 'all',
       scheduleDrilldown: 'all',
       sourceScopeDocumentId: null,
     },
@@ -1131,8 +1189,12 @@ function makeNoResumeHomeContinuityState(): RecallWorkspaceContinuityState {
     },
     study: {
       activeCardId: 'card-stage10',
+      collectionFilter: 'all',
       filter: 'all',
+      knowledgeStageFilter: 'all',
+      progressPeriodDays: 14,
       questionSearchQuery: '',
+      reviewHistoryFilter: 'all',
       scheduleDrilldown: 'all',
       sourceScopeDocumentId: null,
     },
@@ -4214,7 +4276,7 @@ test('study browse can preview evidence before revealing the answer', async () =
   expect(within(studyEvidenceDock).getByText('Stage ten sentence three.')).toBeInTheDocument()
 })
 
-test('study browse question list keeps expansion controls beside the schedule dashboard', async () => {
+test('study browse question list keeps scheduled cards browseable while review queue expansion follows eligible cards', async () => {
   renderHarness({ initialSection: 'study' })
 
   await waitFor(() => {
@@ -4224,14 +4286,11 @@ test('study browse question list keeps expansion controls beside the schedule da
   fireEvent.click(screen.getByRole('tab', { name: 'Questions', selected: false }))
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Show all 5 questions' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Show all \d+ questions/u })).not.toBeInTheDocument()
   })
 
-  const collapsedQuestionManager = screen.getByLabelText('Study questions manager')
-  expect(within(collapsedQuestionManager).getByText('Which fallback flow stays source-grounded?')).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Show all 5 questions' }))
-
-  expect(within(screen.getByLabelText('Study questions manager')).getByText('Which fallback flow stays source-grounded?')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Show fewer questions' })).toBeInTheDocument()
+  const questionManager = screen.getByLabelText('Study questions manager')
+  expect(within(questionManager).getByText('Which fallback flow stays source-grounded?')).toBeInTheDocument()
+  expect(within(questionManager).getByText('Which flow kept the browser evidence anchored?')).toBeInTheDocument()
+  expect(within(questionManager).getByRole('button', { name: 'Schedule' })).toBeInTheDocument()
 })

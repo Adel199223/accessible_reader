@@ -339,9 +339,10 @@ export default function App() {
       study:
         resolvedSection === 'study'
           ? {
-              ...current.study,
-              activeCardId: options?.cardId ?? current.study.activeCardId,
-              filter: options?.documentId ? 'all' : current.study.filter,
+            ...current.study,
+            activeCardId: options?.cardId ?? current.study.activeCardId,
+            collectionFilter: 'all',
+            filter: options?.documentId ? 'all' : current.study.filter,
               questionSearchQuery:
                 options?.documentId && options.documentId === current.study.sourceScopeDocumentId
                   ? current.study.questionSearchQuery

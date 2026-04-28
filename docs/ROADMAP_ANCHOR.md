@@ -11,16 +11,149 @@ Persistent continuity anchor for future chats and handoffs.
 
 - Canonical repo path: `\\wsl.localhost\Ubuntu\home\fa507\dev\accessible_reader`
 - Active branch: `main`
-- Latest pushed clean checkpoint: `main` at `origin/main` (`af96f20`)
-- Active checkpoint doc: `docs/exec_plans/active/2026-04-26_stage919_post_stage918_study_schedule_drilldowns_and_question_triage_audit.md`
-- Local/remote status at current checkpoint: the completed local Stage 498-707 parity-plus-shell-and-Notebook-and-Reader-and-Study ladder still anchors the repo above clean `main`, with the intentional Add Content, Reader, Home, Graph, Study, short-document Reader, refreshed Home card-scanability, Home mixed-preview balance, embedded Notebook workbench/empty-state, Reader completion-strip, Reader active-listen, Add Content capture-gateway, Study Review task-workbench, Home local-preview fidelity, embedded Notebook selected-note workbench, embedded Notebook empty-state/browse-rail follow-through, Stage 890/891 source-attached Notebook draft flow, Stage 892/893 source-anchor workbench semantics, Stage 894/895 Home Library-native personal note items, Stage 896/897 source-note promotion semantics, Stage 898/899 Home personal-notes collection board, Stage 900/901 source-memory continuity, Stage 902/903 evidence-harness hygiene, Stage 904/905 historical audit-note cleanup, Stage 906/907 source memory stack/Reader-led memory handoffs, Stage 908/909 Home source memory signals, Stage 910/911 Home memory filters, Stage 912/913 source memory search, completed Stage 914/915 source review queue/question find, completed Stage 916/917 review-ready source discovery, and completed Stage 918/919 Study schedule drilldowns layered above it locally; Stage 814/815 remains the launcher-side operational overlay.
-- Current continuity overlay: Stage 918/919 Study schedule drilldowns and question triage is complete above completed Stage 916/917 review-ready sources and Study schedule dashboard, completed Stage 914/915 source review queue and Study question find, completed Stage 912/913 source memory search and Reader-led find, completed Stage 910/911 Home memory filters, completed Stage 908/909 Home source memory signals, completed Stage 906/907 source memory stack and Reader-led memory handoffs, completed Stage 904/905 historical audit-note cleanup, Stage 902/903 evidence-harness hygiene, Stage 900/901 source-memory panel and Reader/Notebook continuity, Stage 898/899 Home personal-notes collection board, Stage 896/897 source-note promotion semantics, Stage 894/895 Home Library-native personal note items, Stage 892/893 Notebook source-anchor workbench semantics and action ownership, Stage 890/891 Notebook new-note entry and source-attached draft creation, Stage 888/889 embedded Notebook empty-state lead ownership and browse-rail list convergence, Stage 886/887 selected-note workbench fusion, Stage 884/885 Home local-preview fidelity, Stage 882/883 Study Review task-workbench fusion, Stage 880/881 Add Content capture gateway compaction, Stage 878/879 Reader active Listen seam, Stage 876/877 Reader short-document completion strip, Stage 874/875 embedded Notebook empty-state and capture-handoff completion, Stage 872/873 Notebook workbench ownership, Stage 870/871 Home mixed-preview balance, Stage 868/869 Home board card-scanability, Stage 866/867 Reader support-open baseline, Stage 864/865 short-document at-rest baseline, the Stage 862/863 Study active-card baseline, and the Stage 848/849 Graph settings-rail baseline.
-- Last completed product slice: Stage 918 `Study Schedule Drilldowns And Question Triage`
-- Last completed audit: Stage 919 `Post-Stage-918 Study Schedule Drilldowns And Question Triage Audit`
-- Current checkpoint doc: `docs/exec_plans/active/2026-04-26_stage919_post_stage918_study_schedule_drilldowns_and_question_triage_audit.md`
-- Next recommended slice: no new product slice is open after the Stage 919 hygiene/audit gate; choose the next Recall-aligned slice intentionally from the roadmap and current product evidence.
+- Latest pushed clean checkpoint: `main` at `origin/main`; use `git log -1 --oneline origin/main` for the current SHA.
+- Active checkpoint doc: `docs/exec_plans/active/2026-04-28_stage945_post_stage944_study_matching_ordering_question_types_audit.md`
+- Local/remote status at current checkpoint: the completed local Stage 498-707 parity-plus-shell-and-Notebook-and-Reader-and-Study ladder still anchors the repo above clean `main`, with the intentional Add Content, Reader, Home, Graph, Study, short-document Reader, refreshed Home card-scanability, Home mixed-preview balance, embedded Notebook workbench/empty-state, Reader completion-strip, Reader active-listen, Add Content capture-gateway, Study Review task-workbench, Home local-preview fidelity, embedded Notebook selected-note workbench, embedded Notebook empty-state/browse-rail follow-through, Stage 890/891 source-attached Notebook draft flow, Stage 892/893 source-anchor workbench semantics, Stage 894/895 Home Library-native personal note items, Stage 896/897 source-note promotion semantics, Stage 898/899 Home personal-notes collection board, Stage 900/901 source-memory continuity, Stage 902/903 evidence-harness hygiene, Stage 904/905 historical audit-note cleanup, Stage 906/907 source memory stack/Reader-led memory handoffs, Stage 908/909 Home source memory signals, Stage 910/911 Home memory filters, Stage 912/913 source memory search, completed Stage 914/915 source review queue/question find, completed Stage 916/917 review-ready source discovery, completed Stage 918/919 Study schedule drilldowns, completed Stage 920/921 Home review schedule lens, completed Stage 922/923 Study review progress dashboard, completed Stage 924/925 Study knowledge stages and memory stats, completed Stage 926/927 Study habit calendar and activity range, completed Stage 928/929 Study review-history filters and filtered Review queue, completed Stage 930/931 Study collection subsets and custom review lens, completed Stage 932/933 Study memory progress timeline, completed Stage 934/935 Study question scheduling controls, completed Stage 936/937 Study question edit/delete management, completed Stage 938/939 Study manual question creation, completed Stage 940/941 Study choice question types, completed Stage 942/943 Study fill-in-the-blank answer attempts, and completed Stage 944/945 Study matching/ordering question types layered above it locally; Stage 814/815 remains the launcher-side operational overlay.
+- Current continuity overlay: Stage 944/945 Study matching/ordering question types is complete above completed Stage 942/943 Study fill-in-the-blank answer attempts, completed Stage 940/941 Study choice question types, completed Stage 938/939 Study manual question creation, completed Stage 936/937 Study question edit/delete management, completed Stage 934/935 Study question scheduling controls, completed Stage 932/933 Study memory progress timeline, completed Stage 930/931 Study collection subsets and custom review lens, completed Stage 928/929 Study review-history filters and filtered Review queue, completed Stage 926/927 Study habit calendar and activity range, completed Stage 924/925 Study knowledge stages and memory stats, completed Stage 922/923 Study review progress dashboard, completed Stage 920/921 Home review schedule lens, completed Stage 918/919 Study schedule drilldowns and question triage, completed Stage 916/917 review-ready sources and Study schedule dashboard, completed Stage 914/915 source review queue and Study question find, completed Stage 912/913 source memory search and Reader-led find, completed Stage 910/911 Home memory filters, completed Stage 908/909 Home source memory signals, completed Stage 906/907 source memory stack and Reader-led memory handoffs, completed Stage 904/905 historical audit-note cleanup, Stage 902/903 evidence-harness hygiene, Stage 900/901 source-memory panel and Reader/Notebook continuity, Stage 898/899 Home personal-notes collection board, Stage 896/897 source-note promotion semantics, Stage 894/895 Home Library-native personal note items, Stage 892/893 Notebook source-anchor workbench semantics and action ownership, Stage 890/891 Notebook new-note entry and source-attached draft creation, Stage 888/889 embedded Notebook empty-state lead ownership and browse-rail list convergence, Stage 886/887 selected-note workbench fusion, Stage 884/885 Home local-preview fidelity, Stage 882/883 Study Review task-workbench fusion, Stage 880/881 Add Content capture gateway compaction, Stage 878/879 Reader active Listen seam, Stage 876/877 Reader short-document completion strip, Stage 874/875 embedded Notebook empty-state and capture-handoff completion, Stage 872/873 Notebook workbench ownership, Stage 870/871 Home mixed-preview balance, Stage 868/869 Home board card-scanability, Stage 866/867 Reader support-open baseline, Stage 864/865 short-document at-rest baseline, the Stage 862/863 Study active-card baseline, and the Stage 848/849 Graph settings-rail baseline.
+- Last completed product slice: Stage 944 `Study Matching And Ordering Question Types`
+- Last completed audit: Stage 945 `Post-Stage-944 Study Matching Ordering Question Types Audit`
+- Current checkpoint doc: `docs/exec_plans/active/2026-04-28_stage945_post_stage944_study_matching_ordering_question_types_audit.md`
+- Next recommended slice: no new product slice is open after the Stage 945 hygiene/audit gate; choose the next Recall-aligned slice intentionally from the roadmap and current product evidence.
 - Pre-staged next audit plan: none.
 - Last green checks:
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "matching_and_ordering or fill_in_blank or choice_question_types" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm exec tsc -- -b --pretty false'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx -t "Study manual choice questions|Study fill-in-the-blank questions|Study matching questions|Study source-scoped ordering questions|Study short-answer review"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "graph or note or study" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/study_review_progress_shared.mjs && node --check scripts/playwright/stage944_study_matching_ordering_question_types_after_stage943.mjs && node --check scripts/playwright/stage945_post_stage944_study_matching_ordering_question_types_audit.mjs'`
+  - `RECALL_STAGE944_BASE_URL=http://127.0.0.1:8011 node scripts/playwright/stage944_study_matching_ordering_question_types_after_stage943.mjs` with live browser evidence
+  - `RECALL_STAGE945_BASE_URL=http://127.0.0.1:8011 node scripts/playwright/stage945_post_stage944_study_matching_ordering_question_types_audit.mjs` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8011` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "fill_in_blank or choice_question_types" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run src/lib/appRoute.test.ts src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "graph or notes or study" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/study_review_progress_shared.mjs'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/stage942_study_fill_in_blank_answer_attempts_after_stage941.mjs'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/stage943_post_stage942_study_fill_in_blank_answer_attempts_audit.mjs'`
+  - `RECALL_STAGE942_BASE_URL=http://127.0.0.1:8010 node scripts/playwright/stage942_study_fill_in_blank_answer_attempts_after_stage941.mjs` with live browser evidence
+  - `RECALL_STAGE943_BASE_URL=http://127.0.0.1:8010 node scripts/playwright/stage943_post_stage942_study_fill_in_blank_answer_attempts_audit.mjs` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8010` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- --run src/App.test.tsx -t "choice questions|true-false|manual flashcard|row edit|active-card edit"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx src/lib/appRoute.test.ts'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "choice_question_types or manual_question_creation or study_card_edit_and_soft_delete_management or study_card_schedule_state_controls or recall_study or study_progress or study_knowledge or graph or notes" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/study_review_progress_shared.mjs && node --check scripts/playwright/stage940_study_choice_question_types_after_stage939.mjs && node --check scripts/playwright/stage941_post_stage940_study_choice_question_types_audit.mjs'`
+  - `node scripts/playwright/stage940_study_choice_question_types_after_stage939.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/stage941_post_stage940_study_choice_question_types_audit.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8010` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx src/lib/appRoute.test.ts'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "manual_question_creation or study_card_edit_and_soft_delete_management" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "recall_study or study_progress or study_knowledge or graph or notes" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/study_review_progress_shared.mjs && node --check scripts/playwright/stage938_study_manual_question_creation_after_stage937.mjs && node --check scripts/playwright/stage939_post_stage938_study_manual_question_creation_audit.mjs'`
+  - `node scripts/playwright/stage938_study_manual_question_creation_after_stage937.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/stage939_post_stage938_study_manual_question_creation_audit.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8000` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx src/lib/appRoute.test.ts'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "study_card_edit_and_soft_delete_management or study_card_schedule_state_controls or recall_study or study_progress or study_knowledge or graph or notes" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/study_review_progress_shared.mjs && node --check scripts/playwright/stage936_study_question_edit_delete_management_after_stage935.mjs && node --check scripts/playwright/stage937_post_stage936_study_question_edit_delete_management_audit.mjs'`
+  - `node scripts/playwright/stage936_study_question_edit_delete_management_after_stage935.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/stage937_post_stage936_study_question_edit_delete_management_audit.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8000` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx src/lib/appRoute.test.ts'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "recall_study or study_progress or study_knowledge or graph or notes" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/study_review_progress_shared.mjs && node --check scripts/playwright/stage934_study_question_scheduling_controls_after_stage933.mjs && node --check scripts/playwright/stage935_post_stage934_study_question_scheduling_controls_audit.mjs'`
+  - `node scripts/playwright/stage934_study_question_scheduling_controls_after_stage933.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/stage935_post_stage934_study_question_scheduling_controls_audit.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8000` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "study_progress or study_knowledge" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx -t "Study memory progress"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/study_review_progress_shared.mjs && node --check scripts/playwright/stage932_study_memory_progress_timeline_after_stage931.mjs && node --check scripts/playwright/stage933_post_stage932_study_memory_progress_timeline_audit.mjs'`
+  - `node scripts/playwright/stage932_study_memory_progress_timeline_after_stage931.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/stage933_post_stage932_study_memory_progress_timeline_audit.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8010` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "recall_study or study_progress or study_knowledge or graph or notes" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && node --check scripts/playwright/study_review_progress_shared.mjs && node --check scripts/playwright/stage930_study_collection_subsets_and_custom_review_lens_after_stage929.mjs && node --check scripts/playwright/stage931_post_stage930_study_collection_subsets_and_custom_review_lens_audit.mjs'`
+  - `node scripts/playwright/stage930_study_collection_subsets_and_custom_review_lens_after_stage929.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/stage931_post_stage930_study_collection_subsets_and_custom_review_lens_audit.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8000` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run test -- --run src/App.test.tsx -t "review-history|rating chips"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run test -- --run src/lib/appRoute.test.ts src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run test -- --run src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "recall_study or study_progress or study_knowledge or graph or notes" -q'`
+  - `node --check scripts/playwright/study_review_progress_shared.mjs`
+  - `node --check scripts/playwright/stage928_study_questions_review_state_filter_and_session_queue_after_stage927.mjs`
+  - `node --check scripts/playwright/stage929_post_stage928_study_questions_review_state_filter_and_session_queue_audit.mjs`
+  - `node scripts/playwright/stage928_study_questions_review_state_filter_and_session_queue_after_stage927.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/stage929_post_stage928_study_questions_review_state_filter_and_session_queue_audit.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8010` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "study_progress or study_knowledge"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "recall_study or graph or notes"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/lib/appRoute.test.ts src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `node --check scripts/playwright/study_review_progress_shared.mjs`
+  - `node --check scripts/playwright/stage926_study_habit_calendar_and_activity_range_after_stage925.mjs`
+  - `node --check scripts/playwright/stage927_post_stage926_study_habit_calendar_and_activity_range_audit.mjs`
+  - `node scripts/playwright/stage926_study_habit_calendar_and_activity_range_after_stage925.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/stage927_post_stage926_study_habit_calendar_and_activity_range_audit.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8010` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "study_progress or study_knowledge"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "recall_study or graph or notes"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/App.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- src/lib/appRoute.test.ts src/components/RecallWorkspace.stage34.test.tsx src/components/RecallWorkspace.stage37.test.tsx'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `node --check scripts/playwright/study_review_progress_shared.mjs`
+  - `node --check scripts/playwright/stage924_study_knowledge_stages_and_memory_stats_after_stage923.mjs`
+  - `node --check scripts/playwright/stage925_post_stage924_study_knowledge_stages_and_memory_stats_audit.mjs`
+  - `node scripts/playwright/stage924_study_knowledge_stages_and_memory_stats_after_stage923.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/stage925_post_stage924_study_knowledge_stages_and_memory_stats_audit.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8010` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "study_progress or hybrid_retrieval or graph or notes" -q'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run test -- --run src/App.test.tsx src/lib/appRoute.test.ts -t "Study review progress|Study dashboard schedule|Home review schedule|Source overview|Reader|Notebook|Graph|memory|search|review|schedule|Personal notes|defaultRecallWorkspaceContinuityState"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `node --check scripts/playwright/study_review_progress_shared.mjs`
+  - `node --check scripts/playwright/stage922_study_review_progress_dashboard_after_stage921.mjs`
+  - `node --check scripts/playwright/stage923_post_stage922_study_review_progress_dashboard_audit.mjs`
+  - `node scripts/playwright/stage922_study_review_progress_dashboard_after_stage921.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/stage923_post_stage922_study_review_progress_dashboard_audit.mjs --base-url=http://127.0.0.1:8010` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8010` dry-run through the Stage 922/923 scripts, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run test -- --run src/App.test.tsx src/lib/appRoute.test.ts -t "Study|Home|Source overview|Reader|Notebook|Graph|memory|search|review|schedule|Personal notes|defaultRecallWorkspaceContinuityState"'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "graph or notes" -q'`
+  - `node --check scripts/playwright/notebook_workbench_shared.mjs`
+  - `node --check scripts/playwright/stage920_home_review_schedule_lens_and_triage_after_stage919.mjs`
+  - `node --check scripts/playwright/stage921_post_stage920_home_review_schedule_lens_and_triage_audit.mjs`
+  - `node scripts/playwright/stage920_home_review_schedule_lens_and_triage_after_stage919.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/stage921_post_stage920_home_review_schedule_lens_and_triage_audit.mjs --base-url=http://127.0.0.1:8000` with live browser evidence
+  - `node scripts/playwright/cleanup_recall_note_audit_artifacts.mjs --base-url=http://127.0.0.1:8000` dry-run, matched 0 historical Stage-marker source notes
+  - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && git diff --check'`
   - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run test -- --run src/App.test.tsx -t "Study|Home|Source overview|Reader|Notebook|Graph|memory|search|review|schedule"'`
   - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm run build'`
   - `wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && uv run pytest tests/test_api.py -k "graph or notes" -q'`
@@ -388,10 +521,10 @@ Persistent continuity anchor for future chats and handoffs.
 
 ## New Chat Resume Shortcut
 
-- Say `resume after Stage 919 Study schedule drilldowns audit` to continue from the latest product checkpoint.
+- Say `resume after Stage 923 Study review progress dashboard audit` to continue from the latest product checkpoint.
 - Operational overlay note: Stage 814/815 still remains the current WSL launcher-hardening reference beneath the product baseline.
 - The intended next action is:
-- treat `Stage 918` as the latest implementation checkpoint and keep `Stage 919` as the latest completed audit; no new product slice is currently open
+- treat `Stage 922` as the latest implementation checkpoint and keep `Stage 923` as the latest completed audit; no new product slice is currently open
   - keep the reopened `Study Review` task-workbench baseline intact: default organizer-wide Study should still open on Review, the compact command row should live inside the same task workbench as the active Review card, the command-to-card gap should stay compact, the active card should remain one prompt/reveal/answer/rating surface, the support rail should stay attached with at most one upcoming preview plus Grounding/Reader handoff, and the Stage 854/855 fused Questions canvas plus focused Reader-led Study should stay stable
   - keep the reopened `Add Content` capture gateway baseline intact: Home global `Add`, the Home Add tile, and Reader global `Add` should keep opening the same route-stable modal; `Paste text`, `Web page`, and `Choose file` should remain in that order; the command row should stay compact, the old internal hero should stay retired, the selected-mode workbench should own the primary input plus inline support seam, no detached support rail should reappear, Notebook creation should remain outside the import path, and no backend/import-pipeline/generated-output behavior should change
   - keep the reopened `Reader` active Listen seam baseline intact: idle `Read aloud` should remain a compact labeled pill, active and paused playback should render one fused article-owned Listen seam with `Listening` / `Paused`, `Sentence X of Y`, the current sentence excerpt, previous, pause/resume, next, stop, and overflow controls attached, the older technical transport-toolbar bloom should stay retired, the short-document completion strip should hide while playback is active or paused and return after stop, support-open short documents should keep the active Listen seam plus content-fit article field, and generated `Simplified` / `Summary` output behavior stays frozen
@@ -1160,8 +1293,8 @@ As of 2026-03-25, this workspace includes:
 
 1. Read `docs/ROADMAP.md`.
 2. Read this anchor.
-3. Read `docs/ux/recall_benchmark_matrix.md`, then inspect the current checkpoint docs named in this anchor: `docs/exec_plans/active/2026-04-26_stage918_study_schedule_drilldowns_and_question_triage_after_stage917.md` and `docs/exec_plans/active/2026-04-26_stage919_post_stage918_study_schedule_drilldowns_and_question_triage_audit.md`. Use Stage 918/919 as the latest product checkpoint; Stage 916/917 remains the Study schedule dashboard baseline beneath it, Stage 914/915 remains the source-scoped review baseline, Stage 912/913 remains the source-memory search baseline, Stage 910/911 remains the Home memory-filter baseline, Stage 908/909 remains the Home source-memory signal baseline, Stage 906/907 remains the Source memory stack baseline, Stage 904/905 remains the cleanup baseline, and Stage 814/815 remains the WSL launcher-hardening overlay.
-4. Current checkpoint override: use `docs/exec_plans/active/2026-04-26_stage918_study_schedule_drilldowns_and_question_triage_after_stage917.md` and `docs/exec_plans/active/2026-04-26_stage919_post_stage918_study_schedule_drilldowns_and_question_triage_audit.md` as the latest product docs; no Stage 920 product slice is currently open.
+3. Read `docs/ux/recall_benchmark_matrix.md`, then inspect the current checkpoint docs named in this anchor: `docs/exec_plans/active/2026-04-27_stage922_study_review_progress_dashboard_after_stage921.md` and `docs/exec_plans/active/2026-04-27_stage923_post_stage922_study_review_progress_dashboard_audit.md`. Use Stage 922/923 as the latest product checkpoint; Stage 920/921 remains the Home review schedule lens baseline beneath it, Stage 918/919 remains the Study schedule drilldown baseline, Stage 916/917 remains the Study schedule dashboard baseline, Stage 914/915 remains the source-scoped review baseline, Stage 912/913 remains the source-memory search baseline, Stage 910/911 remains the Home memory-filter baseline, Stage 908/909 remains the Home source-memory signal baseline, Stage 906/907 remains the Source memory stack baseline, Stage 904/905 remains the cleanup baseline, and Stage 814/815 remains the WSL launcher-hardening overlay.
+4. Current checkpoint override: use `docs/exec_plans/active/2026-04-27_stage922_study_review_progress_dashboard_after_stage921.md` and `docs/exec_plans/active/2026-04-27_stage923_post_stage922_study_review_progress_dashboard_audit.md` as the latest product docs; no Stage 924 product slice is currently open.
 5. Start from branch `main`.
 6. Keep backend `workspace.db` compatibility intact, including the Stage 8 integrity/repair and benchmark paths.
 7. Preserve the current local-first behaviors, routes, anchors, browser-companion handoff, and Reader capabilities while holding the refreshed regression-baseline set for `Home`, `Graph`, embedded `Notebook`, `Reader`, and `Study`.

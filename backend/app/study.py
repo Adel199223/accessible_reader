@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import math
 import re
@@ -15,6 +15,9 @@ from .text_utils import normalize_whitespace, safe_query_terms
 
 LEXICAL_EMBEDDING_MODEL = "recall-lexical-v1"
 STUDY_SCHEMA_VERSION = "1"
+STUDY_CONFIDENT_STABILITY_THRESHOLD = 7.0
+STUDY_MASTERED_STABILITY_THRESHOLD = 30.0
+STUDY_MANUAL_UNSCHEDULE_DAYS = 7
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9'-]{1,}")
 _STOP_WORDS = {
     "a",
@@ -125,24 +128,110 @@ def review_scheduling_state(
         "review_count": int(current_state.get("review_count", 0)) + 1,
         "schema_version": STUDY_SCHEMA_VERSION,
     }
+    next_state.pop("manual_schedule_state", None)
+    next_state.pop("unscheduled_at", None)
+    next_state.pop("unscheduled_until", None)
     next_state["status"] = study_card_status(next_state, now_iso=review_log.review_datetime.isoformat())
     return next_state, int(review_log.rating.value)
 
 
+def update_study_schedule_state(
+    current_state: dict[str, Any],
+    action: str,
+    *,
+    timestamp: str | None = None,
+) -> dict[str, Any]:
+    action_timestamp = timestamp or datetime.now(UTC).isoformat()
+    action_datetime = _parse_iso_datetime(action_timestamp) or datetime.now(UTC)
+    next_state = {**current_state}
+    if action == "unschedule":
+        next_state["manual_schedule_state"] = "unscheduled"
+        next_state["unscheduled_at"] = action_datetime.isoformat()
+        next_state["unscheduled_until"] = (action_datetime + timedelta(days=STUDY_MANUAL_UNSCHEDULE_DAYS)).isoformat()
+        next_state["status"] = "unscheduled"
+        return next_state
+
+    next_state.pop("manual_schedule_state", None)
+    next_state.pop("unscheduled_at", None)
+    next_state.pop("unscheduled_until", None)
+    next_state["due_at"] = action_datetime.isoformat()
+    fsrs_state = next_state.get("fsrs")
+    if isinstance(fsrs_state, dict):
+        next_state["fsrs"] = {
+            **fsrs_state,
+            "due": action_datetime.isoformat(),
+        }
+    next_state["status"] = study_card_status(next_state, now_iso=action_datetime.isoformat())
+    return next_state
+
+
 def study_card_status(scheduling_state: dict[str, Any], *, now_iso: str | None = None) -> str:
+    now = _parse_iso_datetime(now_iso) if now_iso else None
+    if now is None:
+        now = datetime.now(UTC)
+    if scheduling_state.get("manual_schedule_state") == "unscheduled":
+        unscheduled_until = _parse_iso_datetime(str(scheduling_state.get("unscheduled_until") or ""))
+        if unscheduled_until and unscheduled_until > now:
+            return "unscheduled"
+
     due_at = str(scheduling_state.get("due_at") or "")
     review_count = int(scheduling_state.get("review_count", 0))
     if review_count == 0:
         return "new"
     if not due_at:
         return "new"
-    due_datetime = datetime.fromisoformat(due_at)
-    now = datetime.fromisoformat(now_iso) if now_iso else datetime.now(UTC)
+    due_datetime = _parse_iso_datetime(due_at)
+    if due_datetime is None:
+        return "new"
     return "due" if due_datetime <= now else "scheduled"
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def study_knowledge_stage(scheduling_state: dict[str, Any]) -> str:
+    review_count = int(scheduling_state.get("review_count", 0) or 0)
+    if review_count == 0:
+        return "new"
+    last_rating = str(scheduling_state.get("last_rating") or "")
+    if last_rating in {"forgot", "hard"}:
+        return "learning"
+    fsrs_state = _optional_int((scheduling_state.get("fsrs") or {}).get("state"))
+    if fsrs_state in {1, 3}:
+        return "learning"
+    stability = _optional_float((scheduling_state.get("fsrs") or {}).get("stability"))
+    if stability is not None and stability >= STUDY_MASTERED_STABILITY_THRESHOLD:
+        return "mastered"
+    if stability is not None and stability >= STUDY_CONFIDENT_STABILITY_THRESHOLD:
+        return "confident"
+    return "practiced"
 
 
 def stable_fsrs_card_id(review_card_id: str) -> int:
     return int(sha256(review_card_id.encode("utf-8")).hexdigest()[:15], 16)
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def build_review_card_candidates(

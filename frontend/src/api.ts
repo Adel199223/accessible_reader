@@ -18,9 +18,15 @@ import type {
   ReaderSettings,
   RecallDocumentRecord,
   RecallSearchHit,
+  StudyCardBulkDeleteResult,
+  StudyCardCreateRequest,
+  StudyCardDeleteResult,
   StudyCardGenerationResult,
   StudyCardRecord,
+  StudyCardStatus,
+  StudyCardUpdateRequest,
   StudyOverview,
+  StudyReviewProgress,
   StudyReviewRating,
   SummaryDetail,
   ViewMode,
@@ -248,12 +254,30 @@ export function fetchRecallStudyOverview() {
   return request<StudyOverview>('/api/recall/study/overview')
 }
 
-export function fetchRecallStudyCards(status: 'all' | 'new' | 'due' | 'scheduled' = 'all', limit = 20) {
+export function fetchRecallStudyProgress(sourceDocumentId?: string | null, periodDays = 14) {
+  const search = new URLSearchParams()
+  if (sourceDocumentId) {
+    search.set('source_document_id', sourceDocumentId)
+  }
+  search.set('period_days', String(periodDays))
+  const query = search.toString()
+  return request<StudyReviewProgress>(`/api/recall/study/progress${query ? `?${query}` : ''}`)
+}
+
+export function fetchRecallStudyCards(status: 'all' | StudyCardStatus = 'all', limit = 20) {
   const search = new URLSearchParams({
     limit: String(limit),
     status,
   })
   return request<StudyCardRecord[]>(`/api/recall/study/cards?${search.toString()}`)
+}
+
+export function createRecallStudyCard(payload: StudyCardCreateRequest) {
+  return request<StudyCardRecord>('/api/recall/study/cards', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
 }
 
 export function generateRecallStudyCards() {
@@ -267,6 +291,36 @@ export function reviewRecallStudyCard(cardId: string, rating: StudyReviewRating)
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rating }),
+  })
+}
+
+export function updateRecallStudyCard(cardId: string, payload: StudyCardUpdateRequest) {
+  return request<StudyCardRecord>(`/api/recall/study/cards/${cardId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteRecallStudyCard(cardId: string) {
+  return request<StudyCardDeleteResult>(`/api/recall/study/cards/${cardId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function bulkDeleteRecallStudyCards(cardIds: string[]) {
+  return request<StudyCardBulkDeleteResult>('/api/recall/study/cards/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ card_ids: cardIds }),
+  })
+}
+
+export function setRecallStudyCardScheduleState(cardId: string, action: 'schedule' | 'unschedule') {
+  return request<StudyCardRecord>(`/api/recall/study/cards/${cardId}/schedule-state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
   })
 }
 

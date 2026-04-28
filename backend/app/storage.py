@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections import Counter
+from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -59,8 +60,19 @@ from .models import (
     RecallDocumentRecord,
     RecallSearchHit,
     StudyCardGenerationResult,
+    StudyCardBulkDeleteResult,
+    StudyCardCreateRequest,
+    StudyCardDeleteResult,
     StudyCardRecord,
+    StudyCardUpdateRequest,
     StudyOverview,
+    StudyReviewProgress,
+    StudyReviewProgressDay,
+    StudyReviewProgressRatingCount,
+    StudyReviewProgressRecentReview,
+    StudyReviewProgressStageCount,
+    StudyReviewProgressStageSnapshot,
+    StudyReviewProgressSource,
     PortableEntityDigest,
     WorkspaceChangeLogPage,
     WorkspaceExportManifest,
@@ -98,6 +110,8 @@ from .study import (
     cosine_similarity,
     review_scheduling_state,
     study_card_status,
+    study_knowledge_stage,
+    update_study_schedule_state,
 )
 
 
@@ -105,6 +119,22 @@ DEFAULT_DEVICE_ID = "desktop-local"
 DEFAULT_SESSION_KIND = "reader"
 SCHEMA_VERSION = "6"
 STUDY_SCHEMA_VERSION = "1"
+STUDY_KNOWLEDGE_STAGE_ORDER = ("new", "learning", "practiced", "confident", "mastered")
+STUDY_MANUAL_CARD_TYPES = {
+    "short_answer",
+    "flashcard",
+    "multiple_choice",
+    "true_false",
+    "fill_in_blank",
+    "matching",
+    "ordering",
+}
+STUDY_QUESTION_PAYLOAD_CARD_TYPES = {"multiple_choice", "true_false", "fill_in_blank", "matching", "ordering"}
+STUDY_FILL_IN_BLANK_MARKER = "{{blank}}"
+STUDY_TRUE_FALSE_CHOICES = (
+    {"id": "true", "text": "True"},
+    {"id": "false", "text": "False"},
+)
 AUTO_SELECTION_PROMPT_THRESHOLD = 0.56
 AUTO_PAGE_PROMPT_THRESHOLD = 0.9
 AUTO_SELECTION_RESULT_FLOOR = 0.34
@@ -113,6 +143,255 @@ MANUAL_RESULT_FLOOR = 0.18
 STRONG_SITE_PROMPT_THRESHOLD = 0.58
 INTEGRITY_STATUS_OK = "ok"
 INTEGRITY_QUICK_CHECK_SKIPPED = "skipped"
+
+
+def _study_scheduling_state_from_json(value: str | None) -> dict[str, Any]:
+    try:
+        state = json.loads(value or "{}")
+    except json.JSONDecodeError:
+        state = {}
+    return state if isinstance(state, dict) else {}
+
+
+def _study_card_is_deleted_state(scheduling_state: dict[str, Any]) -> bool:
+    return bool(scheduling_state.get("deleted_at"))
+
+
+def _study_card_is_manual_state(card_type: str | None, scheduling_state: dict[str, Any]) -> bool:
+    return card_type in {"manual", "manual_note"} or bool(scheduling_state.get("manual_content_created_at"))
+
+
+def _study_question_payload_to_dict(payload: Any) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    if hasattr(payload, "model_dump"):
+        dumped = payload.model_dump(mode="json")
+        return dumped if isinstance(dumped, dict) else None
+    return payload if isinstance(payload, dict) else None
+
+
+def _normalize_study_choice_options(
+    raw_choices: Any,
+    *,
+    question_label: str,
+) -> list[dict[str, str]]:
+    if not isinstance(raw_choices, list):
+        raise ValueError(f"{question_label} cards require choices.")
+    choices: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    seen_texts: set[str] = set()
+    for raw_choice in raw_choices:
+        if not isinstance(raw_choice, dict):
+            raise ValueError(f"{question_label} choices must be text options.")
+        choice_id = normalize_whitespace(str(raw_choice.get("id") or ""))
+        text = normalize_whitespace(str(raw_choice.get("text") or ""))
+        if not choice_id or not text:
+            raise ValueError(f"{question_label} choices cannot be blank.")
+        normalized_text_key = text.casefold()
+        if choice_id in seen_ids or normalized_text_key in seen_texts:
+            raise ValueError(f"{question_label} choices must be unique.")
+        seen_ids.add(choice_id)
+        seen_texts.add(normalized_text_key)
+        choices.append({"id": choice_id, "text": text})
+    if len(choices) < 2 or len(choices) > 6:
+        raise ValueError(f"{question_label} cards need 2 to 6 choices.")
+    return choices
+
+
+def _normalize_correct_study_choice(
+    choices: list[dict[str, str]],
+    correct_choice_id: Any,
+    *,
+    question_label: str,
+) -> tuple[str, dict[str, str]]:
+    normalized_choice_id = normalize_whitespace(str(correct_choice_id or ""))
+    correct_choice = next((choice for choice in choices if choice["id"] == normalized_choice_id), None)
+    if not correct_choice:
+        raise ValueError(f"Choose one of the {question_label} options as the correct answer.")
+    return normalized_choice_id, correct_choice
+
+
+def _normalize_study_matching_pairs(raw_pairs: Any) -> list[dict[str, str]]:
+    if not isinstance(raw_pairs, list):
+        raise ValueError("Matching cards require pairs.")
+    pairs: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    seen_left: set[str] = set()
+    seen_right: set[str] = set()
+    for raw_pair in raw_pairs:
+        if not isinstance(raw_pair, dict):
+            raise ValueError("Matching pairs must use left and right text.")
+        pair_id = normalize_whitespace(str(raw_pair.get("id") or ""))
+        left = normalize_whitespace(str(raw_pair.get("left") or ""))
+        right = normalize_whitespace(str(raw_pair.get("right") or ""))
+        if not pair_id or not left or not right:
+            raise ValueError("Matching pairs cannot be blank.")
+        left_key = left.casefold()
+        right_key = right.casefold()
+        if pair_id in seen_ids or left_key in seen_left or right_key in seen_right:
+            raise ValueError("Matching pairs must be unique.")
+        seen_ids.add(pair_id)
+        seen_left.add(left_key)
+        seen_right.add(right_key)
+        pairs.append({"id": pair_id, "left": left, "right": right})
+    if len(pairs) < 2 or len(pairs) > 8:
+        raise ValueError("Matching cards need 2 to 8 pairs.")
+    return pairs
+
+
+def _normalize_study_ordering_items(raw_items: Any) -> list[dict[str, str]]:
+    if not isinstance(raw_items, list):
+        raise ValueError("Ordering cards require items.")
+    items: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    seen_texts: set[str] = set()
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            raise ValueError("Ordering items must be text items.")
+        item_id = normalize_whitespace(str(raw_item.get("id") or ""))
+        text = normalize_whitespace(str(raw_item.get("text") or ""))
+        if not item_id or not text:
+            raise ValueError("Ordering items cannot be blank.")
+        text_key = text.casefold()
+        if item_id in seen_ids or text_key in seen_texts:
+            raise ValueError("Ordering items must be unique.")
+        seen_ids.add(item_id)
+        seen_texts.add(text_key)
+        items.append({"id": item_id, "text": text})
+    if len(items) < 2 or len(items) > 8:
+        raise ValueError("Ordering cards need 2 to 8 items.")
+    return items
+
+
+def _normalize_study_question_payload(
+    card_type: str,
+    answer: str,
+    question_payload: Any,
+) -> tuple[str, dict[str, Any] | None]:
+    payload = _study_question_payload_to_dict(question_payload)
+    if card_type not in STUDY_QUESTION_PAYLOAD_CARD_TYPES:
+        if payload is not None:
+            raise ValueError("Question payloads are only supported for typed question cards.")
+        return answer, None
+
+    if card_type == "multiple_choice":
+        if not payload or payload.get("kind") != "multiple_choice":
+            raise ValueError("Multiple-choice cards require a multiple-choice payload.")
+        choices = _normalize_study_choice_options(payload.get("choices"), question_label="Multiple-choice")
+        correct_choice_id, correct_choice = _normalize_correct_study_choice(
+            choices,
+            payload.get("correct_choice_id"),
+            question_label="multiple-choice",
+        )
+        return (
+            correct_choice["text"],
+            {
+                "kind": "multiple_choice",
+                "choices": choices,
+                "correct_choice_id": correct_choice_id,
+            },
+        )
+
+    if card_type == "fill_in_blank":
+        if not payload or payload.get("kind") != "fill_in_blank":
+            raise ValueError("Fill-in-the-blank cards require a fill-in-the-blank payload.")
+        template = normalize_whitespace(str(payload.get("template") or ""))
+        if template.count(STUDY_FILL_IN_BLANK_MARKER) != 1:
+            raise ValueError("Fill-in-the-blank templates need exactly one {{blank}} marker.")
+        choices = _normalize_study_choice_options(payload.get("choices"), question_label="Fill-in-the-blank")
+        correct_choice_id, correct_choice = _normalize_correct_study_choice(
+            choices,
+            payload.get("correct_choice_id"),
+            question_label="fill-in-the-blank",
+        )
+        return (
+            correct_choice["text"],
+            {
+                "kind": "fill_in_blank",
+                "template": template,
+                "choices": choices,
+                "correct_choice_id": correct_choice_id,
+            },
+        )
+
+    if card_type == "matching":
+        if not payload or payload.get("kind") != "matching":
+            raise ValueError("Matching cards require a matching payload.")
+        pairs = _normalize_study_matching_pairs(payload.get("pairs"))
+        return (
+            "; ".join(f"{pair['left']} -> {pair['right']}" for pair in pairs),
+            {
+                "kind": "matching",
+                "pairs": pairs,
+            },
+        )
+
+    if card_type == "ordering":
+        if not payload or payload.get("kind") != "ordering":
+            raise ValueError("Ordering cards require an ordering payload.")
+        items = _normalize_study_ordering_items(payload.get("items"))
+        return (
+            "; ".join(item["text"] for item in items),
+            {
+                "kind": "ordering",
+                "items": items,
+            },
+        )
+
+    if payload is not None and payload.get("kind") != "true_false":
+        raise ValueError("True/false cards require a true/false payload.")
+    correct_choice_id = normalize_whitespace(
+        str((payload or {}).get("correct_choice_id") or answer)
+    ).casefold()
+    if correct_choice_id not in {"true", "false"}:
+        raise ValueError("True/false cards require True or False as the correct answer.")
+    return (
+        "True" if correct_choice_id == "true" else "False",
+        {
+            "kind": "true_false",
+            "choices": list(STUDY_TRUE_FALSE_CHOICES),
+            "correct_choice_id": correct_choice_id,
+        },
+    )
+
+
+def _study_payload_texts_from_state(scheduling_state: dict[str, Any]) -> list[str]:
+    payload = scheduling_state.get("manual_question_payload")
+    if not isinstance(payload, dict):
+        return []
+    texts: list[str] = []
+    template = normalize_whitespace(str(payload.get("template") or ""))
+    if template:
+        texts.append(template)
+    raw_choices = payload.get("choices")
+    if not isinstance(raw_choices, list):
+        return texts
+    for raw_choice in raw_choices:
+        if not isinstance(raw_choice, dict):
+            continue
+        text = normalize_whitespace(str(raw_choice.get("text") or ""))
+        if text:
+            texts.append(text)
+    raw_pairs = payload.get("pairs")
+    if isinstance(raw_pairs, list):
+        for raw_pair in raw_pairs:
+            if not isinstance(raw_pair, dict):
+                continue
+            left = normalize_whitespace(str(raw_pair.get("left") or ""))
+            right = normalize_whitespace(str(raw_pair.get("right") or ""))
+            if left:
+                texts.append(left)
+            if right:
+                texts.append(right)
+    raw_items = payload.get("items")
+    if isinstance(raw_items, list):
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict):
+                continue
+            text = normalize_whitespace(str(raw_item.get("text") or ""))
+            if text:
+                texts.append(text)
+    return texts
 
 
 class Repository:
@@ -2074,16 +2353,217 @@ class Repository:
     def get_study_overview(self) -> StudyOverview:
         cards = self.list_study_cards(status="all", limit=500)
         with self.connect() as connection:
-            review_event_count = int(
-                connection.execute("SELECT COUNT(*) FROM review_events").fetchone()[0]
+            visible_card_ids = {card.id for card in cards}
+            review_event_count = sum(
+                1
+                for row in connection.execute("SELECT review_card_id FROM review_events").fetchall()
+                if row["review_card_id"] in visible_card_ids
             )
-        next_due_at = min((card.due_at for card in cards), default=None)
+        next_due_at = min((card.due_at for card in cards if card.status != "unscheduled"), default=None)
         return StudyOverview(
             due_count=sum(1 for card in cards if card.status == "due"),
             new_count=sum(1 for card in cards if card.status == "new"),
             scheduled_count=sum(1 for card in cards if card.status == "scheduled"),
             review_event_count=review_event_count,
             next_due_at=next_due_at,
+        )
+
+    def get_study_review_progress(
+        self,
+        *,
+        source_document_id: str | None = None,
+        period_days: int = 14,
+        recent_limit: int = 8,
+    ) -> StudyReviewProgress:
+        safe_period_days = min(max(period_days, 1), 365)
+        safe_recent_limit = min(max(recent_limit, 1), 25)
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    re.id,
+                    re.review_card_id,
+                    re.rating,
+                    re.scheduling_state_json AS event_scheduling_state_json,
+                    re.reviewed_at,
+                    rc.source_document_id,
+                    rc.prompt,
+                    rc.scheduling_state_json AS card_scheduling_state_json,
+                    sd.title AS document_title
+                FROM review_events re
+                INNER JOIN review_cards rc ON rc.id = re.review_card_id
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE (? IS NULL OR rc.source_document_id = ?)
+                ORDER BY re.reviewed_at DESC, re.id DESC
+                """,
+                (source_document_id, source_document_id),
+            ).fetchall()
+            card_rows = connection.execute(
+                """
+                SELECT
+                    rc.id,
+                    rc.source_document_id,
+                    rc.scheduling_state_json,
+                    rc.created_at,
+                    rc.updated_at,
+                    sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE (? IS NULL OR rc.source_document_id = ?)
+                ORDER BY sd.title ASC, rc.id ASC
+                """,
+                (source_document_id, source_document_id),
+            ).fetchall()
+            rows = [
+                row
+                for row in rows
+                if not _study_card_is_deleted_state(
+                    _study_scheduling_state_from_json(row["card_scheduling_state_json"])
+                )
+            ]
+            card_rows = [
+                row
+                for row in card_rows
+                if not _study_card_is_deleted_state(_study_scheduling_state_from_json(row["scheduling_state_json"]))
+            ]
+
+        today = datetime.now(UTC).date()
+        activity_start = today - timedelta(days=safe_period_days - 1)
+        daily_counts: dict[str, int] = {
+            (activity_start + timedelta(days=offset)).isoformat(): 0
+            for offset in range(safe_period_days)
+        }
+        active_dates: set[str] = set()
+        period_active_dates: set[str] = set()
+        rating_counts = {"forgot": 0, "hard": 0, "good": 0, "easy": 0}
+        knowledge_stage_counts = {stage: 0 for stage in STUDY_KNOWLEDGE_STAGE_ORDER}
+        source_totals: dict[str, dict[str, Any]] = {}
+        recent_reviews: list[StudyReviewProgressRecentReview] = []
+        last_reviewed_at: str | None = None
+        memory_progress = self._build_study_memory_progress_snapshots(
+            card_rows=card_rows,
+            review_rows=rows,
+            activity_start=activity_start,
+            today=today,
+        )
+
+        for card_row in card_rows:
+            card_state = json.loads(card_row["scheduling_state_json"] or "{}")
+            knowledge_stage = study_knowledge_stage(card_state)
+            knowledge_stage_counts[knowledge_stage] += 1
+            source_id = card_row["source_document_id"]
+            source_summary = source_totals.setdefault(
+                source_id,
+                {
+                    "source_document_id": source_id,
+                    "document_title": card_row["document_title"],
+                    "review_count": 0,
+                    "card_ids": set(),
+                    "today_count": 0,
+                    "last_reviewed_at": None,
+                    "knowledge_stage_counts": {stage: 0 for stage in STUDY_KNOWLEDGE_STAGE_ORDER},
+                },
+            )
+            source_summary["card_ids"].add(card_row["id"])
+            source_summary["knowledge_stage_counts"][knowledge_stage] += 1
+
+        for row in rows:
+            reviewed_at = str(row["reviewed_at"])
+            reviewed_date = self._review_event_date(reviewed_at)
+            if reviewed_date:
+                date_key = reviewed_date.isoformat()
+                active_dates.add(date_key)
+                if date_key in daily_counts:
+                    daily_counts[date_key] += 1
+                    period_active_dates.add(date_key)
+
+            rating_label = self._review_rating_label(row["rating"], row["event_scheduling_state_json"])
+            rating_counts[rating_label] += 1
+            if last_reviewed_at is None:
+                last_reviewed_at = reviewed_at
+
+            source_id = row["source_document_id"]
+            source_summary = source_totals.setdefault(
+                source_id,
+                {
+                    "source_document_id": source_id,
+                    "document_title": row["document_title"],
+                    "review_count": 0,
+                    "card_ids": set(),
+                    "today_count": 0,
+                    "last_reviewed_at": None,
+                    "knowledge_stage_counts": {stage: 0 for stage in STUDY_KNOWLEDGE_STAGE_ORDER},
+                },
+            )
+            source_summary["review_count"] += 1
+            source_summary["card_ids"].add(row["review_card_id"])
+            if reviewed_date == today:
+                source_summary["today_count"] += 1
+            if source_summary["last_reviewed_at"] is None or reviewed_at > source_summary["last_reviewed_at"]:
+                source_summary["last_reviewed_at"] = reviewed_at
+
+            if len(recent_reviews) < safe_recent_limit:
+                card_state = json.loads(row["card_scheduling_state_json"] or "{}")
+                recent_reviews.append(
+                    StudyReviewProgressRecentReview(
+                        id=row["id"],
+                        review_card_id=row["review_card_id"],
+                        source_document_id=source_id,
+                        document_title=row["document_title"],
+                        prompt=row["prompt"],
+                        rating=rating_label,
+                        reviewed_at=reviewed_at,
+                        next_due_at=card_state.get("due_at"),
+                    )
+                )
+
+        current_daily_streak = 0
+        streak_cursor = today
+        while streak_cursor.isoformat() in active_dates:
+            current_daily_streak += 1
+            streak_cursor -= timedelta(days=1)
+
+        source_breakdown = [
+            StudyReviewProgressSource(
+                source_document_id=summary["source_document_id"],
+                document_title=summary["document_title"],
+                review_count=summary["review_count"],
+                card_count=len(summary["card_ids"]),
+                today_count=summary["today_count"],
+                last_reviewed_at=summary["last_reviewed_at"],
+                dominant_knowledge_stage=self._dominant_knowledge_stage(summary["knowledge_stage_counts"]),
+                knowledge_stage_counts=self._knowledge_stage_count_models(summary["knowledge_stage_counts"]),
+            )
+            for summary in source_totals.values()
+        ]
+        source_breakdown.sort(
+            key=lambda source: (
+                -source.review_count,
+                source.last_reviewed_at or "",
+                source.document_title.lower(),
+            )
+        )
+
+        return StudyReviewProgress(
+            scope_source_document_id=source_document_id,
+            total_reviews=len(rows),
+            today_count=daily_counts.get(today.isoformat(), 0),
+            active_days=len(period_active_dates),
+            current_daily_streak=current_daily_streak,
+            period_days=safe_period_days,
+            last_reviewed_at=last_reviewed_at,
+            daily_activity=[
+                StudyReviewProgressDay(date=date_key, review_count=count)
+                for date_key, count in daily_counts.items()
+            ],
+            rating_counts=[
+                StudyReviewProgressRatingCount(rating=rating, count=count)
+                for rating, count in rating_counts.items()
+            ],
+            knowledge_stage_counts=self._knowledge_stage_count_models(knowledge_stage_counts),
+            memory_progress=memory_progress,
+            recent_reviews=recent_reviews,
+            source_breakdown=source_breakdown,
         )
 
     def list_study_cards(self, *, status: str = "due", limit: int = 20) -> list[StudyCardRecord]:
@@ -2099,17 +2579,136 @@ class Repository:
             ).fetchall()
 
         cards = [self._row_to_study_card_record(row) for row in rows]
+        cards = [
+            card
+            for card in cards
+            if not _study_card_is_deleted_state(card.scheduling_state)
+        ]
         if status != "all":
             cards = [card for card in cards if card.status == status]
         cards.sort(
             key=lambda card: (
                 card.status != "due",
                 card.status != "new",
+                card.status != "scheduled",
                 card.due_at,
                 card.prompt.lower(),
             )
         )
         return cards[:capped_limit]
+
+    def create_study_card(self, payload: StudyCardCreateRequest) -> StudyCardRecord | None:
+        source_document_id = normalize_whitespace(payload.source_document_id)
+        prompt = normalize_whitespace(payload.prompt)
+        answer = normalize_whitespace(payload.answer)
+        card_type = payload.card_type or "short_answer"
+        if not prompt:
+            raise ValueError("Enter a study prompt before creating this card.")
+        if not answer:
+            raise ValueError("Enter a study answer before creating this card.")
+        if card_type not in STUDY_MANUAL_CARD_TYPES:
+            raise ValueError("Choose a supported study card type.")
+        answer, question_payload = _normalize_study_question_payload(
+            card_type,
+            answer,
+            payload.question_payload,
+        )
+
+        timestamp = now_iso()
+        card_id = f"card:manual:{new_uuid7_str()}"
+        scheduling_state = build_initial_scheduling_state(card_id, created_at=timestamp)
+        scheduling_state["manual_content_created_at"] = timestamp
+        scheduling_state["manual_content_edited_at"] = timestamp
+        scheduling_state["manual_card_type"] = card_type
+        if question_payload is not None:
+            scheduling_state["manual_question_payload"] = question_payload
+        scheduling_state["status"] = study_card_status(scheduling_state)
+
+        with self.connect() as connection:
+            source_row = connection.execute(
+                """
+                SELECT id, title, source_type, source_locator, file_name
+                FROM source_documents
+                WHERE id = ?
+                """,
+                (source_document_id,),
+            ).fetchone()
+            if not source_row:
+                return None
+
+            chunk_row = connection.execute(
+                """
+                SELECT id, block_id, text
+                FROM content_chunks
+                WHERE source_document_id = ?
+                ORDER BY ordinal ASC
+                LIMIT 1
+                """,
+                (source_document_id,),
+            ).fetchone()
+            source_spans = [
+                {
+                    "anchor_kind": "source",
+                    "block_id": chunk_row["block_id"] if chunk_row else None,
+                    "card_type": card_type,
+                    "chunk_id": chunk_row["id"] if chunk_row else None,
+                    "excerpt": self._truncate_text(chunk_row["text"], 240) if chunk_row else source_row["title"],
+                    "manual_source": "study_manual",
+                    "source_document_id": source_row["id"],
+                    "source_title": source_row["title"],
+                }
+            ]
+            connection.execute(
+                """
+                INSERT INTO review_cards (
+                    id,
+                    source_document_id,
+                    prompt,
+                    answer,
+                    card_type,
+                    source_spans_json,
+                    scheduling_state_json,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    card_id,
+                    source_document_id,
+                    prompt,
+                    answer,
+                    card_type,
+                    json.dumps(source_spans, sort_keys=True),
+                    json.dumps(scheduling_state, sort_keys=True),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="review_card",
+                entity_id=card_id,
+                event_type="created",
+                payload={
+                    "card_type": card_type,
+                    "manual": True,
+                    "source_document_id": source_document_id,
+                },
+                created_at=timestamp,
+            )
+            self._rebuild_lexical_embeddings_with_connection(connection)
+            created_row = connection.execute(
+                """
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.id = ?
+                """,
+                (card_id,),
+            ).fetchone()
+        if not created_row:
+            return None
+        return self._row_to_study_card_record(created_row)
 
     def regenerate_study_cards(self) -> StudyCardGenerationResult:
         with self.connect() as connection:
@@ -2132,6 +2731,8 @@ class Repository:
                 return None
 
             scheduling_state = json.loads(row["scheduling_state_json"] or "{}")
+            if _study_card_is_deleted_state(scheduling_state):
+                return None
             timestamp = now_iso()
             next_state, numeric_rating = review_scheduling_state(
                 review_card_id,
@@ -2191,6 +2792,209 @@ class Repository:
         if not updated_row:
             return None
         return self._row_to_study_card_record(updated_row)
+
+    def set_study_card_schedule_state(self, review_card_id: str, action: str) -> StudyCardRecord | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.id = ?
+                """,
+                (review_card_id,),
+            ).fetchone()
+            if not row:
+                return None
+
+            timestamp = now_iso()
+            scheduling_state = json.loads(row["scheduling_state_json"] or "{}")
+            if _study_card_is_deleted_state(scheduling_state):
+                return None
+            next_state = update_study_schedule_state(
+                scheduling_state,
+                action,
+                timestamp=timestamp,
+            )
+            connection.execute(
+                """
+                UPDATE review_cards
+                SET scheduling_state_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(next_state, sort_keys=True),
+                    timestamp,
+                    review_card_id,
+                ),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="review_card",
+                entity_id=review_card_id,
+                event_type="schedule_state_updated",
+                payload={"action": action},
+                created_at=timestamp,
+            )
+            updated_row = connection.execute(
+                """
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.id = ?
+                """,
+                (review_card_id,),
+            ).fetchone()
+        if not updated_row:
+            return None
+        return self._row_to_study_card_record(updated_row)
+
+    def update_study_card(
+        self,
+        review_card_id: str,
+        payload: StudyCardUpdateRequest,
+    ) -> StudyCardRecord | None:
+        prompt = normalize_whitespace(payload.prompt)
+        answer = normalize_whitespace(payload.answer)
+        if not prompt:
+            raise ValueError("Enter a study prompt before saving this card.")
+        if not answer:
+            raise ValueError("Enter a study answer before saving this card.")
+
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.id = ?
+                """,
+                (review_card_id,),
+            ).fetchone()
+            if not row:
+                return None
+
+            scheduling_state = _study_scheduling_state_from_json(row["scheduling_state_json"])
+            if _study_card_is_deleted_state(scheduling_state):
+                return None
+
+            timestamp = now_iso()
+            card_type = row["card_type"]
+            answer, question_payload = _normalize_study_question_payload(
+                card_type,
+                answer,
+                payload.question_payload,
+            )
+            scheduling_state["manual_content_edited_at"] = timestamp
+            if question_payload is not None:
+                scheduling_state["manual_question_payload"] = question_payload
+            else:
+                scheduling_state.pop("manual_question_payload", None)
+            scheduling_state["status"] = study_card_status(scheduling_state)
+            connection.execute(
+                """
+                UPDATE review_cards
+                SET prompt = ?, answer = ?, scheduling_state_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    prompt,
+                    answer,
+                    json.dumps(scheduling_state, sort_keys=True),
+                    timestamp,
+                    review_card_id,
+                ),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="review_card",
+                entity_id=review_card_id,
+                event_type="updated",
+                payload={"prompt": prompt, "answer": answer},
+                created_at=timestamp,
+            )
+            self._rebuild_lexical_embeddings_with_connection(connection)
+            updated_row = connection.execute(
+                """
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.id = ?
+                """,
+                (review_card_id,),
+            ).fetchone()
+        if not updated_row:
+            return None
+        return self._row_to_study_card_record(updated_row)
+
+    def delete_study_card(self, review_card_id: str) -> StudyCardDeleteResult | None:
+        with self.connect() as connection:
+            deleted = self._soft_delete_study_card_with_connection(
+                connection,
+                review_card_id,
+                deleted_at=now_iso(),
+            )
+            if not deleted:
+                return None
+            self._rebuild_lexical_embeddings_with_connection(connection)
+        return StudyCardDeleteResult(id=review_card_id, deleted=True)
+
+    def bulk_delete_study_cards(self, review_card_ids: list[str]) -> StudyCardBulkDeleteResult:
+        ordered_ids = list(dict.fromkeys(review_card_ids))[:100]
+        timestamp = now_iso()
+        deleted_ids: list[str] = []
+        missing_ids: list[str] = []
+        with self.connect() as connection:
+            for review_card_id in ordered_ids:
+                deleted = self._soft_delete_study_card_with_connection(
+                    connection,
+                    review_card_id,
+                    deleted_at=timestamp,
+                )
+                if deleted:
+                    deleted_ids.append(review_card_id)
+                else:
+                    missing_ids.append(review_card_id)
+            if deleted_ids:
+                self._rebuild_lexical_embeddings_with_connection(connection)
+        return StudyCardBulkDeleteResult(deleted_ids=deleted_ids, missing_ids=missing_ids)
+
+    def _soft_delete_study_card_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        review_card_id: str,
+        *,
+        deleted_at: str,
+    ) -> bool:
+        row = connection.execute(
+            "SELECT id, source_document_id, scheduling_state_json FROM review_cards WHERE id = ?",
+            (review_card_id,),
+        ).fetchone()
+        if not row:
+            return False
+
+        scheduling_state = _study_scheduling_state_from_json(row["scheduling_state_json"])
+        if _study_card_is_deleted_state(scheduling_state):
+            return False
+
+        scheduling_state["deleted_at"] = deleted_at
+        connection.execute(
+            """
+            UPDATE review_cards
+            SET scheduling_state_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (json.dumps(scheduling_state, sort_keys=True), deleted_at, review_card_id),
+        )
+        self._append_change_event_with_connection(
+            connection,
+            entity_type="review_card",
+            entity_id=review_card_id,
+            event_type="deleted",
+            payload={"source_document_id": row["source_document_id"]},
+            created_at=deleted_at,
+        )
+        return True
 
     def get_reader_settings(self) -> ReaderSettings:
         with self.connect() as connection:
@@ -3234,7 +4038,12 @@ class Repository:
         obsolete_ids = [
             card_id
             for card_id, row in existing_rows.items()
-            if card_id not in expected_ids and row["card_type"] != "manual_note"
+            for scheduling_state in [_study_scheduling_state_from_json(row["scheduling_state_json"])]
+            if (
+                card_id not in expected_ids
+                and not _study_card_is_manual_state(row["card_type"], scheduling_state)
+                and not _study_card_is_deleted_state(scheduling_state)
+            )
         ]
         for card_id in obsolete_ids:
             connection.execute(
@@ -3244,21 +4053,28 @@ class Repository:
 
         timestamp = now_iso()
         generated_count = 0
+        visible_candidate_count = len(card_candidates)
         for candidate in card_candidates:
             existing = existing_rows.get(candidate["id"])
             scheduling_state = (
-                json.loads(existing["scheduling_state_json"] or "{}")
+                _study_scheduling_state_from_json(existing["scheduling_state_json"])
                 if existing
                 else build_initial_scheduling_state(candidate["id"], created_at=timestamp)
             )
+            if _study_card_is_deleted_state(scheduling_state):
+                visible_candidate_count -= 1
+                continue
             scheduling_state["status"] = study_card_status(scheduling_state)
+            manual_content_edited = bool(scheduling_state.get("manual_content_edited_at"))
+            next_prompt = existing["prompt"] if existing and manual_content_edited else candidate["prompt"]
+            next_answer = existing["answer"] if existing and manual_content_edited else candidate["answer"]
             source_spans_json = json.dumps(candidate["source_spans"], sort_keys=True)
             scheduling_state_json = json.dumps(scheduling_state, sort_keys=True)
             needs_update = (
                 existing is None
                 or existing["source_document_id"] != candidate["source_document_id"]
-                or existing["prompt"] != candidate["prompt"]
-                or existing["answer"] != candidate["answer"]
+                or existing["prompt"] != next_prompt
+                or existing["answer"] != next_answer
                 or existing["card_type"] != candidate["card_type"]
                 or existing["source_spans_json"] != source_spans_json
                 or existing["scheduling_state_json"] != scheduling_state_json
@@ -3290,8 +4106,8 @@ class Repository:
                 (
                     candidate["id"],
                     candidate["source_document_id"],
-                    candidate["prompt"],
-                    candidate["answer"],
+                    next_prompt,
+                    next_answer,
                     candidate["card_type"],
                     source_spans_json,
                     scheduling_state_json,
@@ -3308,7 +4124,7 @@ class Repository:
             payload={
                 "generated_count": generated_count,
                 "study_schema_version": STUDY_SCHEMA_VERSION,
-                "total_count": len(card_candidates),
+                "total_count": visible_candidate_count,
             },
             created_at=timestamp,
         )
@@ -3320,7 +4136,7 @@ class Repository:
         )
         return StudyCardGenerationResult(
             generated_count=generated_count,
-            total_count=len(card_candidates),
+            total_count=visible_candidate_count,
         )
 
     def _rebuild_lexical_embeddings_with_connection(self, connection: sqlite3.Connection) -> None:
@@ -3449,8 +4265,12 @@ class Repository:
             """
         ).fetchall()
         for row in card_rows:
+            scheduling_state = _study_scheduling_state_from_json(row["scheduling_state_json"])
+            if _study_card_is_deleted_state(scheduling_state):
+                continue
+            choice_text = " ".join(_study_payload_texts_from_state(scheduling_state))
             vector = build_sparse_vector(
-                f"{row['prompt']} {row['answer']}",
+                f"{row['prompt']} {row['answer']} {choice_text}",
                 extra_terms=[row["document_title"]],
             )
             if not vector:
@@ -4248,7 +5068,7 @@ class Repository:
         )
 
     def _row_to_study_card_record(self, row: sqlite3.Row) -> StudyCardRecord:
-        scheduling_state = json.loads(row["scheduling_state_json"] or "{}")
+        scheduling_state = _study_scheduling_state_from_json(row["scheduling_state_json"])
         status = study_card_status(scheduling_state)
         return StudyCardRecord(
             id=row["id"],
@@ -4263,7 +5083,130 @@ class Repository:
             review_count=int(scheduling_state.get("review_count", 0)),
             status=status,
             last_rating=scheduling_state.get("last_rating"),
+            knowledge_stage=study_knowledge_stage(scheduling_state),
+            question_payload=scheduling_state.get("manual_question_payload"),
         )
+
+    @staticmethod
+    def _dominant_knowledge_stage(stage_counts: dict[str, int]) -> str:
+        if max((int(stage_counts.get(stage, 0)) for stage in STUDY_KNOWLEDGE_STAGE_ORDER), default=0) <= 0:
+            return "new"
+        return max(
+            STUDY_KNOWLEDGE_STAGE_ORDER,
+            key=lambda stage: (int(stage_counts.get(stage, 0)), STUDY_KNOWLEDGE_STAGE_ORDER.index(stage)),
+        )
+
+    @staticmethod
+    def _knowledge_stage_count_models(stage_counts: dict[str, int]) -> list[StudyReviewProgressStageCount]:
+        return [
+            StudyReviewProgressStageCount(stage=stage, count=int(stage_counts.get(stage, 0)))
+            for stage in STUDY_KNOWLEDGE_STAGE_ORDER
+        ]
+
+    def _build_study_memory_progress_snapshots(
+        self,
+        *,
+        card_rows: list[sqlite3.Row],
+        review_rows: list[sqlite3.Row],
+        activity_start: date,
+        today: date,
+    ) -> list[StudyReviewProgressStageSnapshot]:
+        date_keys = [
+            activity_start + timedelta(days=offset)
+            for offset in range((today - activity_start).days + 1)
+        ]
+        review_events_by_card: dict[str, list[tuple[date, str, str]]] = {}
+        for row in review_rows:
+            reviewed_date = self._review_event_date(str(row["reviewed_at"]))
+            if reviewed_date is None:
+                continue
+            stage = self._study_knowledge_stage_from_review_event(row)
+            review_events_by_card.setdefault(row["review_card_id"], []).append(
+                (reviewed_date, str(row["reviewed_at"]), stage)
+            )
+        for events in review_events_by_card.values():
+            events.sort(key=lambda event: (event[0], event[1]))
+
+        card_entries: list[dict[str, Any]] = []
+        for card_row in card_rows:
+            created_date = self._iso_date_from_timestamp(
+                str(card_row["created_at"] or card_row["updated_at"] or "")
+            ) or today
+            current_state = json.loads(card_row["scheduling_state_json"] or "{}")
+            current_stage = study_knowledge_stage(current_state)
+            has_reviewed_state = int(current_state.get("review_count", 0) or 0) > 0
+            events = review_events_by_card.get(card_row["id"], [])
+            if not events and has_reviewed_state:
+                events = [(created_date, str(card_row["updated_at"] or card_row["created_at"]), current_stage)]
+            card_entries.append(
+                {
+                    "created_date": created_date,
+                    "events": events,
+                }
+            )
+
+        snapshots: list[StudyReviewProgressStageSnapshot] = []
+        for date_key in date_keys:
+            stage_counts = {stage: 0 for stage in STUDY_KNOWLEDGE_STAGE_ORDER}
+            for card_entry in card_entries:
+                if card_entry["created_date"] > date_key:
+                    continue
+                stage = "new"
+                for event_date, _reviewed_at, event_stage in card_entry["events"]:
+                    if event_date > date_key:
+                        break
+                    stage = event_stage
+                stage_counts[stage] += 1
+            snapshots.append(
+                StudyReviewProgressStageSnapshot(
+                    date=date_key.isoformat(),
+                    total_count=sum(stage_counts.values()),
+                    stage_counts=self._knowledge_stage_count_models(stage_counts),
+                )
+            )
+        return snapshots
+
+    def _study_knowledge_stage_from_review_event(self, row: sqlite3.Row) -> str:
+        try:
+            scheduling_state = json.loads(row["event_scheduling_state_json"] or "{}")
+        except json.JSONDecodeError:
+            scheduling_state = {}
+        if int(scheduling_state.get("review_count", 0) or 0) <= 0:
+            scheduling_state["review_count"] = 1
+        if scheduling_state.get("last_rating") not in {"forgot", "hard", "good", "easy"}:
+            scheduling_state["last_rating"] = self._review_rating_label(row["rating"], row["event_scheduling_state_json"])
+        return study_knowledge_stage(scheduling_state)
+
+    @staticmethod
+    def _iso_date_from_timestamp(value: str) -> date | None:
+        try:
+            return datetime.fromisoformat(value).date()
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _review_event_date(reviewed_at: str) -> date | None:
+        try:
+            return datetime.fromisoformat(reviewed_at).date()
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _review_rating_label(rating: int, scheduling_state_json: str | None) -> str:
+        try:
+            scheduling_state = json.loads(scheduling_state_json or "{}")
+        except json.JSONDecodeError:
+            scheduling_state = {}
+        label = scheduling_state.get("last_rating")
+        if label in {"forgot", "hard", "good", "easy"}:
+            return label
+        return {
+            0: "forgot",
+            1: "forgot",
+            2: "hard",
+            3: "good",
+            4: "easy",
+        }.get(int(rating), "forgot")
 
     def _row_to_reader_session_state(self, row: sqlite3.Row | None) -> ReaderSessionState | None:
         if row is None:
@@ -4670,16 +5613,18 @@ class Repository:
         ).fetchall()
         for row in review_card_rows:
             source_spans = json.loads(row["source_spans_json"] or "[]")
+            scheduling_state = json.loads(row["scheduling_state_json"] or "{}")
             identity_payload = {
                 "answer": row["answer"],
                 "card_type": row["card_type"],
+                "manual_question_payload": scheduling_state.get("manual_question_payload"),
                 "prompt": row["prompt"],
                 "source_document_content_hash": row["content_hash"],
                 "source_spans": source_spans,
             }
             payload = {
                 **identity_payload,
-                "scheduling_state": json.loads(row["scheduling_state_json"] or "{}"),
+                "scheduling_state": scheduling_state,
             }
             entities.append(
                 PortableEntityDigest(
@@ -4714,9 +5659,11 @@ class Repository:
         ).fetchall()
         for row in review_event_rows:
             source_spans = json.loads(row["source_spans_json"] or "[]")
+            event_scheduling_state = json.loads(row["scheduling_state_json"] or "{}")
             card_identity_payload = {
                 "answer": row["answer"],
                 "card_type": row["card_type"],
+                "manual_question_payload": event_scheduling_state.get("manual_question_payload"),
                 "prompt": row["prompt"],
                 "source_document_content_hash": row["content_hash"],
                 "source_spans": source_spans,
@@ -4725,7 +5672,7 @@ class Repository:
             payload = {
                 "rating": row["rating"],
                 "reviewed_at": row["reviewed_at"],
-                "scheduling_state": json.loads(row["scheduling_state_json"] or "{}"),
+                "scheduling_state": event_scheduling_state,
             }
             entities.append(
                 PortableEntityDigest(

@@ -77,12 +77,22 @@ test('defaultRecallWorkspaceContinuityState keeps Home organizer sorting default
     activeSurface: 'home',
     filterQuery: '',
     homeMemoryFilter: 'all',
+    homeReviewFilter: 'all',
     homeOrganizerLens: 'collections',
     homeOrganizerVisible: true,
     homeSortDirection: 'desc',
     homeSortMode: 'updated',
     homeViewMode: 'board',
     selectedDocumentId: null,
+  })
+  expect(defaultRecallWorkspaceContinuityState.study).toMatchObject({
+    collectionFilter: 'all',
+    filter: 'all',
+    knowledgeStageFilter: 'all',
+    progressPeriodDays: 14,
+    reviewHistoryFilter: 'all',
+    scheduleDrilldown: 'all',
+    sourceScopeDocumentId: null,
   })
 })
 

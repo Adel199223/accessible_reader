@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 DocumentMode = Literal["original", "reflowed", "simplified", "summary"]
@@ -113,7 +113,16 @@ class KnowledgeEdge(BaseModel):
 
 
 GraphReviewStatus = Literal["suggested", "confirmed", "rejected"]
-StudyCardStatus = Literal["new", "due", "scheduled"]
+StudyCardStatus = Literal["new", "due", "scheduled", "unscheduled"]
+StudyManualCardType = Literal[
+    "short_answer",
+    "flashcard",
+    "multiple_choice",
+    "true_false",
+    "fill_in_blank",
+    "matching",
+    "ordering",
+]
 BrowserTriggerMode = Literal["selection", "page", "none"]
 
 
@@ -473,6 +482,68 @@ class BrowserRecallNoteCreateRequest(BaseModel):
     body_text: str | None = None
 
 
+StudyKnowledgeStage = Literal["new", "learning", "practiced", "confident", "mastered"]
+
+
+class StudyCardChoiceOption(BaseModel):
+    id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+
+    @field_validator("id", "text")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("Text cannot be blank.")
+        return normalized
+
+
+class StudyCardMatchingPair(BaseModel):
+    id: str = Field(min_length=1)
+    left: str = Field(min_length=1)
+    right: str = Field(min_length=1)
+
+    @field_validator("id", "left", "right")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("Text cannot be blank.")
+        return normalized
+
+
+class StudyCardOrderingItem(BaseModel):
+    id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+
+    @field_validator("id", "text")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("Text cannot be blank.")
+        return normalized
+
+
+class StudyCardQuestionPayload(BaseModel):
+    kind: Literal["multiple_choice", "true_false", "fill_in_blank", "matching", "ordering"]
+    choices: list[StudyCardChoiceOption] = Field(default_factory=list)
+    correct_choice_id: str | None = None
+    template: str | None = None
+    pairs: list[StudyCardMatchingPair] = Field(default_factory=list)
+    items: list[StudyCardOrderingItem] = Field(default_factory=list)
+
+    @field_validator("correct_choice_id", "template")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("Text cannot be blank.")
+        return normalized
+
+
 class StudyCardRecord(BaseModel):
     id: str
     source_document_id: str
@@ -486,6 +557,8 @@ class StudyCardRecord(BaseModel):
     review_count: int = Field(default=0, ge=0)
     status: StudyCardStatus = "new"
     last_rating: Literal["forgot", "hard", "good", "easy"] | None = None
+    knowledge_stage: StudyKnowledgeStage = "new"
+    question_payload: StudyCardQuestionPayload | None = None
 
 
 class StudyOverview(BaseModel):
@@ -496,6 +569,68 @@ class StudyOverview(BaseModel):
     next_due_at: str | None = None
 
 
+StudyReviewRatingLabel = Literal["forgot", "hard", "good", "easy"]
+
+
+class StudyReviewProgressDay(BaseModel):
+    date: str
+    review_count: int = Field(default=0, ge=0)
+
+
+class StudyReviewProgressRatingCount(BaseModel):
+    rating: StudyReviewRatingLabel
+    count: int = Field(default=0, ge=0)
+
+
+class StudyReviewProgressStageCount(BaseModel):
+    stage: StudyKnowledgeStage
+    count: int = Field(default=0, ge=0)
+
+
+class StudyReviewProgressStageSnapshot(BaseModel):
+    date: str
+    total_count: int = Field(default=0, ge=0)
+    stage_counts: list[StudyReviewProgressStageCount] = Field(default_factory=list)
+
+
+class StudyReviewProgressRecentReview(BaseModel):
+    id: str
+    review_card_id: str
+    source_document_id: str
+    document_title: str
+    prompt: str
+    rating: StudyReviewRatingLabel
+    reviewed_at: str
+    next_due_at: str | None = None
+
+
+class StudyReviewProgressSource(BaseModel):
+    source_document_id: str
+    document_title: str
+    review_count: int = Field(default=0, ge=0)
+    card_count: int = Field(default=0, ge=0)
+    today_count: int = Field(default=0, ge=0)
+    last_reviewed_at: str | None = None
+    dominant_knowledge_stage: StudyKnowledgeStage = "new"
+    knowledge_stage_counts: list[StudyReviewProgressStageCount] = Field(default_factory=list)
+
+
+class StudyReviewProgress(BaseModel):
+    scope_source_document_id: str | None = None
+    total_reviews: int = Field(default=0, ge=0)
+    today_count: int = Field(default=0, ge=0)
+    active_days: int = Field(default=0, ge=0)
+    current_daily_streak: int = Field(default=0, ge=0)
+    period_days: int = Field(default=14, ge=1, le=365)
+    last_reviewed_at: str | None = None
+    daily_activity: list[StudyReviewProgressDay] = Field(default_factory=list)
+    rating_counts: list[StudyReviewProgressRatingCount] = Field(default_factory=list)
+    knowledge_stage_counts: list[StudyReviewProgressStageCount] = Field(default_factory=list)
+    memory_progress: list[StudyReviewProgressStageSnapshot] = Field(default_factory=list)
+    recent_reviews: list[StudyReviewProgressRecentReview] = Field(default_factory=list)
+    source_breakdown: list[StudyReviewProgressSource] = Field(default_factory=list)
+
+
 class StudyCardGenerationResult(BaseModel):
     generated_count: int = Field(default=0, ge=0)
     total_count: int = Field(default=0, ge=0)
@@ -503,6 +638,54 @@ class StudyCardGenerationResult(BaseModel):
 
 class StudyReviewRequest(BaseModel):
     rating: Literal["forgot", "hard", "good", "easy"]
+
+
+class StudyScheduleStateRequest(BaseModel):
+    action: Literal["schedule", "unschedule"]
+
+
+class StudyCardCreateRequest(BaseModel):
+    source_document_id: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    answer: str = Field(min_length=1)
+    card_type: StudyManualCardType = "short_answer"
+    question_payload: StudyCardQuestionPayload | None = None
+
+    @field_validator("source_document_id", "prompt", "answer")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("Text cannot be blank.")
+        return normalized
+
+
+class StudyCardUpdateRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    answer: str = Field(min_length=1)
+    question_payload: StudyCardQuestionPayload | None = None
+
+    @field_validator("prompt", "answer")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("Text cannot be blank.")
+        return normalized
+
+
+class StudyCardDeleteResult(BaseModel):
+    id: str
+    deleted: bool = True
+
+
+class StudyCardBulkDeleteRequest(BaseModel):
+    card_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class StudyCardBulkDeleteResult(BaseModel):
+    deleted_ids: list[str] = Field(default_factory=list)
+    missing_ids: list[str] = Field(default_factory=list)
 
 
 class ImportTextRequest(BaseModel):

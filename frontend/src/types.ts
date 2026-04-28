@@ -101,6 +101,12 @@ export interface RecallNoteStudyPromotionRequest {
   answer: string
 }
 
+export interface StudyCardUpdateRequest {
+  prompt: string
+  answer: string
+  question_payload?: StudyCardQuestionPayload | null
+}
+
 export interface RecallNoteSearchHit {
   id: string
   anchor: RecallNoteAnchor
@@ -124,7 +130,8 @@ export interface RecallSearchHit {
 
 export type GraphReviewStatus = 'suggested' | 'confirmed' | 'rejected'
 export type RetrievalHitType = 'chunk' | 'node' | 'card' | 'note'
-export type StudyCardStatus = 'new' | 'due' | 'scheduled'
+export type StudyCardStatus = 'new' | 'due' | 'scheduled' | 'unscheduled'
+export type StudyKnowledgeStage = 'new' | 'learning' | 'practiced' | 'confident' | 'mastered'
 export type StudyReviewRating = 'forgot' | 'hard' | 'good' | 'easy'
 
 export interface KnowledgeNodeRecord {
@@ -218,6 +225,77 @@ export interface StudyCardRecord {
   review_count: number
   status: StudyCardStatus
   last_rating?: StudyReviewRating | null
+  knowledge_stage: StudyKnowledgeStage
+  question_payload?: StudyCardQuestionPayload | null
+}
+
+export type StudyManualCardType =
+  | 'short_answer'
+  | 'flashcard'
+  | 'multiple_choice'
+  | 'true_false'
+  | 'fill_in_blank'
+  | 'matching'
+  | 'ordering'
+
+export interface StudyCardChoiceOption {
+  id: string
+  text: string
+}
+
+export interface StudyCardMatchingPair {
+  id: string
+  left: string
+  right: string
+}
+
+export interface StudyCardOrderingItem {
+  id: string
+  text: string
+}
+
+export type StudyCardQuestionPayload =
+  | {
+      kind: 'multiple_choice'
+      choices: StudyCardChoiceOption[]
+      correct_choice_id: string
+    }
+  | {
+      kind: 'matching'
+      pairs: StudyCardMatchingPair[]
+    }
+  | {
+      kind: 'ordering'
+      items: StudyCardOrderingItem[]
+    }
+  | {
+      kind: 'true_false'
+      choices: StudyCardChoiceOption[]
+      correct_choice_id: 'true' | 'false'
+    }
+  | {
+      kind: 'fill_in_blank'
+      template: string
+      choices: StudyCardChoiceOption[]
+      correct_choice_id: string
+    }
+
+export interface StudyCardCreateRequest {
+  source_document_id: string
+  prompt: string
+  answer: string
+  card_type?: StudyManualCardType
+  question_payload?: StudyCardQuestionPayload | null
+}
+
+export interface StudyCardDeleteResult {
+  id: string
+  deleted: boolean
+}
+
+export interface StudyCardBulkDeleteResult {
+  deleted_ids: string[]
+  missing_ids: string[]
 }
 
 export interface StudyOverview {
@@ -226,6 +304,65 @@ export interface StudyOverview {
   scheduled_count: number
   review_event_count: number
   next_due_at?: string | null
+}
+
+export interface StudyReviewProgressDay {
+  date: string
+  review_count: number
+}
+
+export interface StudyReviewProgressRatingCount {
+  rating: StudyReviewRating
+  count: number
+}
+
+export interface StudyReviewProgressStageCount {
+  stage: StudyKnowledgeStage
+  count: number
+}
+
+export interface StudyReviewProgressStageSnapshot {
+  date: string
+  total_count: number
+  stage_counts: StudyReviewProgressStageCount[]
+}
+
+export interface StudyReviewProgressRecentReview {
+  id: string
+  review_card_id: string
+  source_document_id: string
+  document_title: string
+  prompt: string
+  rating: StudyReviewRating
+  reviewed_at: string
+  next_due_at?: string | null
+}
+
+export interface StudyReviewProgressSource {
+  source_document_id: string
+  document_title: string
+  review_count: number
+  card_count: number
+  today_count: number
+  last_reviewed_at?: string | null
+  dominant_knowledge_stage: StudyKnowledgeStage
+  knowledge_stage_counts: StudyReviewProgressStageCount[]
+}
+
+export interface StudyReviewProgress {
+  scope_source_document_id?: string | null
+  total_reviews: number
+  today_count: number
+  active_days: number
+  current_daily_streak: number
+  period_days: number
+  last_reviewed_at?: string | null
+  daily_activity: StudyReviewProgressDay[]
+  rating_counts: StudyReviewProgressRatingCount[]
+  knowledge_stage_counts: StudyReviewProgressStageCount[]
+  memory_progress: StudyReviewProgressStageSnapshot[]
+  recent_reviews: StudyReviewProgressRecentReview[]
+  source_breakdown: StudyReviewProgressSource[]
 }
 
 export interface StudyCardGenerationResult {

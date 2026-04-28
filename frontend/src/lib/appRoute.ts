@@ -6,8 +6,19 @@ export type RecallHomeMemoryFilter = 'all' | 'any' | 'notes' | 'graph' | 'study'
 export type RecallHomeViewMode = 'board' | 'list'
 export type RecallLibrarySortDirection = 'asc' | 'desc'
 export type RecallLibrarySortMode = 'updated' | 'created' | 'title' | 'manual'
-export type RecallStudyFilter = 'all' | 'new' | 'due' | 'scheduled'
+export type RecallStudyFilter = 'all' | 'new' | 'due' | 'scheduled' | 'unscheduled'
 export type RecallStudyScheduleDrilldown = 'all' | 'due-now' | 'due-this-week' | 'upcoming' | 'new' | 'reviewed'
+export type RecallStudyKnowledgeStageFilter = 'all' | 'new' | 'learning' | 'practiced' | 'confident' | 'mastered'
+export type RecallStudyReviewHistoryFilter = 'all' | 'unreviewed' | 'forgot' | 'hard' | 'good' | 'easy'
+export type RecallStudyCollectionFilter =
+  | 'all'
+  | 'collection:web'
+  | 'collection:documents'
+  | 'collection:captures'
+  | 'collection:untagged'
+  | `collection:custom:${string}`
+export type RecallStudyProgressPeriodDays = 14 | 30 | 90 | 365
+export type RecallHomeReviewFilter = RecallStudyScheduleDrilldown
 export type SourceWorkspaceTab = 'overview' | 'reader' | 'notes' | 'graph' | 'study'
 export type SourceWorkspaceMode = 'browse' | 'focused'
 export type WorkspaceSection = RecallSection | 'reader'
@@ -83,6 +94,7 @@ export interface RecallWorkspaceContinuityState {
     activeSurface: RecallLibrarySurface
     filterQuery: string
     homeMemoryFilter: RecallHomeMemoryFilter
+    homeReviewFilter: RecallHomeReviewFilter
     homeOrganizerLens: RecallHomeOrganizerLens
     homeOrganizerVisible: boolean
     homeSortDirection: RecallLibrarySortDirection
@@ -97,8 +109,12 @@ export interface RecallWorkspaceContinuityState {
   }
   study: {
     activeCardId: string | null
+    collectionFilter: RecallStudyCollectionFilter
     filter: RecallStudyFilter
+    knowledgeStageFilter: RecallStudyKnowledgeStageFilter
+    progressPeriodDays: RecallStudyProgressPeriodDays
     questionSearchQuery: string
+    reviewHistoryFilter: RecallStudyReviewHistoryFilter
     scheduleDrilldown: RecallStudyScheduleDrilldown
     sourceScopeDocumentId: string | null
   }
@@ -138,6 +154,7 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
     activeSurface: 'home',
     filterQuery: '',
     homeMemoryFilter: 'all',
+    homeReviewFilter: 'all',
     homeOrganizerLens: 'collections',
     homeOrganizerVisible: true,
     homeSortDirection: 'desc',
@@ -152,8 +169,12 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
   },
   study: {
     activeCardId: null,
+    collectionFilter: 'all',
     filter: 'all',
+    knowledgeStageFilter: 'all',
+    progressPeriodDays: 14,
     questionSearchQuery: '',
+    reviewHistoryFilter: 'all',
     scheduleDrilldown: 'all',
     sourceScopeDocumentId: null,
   },

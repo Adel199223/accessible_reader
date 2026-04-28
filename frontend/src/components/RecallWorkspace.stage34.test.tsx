@@ -194,6 +194,7 @@ const baseStudyCards: StudyCardRecord[] = [
     review_count: 0,
     status: 'due',
     last_rating: null,
+    knowledge_stage: 'new',
   },
 ]
 
@@ -210,11 +211,16 @@ const {
   fetchRecallNotesMock,
   fetchRecallStudyCardsMock,
   fetchRecallStudyOverviewMock,
+  fetchRecallStudyProgressMock,
   generateRecallStudyCardsMock,
+  bulkDeleteRecallStudyCardsMock,
+  deleteRecallStudyCardMock,
   promoteRecallNoteToGraphNodeMock,
   promoteRecallNoteToStudyCardMock,
   reviewRecallStudyCardMock,
   searchRecallNotesMock,
+  setRecallStudyCardScheduleStateMock,
+  updateRecallStudyCardMock,
   updateRecallNoteMock,
 } = vi.hoisted(() => ({
   decideRecallGraphEdgeMock: vi.fn(),
@@ -229,16 +235,23 @@ const {
   fetchRecallNotesMock: vi.fn(),
   fetchRecallStudyCardsMock: vi.fn(),
   fetchRecallStudyOverviewMock: vi.fn(),
+  fetchRecallStudyProgressMock: vi.fn(),
   generateRecallStudyCardsMock: vi.fn(),
+  bulkDeleteRecallStudyCardsMock: vi.fn(),
+  deleteRecallStudyCardMock: vi.fn(),
   promoteRecallNoteToGraphNodeMock: vi.fn(),
   promoteRecallNoteToStudyCardMock: vi.fn(),
   reviewRecallStudyCardMock: vi.fn(),
   searchRecallNotesMock: vi.fn(),
+  setRecallStudyCardScheduleStateMock: vi.fn(),
+  updateRecallStudyCardMock: vi.fn(),
   updateRecallNoteMock: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
   buildRecallExportUrl: vi.fn((documentId: string) => `/api/recall/documents/${documentId}/export.md`),
+  bulkDeleteRecallStudyCards: bulkDeleteRecallStudyCardsMock,
+  deleteRecallStudyCard: deleteRecallStudyCardMock,
   deleteRecallNote: deleteRecallNoteMock,
   decideRecallGraphEdge: decideRecallGraphEdgeMock,
   decideRecallGraphNode: decideRecallGraphNodeMock,
@@ -251,11 +264,14 @@ vi.mock('../api', () => ({
   fetchRecallNotes: fetchRecallNotesMock,
   fetchRecallStudyCards: fetchRecallStudyCardsMock,
   fetchRecallStudyOverview: fetchRecallStudyOverviewMock,
+  fetchRecallStudyProgress: fetchRecallStudyProgressMock,
   generateRecallStudyCards: generateRecallStudyCardsMock,
   promoteRecallNoteToGraphNode: promoteRecallNoteToGraphNodeMock,
   promoteRecallNoteToStudyCard: promoteRecallNoteToStudyCardMock,
   reviewRecallStudyCard: reviewRecallStudyCardMock,
   searchRecallNotes: searchRecallNotesMock,
+  setRecallStudyCardScheduleState: setRecallStudyCardScheduleStateMock,
+  updateRecallStudyCard: updateRecallStudyCardMock,
   updateRecallNote: updateRecallNoteMock,
 }))
 
@@ -277,7 +293,12 @@ beforeEach(() => {
   fetchRecallNotesMock.mockReset()
   fetchRecallStudyCardsMock.mockReset()
   fetchRecallStudyOverviewMock.mockReset()
+  fetchRecallStudyProgressMock.mockReset()
   searchRecallNotesMock.mockReset()
+  bulkDeleteRecallStudyCardsMock.mockReset()
+  deleteRecallStudyCardMock.mockReset()
+  setRecallStudyCardScheduleStateMock.mockReset()
+  updateRecallStudyCardMock.mockReset()
   updateRecallNoteMock.mockReset()
   deleteRecallNoteMock.mockReset()
   promoteRecallNoteToGraphNodeMock.mockReset()
@@ -300,10 +321,39 @@ beforeEach(() => {
   fetchRecallGraphMock.mockImplementation(async () => baseRecallGraph)
   fetchRecallGraphNodeMock.mockImplementation(async () => baseNodeDetail)
   fetchRecallStudyOverviewMock.mockImplementation(async () => baseStudyOverview)
+  fetchRecallStudyProgressMock.mockImplementation(async () => ({
+    scope_source_document_id: null,
+    total_reviews: 0,
+    today_count: 0,
+    active_days: 0,
+    current_daily_streak: 0,
+    period_days: 14,
+    last_reviewed_at: null,
+    daily_activity: [],
+    rating_counts: [
+      { rating: 'forgot', count: 0 },
+      { rating: 'hard', count: 0 },
+      { rating: 'good', count: 0 },
+      { rating: 'easy', count: 0 },
+    ],
+    knowledge_stage_counts: [
+      { stage: 'new', count: 1 },
+      { stage: 'learning', count: 0 },
+      { stage: 'practiced', count: 0 },
+      { stage: 'confident', count: 0 },
+      { stage: 'mastered', count: 0 },
+    ],
+    recent_reviews: [],
+    source_breakdown: [],
+  }))
   fetchRecallStudyCardsMock.mockImplementation(async () => baseStudyCards)
   fetchDocumentViewMock.mockImplementation(async (documentId: string, mode: string) => views[`${documentId}:${mode}`])
   generateRecallStudyCardsMock.mockImplementation(async () => ({ generated_count: 0, total_count: baseStudyCards.length }))
   reviewRecallStudyCardMock.mockImplementation(async () => baseStudyCards[0])
+  setRecallStudyCardScheduleStateMock.mockImplementation(async () => baseStudyCards[0])
+  updateRecallStudyCardMock.mockImplementation(async () => baseStudyCards[0])
+  deleteRecallStudyCardMock.mockImplementation(async (cardId: string) => ({ id: cardId, deleted: true }))
+  bulkDeleteRecallStudyCardsMock.mockImplementation(async (cardIds: string[]) => ({ deleted_ids: cardIds, missing_ids: [] }))
 })
 
 function makeContinuityState(section: RecallSection): RecallWorkspaceContinuityState {
@@ -344,8 +394,12 @@ function makeContinuityState(section: RecallSection): RecallWorkspaceContinuityS
     },
     study: {
       activeCardId: 'card-1',
+      collectionFilter: 'all',
       filter: 'all',
+      knowledgeStageFilter: 'all',
+      progressPeriodDays: 14,
       questionSearchQuery: '',
+      reviewHistoryFilter: 'all',
       scheduleDrilldown: 'all',
       sourceScopeDocumentId: null,
     },
@@ -421,6 +475,19 @@ test('focused Home overview marks the condensed rail hook when the drawer is clo
   expect(homeSection?.parentElement).toHaveClass('recall-overview-focus-layout-condensed')
   expect(homeSection?.querySelector('.recall-overview-focus-summary-card')).not.toBeNull()
   expect(homeSection?.querySelector('.recall-overview-focus-summary-meta')).not.toBeNull()
+})
+
+test('Study missing custom collection subset falls back to all questions', async () => {
+  const continuityState = makeContinuityState('study')
+  continuityState.browseDrawers.study = true
+  continuityState.study.collectionFilter = 'collection:custom:missing'
+
+  renderHarness('study', continuityState)
+
+  await waitFor(() => {
+    expect(document.querySelector('[data-study-collection-filter-chip-stage930="true"]')).toBeNull()
+    expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
+  })
 })
 
 test('focused Notebook without an active note mark the empty-detail collapse hook and keep guidance in the rail', async () => {

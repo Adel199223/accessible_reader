@@ -18,6 +18,9 @@ import {
 
 import {
   buildRecallExportUrl,
+  bulkDeleteRecallStudyCards,
+  createRecallStudyCard,
+  deleteRecallStudyCard,
   deleteRecallNote,
   decideRecallGraphEdge,
   decideRecallGraphNode,
@@ -31,17 +34,21 @@ import {
   fetchRecallGraphNode,
   fetchRecallStudyCards,
   fetchRecallStudyOverview,
+  fetchRecallStudyProgress,
   generateRecallStudyCards,
   promoteRecallNoteToGraphNode,
   promoteRecallNoteToStudyCard,
   searchRecallNotes,
   reviewRecallStudyCard,
+  setRecallStudyCardScheduleState,
+  updateRecallStudyCard,
   updateRecallNote,
 } from '../api'
 import type {
   ReaderAnchorRange,
   RecallHomeMemoryFilter,
   RecallHomeOrganizerLens,
+  RecallHomeReviewFilter,
   RecallHomeViewMode,
   RecallLibrarySurface,
   RecallLibrarySortDirection,
@@ -50,7 +57,11 @@ import type {
   SourceWorkspaceTab,
   WorkspaceDockAction,
   WorkspaceDockContext,
+  RecallStudyCollectionFilter,
   RecallStudyFilter,
+  RecallStudyKnowledgeStageFilter,
+  RecallStudyProgressPeriodDays,
+  RecallStudyReviewHistoryFilter,
   RecallStudyScheduleDrilldown,
   RecallWorkspaceContinuityState,
   RecallWorkspaceFocusRequest,
@@ -76,9 +87,20 @@ import type {
   RecallNoteRecord,
   RecallNoteSearchHit,
   ReaderSettings,
+  StudyCardChoiceOption,
+  StudyCardCreateRequest,
+  StudyCardMatchingPair,
+  StudyCardOrderingItem,
+  StudyCardQuestionPayload,
   StudyCardRecord,
+  StudyCardUpdateRequest,
+  StudyKnowledgeStage,
+  StudyManualCardType,
   RecallNoteStudyPromotionRequest,
   StudyOverview,
+  StudyReviewProgress,
+  StudyReviewProgressRecentReview,
+  StudyReviewProgressSource,
   StudyReviewRating,
   ViewMode,
 } from '../types'
@@ -116,6 +138,51 @@ interface RecallWorkspaceProps {
   section: RecallSection
 }
 type LoadState = 'idle' | 'loading' | 'success' | 'error'
+
+type StudyCardEditDraft = {
+  answer: string
+  blankTemplate: string
+  cardId: string
+  cardType: StudyManualCardType | string
+  choices: StudyCardChoiceOption[]
+  correctChoiceId: string
+  matchingPairs: StudyCardMatchingPair[]
+  orderingItems: StudyCardOrderingItem[]
+  prompt: string
+  surface: 'active' | 'row'
+}
+
+type StudyCardCreateDraft = {
+  answer: string
+  blankTemplate: string
+  cardType: StudyManualCardType
+  choices: StudyCardChoiceOption[]
+  correctChoiceId: string
+  matchingPairs: StudyCardMatchingPair[]
+  orderingItems: StudyCardOrderingItem[]
+  prompt: string
+  sourceDocumentId: string
+  surface: 'dashboard' | 'desktop' | 'focused'
+}
+
+type StudyChoiceReviewAttempt = {
+  revealed: boolean
+  selectedChoiceId: string | null
+}
+
+type StudyShortAnswerReviewAttempt = {
+  value: string
+}
+
+type StudyMatchingReviewAttempt = {
+  revealed: boolean
+  selections: Record<string, string>
+}
+
+type StudyOrderingReviewAttempt = {
+  revealed: boolean
+  itemIds: string[]
+}
 
 interface SourceMemoryTextMatch {
   id: string
@@ -220,6 +287,331 @@ function clampHomeOrganizerRailWidth(width: number) {
 
 function formatStudyStatus(status: string) {
   return status.slice(0, 1).toUpperCase() + status.slice(1)
+}
+
+function formatStudyCardTypeLabel(cardType: string) {
+  if (cardType === 'short_answer') {
+    return 'Short answer'
+  }
+  if (cardType === 'flashcard') {
+    return 'Flashcard'
+  }
+  if (cardType === 'multiple_choice') {
+    return 'Multiple choice'
+  }
+  if (cardType === 'true_false') {
+    return 'True/false'
+  }
+  if (cardType === 'fill_in_blank') {
+    return 'Fill in the blank'
+  }
+  if (cardType === 'matching') {
+    return 'Matching'
+  }
+  if (cardType === 'ordering') {
+    return 'Ordering'
+  }
+  if (cardType === 'manual_note') {
+    return 'Source note'
+  }
+  return cardType.replace(/_/g, ' ')
+}
+
+const STUDY_TRUE_FALSE_CHOICES: StudyCardChoiceOption[] = [
+  { id: 'true', text: 'True' },
+  { id: 'false', text: 'False' },
+]
+
+function makeDefaultStudyChoiceOptions(): StudyCardChoiceOption[] {
+  return [
+    { id: 'choice-a', text: '' },
+    { id: 'choice-b', text: '' },
+    { id: 'choice-c', text: '' },
+    { id: 'choice-d', text: '' },
+  ]
+}
+
+function makeDefaultStudyMatchingPairs(): StudyCardMatchingPair[] {
+  return [
+    { id: 'pair-a', left: '', right: '' },
+    { id: 'pair-b', left: '', right: '' },
+    { id: 'pair-c', left: '', right: '' },
+  ]
+}
+
+function makeDefaultStudyOrderingItems(): StudyCardOrderingItem[] {
+  return [
+    { id: 'item-a', text: '' },
+    { id: 'item-b', text: '' },
+    { id: 'item-c', text: '' },
+  ]
+}
+
+function isStudyChoiceCardType(cardType: string): cardType is 'multiple_choice' | 'true_false' | 'fill_in_blank' {
+  return cardType === 'multiple_choice' || cardType === 'true_false' || cardType === 'fill_in_blank'
+}
+
+function isStudyStructuredCardType(
+  cardType: string,
+): cardType is 'multiple_choice' | 'true_false' | 'fill_in_blank' | 'matching' | 'ordering' {
+  return isStudyChoiceCardType(cardType) || cardType === 'matching' || cardType === 'ordering'
+}
+
+function isStudyShortAnswerCardType(cardType: string) {
+  return cardType === 'short_answer'
+}
+
+function isStudyMatchingCardType(cardType: string) {
+  return cardType === 'matching'
+}
+
+function isStudyOrderingCardType(cardType: string) {
+  return cardType === 'ordering'
+}
+
+function getStudyCardQuestionPayload(card: StudyCardRecord): StudyCardQuestionPayload | null {
+  return card.question_payload ?? (card.scheduling_state.manual_question_payload as StudyCardQuestionPayload | undefined) ?? null
+}
+
+function getStudyChoiceOptionsFromCard(card: StudyCardRecord) {
+  const payload = getStudyCardQuestionPayload(card)
+  return payload?.kind === 'multiple_choice' || payload?.kind === 'true_false' || payload?.kind === 'fill_in_blank'
+    ? payload.choices
+    : []
+}
+
+function getStudyChoiceCorrectChoiceId(card: StudyCardRecord) {
+  const payload = getStudyCardQuestionPayload(card)
+  return payload?.kind === 'multiple_choice' || payload?.kind === 'true_false' || payload?.kind === 'fill_in_blank'
+    ? payload.correct_choice_id
+    : ''
+}
+
+function getStudyFillBlankTemplate(card: StudyCardRecord) {
+  const payload = getStudyCardQuestionPayload(card)
+  return payload?.kind === 'fill_in_blank' ? payload.template : ''
+}
+
+function getStudyChoiceTexts(card: StudyCardRecord) {
+  const payload = getStudyCardQuestionPayload(card)
+  return [
+    payload?.kind === 'fill_in_blank' ? payload.template : '',
+    ...getStudyChoiceOptionsFromCard(card).map((choice) => choice.text),
+    ...(payload?.kind === 'matching' ? payload.pairs.flatMap((pair) => [pair.left, pair.right]) : []),
+    ...(payload?.kind === 'ordering' ? payload.items.map((item) => item.text) : []),
+  ].filter(Boolean)
+}
+
+function getStudyChoiceSummary(card: StudyCardRecord) {
+  const payload = getStudyCardQuestionPayload(card)
+  const choices = getStudyChoiceOptionsFromCard(card)
+  if (payload?.kind === 'matching') {
+    return payload.pairs.map((pair) => `${pair.left} -> ${pair.right}`).join(' / ')
+  }
+  if (payload?.kind === 'ordering') {
+    return payload.items.map((item, index) => `${index + 1}. ${item.text}`).join(' / ')
+  }
+  if (payload?.kind === 'fill_in_blank') {
+    const choiceSummary = choices.map((choice) => choice.text).join(' / ')
+    return choiceSummary ? `${payload.template} · ${choiceSummary}` : payload.template
+  }
+  if (!choices.length) {
+    return ''
+  }
+  return choices.map((choice) => choice.text).join(' / ')
+}
+
+function choiceOptionLabel(index: number) {
+  return String.fromCharCode(65 + index)
+}
+
+function getStudyMatchingPairsFromCard(card: StudyCardRecord) {
+  const payload = getStudyCardQuestionPayload(card)
+  return payload?.kind === 'matching' ? payload.pairs : []
+}
+
+function getStudyOrderingItemsFromCard(card: StudyCardRecord) {
+  const payload = getStudyCardQuestionPayload(card)
+  return payload?.kind === 'ordering' ? payload.items : []
+}
+
+function normalizeStudyAttemptText(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function buildStudyQuestionPayloadFromDraft(
+  cardType: string,
+  answer: string,
+  blankTemplate: string,
+  choices: StudyCardChoiceOption[],
+  correctChoiceId: string,
+  matchingPairs: StudyCardMatchingPair[],
+  orderingItems: StudyCardOrderingItem[],
+): { answer: string; error: string | null; questionPayload: StudyCardQuestionPayload | null } {
+  const trimmedAnswer = answer.trim()
+  if (cardType === 'multiple_choice') {
+    const normalizedChoices = choices.map((choice, index) => ({
+      id: choice.id || `choice-${index + 1}`,
+      text: choice.text.trim(),
+    }))
+    if (normalizedChoices.some((choice) => !choice.text)) {
+      return { answer: '', error: 'Multiple-choice options cannot be blank.', questionPayload: null }
+    }
+    if (normalizedChoices.length < 2 || normalizedChoices.length > 6) {
+      return { answer: '', error: 'Multiple-choice questions need 2 to 6 options.', questionPayload: null }
+    }
+    const uniqueTexts = new Set(normalizedChoices.map((choice) => choice.text.toLowerCase()))
+    if (uniqueTexts.size !== normalizedChoices.length) {
+      return { answer: '', error: 'Multiple-choice options need unique text.', questionPayload: null }
+    }
+    const correctChoice = normalizedChoices.find((choice) => choice.id === correctChoiceId) ?? null
+    if (!correctChoice) {
+      return { answer: '', error: 'Choose the correct multiple-choice option.', questionPayload: null }
+    }
+    return {
+      answer: correctChoice.text,
+      error: null,
+      questionPayload: {
+        kind: 'multiple_choice',
+        choices: normalizedChoices,
+        correct_choice_id: correctChoice.id,
+      },
+    }
+  }
+  if (cardType === 'true_false') {
+    const normalizedCorrectChoiceId = correctChoiceId === 'false' ? 'false' : 'true'
+    return {
+      answer: normalizedCorrectChoiceId === 'true' ? 'True' : 'False',
+      error: null,
+      questionPayload: {
+        kind: 'true_false',
+        choices: STUDY_TRUE_FALSE_CHOICES,
+        correct_choice_id: normalizedCorrectChoiceId,
+      },
+    }
+  }
+  if (cardType === 'fill_in_blank') {
+    const template = blankTemplate.trim().replace(/\s+/g, ' ')
+    if ((template.match(/\{\{blank\}\}/g) ?? []).length !== 1) {
+      return { answer: '', error: 'Fill-in-the-blank questions need exactly one {{blank}} marker.', questionPayload: null }
+    }
+    const normalizedChoices = choices.map((choice, index) => ({
+      id: choice.id || `choice-${index + 1}`,
+      text: choice.text.trim(),
+    }))
+    if (normalizedChoices.some((choice) => !choice.text)) {
+      return { answer: '', error: 'Fill-in-the-blank options cannot be blank.', questionPayload: null }
+    }
+    if (normalizedChoices.length < 2 || normalizedChoices.length > 6) {
+      return { answer: '', error: 'Fill-in-the-blank questions need 2 to 6 options.', questionPayload: null }
+    }
+    const uniqueTexts = new Set(normalizedChoices.map((choice) => choice.text.toLowerCase()))
+    if (uniqueTexts.size !== normalizedChoices.length) {
+      return { answer: '', error: 'Fill-in-the-blank options need unique text.', questionPayload: null }
+    }
+    const correctChoice = normalizedChoices.find((choice) => choice.id === correctChoiceId) ?? null
+    if (!correctChoice) {
+      return { answer: '', error: 'Choose the correct fill-in-the-blank option.', questionPayload: null }
+    }
+    return {
+      answer: correctChoice.text,
+      error: null,
+      questionPayload: {
+        kind: 'fill_in_blank',
+        template,
+        choices: normalizedChoices,
+        correct_choice_id: correctChoice.id,
+      },
+    }
+  }
+  if (cardType === 'matching') {
+    const normalizedPairs = matchingPairs.map((pair, index) => ({
+      id: pair.id || `pair-${index + 1}`,
+      left: pair.left.trim(),
+      right: pair.right.trim(),
+    }))
+    if (normalizedPairs.some((pair) => !pair.left || !pair.right)) {
+      return { answer: '', error: 'Matching pairs need both left and right text.', questionPayload: null }
+    }
+    if (normalizedPairs.length < 2 || normalizedPairs.length > 8) {
+      return { answer: '', error: 'Matching questions need 2 to 8 pairs.', questionPayload: null }
+    }
+    const uniqueIds = new Set(normalizedPairs.map((pair) => pair.id))
+    const uniqueLeft = new Set(normalizedPairs.map((pair) => pair.left.toLowerCase()))
+    const uniqueRight = new Set(normalizedPairs.map((pair) => pair.right.toLowerCase()))
+    if (
+      uniqueIds.size !== normalizedPairs.length ||
+      uniqueLeft.size !== normalizedPairs.length ||
+      uniqueRight.size !== normalizedPairs.length
+    ) {
+      return { answer: '', error: 'Matching pairs need unique left and right text.', questionPayload: null }
+    }
+    return {
+      answer: normalizedPairs.map((pair) => `${pair.left} -> ${pair.right}`).join('; '),
+      error: null,
+      questionPayload: {
+        kind: 'matching',
+        pairs: normalizedPairs,
+      },
+    }
+  }
+  if (cardType === 'ordering') {
+    const normalizedItems = orderingItems.map((item, index) => ({
+      id: item.id || `item-${index + 1}`,
+      text: item.text.trim(),
+    }))
+    if (normalizedItems.some((item) => !item.text)) {
+      return { answer: '', error: 'Ordering items cannot be blank.', questionPayload: null }
+    }
+    if (normalizedItems.length < 2 || normalizedItems.length > 8) {
+      return { answer: '', error: 'Ordering questions need 2 to 8 items.', questionPayload: null }
+    }
+    const uniqueIds = new Set(normalizedItems.map((item) => item.id))
+    const uniqueTexts = new Set(normalizedItems.map((item) => item.text.toLowerCase()))
+    if (uniqueIds.size !== normalizedItems.length || uniqueTexts.size !== normalizedItems.length) {
+      return { answer: '', error: 'Ordering items need unique text.', questionPayload: null }
+    }
+    return {
+      answer: normalizedItems.map((item) => item.text).join('; '),
+      error: null,
+      questionPayload: {
+        kind: 'ordering',
+        items: normalizedItems,
+      },
+    }
+  }
+  if (!trimmedAnswer) {
+    return { answer: '', error: 'Study questions need both a prompt and an answer.', questionPayload: null }
+  }
+  return { answer: trimmedAnswer, error: null, questionPayload: null }
+}
+
+function isStudyQuestionDraftAnswerReady(
+  cardType: string,
+  answer: string,
+  blankTemplate: string,
+  choices: StudyCardChoiceOption[],
+  correctChoiceId: string,
+  matchingPairs: StudyCardMatchingPair[],
+  orderingItems: StudyCardOrderingItem[],
+) {
+  return buildStudyQuestionPayloadFromDraft(
+    cardType,
+    answer,
+    blankTemplate,
+    choices,
+    correctChoiceId,
+    matchingPairs,
+    orderingItems,
+  ).error === null
+}
+
+function getStudyScheduleStateAction(card: StudyCardRecord): 'schedule' | 'unschedule' {
+  return card.status === 'scheduled' || card.status === 'unscheduled' ? 'schedule' : 'unschedule'
+}
+
+function getStudyScheduleStateActionLabel(card: StudyCardRecord) {
+  return getStudyScheduleStateAction(card) === 'schedule' ? 'Schedule' : 'Unschedule'
 }
 
 function formatCountLabel(count: number, singular: string, plural: string) {
@@ -951,6 +1343,12 @@ interface StudySourceScheduleRow extends SourceStudyReviewSummary {
   title: string
 }
 
+interface StudyCollectionSubsetRow extends SourceStudyReviewSummary {
+  customCollectionId: string | null
+  filter: Exclude<RecallStudyCollectionFilter, 'all'>
+  label: string
+}
+
 const HOME_MEMORY_FILTER_OPTIONS: Array<{
   key: RecallHomeMemoryFilter
   label: string
@@ -961,6 +1359,58 @@ const HOME_MEMORY_FILTER_OPTIONS: Array<{
   { key: 'graph', label: 'Graph' },
   { key: 'study', label: 'Study' },
 ]
+
+const HOME_REVIEW_FILTER_OPTIONS: Array<{
+  key: RecallHomeReviewFilter
+  label: string
+}> = [
+  { key: 'all', label: 'All' },
+  { key: 'due-now', label: 'Due now' },
+  { key: 'due-this-week', label: 'This week' },
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'new', label: 'New' },
+  { key: 'reviewed', label: 'Reviewed' },
+]
+
+const STUDY_REVIEW_RATING_LABELS: Record<StudyReviewRating, string> = {
+  easy: 'Easy',
+  forgot: 'Forgot',
+  good: 'Good',
+  hard: 'Hard',
+}
+
+const STUDY_REVIEW_HISTORY_FILTER_OPTIONS: Array<{
+  key: RecallStudyReviewHistoryFilter
+  label: string
+}> = [
+  { key: 'all', label: 'All history' },
+  { key: 'unreviewed', label: 'Unreviewed' },
+  { key: 'forgot', label: 'Forgot' },
+  { key: 'hard', label: 'Hard' },
+  { key: 'good', label: 'Good' },
+  { key: 'easy', label: 'Easy' },
+]
+
+const STUDY_KNOWLEDGE_STAGE_OPTIONS: Array<{
+  key: Exclude<RecallStudyKnowledgeStageFilter, 'all'>
+  label: string
+}> = [
+  { key: 'new', label: 'New' },
+  { key: 'learning', label: 'Learning' },
+  { key: 'practiced', label: 'Practiced' },
+  { key: 'confident', label: 'Confident' },
+  { key: 'mastered', label: 'Mastered' },
+]
+
+const STUDY_KNOWLEDGE_STAGE_LABELS: Record<StudyKnowledgeStage, string> = {
+  confident: 'Confident',
+  learning: 'Learning',
+  mastered: 'Mastered',
+  new: 'New',
+  practiced: 'Practiced',
+}
+
+const STUDY_PROGRESS_PERIOD_OPTIONS: RecallStudyProgressPeriodDays[] = [14, 30, 90, 365]
 
 interface LibraryBrowseSection {
   description: string
@@ -1028,6 +1478,10 @@ function getHomeMemoryFilterLabel(filter: RecallHomeMemoryFilter) {
   return HOME_MEMORY_FILTER_OPTIONS.find((option) => option.key === filter)?.label ?? 'All'
 }
 
+function getHomeReviewFilterLabel(filter: RecallHomeReviewFilter) {
+  return HOME_REVIEW_FILTER_OPTIONS.find((option) => option.key === filter)?.label ?? 'All'
+}
+
 function sourceMatchesHomeMemoryFilter(summary: HomeSourceMemorySummary | undefined, filter: RecallHomeMemoryFilter) {
   if (filter === 'all') {
     return true
@@ -1045,6 +1499,28 @@ function sourceMatchesHomeMemoryFilter(summary: HomeSourceMemorySummary | undefi
     return summary.graphNodeCount > 0
   }
   return summary.studyCardCount > 0
+}
+
+function sourceMatchesHomeReviewFilter(summary: SourceStudyReviewSummary | undefined, filter: RecallHomeReviewFilter) {
+  if (filter === 'all') {
+    return true
+  }
+  if (!summary) {
+    return false
+  }
+  if (filter === 'due-now') {
+    return summary.dueCount > 0
+  }
+  if (filter === 'due-this-week') {
+    return summary.dueThisWeekCount > 0
+  }
+  if (filter === 'upcoming') {
+    return summary.upcomingCount > 0
+  }
+  if (filter === 'new') {
+    return summary.newCount > 0
+  }
+  return summary.reviewedCount > 0
 }
 
 function buildHomeCustomCollectionSectionKey(collectionId: string): CustomCollectionSectionKey {
@@ -1160,6 +1636,68 @@ const HOME_COLLECTION_SECTION_META: Array<{
     priority: 2,
   },
 ]
+
+const STUDY_STATIC_COLLECTION_FILTERS: Array<Exclude<RecallStudyCollectionFilter, 'all' | `collection:custom:${string}`>> = [
+  'collection:web',
+  'collection:documents',
+  'collection:captures',
+  'collection:untagged',
+]
+
+function getStudyCustomCollectionFilterId(filter: RecallStudyCollectionFilter) {
+  return filter.startsWith('collection:custom:') ? filter.slice('collection:custom:'.length) : null
+}
+
+function formatStudyCollectionFilterLabel(
+  filter: RecallStudyCollectionFilter,
+  customCollections: HomeCustomCollection[],
+) {
+  if (filter === 'all') {
+    return 'All subsets'
+  }
+  if (filter === 'collection:untagged') {
+    return 'Untagged'
+  }
+
+  const staticSection = HOME_COLLECTION_SECTION_META.find((section) => section.key === filter)
+  if (staticSection) {
+    return staticSection.label
+  }
+
+  const customCollectionId = getStudyCustomCollectionFilterId(filter)
+  const customCollection = customCollectionId
+    ? customCollections.find((collection) => collection.id === customCollectionId)
+    : null
+  return customCollection?.name.trim() || 'Missing collection'
+}
+
+function studyCardMatchesCollectionFilter(
+  card: StudyCardRecord,
+  filter: RecallStudyCollectionFilter,
+  documentById: Map<string, RecallDocumentRecord>,
+  customCollections: HomeCustomCollection[],
+) {
+  if (filter === 'all') {
+    return true
+  }
+
+  const customCollectionId = getStudyCustomCollectionFilterId(filter)
+  if (customCollectionId) {
+    return Boolean(
+      customCollections
+        .find((collection) => collection.id === customCollectionId)
+        ?.documentIds.includes(card.source_document_id),
+    )
+  }
+
+  if (filter === 'collection:untagged') {
+    return !customCollections.some((collection) => collection.documentIds.includes(card.source_document_id))
+  }
+
+  const document = documentById.get(card.source_document_id)
+  const staticSection = HOME_COLLECTION_SECTION_META.find((section) => section.key === filter)
+  return Boolean(document && staticSection?.matches(document))
+}
 
 interface GraphCanvasNodeLayout {
   emphasis: 'ambient' | 'focus' | 'linked'
@@ -2077,6 +2615,10 @@ function getGraphMentionEvidenceKindLabel(mention: KnowledgeMentionRecord) {
 }
 
 function getStudyCardPreview(card: StudyCardRecord) {
+  if (isStudyChoiceCardType(card.card_type)) {
+    const summary = getStudyChoiceSummary(card)
+    return summary ? `${formatStudyCardTypeLabel(card.card_type)}: ${summary}` : `${formatStudyCardTypeLabel(card.card_type)} question.`
+  }
   const sourceNoteSpan = card.source_spans.find(isSourceNoteSourceSpan)
   if (sourceNoteSpan) {
     return `Source note from ${card.document_title}: ${getStudyEvidenceExcerpt(sourceNoteSpan)}`
@@ -2116,6 +2658,14 @@ function getStudyReviewPriority(status: string) {
   return 3
 }
 
+function isStudyCardReviewEligible(card: StudyCardRecord) {
+  return card.status === 'due' || card.status === 'new'
+}
+
+function getReviewEligibleStudyCards(cards: StudyCardRecord[]) {
+  return cards.filter(isStudyCardReviewEligible)
+}
+
 function orderStudyCardsForReviewQueue(cards: StudyCardRecord[]) {
   return [...cards].sort((left, right) => {
     const priorityDelta = getStudyReviewPriority(left.status) - getStudyReviewPriority(right.status)
@@ -2132,7 +2682,8 @@ function orderStudyCardsForReviewQueue(cards: StudyCardRecord[]) {
 }
 
 function buildStudyScopeOverview(cards: StudyCardRecord[]): StudyOverview {
-  const nextDueAt = cards
+  const scheduledCards = cards.filter((card) => card.status !== 'unscheduled')
+  const nextDueAt = scheduledCards
     .map((card) => new Date(card.due_at).getTime())
     .filter(Number.isFinite)
     .sort((left, right) => left - right)[0]
@@ -2149,7 +2700,8 @@ function buildSourceStudyReviewSummary(cards: StudyCardRecord[], now = new Date(
   const nowTime = now.getTime()
   const weekEndTime = nowTime + 7 * 24 * 60 * 60 * 1000
   const scheduledCards = cards.filter((card) => card.status === 'scheduled')
-  const nextDueAt = cards
+  const reviewScheduledCards = cards.filter((card) => card.status !== 'unscheduled')
+  const nextDueAt = reviewScheduledCards
     .map((card) => new Date(card.due_at).getTime())
     .filter(Number.isFinite)
     .sort((left, right) => left - right)[0]
@@ -2163,11 +2715,44 @@ function buildSourceStudyReviewSummary(cards: StudyCardRecord[], now = new Date(
     dueThisWeekCount,
     newCount: cards.filter((card) => card.status === 'new').length,
     nextDueAt: Number.isFinite(nextDueAt) ? new Date(nextDueAt).toISOString() : null,
-    reviewedCount: cards.filter((card) => card.review_count > 0).length,
+    reviewedCount: reviewScheduledCards.filter((card) => card.review_count > 0).length,
     scheduledCount: scheduledCards.length,
     totalCount: cards.length,
     upcomingCount: scheduledCards.length - dueThisWeekCount,
   }
+}
+
+function buildStudyCollectionSubsetRows(
+  cards: StudyCardRecord[],
+  documentById: Map<string, RecallDocumentRecord>,
+  customCollections: HomeCustomCollection[],
+): StudyCollectionSubsetRow[] {
+  const staticRows = STUDY_STATIC_COLLECTION_FILTERS.map((filter) => {
+    const subsetCards = cards.filter((card) =>
+      studyCardMatchesCollectionFilter(card, filter, documentById, customCollections),
+    )
+    return {
+      ...buildSourceStudyReviewSummary(subsetCards),
+      customCollectionId: null,
+      filter,
+      label: formatStudyCollectionFilterLabel(filter, customCollections),
+    }
+  })
+
+  const customRows = customCollections.map((collection) => {
+    const filter = buildHomeCustomCollectionSectionKey(collection.id)
+    const subsetCards = cards.filter((card) =>
+      studyCardMatchesCollectionFilter(card, filter, documentById, customCollections),
+    )
+    return {
+      ...buildSourceStudyReviewSummary(subsetCards),
+      customCollectionId: collection.id,
+      filter,
+      label: collection.name.trim() || 'Untitled collection',
+    }
+  })
+
+  return [...staticRows, ...customRows]
 }
 
 function isStudyCardDueThisWeek(card: StudyCardRecord, now = new Date()) {
@@ -2190,6 +2775,9 @@ function studyCardMatchesScheduleDrilldown(
   if (drilldown === 'all') {
     return true
   }
+  if (card.status === 'unscheduled') {
+    return false
+  }
   if (drilldown === 'due-now') {
     return card.status === 'due'
   }
@@ -2203,6 +2791,19 @@ function studyCardMatchesScheduleDrilldown(
     return card.status === 'new'
   }
   return card.review_count > 0
+}
+
+function studyCardMatchesReviewHistoryFilter(
+  card: StudyCardRecord,
+  filter: RecallStudyReviewHistoryFilter,
+) {
+  if (filter === 'all') {
+    return true
+  }
+  if (filter === 'unreviewed') {
+    return card.review_count === 0
+  }
+  return card.last_rating === filter
 }
 
 function formatStudyScheduleDrilldownLabel(drilldown: RecallStudyScheduleDrilldown) {
@@ -2222,6 +2823,37 @@ function formatStudyScheduleDrilldownLabel(drilldown: RecallStudyScheduleDrilldo
     return 'Reviewed'
   }
   return 'All'
+}
+
+function formatStudyProgressPeriodLabel(period: RecallStudyProgressPeriodDays) {
+  if (period === 365) {
+    return '1y'
+  }
+  return `${period}d`
+}
+
+function getStudyProgressCalendarLevel(reviewCount: number, maxReviewCount: number) {
+  if (reviewCount <= 0) {
+    return 0
+  }
+  return Math.max(1, Math.min(4, Math.ceil((reviewCount / Math.max(1, maxReviewCount)) * 4)))
+}
+
+function formatStudyKnowledgeStageLabel(stage: RecallStudyKnowledgeStageFilter) {
+  if (stage === 'all') {
+    return 'All stages'
+  }
+  return STUDY_KNOWLEDGE_STAGE_LABELS[stage]
+}
+
+function formatStudyReviewHistoryFilterLabel(filter: RecallStudyReviewHistoryFilter) {
+  if (filter === 'all') {
+    return 'All history'
+  }
+  if (filter === 'unreviewed') {
+    return 'Unreviewed'
+  }
+  return STUDY_REVIEW_RATING_LABELS[filter]
 }
 
 function sortStudySourceScheduleRows(left: StudySourceScheduleRow, right: StudySourceScheduleRow) {
@@ -2342,6 +2974,7 @@ function studyCardMatchesSourceMemorySearch(card: StudyCardRecord, normalizedQue
       card.answer,
       card.status,
       card.card_type,
+      ...getStudyChoiceTexts(card),
       ...card.source_spans.flatMap((sourceSpan) => [
         getStudyEvidenceExcerpt(sourceSpan),
         getStudyEvidenceLabel(sourceSpan),
@@ -2364,6 +2997,8 @@ function studyCardMatchesQuestionSearch(card: StudyCardRecord, normalizedQuery: 
       card.status,
       formatStudyStatus(card.status),
       card.card_type,
+      formatStudyCardTypeLabel(card.card_type),
+      ...getStudyChoiceTexts(card),
       getStudyCardPreview(card),
       ...card.source_spans.flatMap((sourceSpan) => [
         getStudyEvidenceExcerpt(sourceSpan),
@@ -2565,6 +3200,7 @@ export function RecallWorkspace({
   const graphNodeDragSuppressClickRef = useRef(false)
   const graphLastHandledFitRequestKeyRef = useRef(0)
   const sourceMemorySearchInputRef = useRef<HTMLInputElement | null>(null)
+  const studyQuestionSelectionScopeKeyRef = useRef<string | null>(null)
   const [graphViewport, setGraphViewport] = useState<GraphCanvasViewportState>({
     offsetX: 0,
     offsetY: 0,
@@ -2578,13 +3214,21 @@ export function RecallWorkspace({
   const [graphDraggingNodeId, setGraphDraggingNodeId] = useState<string | null>(null)
   const [graphManualNodePositions, setGraphManualNodePositions] = useState<Record<string, GraphCanvasDragPosition>>({})
   const [studyOverview, setStudyOverview] = useState<StudyOverview | null>(null)
+  const [studyProgress, setStudyProgress] = useState<StudyReviewProgress | null>(null)
   const [studyCards, setStudyCards] = useState<StudyCardRecord[]>([])
   const [studyStatus, setStudyStatus] = useState<LoadState>('loading')
   const [studyError, setStudyError] = useState<string | null>(null)
   const [studyBusyKey, setStudyBusyKey] = useState<string | null>(null)
   const [showAnswer, setShowAnswer] = useState(false)
+  const [studyChoiceReviewAttempts, setStudyChoiceReviewAttempts] = useState<Record<string, StudyChoiceReviewAttempt>>({})
+  const [studyShortAnswerReviewAttempts, setStudyShortAnswerReviewAttempts] = useState<Record<string, StudyShortAnswerReviewAttempt>>({})
+  const [studyMatchingReviewAttempts, setStudyMatchingReviewAttempts] = useState<Record<string, StudyMatchingReviewAttempt>>({})
+  const [studyOrderingReviewAttempts, setStudyOrderingReviewAttempts] = useState<Record<string, StudyOrderingReviewAttempt>>({})
   const [studyEvidencePeekOpen, setStudyEvidencePeekOpen] = useState(false)
   const [studyMessage, setStudyMessage] = useState<string | null>(null)
+  const [studySelectedQuestionIds, setStudySelectedQuestionIds] = useState<Set<string>>(() => new Set())
+  const [studyEditDraft, setStudyEditDraft] = useState<StudyCardEditDraft | null>(null)
+  const [studyCreateDraft, setStudyCreateDraft] = useState<StudyCardCreateDraft | null>(null)
   const [documentNotes, setDocumentNotes] = useState<RecallNoteRecord[]>([])
   const [sourceWorkspaceNotes, setSourceWorkspaceNotes] = useState<RecallNoteRecord[]>([])
   const [sourceWorkspaceNotesStatus, setSourceWorkspaceNotesStatus] = useState<LoadState>('idle')
@@ -2675,6 +3319,7 @@ export function RecallWorkspace({
   const libraryActiveSurface = continuityState.library.activeSurface ?? 'home'
   const libraryFilterQuery = continuityState.library.filterQuery
   const homeMemoryFilter = continuityState.library.homeMemoryFilter ?? 'all'
+  const homeReviewFilter = continuityState.library.homeReviewFilter ?? 'all'
   const homeOrganizerLens = continuityState.library.homeOrganizerLens
   const homeOrganizerVisible = continuityState.library.homeOrganizerVisible
   const homeSortDirection = continuityState.library.homeSortDirection
@@ -2686,9 +3331,13 @@ export function RecallWorkspace({
   const graphPathSelectedNodeIds = continuityState.graph.pathSelectedNodeIds
   const graphTourDismissed = continuityState.graph.tourDismissed
   const graphTourStep = continuityState.graph.tourStep
+  const studyCollectionFilter = continuityState.study.collectionFilter ?? 'all'
   const studyFilter = continuityState.study.filter
+  const studyKnowledgeStageFilter = continuityState.study.knowledgeStageFilter ?? 'all'
+  const studyProgressPeriodDays = continuityState.study.progressPeriodDays ?? 14
   const activeCardId = continuityState.study.activeCardId
   const studyQuestionSearchQuery = continuityState.study.questionSearchQuery ?? ''
+  const studyReviewHistoryFilter = continuityState.study.reviewHistoryFilter ?? 'all'
   const studyScheduleDrilldown = continuityState.study.scheduleDrilldown ?? 'all'
   const studySourceScopeDocumentId = continuityState.study.sourceScopeDocumentId ?? null
   const selectedNotesDocumentId = continuityState.notes.selectedDocumentId
@@ -2759,6 +3408,36 @@ export function RecallWorkspace({
           },
     )
   }, [updateStudyState])
+
+  const clearStudyQuestionFilters = useCallback(() => {
+    updateStudyState((current) => ({
+      ...current,
+      collectionFilter: 'all',
+      filter: 'all',
+      knowledgeStageFilter: 'all',
+      questionSearchQuery: '',
+      reviewHistoryFilter: 'all',
+      scheduleDrilldown: 'all',
+    }))
+  }, [updateStudyState])
+
+  useEffect(() => {
+    const customCollectionId = getStudyCustomCollectionFilterId(studyCollectionFilter)
+    if (!customCollectionId) {
+      return
+    }
+    if (homeCustomCollections.some((collection) => collection.id === customCollectionId)) {
+      return
+    }
+    updateStudyState((current) =>
+      (current.collectionFilter ?? 'all') === studyCollectionFilter
+        ? {
+            ...current,
+            collectionFilter: 'all',
+          }
+        : current,
+    )
+  }, [homeCustomCollections, studyCollectionFilter, updateStudyState])
 
   const updateNotesState = useCallback((updater: (current: RecallWorkspaceContinuityState['notes']) => RecallWorkspaceContinuityState['notes']) => {
     updateContinuityState((current) => ({
@@ -2865,6 +3544,17 @@ export function RecallWorkspace({
         : {
             ...current,
             homeMemoryFilter: nextMemoryFilter,
+          },
+    )
+  }, [updateLibraryState])
+
+  const setHomeReviewFilter = useCallback((nextReviewFilter: RecallHomeReviewFilter) => {
+    updateLibraryState((current) =>
+      current.homeReviewFilter === nextReviewFilter
+        ? current
+        : {
+            ...current,
+            homeReviewFilter: nextReviewFilter,
           },
     )
   }, [updateLibraryState])
@@ -2986,6 +3676,8 @@ export function RecallWorkspace({
 
   const documentById = useMemo(() => new Map(documents.map((document) => [document.id, document])), [documents])
   const documentTitleById = useMemo(() => new Map(documents.map((document) => [document.id, document.title])), [documents])
+  const studyCreateSourceDocument =
+    studyCreateDraft?.sourceDocumentId ? documentById.get(studyCreateDraft.sourceDocumentId) ?? null : null
   const studySourceScopeDocument =
     studySourceScopeDocumentId ? documentById.get(studySourceScopeDocumentId) ?? null : null
   const scopedStudyCards = useMemo(
@@ -2997,43 +3689,105 @@ export function RecallWorkspace({
       ),
     [studyCards, studySourceScopeDocumentId],
   )
+  const studyCollectionFilterActive = studyCollectionFilter !== 'all'
+  const collectionFilteredStudyCards = useMemo(
+    () =>
+      studyCollectionFilterActive
+        ? scopedStudyCards.filter((card) =>
+            studyCardMatchesCollectionFilter(card, studyCollectionFilter, documentById, homeCustomCollections),
+          )
+        : scopedStudyCards,
+    [documentById, homeCustomCollections, scopedStudyCards, studyCollectionFilter, studyCollectionFilterActive],
+  )
   const filteredStudyCards = useMemo(
     () =>
       studyFilter === 'all'
-        ? scopedStudyCards
-        : scopedStudyCards.filter((card) => card.status === studyFilter),
-    [scopedStudyCards, studyFilter],
+        ? collectionFilteredStudyCards
+        : collectionFilteredStudyCards.filter((card) => card.status === studyFilter),
+    [collectionFilteredStudyCards, studyFilter],
   )
   const studyScheduleDrilldownActive = studyScheduleDrilldown !== 'all'
   const scheduleFilteredStudyQuestionCards = useMemo(
     () =>
       studyScheduleDrilldownActive
-        ? scopedStudyCards.filter((card) => studyCardMatchesScheduleDrilldown(card, studyScheduleDrilldown))
+        ? collectionFilteredStudyCards.filter((card) => studyCardMatchesScheduleDrilldown(card, studyScheduleDrilldown))
         : filteredStudyCards,
-    [filteredStudyCards, scopedStudyCards, studyScheduleDrilldown, studyScheduleDrilldownActive],
+    [collectionFilteredStudyCards, filteredStudyCards, studyScheduleDrilldown, studyScheduleDrilldownActive],
+  )
+  const studyKnowledgeStageFilterActive = studyKnowledgeStageFilter !== 'all'
+  const stageFilteredStudyQuestionCards = useMemo(
+    () =>
+      studyKnowledgeStageFilterActive
+        ? scheduleFilteredStudyQuestionCards.filter((card) => card.knowledge_stage === studyKnowledgeStageFilter)
+        : scheduleFilteredStudyQuestionCards,
+    [scheduleFilteredStudyQuestionCards, studyKnowledgeStageFilter, studyKnowledgeStageFilterActive],
+  )
+  const studyReviewHistoryFilterActive = studyReviewHistoryFilter !== 'all'
+  const reviewHistoryFilteredStudyQuestionCards = useMemo(
+    () =>
+      studyReviewHistoryFilterActive
+        ? stageFilteredStudyQuestionCards.filter((card) =>
+            studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter),
+          )
+        : stageFilteredStudyQuestionCards,
+    [stageFilteredStudyQuestionCards, studyReviewHistoryFilter, studyReviewHistoryFilterActive],
   )
   const normalizedStudyQuestionSearchQuery = normalizeSourceMemorySearchText(deferredStudyQuestionSearch)
   const studyQuestionSearchActive = normalizedStudyQuestionSearchQuery.length > 0
   const visibleStudyQuestionCards = useMemo(
     () =>
       studyQuestionSearchActive
-        ? scheduleFilteredStudyQuestionCards.filter((card) =>
+        ? reviewHistoryFilteredStudyQuestionCards.filter((card) =>
             studyCardMatchesQuestionSearch(card, normalizedStudyQuestionSearchQuery),
           )
-        : scheduleFilteredStudyQuestionCards,
-    [normalizedStudyQuestionSearchQuery, scheduleFilteredStudyQuestionCards, studyQuestionSearchActive],
+        : reviewHistoryFilteredStudyQuestionCards,
+    [normalizedStudyQuestionSearchQuery, reviewHistoryFilteredStudyQuestionCards, studyQuestionSearchActive],
   )
   const scopedStudyCardCount = scopedStudyCards.length
-  const filteredStudyCardCount = filteredStudyCards.length
+  const collectionFilteredStudyQuestionCount = collectionFilteredStudyCards.length
   const scheduleFilteredStudyQuestionCount = scheduleFilteredStudyQuestionCards.length
+  const stageFilteredStudyQuestionCount = stageFilteredStudyQuestionCards.length
+  const reviewHistoryFilteredStudyQuestionCount = reviewHistoryFilteredStudyQuestionCards.length
   const studyQuestionResultCount = visibleStudyQuestionCards.length
+  const visibleStudyQuestionIdSet = useMemo(
+    () => new Set(visibleStudyQuestionCards.map((card) => card.id)),
+    [visibleStudyQuestionCards],
+  )
+  const selectedVisibleStudyQuestionIds = useMemo(
+    () => Array.from(studySelectedQuestionIds).filter((cardId) => visibleStudyQuestionIdSet.has(cardId)),
+    [studySelectedQuestionIds, visibleStudyQuestionIdSet],
+  )
+  const allVisibleStudyQuestionsSelected =
+    studyQuestionResultCount > 0 && selectedVisibleStudyQuestionIds.length === studyQuestionResultCount
+  const studyCollectionFilterLabel = formatStudyCollectionFilterLabel(studyCollectionFilter, homeCustomCollections)
   const studyScheduleDrilldownLabel = formatStudyScheduleDrilldownLabel(studyScheduleDrilldown)
+  const studyKnowledgeStageFilterLabel = formatStudyKnowledgeStageLabel(studyKnowledgeStageFilter)
+  const studyReviewHistoryFilterLabel = formatStudyReviewHistoryFilterLabel(studyReviewHistoryFilter)
+  const studyQuestionFilterStackActive =
+    studyCollectionFilterActive ||
+    studyFilter !== 'all' ||
+    studyScheduleDrilldownActive ||
+    studyKnowledgeStageFilterActive ||
+    studyReviewHistoryFilterActive ||
+    studyQuestionSearchActive
+  const studyQuestionSelectionScopeKey = [
+    studySourceScopeDocumentId ?? 'global',
+    studyCollectionFilter,
+    studyFilter,
+    studyScheduleDrilldown,
+    studyKnowledgeStageFilter,
+    studyReviewHistoryFilter,
+    normalizedStudyQuestionSearchQuery,
+  ].join('|')
   const activeStudyCard =
-    filteredStudyCards.find((card) => card.id === activeCardId) ??
-    scopedStudyCards.find((card) => card.id === activeCardId) ??
-    filteredStudyCards[0] ??
-    scopedStudyCards[0] ??
-    null
+    studyQuestionFilterStackActive
+      ? visibleStudyQuestionCards.find((card) => card.id === activeCardId) ?? visibleStudyQuestionCards[0] ?? null
+      : filteredStudyCards.find((card) => card.id === activeCardId) ??
+        scopedStudyCards.find((card) => card.id === activeCardId) ??
+        filteredStudyCards[0] ??
+        scopedStudyCards[0] ??
+        null
+  const activeStudyCardReviewEligible = activeStudyCard ? isStudyCardReviewEligible(activeStudyCard) : false
   const studyScopeOverview = useMemo(
     () => (studySourceScopeDocumentId ? buildStudyScopeOverview(scopedStudyCards) : studyOverview),
     [scopedStudyCards, studyOverview, studySourceScopeDocumentId],
@@ -3052,6 +3806,10 @@ export function RecallWorkspace({
     )
   }, [studyCards])
   const studyScheduleSummary = useMemo(() => buildSourceStudyReviewSummary(scopedStudyCards), [scopedStudyCards])
+  const studyCollectionSubsetRows = useMemo(
+    () => buildStudyCollectionSubsetRows(scopedStudyCards, documentById, homeCustomCollections),
+    [documentById, homeCustomCollections, scopedStudyCards],
+  )
   const studyDashboardSourceRows = useMemo(() => {
     const rowDocumentIds = studySourceScopeDocumentId
       ? [studySourceScopeDocumentId]
@@ -3151,9 +3909,20 @@ export function RecallWorkspace({
           .join(' ')
           .toLowerCase()
           .includes(normalized)
-      return textMatches && sourceMatchesHomeMemoryFilter(homeSourceMemorySummaryByDocumentId.get(document.id), homeMemoryFilter)
+      return (
+        textMatches &&
+        sourceMatchesHomeMemoryFilter(homeSourceMemorySummaryByDocumentId.get(document.id), homeMemoryFilter) &&
+        sourceMatchesHomeReviewFilter(studyReviewSummaryByDocumentId.get(document.id), homeReviewFilter)
+      )
     })
-  }, [deferredLibraryFilter, documents, homeMemoryFilter, homeSourceMemorySummaryByDocumentId])
+  }, [
+    deferredLibraryFilter,
+    documents,
+    homeMemoryFilter,
+    homeReviewFilter,
+    homeSourceMemorySummaryByDocumentId,
+    studyReviewSummaryByDocumentId,
+  ])
   const automaticallySortedVisibleDocuments = useMemo(
     () =>
       sortRecallDocumentsForHome(
@@ -3442,14 +4211,17 @@ export function RecallWorkspace({
         : [],
     [activeSourceDocumentId, studyCards],
   )
+  const studyReviewQueueCards = getReviewEligibleStudyCards(
+    studyQuestionFilterStackActive ? visibleStudyQuestionCards : filteredStudyCards,
+  )
   const visibleStudyQueueCards = useMemo(
     () =>
       showFocusedStudySplitView || studyQueueExpanded || studyStatus === 'error'
-        ? filteredStudyCards
-        : buildStudyQueuePreview(filteredStudyCards, activeStudyCard?.id ?? null, 4),
-    [activeStudyCard?.id, filteredStudyCards, showFocusedStudySplitView, studyQueueExpanded, studyStatus],
+        ? studyReviewQueueCards
+        : buildStudyQueuePreview(studyReviewQueueCards, activeStudyCard?.id ?? null, 4),
+    [activeStudyCard?.id, showFocusedStudySplitView, studyQueueExpanded, studyReviewQueueCards, studyStatus],
   )
-  const hiddenStudyQueueCount = Math.max(0, filteredStudyCards.length - visibleStudyQueueCards.length)
+  const hiddenStudyQueueCount = Math.max(0, studyReviewQueueCards.length - visibleStudyQueueCards.length)
   const showStudySidebar =
     showFocusedStudySplitView || studyBrowseDrawerOpen || studyStatus === 'error'
   const sourceWorkspaceNoteCountLabel =
@@ -4993,6 +5765,15 @@ export function RecallWorkspace({
   const homeMemoryFilterActive = homeMemoryFilter !== 'all'
   const homeMemoryFilterLabel = getHomeMemoryFilterLabel(homeMemoryFilter)
   const homeMemoryFilterStatusLabel = homeMemoryFilterActive ? `Memory: ${homeMemoryFilterLabel}` : 'Memory: All'
+  const homeReviewFilterActive = homeReviewFilter !== 'all'
+  const homeReviewFilterLabel = getHomeReviewFilterLabel(homeReviewFilter)
+  const homeReviewFilterStatusLabel = homeReviewFilterActive ? `Review: ${homeReviewFilterLabel}` : 'Review: All'
+  const homeActiveSourceFilterDescription = [
+    homeMemoryFilterActive ? `${homeMemoryFilterLabel.toLowerCase()} memory` : null,
+    homeReviewFilterActive ? `${homeReviewFilterLabel.toLowerCase()} review` : null,
+  ]
+    .filter((label): label is string => Boolean(label))
+    .join(' and ')
   const homeDayHeadingFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(undefined, {
@@ -5062,22 +5843,23 @@ export function RecallWorkspace({
     documentsStatus === 'error'
       ? 'Saved sources are unavailable until the local service reconnects.'
       : libraryFilterActive
-        ? homeMemoryFilterActive
-          ? `No saved sources match "${activeLibraryFilterQuery}" with ${homeMemoryFilterLabel.toLowerCase()} memory.`
+        ? homeMemoryFilterActive || homeReviewFilterActive
+          ? `No saved sources match "${activeLibraryFilterQuery}" with ${homeActiveSourceFilterDescription}.`
           : 'No saved sources match that filter yet.'
         : homePersonalNotesBoardSelected
           ? homeSourceNotesStatus === 'loading'
             ? 'Personal notes are still loading.'
             : 'No source-attached personal notes are known yet.'
-        : homeMemoryFilterActive
-          ? `No sources in this board have ${homeMemoryFilterLabel.toLowerCase()} memory yet.`
+        : homeMemoryFilterActive || homeReviewFilterActive
+          ? `No sources in this board match ${homeActiveSourceFilterDescription} yet.`
         : homeSelectedBrowseSection
           ? isHomeCustomCollectionSection(homeSelectedBrowseSection.key)
           ? 'This collection is empty. Add or assign sources to start filling the board.'
           : 'No sources are in this lane yet.'
         : 'No saved sources are ready for Home yet.'
   const showHomeStage563Canvas =
-    homeUsesStructuralParityStage563 && Boolean(homeSelectedBrowseSection || libraryFilterActive || homeMemoryFilterActive)
+    homeUsesStructuralParityStage563 &&
+    Boolean(homeSelectedBrowseSection || libraryFilterActive || homeMemoryFilterActive || homeReviewFilterActive)
 
   useEffect(() => {
     requestedHomeSourceNoteDocumentIdsRef.current.clear()
@@ -5422,11 +6204,18 @@ export function RecallWorkspace({
   const homeManualModeActive = homeSortMode === 'manual'
   const homeSortModeShortLabel = getLibrarySortModeShortLabel(homeSortMode)
   const homeSortDirectionShortLabel = getLibrarySortDirectionShortLabel(homeSortMode, homeSortDirection)
-  const homeSortMenuLabel = homeMemoryFilterActive
-    ? `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel} · ${homeMemoryFilterStatusLabel}`
-    : `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel}`
+  const homeSortMenuFilterStatusLabels = [
+    homeMemoryFilterActive ? homeMemoryFilterStatusLabel : null,
+    homeReviewFilterActive ? homeReviewFilterStatusLabel : null,
+  ].filter((label): label is string => Boolean(label))
+  const homeSortMenuLabel = [
+    homeSortModeShortLabel,
+    homeSortDirectionShortLabel,
+    ...homeSortMenuFilterStatusLabels,
+  ].join(' · ')
   const clearHomeLibraryFilter = () => updateLibraryState((current) => ({ ...current, filterQuery: '' }))
   const clearHomeMemoryFilter = () => setHomeMemoryFilter('all')
+  const clearHomeReviewFilter = () => setHomeReviewFilter('all')
   const homeOrganizerToggleLabel = homeOrganizerVisible ? 'Hide organizer' : 'Show organizer'
   const homeOrganizerToggleCompactLabel = homeOrganizerVisible ? 'Hide rail' : 'Show rail'
   const homeDocumentsLoaded = documentsStatus !== 'loading' && documentsStatus !== 'error'
@@ -5473,9 +6262,12 @@ export function RecallWorkspace({
   const homeControlSeamLeadStatus = libraryFilterActive
     ? `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'match' : 'matches'}`
     : homeSavedSourceLabel
-  const homeWorkingSetStatus = homeMemoryFilterActive
-    ? `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel} · ${homeViewModeLabel} · ${homeMemoryFilterStatusLabel}`
-    : `${homeSortModeShortLabel} · ${homeSortDirectionShortLabel} · ${homeViewModeLabel}`
+  const homeWorkingSetStatus = [
+    homeSortModeShortLabel,
+    homeSortDirectionShortLabel,
+    homeViewModeLabel,
+    ...homeSortMenuFilterStatusLabels,
+  ].join(' · ')
   const homeOverviewRowStateLabel = homeSelectedBrowseSection ? 'Reset' : 'Overview'
   const homeOverviewRowSummary = homeSelectedBrowseSection
     ? `Reset to grouped ${homeViewModePhrase}.`
@@ -5747,20 +6539,25 @@ export function RecallWorkspace({
     try {
       const overview = await fetchRecallStudyOverview()
       const totalStudyCards = overview.new_count + overview.due_count + overview.scheduled_count
-      const cards = await fetchRecallStudyCards(status, Math.min(100, Math.max(24, totalStudyCards || 24)))
+      const [cards, progress] = await Promise.all([
+        fetchRecallStudyCards(status, Math.min(100, Math.max(24, totalStudyCards || 24))),
+        fetchRecallStudyProgress(studySourceScopeDocumentId, studyProgressPeriodDays),
+      ])
       setStudyOverview(overview)
+      setStudyProgress(progress)
       setStudyCards(cards)
       setStudyStatus('success')
       return cards
     } catch (loadError) {
       setStudyOverview(null)
+      setStudyProgress(null)
       setStudyCards([])
       updateStudyState((current) => ({ ...current, activeCardId: null }))
       setStudyError(getErrorMessage(loadError, 'Could not load study cards.'))
       setStudyStatus('error')
       return []
     }
-  }, [updateStudyState])
+  }, [studyProgressPeriodDays, studySourceScopeDocumentId, updateStudyState])
 
   const loadNotes = useCallback(async (documentId: string) => {
     setNotesStatus('loading')
@@ -5938,10 +6735,17 @@ export function RecallWorkspace({
       Boolean(studySourceScopeDocumentId) && activeSourceDocumentId !== studySourceScopeDocumentId
     if (sourceScopeChanged) {
       updateStudyState((current) =>
-        current.questionSearchQuery || current.scheduleDrilldown !== 'all'
+        current.questionSearchQuery ||
+        current.scheduleDrilldown !== 'all' ||
+        (current.collectionFilter ?? 'all') !== 'all' ||
+        (current.knowledgeStageFilter ?? 'all') !== 'all' ||
+        (current.reviewHistoryFilter ?? 'all') !== 'all'
           ? {
               ...current,
+              collectionFilter: 'all',
+              knowledgeStageFilter: 'all',
               questionSearchQuery: '',
+              reviewHistoryFilter: 'all',
               scheduleDrilldown: 'all',
             }
           : current,
@@ -6062,7 +6866,15 @@ export function RecallWorkspace({
 
   useEffect(() => {
     setStudyQueueExpanded(false)
-  }, [section, showFocusedStudySplitView, studyBrowseDrawerOpen, studyFilter, studyScheduleDrilldown])
+  }, [
+    section,
+    showFocusedStudySplitView,
+    studyBrowseDrawerOpen,
+    studyFilter,
+    studyKnowledgeStageFilter,
+    studyReviewHistoryFilter,
+    studyScheduleDrilldown,
+  ])
 
   useEffect(() => {
     if (section !== 'study' || showFocusedStudySplitView) {
@@ -6294,14 +7106,41 @@ export function RecallWorkspace({
   }, [loadStudy, reloadToken, studyFilter])
 
   useEffect(() => {
-    updateStudyState((current) => ({
-      ...current,
-      activeCardId:
-        current.activeCardId && scopedStudyCards.some((card) => card.id === current.activeCardId)
-          ? current.activeCardId
-          : scopedStudyCards[0]?.id ?? null,
-    }))
-  }, [scopedStudyCards, updateStudyState])
+    const activeQueueCards = studyQuestionFilterStackActive ? visibleStudyQuestionCards : scopedStudyCards
+    updateStudyState((current) => {
+      const currentCardMatches = current.activeCardId
+        ? activeQueueCards.some((card) => card.id === current.activeCardId)
+        : false
+      const nextActiveCardId = currentCardMatches
+        ? current.activeCardId
+        : activeQueueCards[0]?.id ?? (studyQuestionFilterStackActive ? null : scopedStudyCards[0]?.id ?? null)
+      return current.activeCardId === nextActiveCardId
+        ? current
+        : {
+            ...current,
+            activeCardId: nextActiveCardId,
+          }
+    })
+  }, [scopedStudyCards, studyQuestionFilterStackActive, updateStudyState, visibleStudyQuestionCards])
+
+  useEffect(() => {
+    setStudySelectedQuestionIds((current) => {
+      const next = new Set(Array.from(current).filter((cardId) => visibleStudyQuestionIdSet.has(cardId)))
+      return next.size === current.size ? current : next
+    })
+  }, [visibleStudyQuestionIdSet])
+
+  useEffect(() => {
+    if (studyQuestionSelectionScopeKeyRef.current === null) {
+      studyQuestionSelectionScopeKeyRef.current = studyQuestionSelectionScopeKey
+      return
+    }
+    if (studyQuestionSelectionScopeKeyRef.current === studyQuestionSelectionScopeKey) {
+      return
+    }
+    studyQuestionSelectionScopeKeyRef.current = studyQuestionSelectionScopeKey
+    setStudySelectedQuestionIds(new Set())
+  }, [studyQuestionSelectionScopeKey])
 
   useEffect(() => {
     if (section !== 'study' || !studySourceScopeDocumentId || scopedStudyCards.length === 0) {
@@ -6455,8 +7294,11 @@ export function RecallWorkspace({
     if (focusRequest.cardId) {
       updateStudyState((current) => ({
         ...current,
+        collectionFilter: 'all',
         filter: 'all',
         activeCardId: focusRequest.cardId ?? null,
+        knowledgeStageFilter: 'all',
+        reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
         sourceScopeDocumentId:
           focusRequest.section === 'study' ? focusRequest.documentId ?? current.sourceScopeDocumentId : current.sourceScopeDocumentId,
@@ -6465,11 +7307,14 @@ export function RecallWorkspace({
     if (!focusRequest.cardId && focusRequest.section === 'study') {
       updateStudyState((current) => ({
         ...current,
+        collectionFilter: 'all',
         filter: focusRequest.documentId ? 'all' : current.filter,
         questionSearchQuery:
           focusRequest.documentId && focusRequest.documentId === current.sourceScopeDocumentId
             ? current.questionSearchQuery
             : '',
+        knowledgeStageFilter: 'all',
+        reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
         sourceScopeDocumentId: focusRequest.documentId ?? null,
       }))
@@ -7266,8 +8111,286 @@ export function RecallWorkspace({
         current.activeDocumentId === card.source_document_id ? current.readerAnchor : null,
     }))
     setShowAnswer(false)
+    setStudyChoiceReviewAttempts({})
+    setStudyShortAnswerReviewAttempts({})
+    setStudyMatchingReviewAttempts({})
+    setStudyOrderingReviewAttempts({})
     setStudyEvidencePeekOpen(false)
     setFocusedStudySourceSpanIndex(0)
+  }
+
+  function handleRevealStudyAnswer(card: StudyCardRecord) {
+    if (isStudyChoiceCardType(card.card_type)) {
+      setStudyChoiceReviewAttempts((current) => ({
+        ...current,
+        [card.id]: {
+          revealed: true,
+          selectedChoiceId: current[card.id]?.selectedChoiceId ?? null,
+        },
+      }))
+    }
+    if (isStudyMatchingCardType(card.card_type)) {
+      setStudyMatchingReviewAttempts((current) => ({
+        ...current,
+        [card.id]: {
+          revealed: true,
+          selections: current[card.id]?.selections ?? {},
+        },
+      }))
+    }
+    if (isStudyOrderingCardType(card.card_type)) {
+      setStudyOrderingReviewAttempts((current) => ({
+        ...current,
+        [card.id]: {
+          revealed: true,
+          itemIds: current[card.id]?.itemIds ?? getStudyOrderingItemsFromCard(card).map((item) => item.id),
+        },
+      }))
+    }
+    setShowAnswer(true)
+  }
+
+  function handleSelectStudyChoiceAnswer(card: StudyCardRecord, choiceId: string) {
+    setStudyChoiceReviewAttempts((current) => ({
+      ...current,
+      [card.id]: {
+        revealed: true,
+        selectedChoiceId: choiceId,
+      },
+    }))
+    setShowAnswer(true)
+  }
+
+  function handleSelectStudyMatchingAnswer(card: StudyCardRecord, pairId: string, rightPairId: string) {
+    setStudyMatchingReviewAttempts((current) => ({
+      ...current,
+      [card.id]: {
+        revealed: false,
+        selections: {
+          ...(current[card.id]?.selections ?? {}),
+          [pairId]: rightPairId,
+        },
+      },
+    }))
+  }
+
+  function getStudyOrderingAttemptItemIds(card: StudyCardRecord) {
+    const items = getStudyOrderingItemsFromCard(card)
+    const validIds = new Set(items.map((item) => item.id))
+    const attemptedIds = studyOrderingReviewAttempts[card.id]?.itemIds.filter((id) => validIds.has(id)) ?? []
+    if (attemptedIds.length === items.length) {
+      return attemptedIds
+    }
+    return items.map((item) => item.id)
+  }
+
+  function handleMoveStudyOrderingAnswer(card: StudyCardRecord, itemId: string, direction: -1 | 1) {
+    setStudyOrderingReviewAttempts((current) => {
+      const itemIds = [...getStudyOrderingAttemptItemIds(card)]
+      const index = itemIds.indexOf(itemId)
+      const nextIndex = index + direction
+      if (index < 0 || nextIndex < 0 || nextIndex >= itemIds.length) {
+        return current
+      }
+      const [movedItemId] = itemIds.splice(index, 1)
+      itemIds.splice(nextIndex, 0, movedItemId)
+      return {
+        ...current,
+        [card.id]: {
+          revealed: false,
+          itemIds,
+        },
+      }
+    })
+  }
+
+  function handleStudyShortAnswerAttemptChange(card: StudyCardRecord, value: string) {
+    setStudyShortAnswerReviewAttempts((current) => ({
+      ...current,
+      [card.id]: { value },
+    }))
+  }
+
+  function handleReviewFilteredStudyQuestions() {
+    const firstVisibleCard = visibleStudyQuestionCards.find(isStudyCardReviewEligible) ?? null
+    if (firstVisibleCard) {
+      handleSelectStudyCard(firstVisibleCard)
+    }
+    setBrowseDrawerOpen('study', false)
+  }
+
+  function handleToggleStudyQuestionSelection(cardId: string, selected: boolean) {
+    setStudySelectedQuestionIds((current) => {
+      const next = new Set(current)
+      if (selected) {
+        next.add(cardId)
+      } else {
+        next.delete(cardId)
+      }
+      return next
+    })
+  }
+
+  function handleToggleAllVisibleStudyQuestions(selected: boolean) {
+    setStudySelectedQuestionIds((current) => {
+      const next = new Set(current)
+      for (const card of visibleStudyQuestionCards) {
+        if (selected) {
+          next.add(card.id)
+        } else {
+          next.delete(card.id)
+        }
+      }
+      return next
+    })
+  }
+
+  function handleOpenStudyCardEdit(card: StudyCardRecord, surface: 'active' | 'row') {
+    const questionPayload = getStudyCardQuestionPayload(card)
+    setStudyEditDraft({
+      answer: card.answer,
+      blankTemplate: questionPayload?.kind === 'fill_in_blank' ? questionPayload.template : '',
+      cardId: card.id,
+      cardType: card.card_type,
+      choices:
+        questionPayload?.kind === 'multiple_choice'
+          ? questionPayload.choices
+          : questionPayload?.kind === 'true_false'
+            ? STUDY_TRUE_FALSE_CHOICES
+            : questionPayload?.kind === 'fill_in_blank'
+              ? questionPayload.choices
+            : makeDefaultStudyChoiceOptions(),
+      correctChoiceId:
+        questionPayload?.kind === 'multiple_choice' ||
+        questionPayload?.kind === 'true_false' ||
+        questionPayload?.kind === 'fill_in_blank'
+          ? questionPayload.correct_choice_id
+          : 'choice-a',
+      matchingPairs: questionPayload?.kind === 'matching' ? questionPayload.pairs : makeDefaultStudyMatchingPairs(),
+      orderingItems: questionPayload?.kind === 'ordering' ? questionPayload.items : makeDefaultStudyOrderingItems(),
+      prompt: card.prompt,
+      surface,
+    })
+    setStudyMessage(null)
+    setError(null)
+  }
+
+  function handleCloseStudyCardEdit() {
+    setStudyEditDraft(null)
+  }
+
+  function getDefaultStudyCardCreateSourceId() {
+    return studySourceScopeDocumentId ?? activeSourceDocumentId ?? selectedLibraryDocumentId ?? documents[0]?.id ?? ''
+  }
+
+  function handleOpenStudyCardCreate(surface: StudyCardCreateDraft['surface']) {
+    setStudyCreateDraft({
+      answer: '',
+      blankTemplate: '',
+      cardType: 'short_answer',
+      choices: makeDefaultStudyChoiceOptions(),
+      correctChoiceId: 'choice-a',
+      matchingPairs: makeDefaultStudyMatchingPairs(),
+      orderingItems: makeDefaultStudyOrderingItems(),
+      prompt: '',
+      sourceDocumentId: getDefaultStudyCardCreateSourceId(),
+      surface,
+    })
+    setStudyEditDraft(null)
+    setStudyMessage(null)
+    setError(null)
+    if (surface === 'desktop' || surface === 'focused') {
+      setBrowseDrawerOpen('study', true)
+    }
+  }
+
+  function handleCloseStudyCardCreate() {
+    setStudyCreateDraft(null)
+  }
+
+  async function handleSaveStudyCardCreate() {
+    if (!studyCreateDraft) {
+      return
+    }
+    const scopedSourceDocumentId = studySourceScopeDocumentId ?? null
+    const sourceDocumentId = scopedSourceDocumentId ?? studyCreateDraft.sourceDocumentId
+    const prompt = studyCreateDraft.prompt.trim()
+    const answer = studyCreateDraft.answer.trim()
+    if (!sourceDocumentId) {
+      setError('Choose a saved source before creating this question.')
+      return
+    }
+    const questionDraft = buildStudyQuestionPayloadFromDraft(
+      studyCreateDraft.cardType,
+      answer,
+      studyCreateDraft.blankTemplate,
+      studyCreateDraft.choices,
+      studyCreateDraft.correctChoiceId,
+      studyCreateDraft.matchingPairs,
+      studyCreateDraft.orderingItems,
+    )
+    if (!prompt) {
+      setError('Study questions need a prompt.')
+      return
+    }
+    if (questionDraft.error) {
+      setError(questionDraft.error)
+      return
+    }
+
+    const payload: StudyCardCreateRequest = {
+      answer: questionDraft.answer,
+      card_type: studyCreateDraft.cardType,
+      prompt,
+      source_document_id: sourceDocumentId,
+    }
+    if (questionDraft.questionPayload) {
+      payload.question_payload = questionDraft.questionPayload
+    }
+    setStudyBusyKey('create')
+    setStudyMessage(null)
+    setError(null)
+    try {
+      const createdCard = await createRecallStudyCard(payload)
+      setStudyCards((currentCards) => [createdCard, ...currentCards.filter((card) => card.id !== createdCard.id)])
+      const loadedCards = await loadStudy('all')
+      if (!loadedCards.some((card) => card.id === createdCard.id)) {
+        setStudyCards((currentCards) => [createdCard, ...currentCards.filter((card) => card.id !== createdCard.id)])
+      }
+      updateStudyState((current) => ({
+        ...current,
+        activeCardId: createdCard.id,
+        collectionFilter: 'all',
+        filter: 'all',
+        knowledgeStageFilter: 'all',
+        questionSearchQuery: '',
+        reviewHistoryFilter: 'all',
+        scheduleDrilldown: 'all',
+        sourceScopeDocumentId: current.sourceScopeDocumentId,
+      }))
+      updateSourceWorkspaceState((current) => ({
+        ...current,
+        activeDocumentId: createdCard.source_document_id,
+        activeTab: 'study',
+        readerAnchor:
+          current.activeDocumentId === createdCard.source_document_id ? current.readerAnchor : null,
+      }))
+      setStudySelectedQuestionIds(new Set())
+      setShowAnswer(false)
+      setStudyChoiceReviewAttempts({})
+      setStudyShortAnswerReviewAttempts({})
+      setStudyMatchingReviewAttempts({})
+      setStudyOrderingReviewAttempts({})
+      setStudyEvidencePeekOpen(false)
+      setFocusedStudySourceSpanIndex(0)
+      setBrowseDrawerOpen('study', true)
+      setStudyCreateDraft(null)
+      setStudyMessage('Question created.')
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Could not create that question.')
+    } finally {
+      setStudyBusyKey(null)
+    }
   }
 
   function handleRetryRecallLoading() {
@@ -7511,7 +8634,10 @@ export function RecallWorkspace({
       })
       updateStudyState((current) => ({
         ...current,
+        collectionFilter: 'all',
         filter: 'all',
+        knowledgeStageFilter: 'all',
+        reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
       }))
       const loadedCards = await loadStudy('all')
@@ -7523,11 +8649,18 @@ export function RecallWorkspace({
       }
       updateStudyState((current) => ({
         ...current,
+        collectionFilter: 'all',
         filter: 'all',
         activeCardId: promotedCard.id,
+        knowledgeStageFilter: 'all',
+        reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
       }))
       setShowAnswer(false)
+      setStudyChoiceReviewAttempts({})
+      setStudyShortAnswerReviewAttempts({})
+      setStudyMatchingReviewAttempts({})
+      setStudyOrderingReviewAttempts({})
       setNotePromotionMode(null)
       setNotesMessage('Study card created from the note.')
       focusSourceStudy(activeNote.anchor.source_document_id, promotedCard.id)
@@ -7560,12 +8693,45 @@ export function RecallWorkspace({
     })
   }
 
+  function getFilteredStudyQuestionQueueFromCards(cards: StudyCardRecord[]) {
+    const orderedScopedCards = orderStudyCardsForReviewQueue(
+      studySourceScopeDocumentId
+        ? cards.filter((card) => card.source_document_id === studySourceScopeDocumentId)
+        : cards,
+    )
+    const collectionFilteredCards =
+      studyCollectionFilter === 'all'
+        ? orderedScopedCards
+        : orderedScopedCards.filter((card) =>
+            studyCardMatchesCollectionFilter(card, studyCollectionFilter, documentById, homeCustomCollections),
+          )
+    const statusOrScheduleFilteredCards =
+      studyScheduleDrilldown === 'all'
+        ? studyFilter === 'all'
+          ? collectionFilteredCards
+          : collectionFilteredCards.filter((card) => card.status === studyFilter)
+        : collectionFilteredCards.filter((card) => studyCardMatchesScheduleDrilldown(card, studyScheduleDrilldown))
+    const stageFilteredCards =
+      studyKnowledgeStageFilter === 'all'
+        ? statusOrScheduleFilteredCards
+        : statusOrScheduleFilteredCards.filter((card) => card.knowledge_stage === studyKnowledgeStageFilter)
+    const reviewFilteredCards =
+      studyReviewHistoryFilter === 'all'
+        ? stageFilteredCards
+        : stageFilteredCards.filter((card) => studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter))
+    const normalizedQuery = normalizeSourceMemorySearchText(studyQuestionSearchQuery)
+    return normalizedQuery
+      ? reviewFilteredCards.filter((card) => studyCardMatchesQuestionSearch(card, normalizedQuery))
+      : reviewFilteredCards
+  }
+
   async function handleReviewCard(rating: StudyReviewRating) {
     if (!activeStudyCard) {
       return
     }
     const reviewedCardId = activeStudyCard.id
     const reviewedSourceScopeDocumentId = studySourceScopeDocumentId
+    const reviewQuestionFilterStackWasActive = studyQuestionFilterStackActive
     setStudyBusyKey(`review:${activeStudyCard.id}:${rating}`)
     setError(null)
     try {
@@ -7574,11 +8740,43 @@ export function RecallWorkspace({
         currentCards.map((card) => (card.id === reviewedCard.id ? reviewedCard : card)),
       )
       setShowAnswer(false)
+      setStudyChoiceReviewAttempts((current) => {
+        const next = { ...current }
+        delete next[reviewedCardId]
+        return next
+      })
+      setStudyShortAnswerReviewAttempts((current) => {
+        const next = { ...current }
+        delete next[reviewedCardId]
+        return next
+      })
+      setStudyMatchingReviewAttempts((current) => {
+        const next = { ...current }
+        delete next[reviewedCardId]
+        return next
+      })
+      setStudyOrderingReviewAttempts((current) => {
+        const next = { ...current }
+        delete next[reviewedCardId]
+        return next
+      })
       setStudyEvidencePeekOpen(false)
       const loadedCards = await loadStudy(studyFilter)
-      if (reviewedSourceScopeDocumentId) {
+      if (reviewQuestionFilterStackWasActive) {
+        const nextFilteredCard =
+          getReviewEligibleStudyCards(getFilteredStudyQuestionQueueFromCards(loadedCards)).find(
+            (card) => card.id !== reviewedCardId,
+          ) ?? null
+        updateStudyState((current) => ({
+          ...current,
+          activeCardId: nextFilteredCard?.id ?? null,
+          sourceScopeDocumentId: reviewedSourceScopeDocumentId ?? current.sourceScopeDocumentId,
+        }))
+      } else if (reviewedSourceScopeDocumentId) {
         const nextSourceCard = getNextStudyCardForQueue(
-          loadedCards.filter((card) => card.source_document_id === reviewedSourceScopeDocumentId),
+          getReviewEligibleStudyCards(
+            loadedCards.filter((card) => card.source_document_id === reviewedSourceScopeDocumentId),
+          ),
           reviewedCardId,
         )
         updateStudyState((current) => ({
@@ -7586,9 +8784,225 @@ export function RecallWorkspace({
           activeCardId: nextSourceCard?.id ?? null,
           sourceScopeDocumentId: reviewedSourceScopeDocumentId,
         }))
+      } else {
+        const nextCard = getNextStudyCardForQueue(getReviewEligibleStudyCards(loadedCards), reviewedCardId)
+        updateStudyState((current) => ({
+          ...current,
+          activeCardId: nextCard?.id ?? null,
+        }))
       }
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : 'Could not save that review.')
+    } finally {
+      setStudyBusyKey(null)
+    }
+  }
+
+  async function handleSetStudyCardScheduleState(card: StudyCardRecord, action: 'schedule' | 'unschedule') {
+    const targetWasActive = activeStudyCard?.id === card.id
+    const previousSourceScopeDocumentId = studySourceScopeDocumentId
+    const filterStackWasActive = studyQuestionFilterStackActive
+    setStudyBusyKey(`schedule-state:${card.id}:${action}`)
+    setStudyMessage(null)
+    setError(null)
+    try {
+      const updatedCard = await setRecallStudyCardScheduleState(card.id, action)
+      setStudyCards((currentCards) =>
+        currentCards.map((currentCard) => (currentCard.id === updatedCard.id ? updatedCard : currentCard)),
+      )
+      const loadedCards = await loadStudy(studyFilter)
+      if (action === 'unschedule' && targetWasActive) {
+        const nextCandidateCards = filterStackWasActive
+          ? getFilteredStudyQuestionQueueFromCards(loadedCards)
+          : previousSourceScopeDocumentId
+            ? loadedCards.filter((candidate) => candidate.source_document_id === previousSourceScopeDocumentId)
+            : loadedCards
+        const nextCard = getNextStudyCardForQueue(getReviewEligibleStudyCards(nextCandidateCards), card.id)
+        updateStudyState((current) => ({
+          ...current,
+          activeCardId: nextCard?.id ?? null,
+          sourceScopeDocumentId: previousSourceScopeDocumentId ?? current.sourceScopeDocumentId,
+        }))
+        setShowAnswer(false)
+        setStudyChoiceReviewAttempts({})
+        setStudyShortAnswerReviewAttempts({})
+        setStudyMatchingReviewAttempts({})
+        setStudyOrderingReviewAttempts({})
+        setStudyEvidencePeekOpen(false)
+      }
+      setStudyMessage(
+        action === 'unschedule'
+          ? 'Question unscheduled for the next 7 days.'
+          : 'Question scheduled for review now.',
+      )
+    } catch (scheduleError) {
+      setError(scheduleError instanceof Error ? scheduleError.message : 'Could not update that question schedule.')
+    } finally {
+      setStudyBusyKey(null)
+    }
+  }
+
+  async function handleSaveStudyCardEdit() {
+    if (!studyEditDraft) {
+      return
+    }
+    const prompt = studyEditDraft.prompt.trim()
+    const answer = studyEditDraft.answer.trim()
+    const questionDraft = buildStudyQuestionPayloadFromDraft(
+      studyEditDraft.cardType,
+      answer,
+      studyEditDraft.blankTemplate,
+      studyEditDraft.choices,
+      studyEditDraft.correctChoiceId,
+      studyEditDraft.matchingPairs,
+      studyEditDraft.orderingItems,
+    )
+    if (!prompt) {
+      setError('Study questions need a prompt.')
+      return
+    }
+    if (questionDraft.error) {
+      setError(questionDraft.error)
+      return
+    }
+
+    const payload: StudyCardUpdateRequest = {
+      answer: questionDraft.answer,
+      prompt,
+    }
+    if (questionDraft.questionPayload) {
+      payload.question_payload = questionDraft.questionPayload
+    }
+    setStudyBusyKey(`edit:${studyEditDraft.cardId}`)
+    setStudyMessage(null)
+    setError(null)
+    try {
+      const updatedCard = await updateRecallStudyCard(studyEditDraft.cardId, payload)
+      setStudyCards((currentCards) =>
+        currentCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)),
+      )
+      await loadStudy(studyFilter)
+      updateStudyState((current) => ({ ...current, activeCardId: updatedCard.id }))
+      setStudyEditDraft(null)
+      setStudyMessage('Question updated.')
+    } catch (editError) {
+      setError(editError instanceof Error ? editError.message : 'Could not update that question.')
+    } finally {
+      setStudyBusyKey(null)
+    }
+  }
+
+  async function handleDeleteStudyCard(card: StudyCardRecord) {
+    const confirmed = window.confirm('Delete this Study question locally? Review history stays in the local audit trail.')
+    if (!confirmed) {
+      return
+    }
+
+    const targetWasActive = activeStudyCard?.id === card.id
+    const previousSourceScopeDocumentId = studySourceScopeDocumentId
+    const filterStackWasActive = studyQuestionFilterStackActive
+    setStudyBusyKey(`delete:${card.id}`)
+    setStudyMessage(null)
+    setError(null)
+    try {
+      await deleteRecallStudyCard(card.id)
+      setStudyCards((currentCards) => currentCards.filter((currentCard) => currentCard.id !== card.id))
+      setStudySelectedQuestionIds((current) => {
+        const next = new Set(current)
+        next.delete(card.id)
+        return next
+      })
+      if (studyEditDraft?.cardId === card.id) {
+        setStudyEditDraft(null)
+      }
+      const loadedCards = await loadStudy(studyFilter)
+      if (targetWasActive) {
+        const nextCandidateCards = filterStackWasActive
+          ? getFilteredStudyQuestionQueueFromCards(loadedCards)
+          : previousSourceScopeDocumentId
+            ? loadedCards.filter((candidate) => candidate.source_document_id === previousSourceScopeDocumentId)
+            : loadedCards
+        const nextCard = getNextStudyCardForQueue(getReviewEligibleStudyCards(nextCandidateCards), card.id)
+        updateStudyState((current) => ({
+          ...current,
+          activeCardId: nextCard?.id ?? null,
+          sourceScopeDocumentId: previousSourceScopeDocumentId ?? current.sourceScopeDocumentId,
+        }))
+        setShowAnswer(false)
+        setStudyChoiceReviewAttempts({})
+        setStudyShortAnswerReviewAttempts({})
+        setStudyMatchingReviewAttempts({})
+        setStudyOrderingReviewAttempts({})
+        setStudyEvidencePeekOpen(false)
+      }
+      setStudyMessage('Question deleted.')
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Could not delete that question.')
+    } finally {
+      setStudyBusyKey(null)
+    }
+  }
+
+  async function handleBulkDeleteSelectedStudyQuestions() {
+    const cardIds = selectedVisibleStudyQuestionIds
+    if (cardIds.length === 0) {
+      return
+    }
+    const confirmed = window.confirm(`Delete ${cardIds.length} selected Study question${cardIds.length === 1 ? '' : 's'} locally?`)
+    if (!confirmed) {
+      return
+    }
+
+    const deletedActiveCard = activeStudyCard ? cardIds.includes(activeStudyCard.id) : false
+    const previousActiveCardId = activeStudyCard?.id ?? null
+    const previousSourceScopeDocumentId = studySourceScopeDocumentId
+    setStudyBusyKey('bulk-delete')
+    setStudyMessage(null)
+    setError(null)
+    try {
+      const result = await bulkDeleteRecallStudyCards(cardIds)
+      const deletedIds = new Set(result.deleted_ids)
+      setStudyCards((currentCards) => currentCards.filter((card) => !deletedIds.has(card.id)))
+      setStudySelectedQuestionIds((current) => {
+        const next = new Set(current)
+        for (const cardId of deletedIds) {
+          next.delete(cardId)
+        }
+        return next
+      })
+      if (studyEditDraft && deletedIds.has(studyEditDraft.cardId)) {
+        setStudyEditDraft(null)
+      }
+      const loadedCards = await loadStudy(studyFilter)
+      if (deletedActiveCard) {
+        const nextCandidateCards = studyQuestionFilterStackActive
+          ? getFilteredStudyQuestionQueueFromCards(loadedCards)
+          : previousSourceScopeDocumentId
+            ? loadedCards.filter((candidate) => candidate.source_document_id === previousSourceScopeDocumentId)
+            : loadedCards
+        const nextCard = getNextStudyCardForQueue(
+          getReviewEligibleStudyCards(nextCandidateCards),
+          previousActiveCardId,
+        )
+        updateStudyState((current) => ({
+          ...current,
+          activeCardId: nextCard?.id ?? null,
+          sourceScopeDocumentId: previousSourceScopeDocumentId ?? current.sourceScopeDocumentId,
+        }))
+        setShowAnswer(false)
+        setStudyChoiceReviewAttempts({})
+        setStudyShortAnswerReviewAttempts({})
+        setStudyMatchingReviewAttempts({})
+        setStudyOrderingReviewAttempts({})
+        setStudyEvidencePeekOpen(false)
+      }
+      setStudyMessage(
+        result.missing_ids.length > 0
+          ? `Deleted ${result.deleted_ids.length} question${result.deleted_ids.length === 1 ? '' : 's'}; ${result.missing_ids.length} were already gone.`
+          : `Deleted ${result.deleted_ids.length} question${result.deleted_ids.length === 1 ? '' : 's'}.`,
+      )
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Could not delete selected questions.')
     } finally {
       setStudyBusyKey(null)
     }
@@ -8214,7 +9628,11 @@ export function RecallWorkspace({
 
     const nextDueLabel = summary.nextDueAt ? homeDateFormatter.format(new Date(summary.nextDueAt)) : 'no due date'
     const reviewLabel = `${summary.dueCount} due · ${summary.newCount} new · ${summary.scheduledCount} scheduled`
-    const openLabel = `Open source review for ${document.title}: ${reviewLabel}; next due ${nextDueLabel}`
+    const signalDestination = homeReviewFilterActive ? 'questions' : 'review'
+    const activeReviewFilterLabel = homeReviewFilterActive ? getHomeReviewFilterLabel(homeReviewFilter) : null
+    const openLabel = homeReviewFilterActive
+      ? `Open ${activeReviewFilterLabel?.toLowerCase()} source questions for ${document.title}: ${reviewLabel}; next due ${nextDueLabel}`
+      : `Open source review for ${document.title}: ${reviewLabel}; next due ${nextDueLabel}`
 
     return (
       <span
@@ -8229,11 +9647,17 @@ export function RecallWorkspace({
         data-home-review-ready-signal-stage916="true"
         data-home-review-ready-signal-surface-stage916={surface}
         data-home-review-ready-total-stage916={summary.totalCount}
+        data-home-review-ready-active-filter-stage920={homeReviewFilterActive ? homeReviewFilter : 'all'}
+        data-home-review-ready-signal-opens-stage920={signalDestination}
         title={openLabel}
         onClick={(event: ReactMouseEvent<HTMLSpanElement>) => {
           event.preventDefault()
           event.stopPropagation()
-          focusSourceStudy(document.id)
+          if (homeReviewFilterActive) {
+            focusSourceStudyQuestions(document.id, homeReviewFilter)
+          } else {
+            focusSourceStudy(document.id)
+          }
         }}
       >
         <span className="recall-home-review-ready-signal-label-stage916">Review</span>
@@ -8595,6 +10019,24 @@ export function RecallWorkspace({
     )
   }
 
+  function renderHomeReviewFilterStatus() {
+    if (!homeReviewFilterActive) {
+      return null
+    }
+
+    return (
+      <button
+        aria-label={`Clear ${homeReviewFilterStatusLabel} filter`}
+        className="ghost-button recall-home-memory-filter-chip-stage910 recall-home-review-filter-chip-stage920"
+        data-home-review-filter-active-stage920={homeReviewFilter}
+        type="button"
+        onClick={clearHomeReviewFilter}
+      >
+        {homeReviewFilterStatusLabel}
+      </button>
+    )
+  }
+
   function renderHomeStage563SortMenu() {
     return (
       <div
@@ -8649,6 +10091,31 @@ export function RecallWorkspace({
                   type="button"
                   onClick={() => {
                     setHomeMemoryFilter(option.key)
+                    setHomeStage563SortMenuOpen(false)
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div
+            className="recall-home-parity-sort-group-stage563 recall-home-review-filter-group-stage920"
+            data-home-review-filter-controls-stage920="true"
+            role="group"
+            aria-label="Review filter"
+          >
+            <strong>Review</strong>
+            <div className="recall-home-memory-filter-options-stage910 recall-home-review-filter-options-stage920">
+              {HOME_REVIEW_FILTER_OPTIONS.map((option) => (
+                <button
+                  aria-pressed={homeReviewFilter === option.key}
+                  className="ghost-button"
+                  data-home-review-filter-option-stage920={option.key}
+                  key={option.key}
+                  type="button"
+                  onClick={() => {
+                    setHomeReviewFilter(option.key)
                     setHomeStage563SortMenuOpen(false)
                   }}
                 >
@@ -8984,7 +10451,9 @@ export function RecallWorkspace({
                       homeOpenOrganizerUsesListRhythmConvergenceStage838 ? 'true' : undefined
                     }
                     type="button"
-                    onClick={() => focusSourceLibrary(section.previewLeadDocument?.id ?? '')}
+                    onClick={(event) =>
+                      handleHomeOrganizerDocumentClick(section.key, section.previewLeadDocument?.id ?? '', event)
+                    }
                   >
                     <span className="recall-home-parity-rail-preview-mark-stage571" aria-hidden="true" />
                     <span className="recall-home-parity-rail-preview-label-stage571 recall-home-parity-rail-preview-label-stage609">
@@ -9159,6 +10628,7 @@ export function RecallWorkspace({
             </button>
             {renderHomeStage563SortMenu()}
             {renderHomeMemoryFilterStatus()}
+            {renderHomeReviewFilterStatus()}
           </div>
         </div>
       </div>
@@ -9396,6 +10866,8 @@ export function RecallWorkspace({
         aria-label={homeCanvasAriaLabel}
         data-home-memory-filter-active-stage910={homeMemoryFilter}
         data-home-memory-filter-visible-count-stage910={homeCanvasDocuments.length}
+        data-home-review-filter-active-stage920={homeReviewFilter}
+        data-home-review-filter-visible-count-stage920={homeCanvasDocuments.length}
       >
         {showStandaloneCanvasToolbarStage840 ? renderHomeParityToolbar() : null}
 
@@ -9537,11 +11009,21 @@ export function RecallWorkspace({
                     Clear memory filter
                   </button>
                 ) : null}
+                {homeReviewFilterActive ? (
+                  <button
+                    className="ghost-button"
+                    data-home-review-filter-clear-empty-stage920="true"
+                    type="button"
+                    onClick={clearHomeReviewFilter}
+                  >
+                    Clear review filter
+                  </button>
+                ) : null}
                 {libraryFilterActive ? (
                   <button className="ghost-button" type="button" onClick={clearHomeLibraryFilter}>
                     Clear search
                   </button>
-                ) : homeMemoryFilterActive ? null : (
+                ) : homeMemoryFilterActive || homeReviewFilterActive ? null : (
                   <button className="ghost-button" type="button" onClick={onRequestNewSource}>
                     Add content
                   </button>
@@ -9776,9 +11258,12 @@ export function RecallWorkspace({
     }))
     updateStudyState((current) => ({
       ...current,
+      collectionFilter: 'all',
       filter: 'all',
       activeCardId: matchingCardId,
+      knowledgeStageFilter: 'all',
       questionSearchQuery: '',
+      reviewHistoryFilter: 'all',
       scheduleDrilldown: 'all',
       sourceScopeDocumentId: documentId,
     }))
@@ -9793,10 +11278,22 @@ export function RecallWorkspace({
     updateStudyState,
   ])
 
-  const focusSourceStudyQuestions = useCallback((documentId: string) => {
+  const focusSourceStudyQuestions = useCallback((
+    documentId: string,
+    scheduleDrilldown: RecallStudyScheduleDrilldown = 'all',
+  ) => {
     handleSelectLibraryDocument(documentId)
     const sourceCards = studyCards.filter((card) => card.source_document_id === documentId)
-    const matchingCardId = getNextStudyCardForQueue(sourceCards)?.id ?? sourceCards[0]?.id ?? null
+    const matchingCards =
+      scheduleDrilldown === 'all'
+        ? sourceCards
+        : sourceCards.filter((card) => studyCardMatchesScheduleDrilldown(card, scheduleDrilldown))
+    const matchingCardId =
+      getNextStudyCardForQueue(matchingCards)?.id ??
+      matchingCards[0]?.id ??
+      getNextStudyCardForQueue(sourceCards)?.id ??
+      sourceCards[0]?.id ??
+      null
     updateSourceWorkspaceState((current) => ({
       ...current,
       activeDocumentId: documentId,
@@ -9806,10 +11303,13 @@ export function RecallWorkspace({
     }))
     updateStudyState((current) => ({
       ...current,
+      collectionFilter: 'all',
       filter: 'all',
       activeCardId: matchingCardId,
+      knowledgeStageFilter: 'all',
       questionSearchQuery: '',
-      scheduleDrilldown: 'all',
+      reviewHistoryFilter: 'all',
+      scheduleDrilldown,
       sourceScopeDocumentId: documentId,
     }))
     setBrowseDrawerOpen('study', true)
@@ -9824,10 +11324,15 @@ export function RecallWorkspace({
   ])
 
   const openStudyScheduleDrilldown = useCallback((drilldown: RecallStudyScheduleDrilldown) => {
-    const matchingCards =
-      drilldown === 'all'
-        ? scopedStudyCards
-        : scopedStudyCards.filter((card) => studyCardMatchesScheduleDrilldown(card, drilldown))
+    const normalizedQuery = normalizeSourceMemorySearchText(studyQuestionSearchQuery)
+    const matchingCards = scopedStudyCards.filter((card) => {
+      const collectionMatches = studyCardMatchesCollectionFilter(card, studyCollectionFilter, documentById, homeCustomCollections)
+      const scheduleMatches = drilldown === 'all' || studyCardMatchesScheduleDrilldown(card, drilldown)
+      const stageMatches = studyKnowledgeStageFilter === 'all' || card.knowledge_stage === studyKnowledgeStageFilter
+      const reviewHistoryMatches = studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter)
+      const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
+      return collectionMatches && scheduleMatches && stageMatches && reviewHistoryMatches && searchMatches
+    })
     const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
     updateStudyState((current) => ({
       ...current,
@@ -9837,7 +11342,136 @@ export function RecallWorkspace({
     }))
     setBrowseDrawerOpen('study', true)
     onSectionChange('study')
-  }, [onSectionChange, scopedStudyCards, setBrowseDrawerOpen, updateStudyState])
+  }, [
+    documentById,
+    homeCustomCollections,
+    onSectionChange,
+    scopedStudyCards,
+    setBrowseDrawerOpen,
+    studyCollectionFilter,
+    studyKnowledgeStageFilter,
+    studyQuestionSearchQuery,
+    studyReviewHistoryFilter,
+    updateStudyState,
+  ])
+
+  const openStudyKnowledgeStageFilter = useCallback((stage: Exclude<RecallStudyKnowledgeStageFilter, 'all'>) => {
+    const normalizedQuery = normalizeSourceMemorySearchText(studyQuestionSearchQuery)
+    const matchingCards = scopedStudyCards.filter((card) => {
+      const collectionMatches = studyCardMatchesCollectionFilter(card, studyCollectionFilter, documentById, homeCustomCollections)
+      const scheduleMatches =
+        studyScheduleDrilldown === 'all' || studyCardMatchesScheduleDrilldown(card, studyScheduleDrilldown)
+      const statusMatches = studyScheduleDrilldown !== 'all' || studyFilter === 'all' || card.status === studyFilter
+      const reviewHistoryMatches = studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter)
+      const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
+      return collectionMatches && scheduleMatches && statusMatches && reviewHistoryMatches && searchMatches && card.knowledge_stage === stage
+    })
+    const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
+    updateStudyState((current) => ({
+      ...current,
+      activeCardId: matchingCardId ?? current.activeCardId,
+      knowledgeStageFilter: stage,
+    }))
+    setBrowseDrawerOpen('study', true)
+    onSectionChange('study')
+  }, [
+    documentById,
+    homeCustomCollections,
+    onSectionChange,
+    scopedStudyCards,
+    setBrowseDrawerOpen,
+    studyCollectionFilter,
+    studyFilter,
+    studyQuestionSearchQuery,
+    studyReviewHistoryFilter,
+    studyScheduleDrilldown,
+    updateStudyState,
+  ])
+
+  const openStudyReviewHistoryFilter = useCallback((filter: Exclude<RecallStudyReviewHistoryFilter, 'all'>) => {
+    const normalizedQuery = normalizeSourceMemorySearchText(studyQuestionSearchQuery)
+    const matchingCards = scopedStudyCards.filter((card) => {
+      const collectionMatches = studyCardMatchesCollectionFilter(card, studyCollectionFilter, documentById, homeCustomCollections)
+      const scheduleMatches =
+        studyScheduleDrilldown === 'all' || studyCardMatchesScheduleDrilldown(card, studyScheduleDrilldown)
+      const statusMatches = studyScheduleDrilldown !== 'all' || studyFilter === 'all' || card.status === studyFilter
+      const stageMatches = studyKnowledgeStageFilter === 'all' || card.knowledge_stage === studyKnowledgeStageFilter
+      const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
+      return (
+        collectionMatches &&
+        scheduleMatches &&
+        statusMatches &&
+        stageMatches &&
+        searchMatches &&
+        studyCardMatchesReviewHistoryFilter(card, filter)
+      )
+    })
+    const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
+    updateStudyState((current) => ({
+      ...current,
+      activeCardId: matchingCardId ?? current.activeCardId,
+      reviewHistoryFilter: filter,
+    }))
+    setBrowseDrawerOpen('study', true)
+    onSectionChange('study')
+  }, [
+    documentById,
+    homeCustomCollections,
+    onSectionChange,
+    scopedStudyCards,
+    setBrowseDrawerOpen,
+    studyCollectionFilter,
+    studyFilter,
+    studyKnowledgeStageFilter,
+    studyQuestionSearchQuery,
+    studyScheduleDrilldown,
+    updateStudyState,
+  ])
+
+  const openStudyCollectionFilter = useCallback((filter: Exclude<RecallStudyCollectionFilter, 'all'>) => {
+    const normalizedQuery = normalizeSourceMemorySearchText(studyQuestionSearchQuery)
+    const matchingCards = scopedStudyCards.filter((card) => {
+      const collectionMatches = studyCardMatchesCollectionFilter(card, filter, documentById, homeCustomCollections)
+      const scheduleMatches =
+        studyScheduleDrilldown === 'all' || studyCardMatchesScheduleDrilldown(card, studyScheduleDrilldown)
+      const statusMatches = studyScheduleDrilldown !== 'all' || studyFilter === 'all' || card.status === studyFilter
+      const stageMatches = studyKnowledgeStageFilter === 'all' || card.knowledge_stage === studyKnowledgeStageFilter
+      const reviewHistoryMatches = studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter)
+      const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
+      return collectionMatches && scheduleMatches && statusMatches && stageMatches && reviewHistoryMatches && searchMatches
+    })
+    const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
+    updateStudyState((current) => ({
+      ...current,
+      activeCardId: matchingCardId ?? current.activeCardId,
+      collectionFilter: filter,
+    }))
+    setBrowseDrawerOpen('study', true)
+    onSectionChange('study')
+  }, [
+    documentById,
+    homeCustomCollections,
+    onSectionChange,
+    scopedStudyCards,
+    setBrowseDrawerOpen,
+    studyFilter,
+    studyKnowledgeStageFilter,
+    studyQuestionSearchQuery,
+    studyReviewHistoryFilter,
+    studyScheduleDrilldown,
+    updateStudyState,
+  ])
+
+  const handleSelectStudyProgressReview = useCallback((review: StudyReviewProgressRecentReview) => {
+    const matchingCard = studyCards.find((card) => card.id === review.review_card_id)
+    if (matchingCard) {
+      handleSelectStudyCard(matchingCard)
+      setBrowseDrawerOpen('study', false)
+      onSectionChange('study')
+      return
+    }
+    focusSourceStudyQuestions(review.source_document_id)
+  }, [focusSourceStudyQuestions, onSectionChange, setBrowseDrawerOpen, studyCards])
 
   const resumeFocusedSource = useCallback(() => {
     if (!activeSourceDocumentId) {
@@ -13730,7 +15364,7 @@ export function RecallWorkspace({
         </span>
         <span className="recall-study-queue-preview-row-preview">{getStudyCardPreview(card)}</span>
         <span className="recall-study-queue-preview-row-meta">
-          <span>{card.card_type}</span>
+          <span>{formatStudyCardTypeLabel(card.card_type)}</span>
           <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
         </span>
       </button>
@@ -13738,6 +15372,24 @@ export function RecallWorkspace({
   }
 
   function getStudyQuestionsEmptyMessage() {
+    if (studyCollectionFilterActive) {
+      const scopeLabel = studySourceScopeDocumentId ? 'source-scoped ' : ''
+      const scheduleLabel = studyScheduleDrilldownActive ? `${studyScheduleDrilldownLabel.toLowerCase()} ` : ''
+      const stageLabel = studyKnowledgeStageFilterActive ? `${studyKnowledgeStageFilterLabel.toLowerCase()} ` : ''
+      const historyLabel = studyReviewHistoryFilterActive ? `${studyReviewHistoryFilterLabel.toLowerCase()} ` : ''
+      return `No ${scopeLabel}${studyCollectionFilterLabel.toLowerCase()} subset ${scheduleLabel}${stageLabel}${historyLabel}questions match${studyQuestionSearchActive ? ' that search' : ' this filter'}.`
+    }
+    if (studyReviewHistoryFilterActive) {
+      const scopeLabel = studySourceScopeDocumentId ? 'source-scoped ' : ''
+      const scheduleLabel = studyScheduleDrilldownActive ? `${studyScheduleDrilldownLabel.toLowerCase()} ` : ''
+      const stageLabel = studyKnowledgeStageFilterActive ? `${studyKnowledgeStageFilterLabel.toLowerCase()} ` : ''
+      return `No ${scopeLabel}${scheduleLabel}${stageLabel}${studyReviewHistoryFilterLabel.toLowerCase()} questions match${studyQuestionSearchActive ? ' that search' : ' this filter'}.`
+    }
+    if (studyKnowledgeStageFilterActive) {
+      const scopeLabel = studySourceScopeDocumentId ? 'source-scoped ' : ''
+      const scheduleLabel = studyScheduleDrilldownActive ? `${studyScheduleDrilldownLabel.toLowerCase()} ` : ''
+      return `No ${scopeLabel}${scheduleLabel}${studyKnowledgeStageFilterLabel.toLowerCase()} questions match${studyQuestionSearchActive ? ' that search' : ' this filter'}.`
+    }
     if (studyScheduleDrilldownActive) {
       const scopeLabel = studySourceScopeDocumentId ? 'source-scoped ' : ''
       return `No ${scopeLabel}${studyScheduleDrilldownLabel.toLowerCase()} questions match${studyQuestionSearchActive ? ' that search' : ' this filter'}.`
@@ -13779,6 +15431,1579 @@ export function RecallWorkspace({
     )
   }
 
+  function renderStudyCollectionFilterChip(surface: 'desktop' | 'focused') {
+    if (!studyCollectionFilterActive) {
+      return null
+    }
+
+    return (
+      <div
+        className={`reader-meta-row recall-study-collection-filter-chip-stage930 recall-study-collection-filter-chip-${surface}-stage930`}
+        data-study-collection-filter-chip-stage930="true"
+        data-study-collection-filter-value-stage930={studyCollectionFilter}
+        role="list"
+        aria-label="Active study subset filter"
+      >
+        <span className="status-chip reader-meta-chip" role="listitem">
+          Subset: {studyCollectionFilterLabel}
+        </span>
+        <span className="status-chip reader-meta-chip" role="listitem">
+          {collectionFilteredStudyQuestionCount} {collectionFilteredStudyQuestionCount === 1 ? 'question' : 'questions'}
+        </span>
+        <button
+          className="ghost-button"
+          data-study-collection-filter-clear-stage930="true"
+          type="button"
+          onClick={() => updateStudyState((current) => ({ ...current, collectionFilter: 'all' }))}
+        >
+          Clear subset
+        </button>
+      </div>
+    )
+  }
+
+  function renderStudyKnowledgeStageFilterChip(surface: 'desktop' | 'focused') {
+    if (!studyKnowledgeStageFilterActive) {
+      return null
+    }
+
+    return (
+      <div
+        className={`reader-meta-row recall-study-knowledge-stage-filter-chip-stage924 recall-study-knowledge-stage-filter-chip-${surface}-stage924`}
+        data-study-knowledge-stage-filter-chip-stage924="true"
+        data-study-knowledge-stage-filter-value-stage924={studyKnowledgeStageFilter}
+        role="list"
+        aria-label="Active study knowledge-stage filter"
+      >
+        <span className="status-chip reader-meta-chip" role="listitem">
+          Memory: {studyKnowledgeStageFilterLabel}
+        </span>
+        <span className="status-chip reader-meta-chip" role="listitem">
+          {stageFilteredStudyQuestionCount} {stageFilteredStudyQuestionCount === 1 ? 'question' : 'questions'}
+        </span>
+        <button
+          className="ghost-button"
+          data-study-knowledge-stage-filter-clear-stage924="true"
+          type="button"
+          onClick={() => updateStudyState((current) => ({ ...current, knowledgeStageFilter: 'all' }))}
+        >
+          Clear memory
+        </button>
+      </div>
+    )
+  }
+
+  function renderStudyReviewHistoryFilterChip(surface: 'desktop' | 'focused') {
+    if (!studyReviewHistoryFilterActive) {
+      return null
+    }
+
+    return (
+      <div
+        className={`reader-meta-row recall-study-review-history-filter-chip-stage928 recall-study-review-history-filter-chip-${surface}-stage928`}
+        data-study-review-history-filter-chip-stage928="true"
+        data-study-review-history-filter-value-stage928={studyReviewHistoryFilter}
+        role="list"
+        aria-label="Active study review-history filter"
+      >
+        <span className="status-chip reader-meta-chip" role="listitem">
+          History: {studyReviewHistoryFilterLabel}
+        </span>
+        <span className="status-chip reader-meta-chip" role="listitem">
+          {reviewHistoryFilteredStudyQuestionCount} {reviewHistoryFilteredStudyQuestionCount === 1 ? 'question' : 'questions'}
+        </span>
+        <button
+          className="ghost-button"
+          data-study-review-history-filter-clear-stage928="true"
+          type="button"
+          onClick={() => updateStudyState((current) => ({ ...current, reviewHistoryFilter: 'all' }))}
+        >
+          Clear history
+        </button>
+      </div>
+    )
+  }
+
+  function renderStudyQuestionActiveFilters(surface: 'desktop' | 'focused') {
+    if (!studyQuestionFilterStackActive) {
+      return null
+    }
+
+    return (
+      <div
+        className={`recall-study-question-active-filters-stage928 recall-study-question-active-filters-${surface}-stage928`}
+        data-study-question-active-filters-stage928="true"
+        data-study-question-active-filter-count-stage928={studyQuestionResultCount}
+        role="group"
+        aria-label="Active study question filters"
+      >
+        {studyFilter !== 'all' ? (
+          <button
+            className="status-chip reader-meta-chip"
+            data-study-status-filter-clear-stage928="true"
+            type="button"
+            onClick={() => updateStudyState((current) => ({ ...current, filter: 'all' }))}
+          >
+            Status: {formatModeLabel(studyFilter)} x
+          </button>
+        ) : null}
+        {studyCollectionFilterActive ? (
+          <button
+            className="status-chip reader-meta-chip"
+            data-study-collection-filter-inline-clear-stage930="true"
+            type="button"
+            onClick={() => updateStudyState((current) => ({ ...current, collectionFilter: 'all' }))}
+          >
+            Subset: {studyCollectionFilterLabel} x
+          </button>
+        ) : null}
+        {studyScheduleDrilldownActive ? (
+          <button
+            className="status-chip reader-meta-chip"
+            data-study-schedule-filter-inline-clear-stage928="true"
+            type="button"
+            onClick={() => updateStudyState((current) => ({ ...current, scheduleDrilldown: 'all' }))}
+          >
+            Schedule: {studyScheduleDrilldownLabel} x
+          </button>
+        ) : null}
+        {studyKnowledgeStageFilterActive ? (
+          <button
+            className="status-chip reader-meta-chip"
+            data-study-knowledge-stage-filter-inline-clear-stage928="true"
+            type="button"
+            onClick={() => updateStudyState((current) => ({ ...current, knowledgeStageFilter: 'all' }))}
+          >
+            Memory: {studyKnowledgeStageFilterLabel} x
+          </button>
+        ) : null}
+        {studyReviewHistoryFilterActive ? (
+          <button
+            className="status-chip reader-meta-chip"
+            data-study-review-history-filter-inline-clear-stage928="true"
+            type="button"
+            onClick={() => updateStudyState((current) => ({ ...current, reviewHistoryFilter: 'all' }))}
+          >
+            History: {studyReviewHistoryFilterLabel} x
+          </button>
+        ) : null}
+        {studyQuestionSearchActive ? (
+          <button
+            className="status-chip reader-meta-chip"
+            data-study-question-search-inline-clear-stage928="true"
+            type="button"
+            onClick={() => setStudyQuestionSearchQuery('')}
+          >
+            Search x
+          </button>
+        ) : null}
+        <button
+          className="ghost-button"
+          data-study-question-clear-filters-stage928="true"
+          type="button"
+          onClick={clearStudyQuestionFilters}
+        >
+          Clear filters
+        </button>
+      </div>
+    )
+  }
+
+  function renderStudyCardScheduleButton(card: StudyCardRecord, surface: 'desktop' | 'focused') {
+    const scheduleAction = getStudyScheduleStateAction(card)
+    const scheduleActionLabel = getStudyScheduleStateActionLabel(card)
+    const scheduleBusy = studyBusyKey === `schedule-state:${card.id}:${scheduleAction}`
+    return (
+      <button
+        className={`ghost-button recall-study-card-schedule-button-stage934 recall-study-card-schedule-button-${surface}-stage934`}
+        data-study-active-card-schedule-action-stage934={scheduleAction}
+        disabled={scheduleBusy}
+        type="button"
+        onClick={() => void handleSetStudyCardScheduleState(card, scheduleAction)}
+      >
+        {scheduleBusy ? `${scheduleActionLabel}...` : scheduleActionLabel}
+      </button>
+    )
+  }
+
+  function renderStudyCardManagementActions(card: StudyCardRecord, surface: 'desktop' | 'focused' | 'row') {
+    const editBusy = studyBusyKey === `edit:${card.id}`
+    const deleteBusy = studyBusyKey === `delete:${card.id}`
+    return (
+      <span className={`recall-study-card-management-actions-stage936 recall-study-card-management-actions-${surface}-stage936`}>
+        <button
+          className="ghost-button recall-study-card-edit-button-stage936"
+          data-study-question-edit-action-stage936={surface}
+          disabled={editBusy || deleteBusy}
+          type="button"
+          onClick={() => handleOpenStudyCardEdit(card, surface === 'row' ? 'row' : 'active')}
+        >
+          {editBusy ? 'Saving...' : 'Edit'}
+        </button>
+        <button
+          className="ghost-button recall-study-card-delete-button-stage936"
+          data-study-question-delete-action-stage936={surface}
+          disabled={deleteBusy}
+          type="button"
+          onClick={() => void handleDeleteStudyCard(card)}
+        >
+          {deleteBusy ? 'Deleting...' : 'Delete'}
+        </button>
+      </span>
+    )
+  }
+
+  function renderStudyQuestionManagementToolbar(surface: 'desktop' | 'focused') {
+    if (studyQuestionResultCount === 0) {
+      return null
+    }
+    return (
+      <div
+        className={`recall-study-question-management-toolbar-stage936 recall-study-question-management-toolbar-${surface}-stage936`}
+        data-study-question-management-toolbar-stage936="true"
+        role="group"
+        aria-label="Study question management"
+      >
+        <label className="recall-study-question-select-visible-stage936">
+          <input
+            checked={allVisibleStudyQuestionsSelected}
+            type="checkbox"
+            onChange={(event) => handleToggleAllVisibleStudyQuestions(event.target.checked)}
+          />
+          <span>Select visible</span>
+        </label>
+        <span className="small-note" data-study-question-selected-count-stage936={selectedVisibleStudyQuestionIds.length}>
+          {selectedVisibleStudyQuestionIds.length} selected
+        </span>
+        <button
+          className="ghost-button recall-study-question-bulk-delete-button-stage936"
+          data-study-question-bulk-delete-stage936="true"
+          disabled={selectedVisibleStudyQuestionIds.length === 0 || studyBusyKey === 'bulk-delete'}
+          type="button"
+          onClick={() => void handleBulkDeleteSelectedStudyQuestions()}
+        >
+          {studyBusyKey === 'bulk-delete' ? 'Deleting...' : 'Delete selected'}
+        </button>
+      </div>
+    )
+  }
+
+  function handleSetStudyCreateCardType(cardType: StudyManualCardType) {
+    setStudyCreateDraft((current) => {
+      if (!current) {
+        return current
+      }
+      if (cardType === 'true_false') {
+        return {
+          ...current,
+          answer: 'True',
+          cardType,
+          choices: STUDY_TRUE_FALSE_CHOICES,
+          correctChoiceId: 'true',
+        }
+      }
+      if (cardType === 'multiple_choice') {
+        const existingChoices = current.choices.length >= 2 ? current.choices : makeDefaultStudyChoiceOptions()
+        return {
+          ...current,
+          answer: '',
+          cardType,
+          choices: existingChoices,
+          correctChoiceId: existingChoices.some((choice) => choice.id === current.correctChoiceId)
+            ? current.correctChoiceId
+            : existingChoices[0]?.id ?? 'choice-a',
+        }
+      }
+      if (cardType === 'fill_in_blank') {
+        const existingChoices = current.choices.length >= 2 ? current.choices : makeDefaultStudyChoiceOptions()
+        return {
+          ...current,
+          answer: '',
+          blankTemplate: current.blankTemplate || '',
+          cardType,
+          choices: existingChoices,
+          correctChoiceId: existingChoices.some((choice) => choice.id === current.correctChoiceId)
+            ? current.correctChoiceId
+            : existingChoices[0]?.id ?? 'choice-a',
+        }
+      }
+      if (cardType === 'matching') {
+        return {
+          ...current,
+          answer: '',
+          blankTemplate: '',
+          cardType,
+          matchingPairs: current.matchingPairs.length >= 2 ? current.matchingPairs : makeDefaultStudyMatchingPairs(),
+        }
+      }
+      if (cardType === 'ordering') {
+        return {
+          ...current,
+          answer: '',
+          blankTemplate: '',
+          cardType,
+          orderingItems: current.orderingItems.length >= 2 ? current.orderingItems : makeDefaultStudyOrderingItems(),
+        }
+      }
+      return {
+        ...current,
+        answer: cardType === current.cardType ? current.answer : '',
+        blankTemplate: '',
+        cardType,
+      }
+    })
+  }
+
+  function renderStudyQuestionPayloadEditor({
+    blankTemplate,
+    cardType,
+    choices,
+    correctChoiceId,
+    matchingPairs,
+    onAddChoice,
+    onAddMatchingPair,
+    onAddOrderingItem,
+    onBlankTemplateChange,
+    onChoiceTextChange,
+    onCorrectChoiceIdChange,
+    onMatchingPairChange,
+    onMoveOrderingItem,
+    onOrderingItemTextChange,
+    onRemoveChoice,
+    onRemoveMatchingPair,
+    onRemoveOrderingItem,
+    orderingItems,
+    surface,
+  }: {
+    blankTemplate?: string
+    cardType: string
+    choices: StudyCardChoiceOption[]
+    correctChoiceId: string
+    matchingPairs?: StudyCardMatchingPair[]
+    onAddChoice?: () => void
+    onAddMatchingPair?: () => void
+    onAddOrderingItem?: () => void
+    onBlankTemplateChange?: (value: string) => void
+    onChoiceTextChange?: (choiceId: string, value: string) => void
+    onCorrectChoiceIdChange: (choiceId: string) => void
+    onMatchingPairChange?: (pairId: string, field: 'left' | 'right', value: string) => void
+    onMoveOrderingItem?: (itemId: string, direction: -1 | 1) => void
+    onOrderingItemTextChange?: (itemId: string, value: string) => void
+    onRemoveChoice?: (choiceId: string) => void
+    onRemoveMatchingPair?: (pairId: string) => void
+    onRemoveOrderingItem?: (itemId: string) => void
+    orderingItems?: StudyCardOrderingItem[]
+    surface: 'create' | 'edit'
+  }) {
+    if (cardType === 'true_false') {
+      return (
+        <div
+          className="recall-study-choice-editor-stage940"
+          data-study-question-choice-editor-stage940={`${surface}:true_false`}
+        >
+          <span className="recall-study-choice-editor-label-stage940">Correct answer</span>
+          <div className="recall-study-choice-segment-stage940" role="group" aria-label="True/false correct answer">
+            {STUDY_TRUE_FALSE_CHOICES.map((choice) => (
+              <button
+                key={`${surface}:true-false:${choice.id}`}
+                aria-pressed={correctChoiceId === choice.id}
+                className={
+                  correctChoiceId === choice.id
+                    ? 'recall-study-choice-segment-button-stage940 recall-study-choice-segment-button-active-stage940'
+                    : 'recall-study-choice-segment-button-stage940'
+                }
+                data-study-question-true-false-choice-stage940={choice.id}
+                type="button"
+                onClick={() => onCorrectChoiceIdChange(choice.id)}
+              >
+                {choice.text}
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    if (cardType === 'matching') {
+      const pairs = matchingPairs ?? []
+      return (
+        <div
+          className="recall-study-choice-editor-stage940 recall-study-matching-editor-stage944"
+          data-study-matching-editor-stage944={surface}
+          data-study-question-choice-editor-stage940={`${surface}:matching`}
+        >
+          <span className="recall-study-choice-editor-label-stage940">Matching pairs</span>
+          <div className="recall-study-matching-pair-list-stage944">
+            {pairs.map((pair, index) => (
+              <div
+                className="recall-study-matching-pair-row-stage944"
+                data-study-matching-pair-row-stage944={index}
+                key={`${surface}:matching:${pair.id}`}
+              >
+                <label className="field">
+                  <span>{`Left ${choiceOptionLabel(index)}`}</span>
+                  <input
+                    aria-label={`Match left ${choiceOptionLabel(index)}`}
+                    data-study-matching-left-stage944={index}
+                    value={pair.left}
+                    onChange={(event) => onMatchingPairChange?.(pair.id, 'left', event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>{`Right ${choiceOptionLabel(index)}`}</span>
+                  <input
+                    aria-label={`Match right ${choiceOptionLabel(index)}`}
+                    data-study-matching-right-stage944={index}
+                    value={pair.right}
+                    onChange={(event) => onMatchingPairChange?.(pair.id, 'right', event.target.value)}
+                  />
+                </label>
+                {pairs.length > 2 ? (
+                  <button
+                    aria-label={`Remove pair ${choiceOptionLabel(index)}`}
+                    className="ghost-button"
+                    data-study-matching-remove-stage944={index}
+                    type="button"
+                    onClick={() => onRemoveMatchingPair?.(pair.id)}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          {pairs.length < 8 ? (
+            <button
+              className="ghost-button recall-study-choice-add-stage940"
+              data-study-matching-add-stage944="true"
+              type="button"
+              onClick={onAddMatchingPair}
+            >
+              Add pair
+            </button>
+          ) : null}
+        </div>
+      )
+    }
+
+    if (cardType === 'ordering') {
+      const items = orderingItems ?? []
+      return (
+        <div
+          className="recall-study-choice-editor-stage940 recall-study-ordering-editor-stage944"
+          data-study-ordering-editor-stage944={surface}
+          data-study-question-choice-editor-stage940={`${surface}:ordering`}
+        >
+          <span className="recall-study-choice-editor-label-stage940">Correct order</span>
+          <div className="recall-study-ordering-item-list-stage944">
+            {items.map((item, index) => (
+              <div
+                className="recall-study-ordering-item-row-stage944"
+                data-study-ordering-item-row-stage944={index}
+                key={`${surface}:ordering:${item.id}`}
+              >
+                <span className="recall-study-ordering-position-stage944">{index + 1}</span>
+                <input
+                  aria-label={`Ordered item ${index + 1}`}
+                  data-study-ordering-item-stage944={index}
+                  value={item.text}
+                  onChange={(event) => onOrderingItemTextChange?.(item.id, event.target.value)}
+                />
+                <span className="recall-study-ordering-row-actions-stage944">
+                  <button
+                    aria-label={`Move item ${index + 1} up`}
+                    className="ghost-button"
+                    data-study-ordering-move-stage944={`up:${index}`}
+                    disabled={index === 0}
+                    type="button"
+                    onClick={() => onMoveOrderingItem?.(item.id, -1)}
+                  >
+                    Up
+                  </button>
+                  <button
+                    aria-label={`Move item ${index + 1} down`}
+                    className="ghost-button"
+                    data-study-ordering-move-stage944={`down:${index}`}
+                    disabled={index === items.length - 1}
+                    type="button"
+                    onClick={() => onMoveOrderingItem?.(item.id, 1)}
+                  >
+                    Down
+                  </button>
+                  {items.length > 2 ? (
+                    <button
+                      aria-label={`Remove ordered item ${index + 1}`}
+                      className="ghost-button"
+                      data-study-ordering-remove-stage944={index}
+                      type="button"
+                      onClick={() => onRemoveOrderingItem?.(item.id)}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </span>
+              </div>
+            ))}
+          </div>
+          {items.length < 8 ? (
+            <button
+              className="ghost-button recall-study-choice-add-stage940"
+              data-study-ordering-add-stage944="true"
+              type="button"
+              onClick={onAddOrderingItem}
+            >
+              Add item
+            </button>
+          ) : null}
+        </div>
+      )
+    }
+
+    if (cardType !== 'multiple_choice' && cardType !== 'fill_in_blank') {
+      return null
+    }
+
+    return (
+      <div
+        className="recall-study-choice-editor-stage940"
+        data-study-question-choice-editor-stage940={`${surface}:${cardType}`}
+        data-study-fill-blank-editor-stage942={cardType === 'fill_in_blank' ? surface : undefined}
+      >
+        {cardType === 'fill_in_blank' ? (
+          <label className="field recall-study-fill-blank-template-stage942">
+            <span>Sentence template</span>
+            <textarea
+              aria-label="Fill in the blank template"
+              data-study-question-fill-blank-template-stage942={surface}
+              placeholder="Use exactly one {{blank}} marker"
+              value={blankTemplate ?? ''}
+              onChange={(event) => onBlankTemplateChange?.(event.target.value)}
+            />
+          </label>
+        ) : null}
+        <span className="recall-study-choice-editor-label-stage940">
+          {cardType === 'fill_in_blank' ? 'Blank options' : 'Choices'}
+        </span>
+        <div className="recall-study-choice-option-list-stage940">
+          {choices.map((choice, index) => (
+            <div className="recall-study-choice-option-row-stage940" key={`${surface}:choice:${choice.id}`}>
+              <label className="recall-study-choice-correct-control-stage940">
+                <input
+                  aria-label={`Mark choice ${choiceOptionLabel(index)} correct`}
+                  checked={correctChoiceId === choice.id}
+                  name={`study-${surface}-correct-choice`}
+                  type="radio"
+                  onChange={() => onCorrectChoiceIdChange(choice.id)}
+                />
+                <span>{choiceOptionLabel(index)}</span>
+              </label>
+              <input
+                aria-label={`Choice ${choiceOptionLabel(index)}`}
+                data-study-question-choice-text-stage940={index}
+                data-study-question-fill-blank-choice-text-stage942={cardType === 'fill_in_blank' ? index : undefined}
+                value={choice.text}
+                onChange={(event) => onChoiceTextChange?.(choice.id, event.target.value)}
+              />
+              {choices.length > 2 ? (
+                <button
+                  aria-label={`Remove choice ${choiceOptionLabel(index)}`}
+                  className="ghost-button"
+                  data-study-question-choice-remove-stage940={index}
+                  type="button"
+                  onClick={() => onRemoveChoice?.(choice.id)}
+                >
+                  Remove
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        {choices.length < 6 ? (
+          <button
+            className="ghost-button recall-study-choice-add-stage940"
+            data-study-question-choice-add-stage940="true"
+            type="button"
+            onClick={onAddChoice}
+          >
+            Add choice
+          </button>
+        ) : null}
+      </div>
+    )
+  }
+
+  function renderStudyChoiceReviewControls(card: StudyCardRecord, surface: 'desktop' | 'focused') {
+    if (!isStudyChoiceCardType(card.card_type)) {
+      return null
+    }
+    const choices = getStudyChoiceOptionsFromCard(card)
+    if (!choices.length) {
+      return null
+    }
+    const correctChoiceId = getStudyChoiceCorrectChoiceId(card)
+    const attempt = studyChoiceReviewAttempts[card.id] ?? { revealed: false, selectedChoiceId: null }
+    const revealed = showAnswer || attempt.revealed
+    const selectedChoice = choices.find((choice) => choice.id === attempt.selectedChoiceId) ?? null
+    const selectedCorrect = selectedChoice ? selectedChoice.id === correctChoiceId : null
+    const fillBlankTemplate = getStudyFillBlankTemplate(card)
+    return (
+      <div
+        className={`recall-study-choice-review-stage940 recall-study-choice-review-${surface}-stage940`}
+        data-study-choice-review-stage940={card.card_type}
+        data-study-fill-blank-review-stage942={card.card_type === 'fill_in_blank' ? surface : undefined}
+      >
+        {card.card_type === 'fill_in_blank' && fillBlankTemplate ? (
+          <p
+            className="recall-study-fill-blank-template-review-stage942"
+            data-study-fill-blank-review-template-stage942="true"
+          >
+            {fillBlankTemplate.split('{{blank}}').map((part, index, parts) => (
+              <Fragment key={`${card.id}:blank-template:${index}`}>
+                {part}
+                {index < parts.length - 1 ? <strong>_____</strong> : null}
+              </Fragment>
+            ))}
+          </p>
+        ) : null}
+        <div className="recall-study-choice-review-options-stage940" role="group" aria-label="Answer choices">
+          {choices.map((choice, index) => {
+            const selected = attempt.selectedChoiceId === choice.id
+            const correct = choice.id === correctChoiceId
+            return (
+              <button
+                key={`${card.id}:choice-review:${choice.id}`}
+                aria-pressed={selected}
+                className={
+                  revealed && correct
+                    ? 'recall-study-choice-review-option-stage940 recall-study-choice-review-option-correct-stage940'
+                    : revealed && selected
+                      ? 'recall-study-choice-review-option-stage940 recall-study-choice-review-option-selected-stage940'
+                      : 'recall-study-choice-review-option-stage940'
+                }
+                data-study-choice-review-option-stage940={choice.id}
+                data-study-choice-review-option-correct-stage940={revealed && correct ? 'true' : undefined}
+                data-study-choice-review-option-selected-stage940={selected ? 'true' : undefined}
+                data-study-fill-blank-review-option-stage942={card.card_type === 'fill_in_blank' ? choice.id : undefined}
+                type="button"
+                onClick={() => handleSelectStudyChoiceAnswer(card, choice.id)}
+              >
+                <span>{choiceOptionLabel(index)}</span>
+                <strong>{choice.text}</strong>
+              </button>
+            )
+          })}
+        </div>
+        {revealed ? (
+          <p
+            className="small-note recall-study-choice-review-result-stage940"
+            data-study-choice-review-result-stage940={selectedCorrect === null ? 'revealed' : selectedCorrect ? 'correct' : 'incorrect'}
+          >
+            {selectedCorrect === null
+              ? `Correct answer: ${choices.find((choice) => choice.id === correctChoiceId)?.text ?? card.answer}.`
+              : selectedCorrect
+                ? 'Correct. Rate how confidently you remembered it.'
+                : `Not quite. Correct answer: ${choices.find((choice) => choice.id === correctChoiceId)?.text ?? card.answer}.`}
+          </p>
+        ) : (
+          <div className="recall-study-choice-review-reveal-stage940">
+            <p>Choose an option, or reveal the answer before rating.</p>
+            <button type="button" onClick={() => handleRevealStudyAnswer(card)}>
+              Reveal answer
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderStudyMatchingReviewControls(card: StudyCardRecord, surface: 'desktop' | 'focused') {
+    if (!isStudyMatchingCardType(card.card_type)) {
+      return null
+    }
+    const pairs = getStudyMatchingPairsFromCard(card)
+    if (!pairs.length) {
+      return null
+    }
+    const attempt = studyMatchingReviewAttempts[card.id] ?? { revealed: false, selections: {} }
+    const revealed = showAnswer || attempt.revealed
+    const allCorrect = pairs.every((pair) => attempt.selections[pair.id] === pair.id)
+    return (
+      <div
+        className={`recall-study-matching-review-stage944 recall-study-matching-review-${surface}-stage944`}
+        data-study-matching-review-stage944={surface}
+      >
+        <div className="recall-study-matching-review-list-stage944">
+          {pairs.map((pair, index) => {
+            const selectedRightPairId = attempt.selections[pair.id] ?? ''
+            const correct = selectedRightPairId === pair.id
+            return (
+              <div
+                className="recall-study-matching-review-row-stage944"
+                data-study-matching-review-row-result-stage944={revealed ? (correct ? 'correct' : 'incorrect') : undefined}
+                key={`${card.id}:matching-review:${pair.id}`}
+              >
+                <strong>{pair.left}</strong>
+                <select
+                  aria-label={`Match ${pair.left}`}
+                  data-study-matching-review-select-stage944={pair.id}
+                  value={selectedRightPairId}
+                  onChange={(event) => handleSelectStudyMatchingAnswer(card, pair.id, event.target.value)}
+                >
+                  <option value="">Choose match</option>
+                  {pairs.map((rightPair) => (
+                    <option key={`${card.id}:matching-option:${pair.id}:${rightPair.id}`} value={rightPair.id}>
+                      {rightPair.right}
+                    </option>
+                  ))}
+                </select>
+                <span className="small-note">
+                  {revealed
+                    ? correct
+                      ? 'Matched'
+                      : `Correct: ${pair.right}`
+                    : `Pair ${choiceOptionLabel(index)}`}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+        {revealed ? (
+          <p
+            className="small-note recall-study-matching-review-result-stage944"
+            data-study-matching-review-result-stage944={allCorrect ? 'correct' : 'incorrect'}
+          >
+            {allCorrect ? 'All matches are correct. Rate recall.' : 'Review the corrected matches, then rate recall.'}
+          </p>
+        ) : (
+          <div className="recall-study-choice-review-reveal-stage940">
+            <p>Choose matches, or reveal the answer before rating.</p>
+            <button type="button" onClick={() => handleRevealStudyAnswer(card)}>
+              Reveal answer
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderStudyOrderingReviewControls(card: StudyCardRecord, surface: 'desktop' | 'focused') {
+    if (!isStudyOrderingCardType(card.card_type)) {
+      return null
+    }
+    const items = getStudyOrderingItemsFromCard(card)
+    if (!items.length) {
+      return null
+    }
+    const correctById = new Map(items.map((item, index) => [item.id, index]))
+    const itemById = new Map(items.map((item) => [item.id, item]))
+    const attempt = studyOrderingReviewAttempts[card.id] ?? {
+      revealed: false,
+      itemIds: items.map((item) => item.id),
+    }
+    const itemIds = getStudyOrderingAttemptItemIds(card)
+    const revealed = showAnswer || attempt.revealed
+    const allCorrect = itemIds.every((itemId, index) => correctById.get(itemId) === index)
+    return (
+      <div
+        className={`recall-study-ordering-review-stage944 recall-study-ordering-review-${surface}-stage944`}
+        data-study-ordering-review-stage944={surface}
+      >
+        <div className="recall-study-ordering-review-list-stage944">
+          {itemIds.map((itemId, index) => {
+            const item = itemById.get(itemId)
+            if (!item) {
+              return null
+            }
+            const correct = correctById.get(itemId) === index
+            return (
+              <div
+                className="recall-study-ordering-review-row-stage944"
+                data-study-ordering-review-item-stage944={item.id}
+                data-study-ordering-review-row-result-stage944={revealed ? (correct ? 'correct' : 'incorrect') : undefined}
+                key={`${card.id}:ordering-review:${item.id}`}
+              >
+                <span className="recall-study-ordering-position-stage944">{index + 1}</span>
+                <strong>{item.text}</strong>
+                <span className="recall-study-ordering-row-actions-stage944">
+                  <button
+                    aria-label={`Move ${item.text} up`}
+                    className="ghost-button"
+                    disabled={index === 0 || revealed}
+                    type="button"
+                    onClick={() => handleMoveStudyOrderingAnswer(card, item.id, -1)}
+                  >
+                    Up
+                  </button>
+                  <button
+                    aria-label={`Move ${item.text} down`}
+                    className="ghost-button"
+                    disabled={index === itemIds.length - 1 || revealed}
+                    type="button"
+                    onClick={() => handleMoveStudyOrderingAnswer(card, item.id, 1)}
+                  >
+                    Down
+                  </button>
+                </span>
+                {revealed ? <span className="small-note">{correct ? 'Correct position' : 'Moved position'}</span> : null}
+              </div>
+            )
+          })}
+        </div>
+        {revealed ? (
+          <p
+            className="small-note recall-study-ordering-review-result-stage944"
+            data-study-ordering-review-result-stage944={allCorrect ? 'correct' : 'incorrect'}
+          >
+            {allCorrect ? 'Order is correct. Rate recall.' : 'Review the correct order, then rate recall.'}
+          </p>
+        ) : (
+          <div className="recall-study-choice-review-reveal-stage940">
+            <p>Reorder the items, or reveal the answer before rating.</p>
+            <button type="button" onClick={() => handleRevealStudyAnswer(card)}>
+              Reveal answer
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderStudyShortAnswerAttemptControls(card: StudyCardRecord, surface: 'desktop' | 'focused') {
+    if (!isStudyShortAnswerCardType(card.card_type) || showAnswer) {
+      return null
+    }
+    const attemptValue = studyShortAnswerReviewAttempts[card.id]?.value ?? ''
+    const normalizedAttempt = normalizeStudyAttemptText(attemptValue)
+    const normalizedAnswer = normalizeStudyAttemptText(card.answer)
+    const hasAttempt = normalizedAttempt.length > 0
+    const matchesAnswer = hasAttempt && normalizedAttempt === normalizedAnswer
+    return (
+      <div
+        className={`recall-study-short-answer-attempt-stage942 recall-study-short-answer-attempt-${surface}-stage942`}
+        data-study-short-answer-attempt-stage942={surface}
+      >
+        <label className="field recall-study-short-answer-field-stage942">
+          <span>Your answer</span>
+          <input
+            aria-label="Your answer"
+            data-study-short-answer-input-stage942={surface}
+            value={attemptValue}
+            onChange={(event) => handleStudyShortAnswerAttemptChange(card, event.target.value)}
+          />
+        </label>
+        {hasAttempt ? (
+          <p
+            className="small-note recall-study-short-answer-result-stage942"
+            data-study-short-answer-attempt-result-stage942={matchesAnswer ? 'correct' : 'incorrect'}
+          >
+            {matchesAnswer ? 'Matches the saved answer. Reveal to rate recall.' : 'Not an exact match yet. Reveal when ready.'}
+          </p>
+        ) : (
+          <p className="small-note">Try the answer from memory before revealing it.</p>
+        )}
+        <button type="button" onClick={() => handleRevealStudyAnswer(card)}>
+          Reveal answer
+        </button>
+      </div>
+    )
+  }
+
+  function renderStudyCardCreateAction(surface: StudyCardCreateDraft['surface']) {
+    return (
+      <button
+        className="primary-button recall-study-question-create-open-stage938"
+        data-study-question-create-open-stage938={surface}
+        disabled={studyBusyKey === 'create'}
+        type="button"
+        onClick={() => handleOpenStudyCardCreate(surface)}
+      >
+        New question
+      </button>
+    )
+  }
+
+  function renderStudyCardCreateSurface(surface: StudyCardCreateDraft['surface']) {
+    if (!studyCreateDraft || studyCreateDraft.surface !== surface) {
+      return null
+    }
+    const createBusy = studyBusyKey === 'create'
+    const sourceLocked = Boolean(studySourceScopeDocumentId)
+    const selectedSourceTitle =
+      studyCreateSourceDocument?.title ?? studySourceScopeDocument?.title ?? 'Selected source'
+    const sourceDocumentId = sourceLocked ? studySourceScopeDocumentId ?? '' : studyCreateDraft.sourceDocumentId
+    const canSave =
+      Boolean(sourceDocumentId) &&
+      Boolean(studyCreateDraft.prompt.trim()) &&
+      isStudyQuestionDraftAnswerReady(
+        studyCreateDraft.cardType,
+        studyCreateDraft.answer,
+        studyCreateDraft.blankTemplate,
+        studyCreateDraft.choices,
+        studyCreateDraft.correctChoiceId,
+        studyCreateDraft.matchingPairs,
+        studyCreateDraft.orderingItems,
+      )
+    const cardTypeOptions: StudyManualCardType[] = [
+      'short_answer',
+      'flashcard',
+      'multiple_choice',
+      'true_false',
+      'fill_in_blank',
+      'matching',
+      'ordering',
+    ]
+    return (
+      <div
+        className={`recall-study-card-create-surface-stage938 recall-study-card-create-surface-${surface}-stage938`}
+        data-study-question-create-dialog-stage938="true"
+        data-study-choice-create-dialog-stage940="true"
+        aria-label="Create study question"
+      >
+        {documents.length === 0 ? (
+          <div className="recall-surface-state recall-study-card-create-empty-stage938" data-study-question-create-empty-stage938="true">
+            <p>Add a saved source before creating Study questions.</p>
+            <div className="inline-actions">
+              <button className="primary-button" type="button" onClick={onRequestNewSource}>
+                Add content
+              </button>
+              <button className="ghost-button" type="button" onClick={handleCloseStudyCardCreate}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="section-header section-header-compact">
+              <span className="recall-study-dashboard-current-kicker">New question</span>
+              <h3>{sourceLocked ? selectedSourceTitle : 'Choose a source'}</h3>
+            </div>
+            {sourceLocked ? (
+              <div
+                className="recall-study-card-create-source-lock-stage938"
+                data-study-question-create-source-scoped-stage938="true"
+              >
+                <span>Source</span>
+                <strong>{selectedSourceTitle}</strong>
+              </div>
+            ) : (
+              <label className="field recall-study-card-create-field-stage938">
+                <span>Source</span>
+                <select
+                  data-study-question-create-source-stage938="true"
+                  value={studyCreateDraft.sourceDocumentId}
+                  onChange={(event) =>
+                    setStudyCreateDraft((current) =>
+                      current ? { ...current, sourceDocumentId: event.target.value } : current,
+                    )
+                  }
+                >
+                  <option value="" disabled>
+                    Choose saved source
+                  </option>
+                  {documents.map((document) => (
+                    <option key={document.id} value={document.id}>
+                      {document.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <div
+              className="recall-study-card-type-options-stage938"
+              data-study-question-create-type-selector-stage938="true"
+              role="group"
+              aria-label="Question type"
+            >
+              {cardTypeOptions.map((cardType) => (
+                <button
+                  key={cardType}
+                  aria-pressed={studyCreateDraft.cardType === cardType}
+                  className={
+                    studyCreateDraft.cardType === cardType
+                      ? 'recall-study-card-type-option-stage938 recall-study-card-type-option-active-stage938'
+                      : 'recall-study-card-type-option-stage938'
+                  }
+                  data-study-question-create-type-stage938={cardType}
+                  data-study-question-create-type-stage940={cardType}
+                  type="button"
+                  onClick={() => handleSetStudyCreateCardType(cardType)}
+                >
+                  {formatStudyCardTypeLabel(cardType)}
+                </button>
+              ))}
+            </div>
+            <label className="field recall-study-card-create-field-stage938">
+              <span>Prompt</span>
+              <textarea
+                data-study-question-create-prompt-stage938="true"
+                value={studyCreateDraft.prompt}
+                onChange={(event) =>
+                  setStudyCreateDraft((current) => (current ? { ...current, prompt: event.target.value } : current))
+                }
+              />
+            </label>
+            {isStudyStructuredCardType(studyCreateDraft.cardType) ? (
+              renderStudyQuestionPayloadEditor({
+                blankTemplate: studyCreateDraft.blankTemplate,
+                cardType: studyCreateDraft.cardType,
+                choices: studyCreateDraft.choices,
+                correctChoiceId: studyCreateDraft.correctChoiceId,
+                matchingPairs: studyCreateDraft.matchingPairs,
+                onAddChoice: () =>
+                  setStudyCreateDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          choices: [
+                            ...current.choices,
+                            { id: `choice-${current.choices.length + 1}-${Date.now()}`, text: '' },
+                          ],
+                        }
+                      : current,
+                  ),
+                onAddMatchingPair: () =>
+                  setStudyCreateDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          matchingPairs: [
+                            ...current.matchingPairs,
+                            { id: `pair-${current.matchingPairs.length + 1}-${Date.now()}`, left: '', right: '' },
+                          ],
+                        }
+                      : current,
+                  ),
+                onAddOrderingItem: () =>
+                  setStudyCreateDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          orderingItems: [
+                            ...current.orderingItems,
+                            { id: `item-${current.orderingItems.length + 1}-${Date.now()}`, text: '' },
+                          ],
+                        }
+                      : current,
+                  ),
+                onChoiceTextChange: (choiceId, value) =>
+                  setStudyCreateDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          choices: current.choices.map((choice) =>
+                            choice.id === choiceId ? { ...choice, text: value } : choice,
+                          ),
+                        }
+                      : current,
+                  ),
+                onBlankTemplateChange: (value) =>
+                  setStudyCreateDraft((current) => (current ? { ...current, blankTemplate: value } : current)),
+                onCorrectChoiceIdChange: (choiceId) =>
+                  setStudyCreateDraft((current) => (current ? { ...current, correctChoiceId: choiceId } : current)),
+                onMatchingPairChange: (pairId, field, value) =>
+                  setStudyCreateDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          matchingPairs: current.matchingPairs.map((pair) =>
+                            pair.id === pairId ? { ...pair, [field]: value } : pair,
+                          ),
+                        }
+                      : current,
+                  ),
+                onMoveOrderingItem: (itemId, direction) =>
+                  setStudyCreateDraft((current) => {
+                    if (!current) {
+                      return current
+                    }
+                    const nextItems = [...current.orderingItems]
+                    const index = nextItems.findIndex((item) => item.id === itemId)
+                    const nextIndex = index + direction
+                    if (index < 0 || nextIndex < 0 || nextIndex >= nextItems.length) {
+                      return current
+                    }
+                    const [movedItem] = nextItems.splice(index, 1)
+                    nextItems.splice(nextIndex, 0, movedItem)
+                    return { ...current, orderingItems: nextItems }
+                  }),
+                onOrderingItemTextChange: (itemId, value) =>
+                  setStudyCreateDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          orderingItems: current.orderingItems.map((item) =>
+                            item.id === itemId ? { ...item, text: value } : item,
+                          ),
+                        }
+                      : current,
+                  ),
+                onRemoveChoice: (choiceId) =>
+                  setStudyCreateDraft((current) => {
+                    if (!current) {
+                      return current
+                    }
+                    const nextChoices = current.choices.filter((choice) => choice.id !== choiceId)
+                    return {
+                      ...current,
+                      choices: nextChoices,
+                      correctChoiceId: nextChoices.some((choice) => choice.id === current.correctChoiceId)
+                        ? current.correctChoiceId
+                        : nextChoices[0]?.id ?? current.correctChoiceId,
+                    }
+                  }),
+                onRemoveMatchingPair: (pairId) =>
+                  setStudyCreateDraft((current) =>
+                    current ? { ...current, matchingPairs: current.matchingPairs.filter((pair) => pair.id !== pairId) } : current,
+                  ),
+                onRemoveOrderingItem: (itemId) =>
+                  setStudyCreateDraft((current) =>
+                    current ? { ...current, orderingItems: current.orderingItems.filter((item) => item.id !== itemId) } : current,
+                  ),
+                orderingItems: studyCreateDraft.orderingItems,
+                surface: 'create',
+              })
+            ) : (
+              <label className="field recall-study-card-create-field-stage938">
+                <span>Answer</span>
+                <textarea
+                  data-study-question-create-answer-stage938="true"
+                  value={studyCreateDraft.answer}
+                  onChange={(event) =>
+                    setStudyCreateDraft((current) => (current ? { ...current, answer: event.target.value } : current))
+                  }
+                />
+              </label>
+            )}
+            <div className="inline-actions">
+              <button
+                className="primary-button"
+                data-study-question-create-save-stage938="true"
+                disabled={createBusy || !canSave}
+                type="button"
+                onClick={() => void handleSaveStudyCardCreate()}
+              >
+                {createBusy ? 'Saving...' : 'Save question'}
+              </button>
+              <button className="ghost-button" type="button" onClick={handleCloseStudyCardCreate}>
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  function renderStudyCardEditSurface(surface: 'desktop' | 'focused') {
+    if (!studyEditDraft) {
+      return null
+    }
+    const editingCard = studyCards.find((card) => card.id === studyEditDraft.cardId) ?? null
+    if (!editingCard) {
+      return null
+    }
+    const editBusy = studyBusyKey === `edit:${studyEditDraft.cardId}`
+    const editCanSave =
+      Boolean(studyEditDraft.prompt.trim()) &&
+      isStudyQuestionDraftAnswerReady(
+        studyEditDraft.cardType,
+        studyEditDraft.answer,
+        studyEditDraft.blankTemplate,
+        studyEditDraft.choices,
+        studyEditDraft.correctChoiceId,
+        studyEditDraft.matchingPairs,
+        studyEditDraft.orderingItems,
+      )
+    return (
+      <div
+        className={`recall-study-card-edit-surface-stage936 recall-study-card-edit-surface-${surface}-stage936`}
+        data-study-question-edit-surface-stage936={studyEditDraft.surface}
+        aria-label="Edit study question"
+      >
+        <div className="section-header section-header-compact">
+          <span className="recall-study-dashboard-current-kicker">Edit question</span>
+          <h3>{editingCard.document_title}</h3>
+        </div>
+        <div className="recall-study-card-create-source-lock-stage938" data-study-question-edit-type-stage940={studyEditDraft.cardType}>
+          <span>Type</span>
+          <strong>{formatStudyCardTypeLabel(studyEditDraft.cardType)}</strong>
+        </div>
+        <label className="field recall-study-card-edit-field-stage936">
+          <span>Prompt</span>
+          <textarea
+            value={studyEditDraft.prompt}
+            onChange={(event) =>
+              setStudyEditDraft((current) => (current ? { ...current, prompt: event.target.value } : current))
+            }
+          />
+        </label>
+        {isStudyStructuredCardType(studyEditDraft.cardType) ? (
+          renderStudyQuestionPayloadEditor({
+            blankTemplate: studyEditDraft.blankTemplate,
+            cardType: studyEditDraft.cardType,
+            choices: studyEditDraft.choices,
+            correctChoiceId: studyEditDraft.correctChoiceId,
+            matchingPairs: studyEditDraft.matchingPairs,
+            onAddChoice: () =>
+              setStudyEditDraft((current) =>
+                current
+                  ? {
+                      ...current,
+                      choices: [
+                        ...current.choices,
+                        { id: `choice-${current.choices.length + 1}-${Date.now()}`, text: '' },
+                      ],
+                    }
+                  : current,
+              ),
+            onAddMatchingPair: () =>
+              setStudyEditDraft((current) =>
+                current
+                  ? {
+                      ...current,
+                      matchingPairs: [
+                        ...current.matchingPairs,
+                        { id: `pair-${current.matchingPairs.length + 1}-${Date.now()}`, left: '', right: '' },
+                      ],
+                    }
+                  : current,
+              ),
+            onAddOrderingItem: () =>
+              setStudyEditDraft((current) =>
+                current
+                  ? {
+                      ...current,
+                      orderingItems: [
+                        ...current.orderingItems,
+                        { id: `item-${current.orderingItems.length + 1}-${Date.now()}`, text: '' },
+                      ],
+                    }
+                  : current,
+              ),
+            onChoiceTextChange: (choiceId, value) =>
+              setStudyEditDraft((current) =>
+                current
+                  ? {
+                      ...current,
+                      choices: current.choices.map((choice) =>
+                        choice.id === choiceId ? { ...choice, text: value } : choice,
+                      ),
+                    }
+                  : current,
+              ),
+            onBlankTemplateChange: (value) =>
+              setStudyEditDraft((current) => (current ? { ...current, blankTemplate: value } : current)),
+            onCorrectChoiceIdChange: (choiceId) =>
+              setStudyEditDraft((current) => (current ? { ...current, correctChoiceId: choiceId } : current)),
+            onMatchingPairChange: (pairId, field, value) =>
+              setStudyEditDraft((current) =>
+                current
+                  ? {
+                      ...current,
+                      matchingPairs: current.matchingPairs.map((pair) =>
+                        pair.id === pairId ? { ...pair, [field]: value } : pair,
+                      ),
+                    }
+                  : current,
+              ),
+            onMoveOrderingItem: (itemId, direction) =>
+              setStudyEditDraft((current) => {
+                if (!current) {
+                  return current
+                }
+                const nextItems = [...current.orderingItems]
+                const index = nextItems.findIndex((item) => item.id === itemId)
+                const nextIndex = index + direction
+                if (index < 0 || nextIndex < 0 || nextIndex >= nextItems.length) {
+                  return current
+                }
+                const [movedItem] = nextItems.splice(index, 1)
+                nextItems.splice(nextIndex, 0, movedItem)
+                return { ...current, orderingItems: nextItems }
+              }),
+            onOrderingItemTextChange: (itemId, value) =>
+              setStudyEditDraft((current) =>
+                current
+                  ? {
+                      ...current,
+                      orderingItems: current.orderingItems.map((item) =>
+                        item.id === itemId ? { ...item, text: value } : item,
+                      ),
+                    }
+                  : current,
+              ),
+            onRemoveChoice: (choiceId) =>
+              setStudyEditDraft((current) => {
+                if (!current) {
+                  return current
+                }
+                const nextChoices = current.choices.filter((choice) => choice.id !== choiceId)
+                return {
+                  ...current,
+                  choices: nextChoices,
+                  correctChoiceId: nextChoices.some((choice) => choice.id === current.correctChoiceId)
+                    ? current.correctChoiceId
+                    : nextChoices[0]?.id ?? current.correctChoiceId,
+                }
+              }),
+            onRemoveMatchingPair: (pairId) =>
+              setStudyEditDraft((current) =>
+                current ? { ...current, matchingPairs: current.matchingPairs.filter((pair) => pair.id !== pairId) } : current,
+              ),
+            onRemoveOrderingItem: (itemId) =>
+              setStudyEditDraft((current) =>
+                current ? { ...current, orderingItems: current.orderingItems.filter((item) => item.id !== itemId) } : current,
+              ),
+            orderingItems: studyEditDraft.orderingItems,
+            surface: 'edit',
+          })
+        ) : (
+          <label className="field recall-study-card-edit-field-stage936">
+            <span>Answer</span>
+            <textarea
+              value={studyEditDraft.answer}
+              onChange={(event) =>
+                setStudyEditDraft((current) => (current ? { ...current, answer: event.target.value } : current))
+              }
+            />
+          </label>
+        )}
+        <div className="inline-actions">
+          <button
+            className="primary-button"
+            data-study-question-edit-save-stage936="true"
+            data-study-question-choice-edit-save-stage940="true"
+            disabled={editBusy || !editCanSave}
+            type="button"
+            onClick={() => void handleSaveStudyCardEdit()}
+          >
+            {editBusy ? 'Saving...' : 'Save question'}
+          </button>
+          <button className="ghost-button" type="button" onClick={handleCloseStudyCardEdit}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  function renderStudyCollectionFilterControls(surface: 'desktop' | 'focused') {
+    const options = [
+      {
+        filter: 'all' as const,
+        label: 'All subsets',
+        totalCount: scopedStudyCardCount,
+      },
+      ...studyCollectionSubsetRows,
+    ]
+
+    return (
+      <div
+        className={`recall-study-collection-filter-options-stage930 recall-study-collection-filter-options-${surface}-stage930`}
+        data-study-collection-filter-options-stage930="true"
+        role="group"
+        aria-label="Study subset filters"
+      >
+        {options.map((option) => (
+          <button
+            aria-pressed={studyCollectionFilter === option.filter}
+            className={
+              studyCollectionFilter === option.filter
+                ? 'recall-study-review-history-filter-button-stage928 recall-study-review-history-filter-button-active-stage928 recall-study-collection-filter-button-stage930'
+                : 'recall-study-review-history-filter-button-stage928 recall-study-collection-filter-button-stage930'
+            }
+            data-study-collection-filter-option-stage930={option.filter}
+            data-study-collection-filter-count-stage930={option.totalCount}
+            key={`study-collection-filter:${surface}:${option.filter}`}
+            type="button"
+            onClick={() =>
+              updateStudyState((current) =>
+                current.collectionFilter === option.filter
+                  ? current
+                  : {
+                      ...current,
+                      collectionFilter: option.filter,
+                    },
+              )
+            }
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  function renderStudyReviewHistoryFilterControls(surface: 'desktop' | 'focused') {
+    return (
+      <div
+        className={`recall-study-review-history-filter-options-stage928 recall-study-review-history-filter-options-${surface}-stage928`}
+        data-study-review-history-filter-options-stage928="true"
+        role="group"
+        aria-label="Review history filters"
+      >
+        {STUDY_REVIEW_HISTORY_FILTER_OPTIONS.map((option) => (
+          <button
+            aria-pressed={studyReviewHistoryFilter === option.key}
+            className={
+              studyReviewHistoryFilter === option.key
+                ? 'recall-study-review-history-filter-button-stage928 recall-study-review-history-filter-button-active-stage928'
+                : 'recall-study-review-history-filter-button-stage928'
+            }
+            data-study-review-history-filter-option-stage928={option.key}
+            key={`study-review-history-filter:${surface}:${option.key}`}
+            type="button"
+            onClick={() =>
+              updateStudyState((current) =>
+                current.reviewHistoryFilter === option.key
+                  ? current
+                  : {
+                      ...current,
+                      reviewHistoryFilter: option.key,
+                    },
+              )
+            }
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  function renderFocusedStudyMemoryProgressPanel() {
+    if (studyStatus === 'error' || !studyProgress) {
+      return null
+    }
+
+    const memoryProgress = studyProgress.memory_progress ?? []
+    const latestSnapshot = memoryProgress.at(-1) ?? null
+    const latestStageCounts = new Map(latestSnapshot?.stage_counts.map((entry) => [entry.stage, entry.count]) ?? [])
+    const latestTotalCount = latestSnapshot?.total_count ?? 0
+    const timelineColumnCount = Math.max(1, memoryProgress.length)
+    const progressSummary =
+      studyLoading
+        ? 'Loading memory progress'
+        : latestTotalCount > 0
+          ? `${formatCountLabel(latestTotalCount, 'question', 'questions')} tracked`
+          : 'No staged questions yet'
+
+    return (
+      <div
+        className="recall-study-memory-progress-panel-stage932 recall-study-focused-memory-progress-stage932"
+        data-study-memory-progress-days-stage932={memoryProgress.length}
+        data-study-memory-progress-panel-stage932="true"
+        data-study-memory-progress-period-stage932={studyProgress.period_days}
+        data-study-memory-progress-source-scoped-stage932={studySourceScopeDocumentId ? 'true' : 'false'}
+        data-study-memory-progress-total-stage932={latestTotalCount}
+        role="region"
+        aria-label="Study memory progress"
+      >
+        <div className="recall-study-memory-progress-head-stage932">
+          <span className="recall-study-review-progress-headline-stage926">
+            <span className="recall-study-dashboard-current-kicker">
+              {studySourceScopeDocumentId ? 'Source progress' : 'Memory progress'}
+            </span>
+            <strong>{progressSummary}</strong>
+          </span>
+        </div>
+
+        {latestTotalCount === 0 && !studyLoading ? (
+          <div
+            className="recall-study-memory-progress-empty-stage932"
+            data-study-memory-progress-empty-stage932="true"
+          >
+            <p>Create or promote Study cards to see memory progress over time.</p>
+          </div>
+        ) : (
+          <>
+            <div
+              className="recall-study-memory-progress-timeline-stage932"
+              data-study-memory-progress-timeline-stage932="true"
+              role="list"
+              aria-label="Memory progress timeline"
+              style={{
+                '--study-memory-progress-columns': timelineColumnCount,
+              } as CSSProperties}
+            >
+              {memoryProgress.map((snapshot) => {
+                const snapshotCounts = new Map(snapshot.stage_counts.map((entry) => [entry.stage, entry.count]))
+                const snapshotDate = new Date(`${snapshot.date}T00:00:00`)
+                return (
+                  <span
+                    className="recall-study-memory-progress-day-stage932"
+                    data-study-memory-progress-day-stage932={snapshot.date}
+                    data-study-memory-progress-day-total-stage932={snapshot.total_count}
+                    key={`focused-study-memory-progress-day:${snapshot.date}`}
+                    role="listitem"
+                    title={`${homeDateFormatter.format(snapshotDate)} · ${formatCountLabel(snapshot.total_count, 'question', 'questions')}`}
+                  >
+                    {STUDY_KNOWLEDGE_STAGE_OPTIONS.map((option) => {
+                      const count = snapshotCounts.get(option.key) ?? 0
+                      const height = snapshot.total_count > 0 ? (count / snapshot.total_count) * 100 : 0
+                      const segmentStyle = {
+                        flexBasis: count > 0 ? `${Math.max(5, height)}%` : '0%',
+                      } as CSSProperties
+                      if (count <= 0) {
+                        return (
+                          <span
+                            aria-hidden="true"
+                            className="recall-study-memory-progress-segment-stage932 recall-study-memory-progress-segment-empty-stage932"
+                            data-study-memory-progress-stage-band-stage932={option.key}
+                            key={`focused-study-memory-progress-day:${snapshot.date}:${option.key}`}
+                            style={segmentStyle}
+                          />
+                        )
+                      }
+                      return (
+                        <button
+                          aria-label={`${option.label}, ${formatCountLabel(count, 'question', 'questions')} on ${homeDateFormatter.format(snapshotDate)}`}
+                          className="recall-study-memory-progress-segment-stage932"
+                          data-study-memory-progress-stage-band-count-stage932={count}
+                          data-study-memory-progress-stage-band-stage932={option.key}
+                          key={`focused-study-memory-progress-day:${snapshot.date}:${option.key}`}
+                          style={segmentStyle}
+                          title={`${option.label}: ${formatCountLabel(count, 'question', 'questions')}`}
+                          type="button"
+                          onClick={() => openStudyKnowledgeStageFilter(option.key)}
+                        />
+                      )
+                    })}
+                  </span>
+                )
+              })}
+            </div>
+
+            <div
+              className="recall-study-memory-progress-legend-stage932"
+              data-study-memory-progress-legend-stage932="true"
+              role="list"
+              aria-label="Memory progress stages"
+            >
+              {STUDY_KNOWLEDGE_STAGE_OPTIONS.map((option) => {
+                const count = latestStageCounts.get(option.key) ?? 0
+                return (
+                  <button
+                    className="recall-study-memory-progress-legend-button-stage932"
+                    data-study-memory-progress-stage-count-stage932={count}
+                    data-study-memory-progress-stage-open-stage932={option.key}
+                    key={`focused-study-memory-progress-stage:${option.key}`}
+                    role="listitem"
+                    type="button"
+                    onClick={() => openStudyKnowledgeStageFilter(option.key)}
+                  >
+                    <span>{option.label}</span>
+                    <strong>{count}</strong>
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   function renderDesktopStudySection() {
     const studyScopeTitle = studySourceScopeDocument?.title ?? activeStudyCard?.document_title ?? 'Selected source'
     const studyWorkspaceBadge =
@@ -13812,7 +17037,7 @@ export function RecallWorkspace({
           ? `${studyScopeTitle} · ${scopedStudyCardCount} source-scoped ${scopedStudyCardCount === 1 ? 'card' : 'cards'}`
         : activeStudyCard?.document_title ??
           (scopedStudyCardCount > 0 ? collapsedStudyQueueOverview : 'No active card yet')
-    const queuePreviewCards = filteredStudyCards.filter((card) => card.id !== activeStudyCard?.id).slice(0, 1)
+    const queuePreviewCards = studyReviewQueueCards.filter((card) => card.id !== activeStudyCard?.id).slice(0, 1)
     const studyDashboardTitle =
       studyStatus === 'error'
         ? 'Study unavailable'
@@ -13904,6 +17129,7 @@ export function RecallWorkspace({
       ['new', 'New'],
       ['due', 'Due'],
       ['scheduled', 'Scheduled'],
+      ['unscheduled', 'Unscheduled'],
     ] as const
 
     function renderStudyQuestionFilterTabs() {
@@ -13927,33 +17153,82 @@ export function RecallWorkspace({
 
     function renderStudyQuestionRow(card: StudyCardRecord, surface: 'canvas' | 'dock' = 'canvas') {
       const isActive = activeStudyCard?.id === card.id
+      const scheduleAction = getStudyScheduleStateAction(card)
+      const scheduleActionLabel = getStudyScheduleStateActionLabel(card)
+      const scheduleBusy = studyBusyKey === `schedule-state:${card.id}:${scheduleAction}`
+      const selected = studySelectedQuestionIds.has(card.id)
       return (
-        <button
+        <div
           key={card.id}
-          aria-pressed={isActive}
           className={
             isActive
-              ? `recall-document-item recall-document-item-compact recall-study-queue-item recall-study-questions-row recall-study-questions-row-${surface} recall-study-questions-row-active`
-              : `recall-document-item recall-document-item-compact recall-study-queue-item recall-study-questions-row recall-study-questions-row-${surface}`
+              ? `recall-document-item recall-document-item-compact recall-study-queue-item recall-study-questions-row recall-study-questions-row-${surface} recall-study-questions-row-active recall-study-questions-row-schedule-stage934`
+              : `recall-document-item recall-document-item-compact recall-study-queue-item recall-study-questions-row recall-study-questions-row-${surface} recall-study-questions-row-schedule-stage934`
           }
           data-study-questions-active-row-stage852={isActive ? 'true' : undefined}
           data-study-question-search-result-stage914={studyQuestionSearchActive ? 'true' : undefined}
+          data-study-collection-question-result-stage930={studyCollectionFilterActive ? studyCollectionFilter : undefined}
           data-study-schedule-question-result-stage918={studyScheduleDrilldownActive ? studyScheduleDrilldown : undefined}
-          type="button"
-          onClick={() => handleSelectStudyCard(card)}
+          data-study-knowledge-stage-question-result-stage924={
+            studyKnowledgeStageFilterActive ? card.knowledge_stage : undefined
+          }
+          data-study-review-history-question-result-stage928={
+            studyReviewHistoryFilterActive ? studyReviewHistoryFilter : undefined
+          }
+          data-study-question-schedule-state-stage934={card.status}
+          data-study-question-selected-stage936={selected ? 'true' : undefined}
+          data-study-question-type-stage940={card.card_type}
+          role="listitem"
         >
-          <span className="recall-study-queue-item-head">
-            <strong className="recall-document-title">{card.prompt}</strong>
-            <span className="recall-study-queue-item-status">{formatStudyStatus(card.status)}</span>
+          <label className="recall-study-question-row-select-stage936">
+            <input
+              aria-label={`Select ${card.prompt}`}
+              checked={selected}
+              type="checkbox"
+              onChange={(event) => handleToggleStudyQuestionSelection(card.id, event.target.checked)}
+            />
+          </label>
+          <button
+            aria-pressed={isActive}
+            className="recall-study-questions-row-main-stage934"
+            type="button"
+            onClick={() => handleSelectStudyCard(card)}
+          >
+            <span className="recall-study-queue-item-head">
+              <strong className="recall-document-title">{card.prompt}</strong>
+              <span className="recall-study-queue-item-status">{formatStudyStatus(card.status)}</span>
+            </span>
+            <span className="recall-document-meta">{card.document_title}</span>
+            <span className="recall-collection-row-preview">{getStudyCardPreview(card)}</span>
+            {isStudyStructuredCardType(card.card_type) ? (
+              <span
+                className="small-note recall-study-question-choice-summary-stage940"
+                data-study-question-choice-summary-stage940={card.card_type}
+                data-study-question-structured-summary-stage944={card.card_type}
+              >
+                {getStudyChoiceSummary(card)}
+              </span>
+            ) : null}
+            <span className="recall-study-queue-item-meta">
+              <span>{formatStudyCardTypeLabel(card.card_type)}</span>
+              <span>{STUDY_KNOWLEDGE_STAGE_LABELS[card.knowledge_stage]}</span>
+              <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
+              <span>{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
+            </span>
+          </button>
+          <span className="recall-study-question-schedule-actions-stage934">
+            <button
+              className="ghost-button recall-study-question-schedule-button-stage934"
+              data-study-question-schedule-action-stage934={scheduleAction}
+              disabled={scheduleBusy}
+              type="button"
+              onClick={() => void handleSetStudyCardScheduleState(card, scheduleAction)}
+            >
+              {scheduleActionLabel}
+            </button>
+            {renderStudyCardManagementActions(card, 'row')}
           </span>
-          <span className="recall-document-meta">{card.document_title}</span>
-          <span className="recall-collection-row-preview">{getStudyCardPreview(card)}</span>
-          <span className="recall-study-queue-item-meta">
-            <span>{card.card_type}</span>
-            <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
-            <span>{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
-          </span>
-        </button>
+        </div>
       )
     }
 
@@ -14021,6 +17296,621 @@ export function RecallWorkspace({
       )
     }
 
+    function renderStudyCollectionSubsetPanel() {
+      if (studyStatus === 'error') {
+        return null
+      }
+
+      const activeSubsetCount = studyCollectionSubsetRows.filter((row) => row.totalCount > 0).length
+      const subsetSummary =
+        studyLoading
+          ? 'Loading subsets'
+          : scopedStudyCardCount > 0
+            ? `${formatCountLabel(scopedStudyCardCount, 'question', 'questions')} across ${formatCountLabel(activeSubsetCount, 'active subset', 'active subsets')}`
+            : 'No subset questions yet'
+
+      return (
+        <div
+          className="recall-study-collection-subsets-panel-stage930"
+          data-study-collection-subsets-panel-stage930="true"
+          data-study-collection-subsets-source-scoped-stage930={studySourceScopeDocumentId ? 'true' : 'false'}
+          role="region"
+          aria-label="Study review subsets"
+        >
+          <div className="recall-study-knowledge-stage-head-stage924 recall-study-collection-subsets-head-stage930">
+            <span className="recall-study-dashboard-current-kicker">Review subsets</span>
+            <strong>{subsetSummary}</strong>
+          </div>
+          <div
+            className="recall-study-collection-subsets-grid-stage930"
+            data-study-collection-subset-rows-stage930="true"
+            role="list"
+            aria-label="Study subset rows"
+          >
+            {studyCollectionSubsetRows.map((row) => (
+              <button
+                aria-pressed={studyCollectionFilter === row.filter}
+                className="recall-study-knowledge-stage-chip-stage924 recall-study-collection-subset-row-stage930"
+                data-study-collection-subset-count-stage930={row.totalCount}
+                data-study-collection-subset-custom-stage930={row.customCollectionId ?? undefined}
+                data-study-collection-subset-filter-stage930={row.filter}
+                data-study-collection-subset-open-stage930={row.filter}
+                key={`study-collection-subset:${row.filter}`}
+                role="listitem"
+                type="button"
+                onClick={() => openStudyCollectionFilter(row.filter)}
+              >
+                <span className="recall-study-knowledge-stage-chip-top-stage924">
+                  <strong>{row.totalCount}</strong>
+                  <span>{row.label}</span>
+                </span>
+                <span className="recall-study-queue-item-meta">
+                  <span>{row.dueCount} due</span>
+                  <span>{row.newCount} new</span>
+                  <span>{row.reviewedCount} reviewed</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    function renderStudyKnowledgeStagePanel() {
+      if (studyStatus === 'error') {
+        return null
+      }
+
+      const stageCounts = studyProgress?.knowledge_stage_counts ?? []
+      const stageCountByKey = new Map(stageCounts.map((entry) => [entry.stage, entry.count]))
+      const totalStageCards = STUDY_KNOWLEDGE_STAGE_OPTIONS.reduce(
+        (total, option) => total + (stageCountByKey.get(option.key) ?? 0),
+        0,
+      )
+      const sourceRows = (studyProgress?.source_breakdown ?? [])
+        .filter((source) => source.card_count > 0)
+        .slice(0, 3)
+      const memoryStatsSummary =
+        studyLoading
+          ? 'Loading memory stats'
+          : totalStageCards > 0
+            ? `${formatCountLabel(totalStageCards, 'question', 'questions')} staged`
+            : 'No staged questions yet'
+
+      return (
+        <div
+          className="recall-study-knowledge-stage-panel-stage924"
+          data-study-knowledge-stage-panel-stage924="true"
+          data-study-knowledge-stage-source-scoped-stage924={studySourceScopeDocumentId ? 'true' : 'false'}
+          data-study-knowledge-stage-total-stage924={totalStageCards}
+          role="region"
+          aria-label="Study memory stats"
+        >
+          <div className="recall-study-knowledge-stage-head-stage924">
+            <span className="recall-study-dashboard-current-kicker">
+              {studySourceScopeDocumentId ? 'Source memory' : 'Memory stats'}
+            </span>
+            <strong>{memoryStatsSummary}</strong>
+          </div>
+
+          {totalStageCards === 0 && !studyLoading ? (
+            <div className="recall-study-knowledge-stage-empty-stage924">
+              <p>Create or promote Study cards to see knowledge stages.</p>
+            </div>
+          ) : (
+            <>
+              <div
+                className="recall-study-knowledge-stage-distribution-stage924"
+                data-study-knowledge-stage-counts-stage924="true"
+                role="list"
+                aria-label="Knowledge stage distribution"
+              >
+                {STUDY_KNOWLEDGE_STAGE_OPTIONS.map((option) => {
+                  const count = stageCountByKey.get(option.key) ?? 0
+                  const width = totalStageCards > 0 ? Math.max(8, Math.round((count / totalStageCards) * 100)) : 8
+                  return (
+                    <button
+                      className="recall-study-knowledge-stage-chip-stage924"
+                      data-study-knowledge-stage-chip-stage924={option.key}
+                      data-study-knowledge-stage-count-stage924={count}
+                      key={`study-knowledge-stage:${option.key}`}
+                      role="listitem"
+                      type="button"
+                      onClick={() => openStudyKnowledgeStageFilter(option.key)}
+                    >
+                      <span className="recall-study-knowledge-stage-chip-top-stage924">
+                        <strong>{count}</strong>
+                        <span>{option.label}</span>
+                      </span>
+                      <span className="recall-study-knowledge-stage-bar-track-stage924">
+                        <span
+                          className="recall-study-knowledge-stage-bar-stage924"
+                          style={{ width: `${width}%` }}
+                        />
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div
+                className="recall-study-knowledge-stage-sources-stage924"
+                data-study-knowledge-stage-source-rows-stage924="true"
+                role="list"
+                aria-label="Knowledge stage sources"
+              >
+                {sourceRows.map((source) => {
+                  const sourceTitle = documentById.get(source.source_document_id)?.title ?? source.document_title
+                  const dominantStage = STUDY_KNOWLEDGE_STAGE_LABELS[source.dominant_knowledge_stage]
+                  return (
+                    <div
+                      className="recall-study-knowledge-stage-source-row-stage924"
+                      data-study-knowledge-stage-source-row-stage924="true"
+                      data-study-knowledge-stage-source-id-stage924={source.source_document_id}
+                      key={`study-knowledge-stage-source:${source.source_document_id}`}
+                      role="listitem"
+                    >
+                      <span className="recall-study-knowledge-stage-source-copy-stage924">
+                        <strong>{sourceTitle}</strong>
+                        <span>
+                          {dominantStage} · {formatCountLabel(source.card_count, 'question', 'questions')}
+                        </span>
+                      </span>
+                      <span className="recall-study-knowledge-stage-source-actions-stage924">
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => focusSourceStudy(source.source_document_id)}
+                        >
+                          Review
+                        </button>
+                        <button
+                          className="ghost-button"
+                          data-study-knowledge-stage-source-questions-stage924="true"
+                          type="button"
+                          onClick={() => focusSourceStudyQuestions(source.source_document_id)}
+                        >
+                          Questions
+                        </button>
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )
+    }
+
+    function renderStudyMemoryProgressPanel(surface: 'desktop' | 'focused' = 'desktop') {
+      if (studyStatus === 'error') {
+        return null
+      }
+
+      const memoryProgress = studyProgress?.memory_progress ?? []
+      const latestSnapshot = memoryProgress.at(-1) ?? null
+      const latestStageCounts = new Map(latestSnapshot?.stage_counts.map((entry) => [entry.stage, entry.count]) ?? [])
+      const latestTotalCount = latestSnapshot?.total_count ?? 0
+      const resolvedPeriodDays = studyProgress?.period_days ?? studyProgressPeriodDays
+      const progressSummary =
+        studyLoading
+          ? 'Loading memory progress'
+          : latestTotalCount > 0
+            ? `${formatCountLabel(latestTotalCount, 'question', 'questions')} tracked`
+            : 'No staged questions yet'
+      const timelineColumnCount = Math.max(1, memoryProgress.length)
+      const panelClass =
+        surface === 'focused'
+          ? 'recall-study-memory-progress-panel-stage932 recall-study-focused-memory-progress-stage932'
+          : 'recall-study-memory-progress-panel-stage932'
+
+      return (
+        <div
+          className={panelClass}
+          data-study-memory-progress-days-stage932={memoryProgress.length}
+          data-study-memory-progress-panel-stage932="true"
+          data-study-memory-progress-period-stage932={resolvedPeriodDays}
+          data-study-memory-progress-source-scoped-stage932={studySourceScopeDocumentId ? 'true' : 'false'}
+          data-study-memory-progress-total-stage932={latestTotalCount}
+          role="region"
+          aria-label="Study memory progress"
+        >
+          <div className="recall-study-memory-progress-head-stage932">
+            <span className="recall-study-review-progress-headline-stage926">
+              <span className="recall-study-dashboard-current-kicker">
+                {studySourceScopeDocumentId ? 'Source progress' : 'Memory progress'}
+              </span>
+              <strong>{progressSummary}</strong>
+            </span>
+          </div>
+
+          {latestTotalCount === 0 && !studyLoading ? (
+            <div
+              className="recall-study-memory-progress-empty-stage932"
+              data-study-memory-progress-empty-stage932="true"
+            >
+              <p>Create or promote Study cards to see memory progress over time.</p>
+            </div>
+          ) : (
+            <>
+              <div
+                className="recall-study-memory-progress-timeline-stage932"
+                data-study-memory-progress-timeline-stage932="true"
+                role="list"
+                aria-label="Memory progress timeline"
+                style={{
+                  '--study-memory-progress-columns': timelineColumnCount,
+                } as CSSProperties}
+              >
+                {memoryProgress.map((snapshot) => {
+                  const snapshotCounts = new Map(snapshot.stage_counts.map((entry) => [entry.stage, entry.count]))
+                  const snapshotDate = new Date(`${snapshot.date}T00:00:00`)
+                  return (
+                    <span
+                      className="recall-study-memory-progress-day-stage932"
+                      data-study-memory-progress-day-stage932={snapshot.date}
+                      data-study-memory-progress-day-total-stage932={snapshot.total_count}
+                      key={`study-memory-progress-day:${snapshot.date}`}
+                      role="listitem"
+                      title={`${homeDateFormatter.format(snapshotDate)} · ${formatCountLabel(snapshot.total_count, 'question', 'questions')}`}
+                    >
+                      {STUDY_KNOWLEDGE_STAGE_OPTIONS.map((option) => {
+                        const count = snapshotCounts.get(option.key) ?? 0
+                        const height = snapshot.total_count > 0 ? (count / snapshot.total_count) * 100 : 0
+                        const segmentStyle = {
+                          flexBasis: count > 0 ? `${Math.max(5, height)}%` : '0%',
+                        } as CSSProperties
+                        if (count <= 0) {
+                          return (
+                            <span
+                              aria-hidden="true"
+                              className="recall-study-memory-progress-segment-stage932 recall-study-memory-progress-segment-empty-stage932"
+                              data-study-memory-progress-stage-band-stage932={option.key}
+                              key={`study-memory-progress-day:${snapshot.date}:${option.key}`}
+                              style={segmentStyle}
+                            />
+                          )
+                        }
+                        return (
+                          <button
+                            aria-label={`${option.label}, ${formatCountLabel(count, 'question', 'questions')} on ${homeDateFormatter.format(snapshotDate)}`}
+                            className="recall-study-memory-progress-segment-stage932"
+                            data-study-memory-progress-stage-band-count-stage932={count}
+                            data-study-memory-progress-stage-band-stage932={option.key}
+                            key={`study-memory-progress-day:${snapshot.date}:${option.key}`}
+                            style={segmentStyle}
+                            title={`${option.label}: ${formatCountLabel(count, 'question', 'questions')}`}
+                            type="button"
+                            onClick={() => openStudyKnowledgeStageFilter(option.key)}
+                          />
+                        )
+                      })}
+                    </span>
+                  )
+                })}
+              </div>
+
+              <div
+                className="recall-study-memory-progress-legend-stage932"
+                data-study-memory-progress-legend-stage932="true"
+                role="list"
+                aria-label="Memory progress stages"
+              >
+                {STUDY_KNOWLEDGE_STAGE_OPTIONS.map((option) => {
+                  const count = latestStageCounts.get(option.key) ?? 0
+                  return (
+                    <button
+                      className="recall-study-memory-progress-legend-button-stage932"
+                      data-study-memory-progress-stage-count-stage932={count}
+                      data-study-memory-progress-stage-open-stage932={option.key}
+                      key={`study-memory-progress-stage:${option.key}`}
+                      role="listitem"
+                      type="button"
+                      onClick={() => openStudyKnowledgeStageFilter(option.key)}
+                    >
+                      <span>{option.label}</span>
+                      <strong>{count}</strong>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )
+    }
+
+    function renderStudyReviewProgressPanel() {
+      if (studyStatus === 'error') {
+        return null
+      }
+
+      const totalReviews = studyProgress?.total_reviews ?? 0
+      const dailyActivity = studyProgress?.daily_activity ?? []
+      const resolvedPeriodDays = studyProgress?.period_days ?? studyProgressPeriodDays
+      const maxDailyReviewCount = Math.max(1, ...dailyActivity.map((day) => day.review_count))
+      const ratingCounts = studyProgress?.rating_counts ?? []
+      const recentReviews = studyProgress?.recent_reviews.slice(0, 3) ?? []
+      const defaultSourceRows = studyProgress?.source_breakdown.slice(0, 3) ?? []
+      const mostRecentSourceId = recentReviews[0]?.source_document_id ?? null
+      const mostRecentSourceRow =
+        mostRecentSourceId && !defaultSourceRows.some((source) => source.source_document_id === mostRecentSourceId)
+          ? studyProgress?.source_breakdown.find((source) => source.source_document_id === mostRecentSourceId) ?? null
+          : null
+      const sourceRows = mostRecentSourceRow
+        ? [mostRecentSourceRow, ...defaultSourceRows.slice(0, 2)]
+        : defaultSourceRows
+      const progressScopeLabel = studySourceScopeDocumentId ? 'Source progress' : 'Review progress'
+      const progressSummary =
+        studyLoading
+          ? 'Loading progress'
+          : totalReviews > 0
+            ? `${formatCountLabel(totalReviews, 'review', 'reviews')} logged`
+            : 'No reviews logged yet'
+      const firstActivityDate = dailyActivity[0]?.date ?? null
+      const leadingCalendarBlankCount = firstActivityDate
+        ? new Date(`${firstActivityDate}T00:00:00`).getDay()
+        : 0
+      const heatmapCells: Array<
+        | { kind: 'blank'; key: string }
+        | { date: string; key: string; kind: 'day'; level: number; reviewCount: number }
+      > = [
+        ...Array.from({ length: leadingCalendarBlankCount }, (_, index) => ({
+          kind: 'blank' as const,
+          key: `study-progress-blank:${index}`,
+        })),
+        ...dailyActivity.map((day) => ({
+          date: day.date,
+          key: `study-progress-day:${day.date}`,
+          kind: 'day' as const,
+          level: getStudyProgressCalendarLevel(day.review_count, maxDailyReviewCount),
+          reviewCount: day.review_count,
+        })),
+      ]
+      const heatmapWeekCount = Math.max(1, Math.ceil(heatmapCells.length / 7))
+
+      function renderProgressSourceRow(source: StudyReviewProgressSource) {
+        const sourceTitle = documentById.get(source.source_document_id)?.title ?? source.document_title
+        const lastReviewedLabel = source.last_reviewed_at
+          ? dateFormatter.format(new Date(source.last_reviewed_at))
+          : 'No reviews yet'
+        return (
+          <div
+            className="recall-study-review-progress-source-row-stage922"
+            data-study-review-progress-source-row-stage922="true"
+            data-study-review-progress-source-id-stage922={source.source_document_id}
+            key={`study-progress-source:${source.source_document_id}`}
+            role="listitem"
+          >
+            <span className="recall-study-review-progress-source-copy-stage922">
+              <strong>{sourceTitle}</strong>
+              <span>
+                {formatCountLabel(source.review_count, 'review', 'reviews')} · {formatCountLabel(source.card_count, 'card', 'cards')} · last {lastReviewedLabel}
+              </span>
+            </span>
+            <span className="recall-study-review-progress-source-actions-stage922">
+              <button
+                className="ghost-button"
+                data-study-review-progress-source-review-stage922="true"
+                type="button"
+                onClick={() => focusSourceStudy(source.source_document_id)}
+              >
+                Review
+              </button>
+              <button
+                className="ghost-button"
+                data-study-review-progress-source-questions-stage922="true"
+                type="button"
+                onClick={() => focusSourceStudyQuestions(source.source_document_id)}
+              >
+                Questions
+              </button>
+            </span>
+          </div>
+        )
+      }
+
+      return (
+        <div
+          className="recall-study-review-progress-panel-stage922"
+          data-study-review-progress-panel-stage922="true"
+          data-study-review-progress-activity-range-stage926={resolvedPeriodDays}
+          data-study-review-progress-period-stage926={studyProgressPeriodDays}
+          data-study-review-progress-total-stage922={totalReviews}
+          data-study-review-progress-source-scoped-stage922={studySourceScopeDocumentId ? 'true' : 'false'}
+          role="region"
+          aria-label="Study review progress"
+        >
+          <div className="recall-study-review-progress-head-stage922">
+            <span className="recall-study-review-progress-headline-stage926">
+              <span className="recall-study-dashboard-current-kicker">{progressScopeLabel}</span>
+              <strong>{progressSummary}</strong>
+            </span>
+            <span
+              className="recall-study-review-progress-period-stage926"
+              data-study-review-progress-period-controls-stage926="true"
+              role="group"
+              aria-label="Review activity range"
+            >
+              {STUDY_PROGRESS_PERIOD_OPTIONS.map((period) => (
+                <button
+                  aria-pressed={period === studyProgressPeriodDays}
+                  className={`recall-study-review-progress-period-button-stage926${
+                    period === studyProgressPeriodDays
+                      ? ' recall-study-review-progress-period-button-active-stage926'
+                      : ''
+                  }`}
+                  data-study-review-progress-period-active-stage926={
+                    period === studyProgressPeriodDays ? 'true' : undefined
+                  }
+                  data-study-review-progress-period-option-stage926={period}
+                  key={`study-progress-period:${period}`}
+                  type="button"
+                  onClick={() =>
+                    updateStudyState((current) =>
+                      current.progressPeriodDays === period
+                        ? current
+                        : {
+                            ...current,
+                            progressPeriodDays: period,
+                          },
+                    )
+                  }
+                >
+                  {formatStudyProgressPeriodLabel(period)}
+                </button>
+              ))}
+            </span>
+          </div>
+
+          <div
+            className="recall-study-review-progress-stats-stage922"
+            data-study-review-progress-stats-stage922="true"
+            role="list"
+            aria-label="Review progress stats"
+          >
+            <span role="listitem">
+              <strong data-study-review-progress-today-stage922={studyProgress?.today_count ?? 0}>
+                {studyProgress?.today_count ?? 0}
+              </strong>
+              Today
+            </span>
+            <span role="listitem">
+              <strong data-study-review-progress-streak-stage922={studyProgress?.current_daily_streak ?? 0}>
+                {studyProgress?.current_daily_streak ?? 0}
+              </strong>
+              Day streak
+            </span>
+            <span role="listitem">
+              <strong>{studyProgress?.active_days ?? 0}</strong>
+              Active days
+            </span>
+          </div>
+
+          {totalReviews === 0 && !studyLoading ? (
+            <div
+              className="recall-study-review-progress-empty-stage922"
+              data-study-review-progress-empty-stage922="true"
+            >
+              <p>Complete a review to start building a progress trail.</p>
+              <button className="ghost-button" type="button" onClick={() => setBrowseDrawerOpen('study', false)}>
+                Start review
+              </button>
+            </div>
+          ) : (
+            <>
+              <div
+                className="recall-study-review-progress-activity-stage922 recall-study-review-progress-calendar-stage926"
+                data-study-review-progress-activity-range-stage926={resolvedPeriodDays}
+                data-study-review-progress-activity-stage922="true"
+                data-study-review-progress-heatmap-days-stage926={dailyActivity.length}
+                data-study-review-progress-heatmap-stage926="true"
+                role="list"
+                aria-label="Review activity"
+                style={{
+                  '--study-progress-calendar-columns': heatmapWeekCount,
+                } as CSSProperties}
+              >
+                {heatmapCells.map((cell) => {
+                  if (cell.kind === 'blank') {
+                    return (
+                      <span
+                        aria-hidden="true"
+                        className="recall-study-review-progress-calendar-cell-stage926 recall-study-review-progress-calendar-cell-empty-stage926"
+                        key={cell.key}
+                      />
+                    )
+                  }
+                  const activityDate = new Date(`${cell.date}T00:00:00`)
+                  return (
+                    <span
+                      className="recall-study-review-progress-activity-day-stage922 recall-study-review-progress-calendar-cell-stage926"
+                      data-study-review-progress-activity-count-stage922={cell.reviewCount}
+                      data-study-review-progress-heatmap-cell-stage926={cell.date}
+                      data-study-review-progress-heatmap-count-stage926={cell.reviewCount}
+                      data-study-review-progress-heatmap-level-stage926={cell.level}
+                      key={cell.key}
+                      role="listitem"
+                      title={`${homeDateFormatter.format(activityDate)} · ${formatCountLabel(cell.reviewCount, 'review', 'reviews')}`}
+                    >
+                      <span className="visually-hidden">
+                        {homeDateFormatter.format(activityDate)} · {formatCountLabel(cell.reviewCount, 'review', 'reviews')}
+                      </span>
+                    </span>
+                  )
+                })}
+              </div>
+
+              <div
+                className="recall-study-review-progress-rating-mix-stage922"
+                data-study-review-progress-rating-mix-stage922="true"
+                role="list"
+                aria-label="Review rating mix"
+              >
+                {ratingCounts.map((ratingCount) => (
+                  <button
+                    className="recall-study-review-progress-rating-button-stage928"
+                    data-study-review-progress-rating-stage922={ratingCount.rating}
+                    data-study-review-history-progress-filter-stage928={ratingCount.rating}
+                    key={`study-progress-rating:${ratingCount.rating}`}
+                    type="button"
+                    onClick={() => openStudyReviewHistoryFilter(ratingCount.rating)}
+                  >
+                    <strong>{ratingCount.count}</strong>
+                    {STUDY_REVIEW_RATING_LABELS[ratingCount.rating]}
+                  </button>
+                ))}
+              </div>
+
+              <div className="recall-study-review-progress-columns-stage922">
+                <div
+                  className="recall-study-review-progress-recent-stage922"
+                  data-study-review-progress-recent-stage922="true"
+                  role="list"
+                  aria-label="Recent reviews"
+                >
+                  <div className="recall-study-review-progress-subhead-stage922">
+                    <span className="recall-study-dashboard-current-kicker">Recent</span>
+                    <strong>{recentReviews.length} shown</strong>
+                  </div>
+                  {recentReviews.map((review) => (
+                    <button
+                      className="recall-study-review-progress-review-row-stage922"
+                      data-study-review-progress-recent-row-stage922={review.review_card_id}
+                      key={`study-progress-review:${review.id}`}
+                      type="button"
+                      onClick={() => handleSelectStudyProgressReview(review)}
+                    >
+                      <span>
+                        <strong>{review.prompt}</strong>
+                        <span>
+                          {review.document_title} · {STUDY_REVIEW_RATING_LABELS[review.rating]} · {dateFormatter.format(new Date(review.reviewed_at))}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div
+                  className="recall-study-review-progress-sources-stage922"
+                  data-study-review-progress-sources-stage922="true"
+                  role="list"
+                  aria-label="Review progress sources"
+                >
+                  <div className="recall-study-review-progress-subhead-stage922">
+                    <span className="recall-study-dashboard-current-kicker">Sources</span>
+                    <strong>{sourceRows.length} shown</strong>
+                  </div>
+                  {sourceRows.map(renderProgressSourceRow)}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )
+    }
+
     function renderStudyQuestionsManager() {
       return (
         <section
@@ -14041,6 +17931,8 @@ export function RecallWorkspace({
           ) : (
             <>
               {renderStudyQuestionFilterTabs()}
+              {renderStudyCollectionFilterControls('desktop')}
+              {renderStudyReviewHistoryFilterControls('desktop')}
               <div
                 className="recall-study-question-search-stage914"
                 data-study-source-scoped-queue-stage914={studySourceScopeDocumentId ? 'true' : undefined}
@@ -14074,7 +17966,17 @@ export function RecallWorkspace({
                     </button>
                   </div>
                 ) : null}
+                {renderStudyCollectionFilterChip('desktop')}
                 {renderStudyScheduleDrilldownChip('desktop')}
+                {renderStudyKnowledgeStageFilterChip('desktop')}
+                {renderStudyReviewHistoryFilterChip('desktop')}
+                {renderStudyQuestionActiveFilters('desktop')}
+                <div className="recall-study-question-create-row-stage938">
+                  {renderStudyCardCreateAction('desktop')}
+                </div>
+                {renderStudyCardCreateSurface('desktop')}
+                {renderStudyQuestionManagementToolbar('desktop')}
+                {renderStudyCardEditSurface('desktop')}
                 <label
                   className="field recall-study-question-search-field-stage914"
                   data-study-source-scoped-question-search-stage914="true"
@@ -14117,12 +18019,25 @@ export function RecallWorkspace({
                   <div
                     className="recall-surface-state"
                     data-study-question-search-empty-stage914={studyQuestionSearchActive ? 'true' : undefined}
+                    data-study-collection-empty-stage930={studyCollectionFilterActive ? 'true' : undefined}
                     data-study-schedule-empty-stage918={studyScheduleDrilldownActive ? 'true' : undefined}
+                    data-study-knowledge-stage-empty-stage924={studyKnowledgeStageFilterActive ? 'true' : undefined}
+                    data-study-review-history-empty-stage928={studyReviewHistoryFilterActive ? 'true' : undefined}
                   >
                     <p>{getStudyQuestionsEmptyMessage()}</p>
                     {studyQuestionSearchActive ? (
                       <button className="ghost-button" type="button" onClick={() => setStudyQuestionSearchQuery('')}>
                         Clear search
+                      </button>
+                    ) : null}
+                    {studyCollectionFilterActive ? (
+                      <button
+                        className="ghost-button"
+                        data-study-collection-empty-clear-stage930="true"
+                        type="button"
+                        onClick={() => updateStudyState((current) => ({ ...current, collectionFilter: 'all' }))}
+                      >
+                        Clear subset
                       </button>
                     ) : null}
                     {studyScheduleDrilldownActive ? (
@@ -14133,6 +18048,26 @@ export function RecallWorkspace({
                         onClick={() => updateStudyState((current) => ({ ...current, scheduleDrilldown: 'all' }))}
                       >
                         Clear schedule
+                      </button>
+                    ) : null}
+                    {studyKnowledgeStageFilterActive ? (
+                      <button
+                        className="ghost-button"
+                        data-study-knowledge-stage-empty-clear-stage924="true"
+                        type="button"
+                        onClick={() => updateStudyState((current) => ({ ...current, knowledgeStageFilter: 'all' }))}
+                      >
+                        Clear memory
+                      </button>
+                    ) : null}
+                    {studyReviewHistoryFilterActive ? (
+                      <button
+                        className="ghost-button"
+                        data-study-review-history-empty-clear-stage928="true"
+                        type="button"
+                        onClick={() => updateStudyState((current) => ({ ...current, reviewHistoryFilter: 'all' }))}
+                      >
+                        Clear history
                       </button>
                     ) : null}
                   </div>
@@ -14146,7 +18081,7 @@ export function RecallWorkspace({
                   type="button"
                   onClick={() => setStudyQueueExpanded((current) => !current)}
                 >
-                  {studyQueueExpanded ? 'Show fewer questions' : `Show all ${scheduleFilteredStudyQuestionCount} questions`}
+                  {studyQueueExpanded ? 'Show fewer questions' : `Show all ${studyQuestionResultCount} questions`}
                 </button>
               ) : null}
             </>
@@ -14252,6 +18187,7 @@ export function RecallWorkspace({
                   Questions
                 </button>
               </div>
+              {renderStudyCardCreateAction('dashboard')}
               <button
                 aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
                 className="ghost-button recall-study-dashboard-refresh"
@@ -14263,6 +18199,11 @@ export function RecallWorkspace({
               </button>
             </div>
           </div>
+          {renderStudyCardCreateSurface('dashboard')}
+          {renderStudyKnowledgeStagePanel()}
+          {renderStudyMemoryProgressPanel()}
+          {renderStudyReviewProgressPanel()}
+          {renderStudyCollectionSubsetPanel()}
           {renderStudyDashboardSourceBreakdown()}
         </section>
     )
@@ -14284,7 +18225,9 @@ export function RecallWorkspace({
                 <h2>Review</h2>
                 <p>
                   {activeStudyCard
-                    ? 'Recall from memory, reveal, then rate this card.'
+                    ? activeStudyCardReviewEligible
+                      ? 'Recall from memory, reveal, then rate this card.'
+                      : 'Schedule this question when you want it back in the review queue.'
                     : 'Choose one grounded question from Questions to start reviewing here.'}
                 </p>
               </div>
@@ -14294,13 +18237,19 @@ export function RecallWorkspace({
                   role="list"
                   aria-label="Study card metadata"
                 >
-                  <span className="status-chip" role="listitem">{activeStudyCard.card_type}</span>
+                  <span className="status-chip" role="listitem">{formatStudyCardTypeLabel(activeStudyCard.card_type)}</span>
                   <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
                   <span className="status-chip status-muted" role="listitem">
                     Due {dateFormatter.format(new Date(activeStudyCard.due_at))}
                   </span>
                   <span className="status-chip status-muted" role="listitem">
                     {formatCountLabel(activeStudyCard.review_count, 'review', 'reviews')}
+                  </span>
+                  <span className="recall-study-card-schedule-inline-stage934" role="listitem">
+                    {renderStudyCardScheduleButton(activeStudyCard, 'desktop')}
+                  </span>
+                  <span className="recall-study-card-management-inline-stage936" role="listitem">
+                    {renderStudyCardManagementActions(activeStudyCard, 'desktop')}
                   </span>
                 </div>
               ) : null}
@@ -14322,6 +18271,7 @@ export function RecallWorkspace({
                     : 'recall-study-review-body recall-study-review-active-card'
                 }
               >
+                {renderStudyCardEditSurface('desktop')}
                 <div
                   className="recall-study-review-prompt-inline"
                   aria-label="Active review prompt"
@@ -14337,7 +18287,12 @@ export function RecallWorkspace({
                   </div>
                 </div>
 
-                {showAnswer ? (
+                {activeStudyCardReviewEligible ? renderStudyChoiceReviewControls(activeStudyCard, 'desktop') : null}
+                {activeStudyCardReviewEligible ? renderStudyMatchingReviewControls(activeStudyCard, 'desktop') : null}
+                {activeStudyCardReviewEligible ? renderStudyOrderingReviewControls(activeStudyCard, 'desktop') : null}
+                {activeStudyCardReviewEligible ? renderStudyShortAnswerAttemptControls(activeStudyCard, 'desktop') : null}
+
+                {showAnswer && activeStudyCardReviewEligible ? (
                   <div
                     className="recall-study-review-answer-inline"
                     data-study-review-answer-attached-stage862="true"
@@ -14345,16 +18300,28 @@ export function RecallWorkspace({
                     <strong>Answer</strong>
                     <p>{activeStudyCard.answer}</p>
                   </div>
-                ) : (
+                ) : activeStudyCardReviewEligible &&
+                  !isStudyChoiceCardType(activeStudyCard.card_type) &&
+                  !isStudyMatchingCardType(activeStudyCard.card_type) &&
+                  !isStudyOrderingCardType(activeStudyCard.card_type) &&
+                  !isStudyShortAnswerCardType(activeStudyCard.card_type) ? (
                   <div className="recall-study-review-action-row" data-study-review-reveal-attached-stage862="true">
                     <p>Recall the answer before revealing it, then rate how easily it came back.</p>
-                    <button type="button" onClick={() => setShowAnswer(true)}>
+                    <button type="button" onClick={() => handleRevealStudyAnswer(activeStudyCard)}>
                       Show answer
                     </button>
                   </div>
+                ) : (
+                  <div
+                    className="recall-study-review-action-row"
+                    data-study-active-card-browse-only-stage934="true"
+                  >
+                    <p>This question is outside the active review queue. Schedule it to review now.</p>
+                    {renderStudyCardScheduleButton(activeStudyCard, 'desktop')}
+                  </div>
                 )}
 
-                {showAnswer ? (
+                {showAnswer && activeStudyCardReviewEligible ? (
                   <div
                     className="recall-study-review-rating-inline"
                     data-study-review-rating-attached-stage862="true"
@@ -14379,11 +18346,15 @@ export function RecallWorkspace({
                       ))}
                     </div>
                   </div>
-                ) : (
+                ) : activeStudyCardReviewEligible &&
+                  !isStudyChoiceCardType(activeStudyCard.card_type) &&
+                  !isStudyMatchingCardType(activeStudyCard.card_type) &&
+                  !isStudyOrderingCardType(activeStudyCard.card_type) &&
+                  !isStudyShortAnswerCardType(activeStudyCard.card_type) ? (
                   <p className="small-note recall-study-review-placeholder">
                     Reveal the answer to rate recall.
                   </p>
-                )}
+                ) : null}
               </div>
             )}
           </section>
@@ -14446,6 +18417,17 @@ export function RecallWorkspace({
                       <h3>Review handoff</h3>
                     </div>
                     <div className="recall-study-dock-controls">
+                      {studyQuestionFilterStackActive && studyReviewQueueCards.length > 0 ? (
+                        <button
+                          aria-label="Review filtered questions"
+                          className="primary-button recall-study-review-filtered-button-stage928"
+                          data-study-review-filtered-handoff-stage928="true"
+                          type="button"
+                          onClick={handleReviewFilteredStudyQuestions}
+                        >
+                          Review filtered
+                        </button>
+                      ) : null}
                       <button
                         aria-label="Return to review"
                         className="ghost-button recall-study-return-button"
@@ -14465,7 +18447,7 @@ export function RecallWorkspace({
                     <span>{activeStudyCardSidebarSummary}</span>
                     {activeStudyCard ? (
                       <span className="recall-study-review-handoff-meta">
-                        <span>{activeStudyCard.card_type}</span>
+                        <span>{formatStudyCardTypeLabel(activeStudyCard.card_type)}</span>
                         <span>Due {dateFormatter.format(new Date(activeStudyCard.due_at))}</span>
                         <span>{formatCountLabel(activeStudyCard.review_count, 'review', 'reviews')}</span>
                       </span>
@@ -16226,7 +20208,8 @@ export function RecallWorkspace({
                   documents.length > 0 &&
                   visibleDocuments.length === 0 &&
                   !libraryFilterActive &&
-                  !homeMemoryFilterActive ? (
+                  !homeMemoryFilterActive &&
+                  !homeReviewFilterActive ? (
                     <div className="recall-library-inline-state">
                       <p>No saved sources match that search. Try a different title, type, or locator.</p>
                     </div>
@@ -16234,7 +20217,7 @@ export function RecallWorkspace({
                   {!documentsLoading &&
                   documentsStatus !== 'error' &&
                   documents.length > 0 &&
-                  (visibleDocuments.length > 0 || libraryFilterActive || homeMemoryFilterActive) ? (
+                  (visibleDocuments.length > 0 || libraryFilterActive || homeMemoryFilterActive || homeReviewFilterActive) ? (
                     <div
                       className={
                         homeOrganizerVisible
@@ -16806,7 +20789,8 @@ export function RecallWorkspace({
                         homeSelectedBrowseSection ||
                         showHomeBoardOverview ||
                         libraryFilterActive ||
-                        homeMemoryFilterActive ? (
+                        homeMemoryFilterActive ||
+                        homeReviewFilterActive ? (
                           showHomeStage563Canvas ? (
                             renderHomeStage563Canvas()
                           ) : (
@@ -17218,6 +21202,7 @@ export function RecallWorkspace({
                     >
                       {studyBrowseDrawerOpen ? 'Review' : 'Questions'}
                     </button>
+                    {renderStudyCardCreateAction('focused')}
                     <button
                       aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
                       className={
@@ -17298,6 +21283,144 @@ export function RecallWorkspace({
                       ))}
                     </div>
                   ) : null}
+                  {studyStatus !== 'error' && studyProgress ? (
+                    <div
+                      className="recall-study-focused-progress-stage922"
+                      data-study-review-progress-panel-stage922="true"
+                      data-study-review-progress-activity-range-stage926={studyProgress.period_days}
+                      data-study-review-progress-period-stage926={studyProgressPeriodDays}
+                      data-study-review-progress-total-stage922={studyProgress.total_reviews}
+                      data-study-review-progress-source-scoped-stage922={studySourceScopeDocumentId ? 'true' : 'false'}
+                      role="region"
+                      aria-label="Study review progress"
+                    >
+                      <span className="recall-study-dashboard-current-kicker">
+                        {studySourceScopeDocumentId ? 'Source progress' : 'Review progress'}
+                      </span>
+                      <div className="recall-study-focused-progress-stats-stage922" role="list" aria-label="Review progress stats">
+                        <span role="listitem">
+                          <strong data-study-review-progress-today-stage922={studyProgress.today_count}>
+                            {studyProgress.today_count}
+                          </strong>
+                          Today
+                        </span>
+                        <span role="listitem">
+                          <strong data-study-review-progress-streak-stage922={studyProgress.current_daily_streak}>
+                            {studyProgress.current_daily_streak}
+                          </strong>
+                          Streak
+                        </span>
+                        <span role="listitem">
+                          <strong>{studyProgress.total_reviews}</strong>
+                          Total
+                        </span>
+                      </div>
+                      {(() => {
+                        const dailyActivity = studyProgress.daily_activity
+                        const maxDailyReviewCount = Math.max(1, ...dailyActivity.map((day) => day.review_count))
+                        const firstActivityDate = dailyActivity[0]?.date ?? null
+                        const leadingCalendarBlankCount = firstActivityDate
+                          ? new Date(`${firstActivityDate}T00:00:00`).getDay()
+                          : 0
+                        const heatmapCells: Array<
+                          | { kind: 'blank'; key: string }
+                          | { date: string; key: string; kind: 'day'; level: number; reviewCount: number }
+                        > = [
+                          ...Array.from({ length: leadingCalendarBlankCount }, (_, index) => ({
+                            kind: 'blank' as const,
+                            key: `focused-study-progress-blank:${index}`,
+                          })),
+                          ...dailyActivity.map((day) => ({
+                            date: day.date,
+                            key: `focused-study-progress-day:${day.date}`,
+                            kind: 'day' as const,
+                            level: getStudyProgressCalendarLevel(day.review_count, maxDailyReviewCount),
+                            reviewCount: day.review_count,
+                          })),
+                        ]
+                        const heatmapWeekCount = Math.max(1, Math.ceil(heatmapCells.length / 7))
+                        return (
+                          <div
+                            className="recall-study-review-progress-activity-stage922 recall-study-review-progress-calendar-stage926 recall-study-focused-progress-calendar-stage926"
+                            data-study-review-progress-activity-range-stage926={studyProgress.period_days}
+                            data-study-review-progress-activity-stage922="true"
+                            data-study-review-progress-heatmap-days-stage926={dailyActivity.length}
+                            data-study-review-progress-heatmap-stage926="true"
+                            role="list"
+                            aria-label="Review activity"
+                            style={{
+                              '--study-progress-calendar-columns': heatmapWeekCount,
+                            } as CSSProperties}
+                          >
+                            {heatmapCells.map((cell) => {
+                              if (cell.kind === 'blank') {
+                                return (
+                                  <span
+                                    aria-hidden="true"
+                                    className="recall-study-review-progress-calendar-cell-stage926 recall-study-review-progress-calendar-cell-empty-stage926"
+                                    key={cell.key}
+                                  />
+                                )
+                              }
+                              const activityDate = new Date(`${cell.date}T00:00:00`)
+                              return (
+                                <span
+                                  className="recall-study-review-progress-activity-day-stage922 recall-study-review-progress-calendar-cell-stage926"
+                                  data-study-review-progress-activity-count-stage922={cell.reviewCount}
+                                  data-study-review-progress-heatmap-cell-stage926={cell.date}
+                                  data-study-review-progress-heatmap-count-stage926={cell.reviewCount}
+                                  data-study-review-progress-heatmap-level-stage926={cell.level}
+                                  key={cell.key}
+                                  role="listitem"
+                                  title={`${homeDateFormatter.format(activityDate)} · ${formatCountLabel(cell.reviewCount, 'review', 'reviews')}`}
+                                >
+                                  <span className="visually-hidden">
+                                    {homeDateFormatter.format(activityDate)} · {formatCountLabel(cell.reviewCount, 'review', 'reviews')}
+                                  </span>
+                                </span>
+                              )
+                            })}
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  ) : null}
+                  {studyStatus !== 'error' && studyProgress ? (
+                    <div
+                      className="recall-study-focused-knowledge-stage-stage924"
+                      data-study-knowledge-stage-panel-stage924="true"
+                      data-study-knowledge-stage-source-scoped-stage924={studySourceScopeDocumentId ? 'true' : 'false'}
+                      data-study-knowledge-stage-total-stage924={studyProgress.knowledge_stage_counts.reduce(
+                        (total, entry) => total + entry.count,
+                        0,
+                      )}
+                      role="region"
+                      aria-label="Study memory stats"
+                    >
+                      <span className="recall-study-dashboard-current-kicker">
+                        {studySourceScopeDocumentId ? 'Source memory' : 'Memory stats'}
+                      </span>
+                      <div className="recall-study-focused-knowledge-stage-list-stage924" role="list" aria-label="Knowledge stage distribution">
+                        {STUDY_KNOWLEDGE_STAGE_OPTIONS.map((option) => {
+                          const count = studyProgress.knowledge_stage_counts.find((entry) => entry.stage === option.key)?.count ?? 0
+                          return (
+                            <button
+                              className="recall-study-focused-knowledge-stage-button-stage924"
+                              data-study-knowledge-stage-chip-stage924={option.key}
+                              data-study-knowledge-stage-count-stage924={count}
+                              key={`focused-study-knowledge-stage:${option.key}`}
+                              type="button"
+                              onClick={() => openStudyKnowledgeStageFilter(option.key)}
+                            >
+                              <span>{option.label}</span>
+                              <strong>{count}</strong>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                  {renderFocusedStudyMemoryProgressPanel()}
                 </div>
               </>
             )}
@@ -17310,6 +21433,7 @@ export function RecallWorkspace({
                     ['new', 'New'],
                     ['due', 'Due'],
                     ['scheduled', 'Scheduled'],
+                    ['unscheduled', 'Unscheduled'],
                   ] as const).map(([filter, label]) => (
                     <button
                       key={filter}
@@ -17323,21 +21447,34 @@ export function RecallWorkspace({
                     </button>
                   ))}
                 </div>
+                {renderStudyCollectionFilterControls('focused')}
+                {renderStudyReviewHistoryFilterControls('focused')}
 
-                <div
-                  className={
-                    showFocusedStudySplitView
-                      ? 'recall-document-list'
-                      : 'recall-document-list recall-study-sidebar-list'
-                  }
-                  role="list"
-                >
+                  <div
+                    className={
+                      showFocusedStudySplitView
+                        ? 'recall-document-list'
+                        : 'recall-document-list recall-study-sidebar-list'
+                    }
+                    aria-label={studyBrowseDrawerOpen ? 'Study questions manager' : 'Study queue'}
+                    role="list"
+                  >
                   {studyBrowseDrawerOpen ? (
                     <div
                       className="recall-study-question-search-stage914"
                       data-study-source-scoped-question-search-stage914="true"
                     >
+                      {renderStudyCollectionFilterChip('focused')}
                       {renderStudyScheduleDrilldownChip('focused')}
+                      {renderStudyKnowledgeStageFilterChip('focused')}
+                      {renderStudyReviewHistoryFilterChip('focused')}
+                      {renderStudyQuestionActiveFilters('focused')}
+                      <div className="recall-study-question-create-row-stage938">
+                        {renderStudyCardCreateAction('focused')}
+                      </div>
+                      {renderStudyCardCreateSurface('focused')}
+                      {renderStudyQuestionManagementToolbar('focused')}
+                      {renderStudyCardEditSurface('focused')}
                       <label className="field recall-study-question-search-field-stage914">
                         <span>Search questions</span>
                         <input
@@ -17384,12 +21521,25 @@ export function RecallWorkspace({
                     <div
                       className="recall-surface-state"
                       data-study-question-search-empty-stage914={studyQuestionSearchActive ? 'true' : undefined}
+                      data-study-collection-empty-stage930={studyCollectionFilterActive ? 'true' : undefined}
                       data-study-schedule-empty-stage918={studyScheduleDrilldownActive ? 'true' : undefined}
+                      data-study-knowledge-stage-empty-stage924={studyKnowledgeStageFilterActive ? 'true' : undefined}
+                      data-study-review-history-empty-stage928={studyReviewHistoryFilterActive ? 'true' : undefined}
                     >
                       <p>{getStudyQuestionsEmptyMessage()}</p>
                       {studyQuestionSearchActive ? (
                         <button className="ghost-button" type="button" onClick={() => setStudyQuestionSearchQuery('')}>
                           Clear search
+                        </button>
+                      ) : null}
+                      {studyCollectionFilterActive ? (
+                        <button
+                          className="ghost-button"
+                          data-study-collection-empty-clear-stage930="true"
+                          type="button"
+                          onClick={() => updateStudyState((current) => ({ ...current, collectionFilter: 'all' }))}
+                        >
+                          Clear subset
                         </button>
                       ) : null}
                       {studyScheduleDrilldownActive ? (
@@ -17402,39 +21552,117 @@ export function RecallWorkspace({
                           Clear schedule
                         </button>
                       ) : null}
+                      {studyKnowledgeStageFilterActive ? (
+                        <button
+                          className="ghost-button"
+                          data-study-knowledge-stage-empty-clear-stage924="true"
+                          type="button"
+                          onClick={() => updateStudyState((current) => ({ ...current, knowledgeStageFilter: 'all' }))}
+                        >
+                          Clear memory
+                        </button>
+                      ) : null}
+                      {studyReviewHistoryFilterActive ? (
+                        <button
+                          className="ghost-button"
+                          data-study-review-history-empty-clear-stage928="true"
+                          type="button"
+                          onClick={() => updateStudyState((current) => ({ ...current, reviewHistoryFilter: 'all' }))}
+                        >
+                          Clear history
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
-                  {(studyBrowseDrawerOpen ? visibleStudyQuestionCards : visibleStudyQueueCards).map((card) => (
-                    <button
-                      key={card.id}
-                      aria-pressed={activeStudyCard?.id === card.id}
-                      className={
-                        activeStudyCard?.id === card.id
-                          ? 'recall-document-item recall-document-item-compact recall-document-item-active recall-study-queue-item'
-                          : 'recall-document-item recall-document-item-compact recall-study-queue-item'
-                      }
-                      data-study-question-search-result-stage914={
-                        studyBrowseDrawerOpen && studyQuestionSearchActive ? 'true' : undefined
-                      }
-                      data-study-schedule-question-result-stage918={
-                        studyBrowseDrawerOpen && studyScheduleDrilldownActive ? studyScheduleDrilldown : undefined
-                      }
-                      type="button"
-                      onClick={() => handleSelectStudyCard(card)}
-                    >
-                      <span className="recall-study-queue-item-head">
-                        <strong className="recall-document-title">{card.prompt}</strong>
-                        <span className="recall-study-queue-item-status">{formatStudyStatus(card.status)}</span>
-                      </span>
-                      <span className="recall-document-meta">{card.document_title}</span>
-                      <span className="recall-collection-row-preview">{getStudyCardPreview(card)}</span>
-                      <span className="recall-study-queue-item-meta">
-                        <span>{card.card_type}</span>
-                        <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
-                        <span>{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
-                      </span>
-                    </button>
-                  ))}
+                  {(studyBrowseDrawerOpen ? visibleStudyQuestionCards : visibleStudyQueueCards).map((card) => {
+                    const isActive = activeStudyCard?.id === card.id
+                    const scheduleAction = getStudyScheduleStateAction(card)
+                    const scheduleActionLabel = getStudyScheduleStateActionLabel(card)
+                    const scheduleBusy = studyBusyKey === `schedule-state:${card.id}:${scheduleAction}`
+                    const selected = studySelectedQuestionIds.has(card.id)
+                    return (
+                      <div
+                        key={card.id}
+                        className={
+                          isActive
+                            ? 'recall-document-item recall-document-item-compact recall-document-item-active recall-study-queue-item recall-study-questions-row-schedule-stage934'
+                            : 'recall-document-item recall-document-item-compact recall-study-queue-item recall-study-questions-row-schedule-stage934'
+                        }
+                        data-study-question-search-result-stage914={
+                          studyBrowseDrawerOpen && studyQuestionSearchActive ? 'true' : undefined
+                        }
+                        data-study-collection-question-result-stage930={
+                          studyBrowseDrawerOpen && studyCollectionFilterActive ? studyCollectionFilter : undefined
+                        }
+                        data-study-schedule-question-result-stage918={
+                          studyBrowseDrawerOpen && studyScheduleDrilldownActive ? studyScheduleDrilldown : undefined
+                        }
+                        data-study-knowledge-stage-question-result-stage924={
+                          studyBrowseDrawerOpen && studyKnowledgeStageFilterActive ? card.knowledge_stage : undefined
+                        }
+                        data-study-review-history-question-result-stage928={
+                          studyBrowseDrawerOpen && studyReviewHistoryFilterActive ? studyReviewHistoryFilter : undefined
+                        }
+                        data-study-question-schedule-state-stage934={card.status}
+                        data-study-question-selected-stage936={selected ? 'true' : undefined}
+                        data-study-question-type-stage940={card.card_type}
+                        role="listitem"
+                      >
+                        {studyBrowseDrawerOpen ? (
+                          <label className="recall-study-question-row-select-stage936">
+                            <input
+                              aria-label={`Select ${card.prompt}`}
+                              checked={selected}
+                              type="checkbox"
+                              onChange={(event) => handleToggleStudyQuestionSelection(card.id, event.target.checked)}
+                            />
+                          </label>
+                        ) : null}
+                        <button
+                          aria-pressed={isActive}
+                          className="recall-study-questions-row-main-stage934"
+                          type="button"
+                          onClick={() => handleSelectStudyCard(card)}
+                        >
+                          <span className="recall-study-queue-item-head">
+                            <strong className="recall-document-title">{card.prompt}</strong>
+                            <span className="recall-study-queue-item-status">{formatStudyStatus(card.status)}</span>
+                          </span>
+                          <span className="recall-document-meta">{card.document_title}</span>
+                          <span className="recall-collection-row-preview">{getStudyCardPreview(card)}</span>
+                          {isStudyStructuredCardType(card.card_type) ? (
+                            <span
+                              className="small-note recall-study-question-choice-summary-stage940"
+                              data-study-question-choice-summary-stage940={card.card_type}
+                              data-study-question-structured-summary-stage944={card.card_type}
+                            >
+                              {getStudyChoiceSummary(card)}
+                            </span>
+                          ) : null}
+                          <span className="recall-study-queue-item-meta">
+                            <span>{formatStudyCardTypeLabel(card.card_type)}</span>
+                            <span>{STUDY_KNOWLEDGE_STAGE_LABELS[card.knowledge_stage]}</span>
+                            <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
+                            <span>{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
+                          </span>
+                        </button>
+                        {studyBrowseDrawerOpen ? (
+                          <span className="recall-study-question-schedule-actions-stage934">
+                            <button
+                              className="ghost-button recall-study-question-schedule-button-stage934"
+                              data-study-question-schedule-action-stage934={scheduleAction}
+                              disabled={scheduleBusy}
+                              type="button"
+                              onClick={() => void handleSetStudyCardScheduleState(card, scheduleAction)}
+                            >
+                              {scheduleActionLabel}
+                            </button>
+                            {renderStudyCardManagementActions(card, 'row')}
+                          </span>
+                        ) : null}
+                      </div>
+                    )
+                  })}
                 </div>
                 {!showFocusedStudySplitView && studyStatus !== 'error' && (studyQueueExpanded || hiddenStudyQueueCount > 0) ? (
                   <button
@@ -17442,7 +21670,7 @@ export function RecallWorkspace({
                     type="button"
                     onClick={() => setStudyQueueExpanded((current) => !current)}
                   >
-                    {studyQueueExpanded ? 'Show fewer cards' : `Show all ${filteredStudyCardCount} cards`}
+                    {studyQueueExpanded ? 'Show fewer cards' : `Show all ${studyReviewQueueCards.length} cards`}
                   </button>
                 ) : null}
               </>
@@ -17500,6 +21728,12 @@ export function RecallWorkspace({
                 {showFocusedStudySplitView ? null : (
                   renderCollapsedStudySupportStrip()
                 )}
+                {!showFocusedStudySplitView && activeStudyCard ? (
+                  <div className="recall-study-card-management-inline-stage936">
+                    {renderStudyCardScheduleButton(activeStudyCard, 'focused')}
+                    {renderStudyCardManagementActions(activeStudyCard, 'focused')}
+                  </div>
+                ) : null}
               </div>
 
               {!activeStudyCard ? <p className="small-note">No active study card yet.</p> : null}
@@ -17524,7 +21758,7 @@ export function RecallWorkspace({
                         <span>{activeStudyCard.document_title}</span>
                       </div>
                       <div className="recall-hero-metrics recall-study-focused-meta" role="list" aria-label="Study card metadata">
-                        <span className="status-chip" role="listitem">{activeStudyCard.card_type}</span>
+                        <span className="status-chip" role="listitem">{formatStudyCardTypeLabel(activeStudyCard.card_type)}</span>
                         <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
                         <span className="status-chip status-muted" role="listitem">
                           Due {dateFormatter.format(new Date(activeStudyCard.due_at))}
@@ -17534,6 +21768,12 @@ export function RecallWorkspace({
                         </span>
                         <span className="status-chip status-muted" role="listitem">
                           {formatCountLabel(activeStudyCard.source_spans.length, 'evidence span', 'evidence spans')}
+                        </span>
+                        <span className="recall-study-card-schedule-inline-stage934" role="listitem">
+                          {renderStudyCardScheduleButton(activeStudyCard, 'focused')}
+                        </span>
+                        <span className="recall-study-card-management-inline-stage936" role="listitem">
+                          {renderStudyCardManagementActions(activeStudyCard, 'focused')}
                         </span>
                       </div>
                     </div>
@@ -17548,26 +21788,44 @@ export function RecallWorkspace({
                             : 'recall-detail-panel recall-study-focused-review-panel recall-study-focused-review-panel-compact recall-study-focused-review-panel-fused'
                         }
                       >
+                        {renderStudyCardEditSurface('focused')}
                         <div className="recall-study-focused-review-section recall-study-focused-review-section-prompt">
                           <strong>Prompt</strong>
                           <p>{activeStudyCard.prompt}</p>
                         </div>
 
-                        {showAnswer ? (
+                        {activeStudyCardReviewEligible ? renderStudyChoiceReviewControls(activeStudyCard, 'focused') : null}
+                        {activeStudyCardReviewEligible ? renderStudyMatchingReviewControls(activeStudyCard, 'focused') : null}
+                        {activeStudyCardReviewEligible ? renderStudyOrderingReviewControls(activeStudyCard, 'focused') : null}
+                        {activeStudyCardReviewEligible ? renderStudyShortAnswerAttemptControls(activeStudyCard, 'focused') : null}
+
+                        {showAnswer && activeStudyCardReviewEligible ? (
                           <div className="recall-study-focused-review-section recall-study-focused-review-section-answer">
                             <strong>Answer</strong>
                             <p>{activeStudyCard.answer}</p>
                           </div>
-                        ) : (
+                        ) : activeStudyCardReviewEligible &&
+                          !isStudyChoiceCardType(activeStudyCard.card_type) &&
+                          !isStudyMatchingCardType(activeStudyCard.card_type) &&
+                          !isStudyOrderingCardType(activeStudyCard.card_type) &&
+                          !isStudyShortAnswerCardType(activeStudyCard.card_type) ? (
                           <div className="recall-study-focused-reveal recall-study-focused-reveal-compact">
                             <p>Recall the answer before revealing it.</p>
-                            <button type="button" onClick={() => setShowAnswer(true)}>
+                            <button type="button" onClick={() => handleRevealStudyAnswer(activeStudyCard)}>
                               Reveal answer
                             </button>
                           </div>
+                        ) : (
+                          <div
+                            className="recall-study-focused-reveal recall-study-focused-reveal-compact"
+                            data-study-active-card-browse-only-stage934="true"
+                          >
+                            <p>This question is outside the active review queue.</p>
+                            {renderStudyCardScheduleButton(activeStudyCard, 'focused')}
+                          </div>
                         )}
 
-                        {showAnswer ? (
+                        {showAnswer && activeStudyCardReviewEligible ? (
                           <div className="study-rating-row study-rating-row-focused recall-study-focused-rating recall-study-focused-rating-answer-shown">
                             {([
                               ['forgot', 'Forgot'],
@@ -17592,22 +21850,37 @@ export function RecallWorkspace({
 
                   {!showFocusedStudySplitView ? (
                     <>
+                      {renderStudyCardEditSurface('focused')}
                       <div className="study-card-face">
                         <strong>Prompt</strong>
                         <p>{activeStudyCard.prompt}</p>
                       </div>
 
-                      {showAnswer ? (
+                      {activeStudyCardReviewEligible ? renderStudyChoiceReviewControls(activeStudyCard, 'focused') : null}
+                      {activeStudyCardReviewEligible ? renderStudyMatchingReviewControls(activeStudyCard, 'focused') : null}
+                      {activeStudyCardReviewEligible ? renderStudyOrderingReviewControls(activeStudyCard, 'focused') : null}
+                      {activeStudyCardReviewEligible ? renderStudyShortAnswerAttemptControls(activeStudyCard, 'focused') : null}
+
+                      {showAnswer && activeStudyCardReviewEligible ? (
                         <div className="study-card-answer">
                           <strong>Answer</strong>
                           <p>{activeStudyCard.answer}</p>
                         </div>
-                      ) : (
+                      ) : activeStudyCardReviewEligible &&
+                        !isStudyChoiceCardType(activeStudyCard.card_type) &&
+                        !isStudyMatchingCardType(activeStudyCard.card_type) &&
+                        !isStudyOrderingCardType(activeStudyCard.card_type) &&
+                        !isStudyShortAnswerCardType(activeStudyCard.card_type) ? (
                         <div className="study-card-reveal">
                           <p>Recall the answer before revealing it.</p>
-                          <button type="button" onClick={() => setShowAnswer(true)}>
+                          <button type="button" onClick={() => handleRevealStudyAnswer(activeStudyCard)}>
                             Show answer
                           </button>
+                        </div>
+                      ) : (
+                        <div className="study-card-reveal" data-study-active-card-browse-only-stage934="true">
+                          <p>This question is outside the active review queue.</p>
+                          {renderStudyCardScheduleButton(activeStudyCard, 'focused')}
                         </div>
                       )}
                     </>
@@ -17845,7 +22118,7 @@ export function RecallWorkspace({
                     ) : null}
                   </div>
 
-                  {showFocusedStudySplitView ? null : showAnswer ? (
+                  {showFocusedStudySplitView ? null : showAnswer && activeStudyCardReviewEligible ? (
                     <div className="recall-study-rating-panel">
                       <p className="recall-study-rating-note">Rate recall to schedule the next review.</p>
                       <div className="study-rating-row study-rating-row-compact">
@@ -17867,11 +22140,15 @@ export function RecallWorkspace({
                         ))}
                       </div>
                     </div>
-                  ) : (
+                  ) : activeStudyCardReviewEligible &&
+                    !isStudyChoiceCardType(activeStudyCard.card_type) &&
+                    !isStudyMatchingCardType(activeStudyCard.card_type) &&
+                    !isStudyOrderingCardType(activeStudyCard.card_type) &&
+                    !isStudyShortAnswerCardType(activeStudyCard.card_type) ? (
                     <p className="small-note recall-study-rating-placeholder">
                       Reveal the answer to rate recall.
                     </p>
-                  )}
+                  ) : null}
 
                 </div>
               ) : null}
