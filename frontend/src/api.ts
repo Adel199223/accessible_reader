@@ -1,5 +1,8 @@
 import type {
   AccessibilitySnapshot,
+  BatchImportFormat,
+  BatchImportPreview,
+  BatchImportResult,
   DocumentRecord,
   DocumentView,
   HealthResponse,
@@ -7,6 +10,11 @@ import type {
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
   KnowledgeNodeRecord,
+  LibrarySettings,
+  LibraryCollectionOverview,
+  LibraryReadingQueueResponse,
+  LibraryReadingQueueScope,
+  LibraryReadingQueueState,
   RecallNoteCreateRequest,
   RecallNoteGraphPromotionRequest,
   RecallNoteRecord,
@@ -17,19 +25,30 @@ import type {
   RecallRetrievalHit,
   ReaderSettings,
   RecallDocumentRecord,
+  ReadingCompleteResult,
   RecallSearchHit,
   StudyCardBulkDeleteResult,
   StudyCardCreateRequest,
   StudyCardDeleteResult,
+  StudyCardGenerationRequest,
   StudyCardGenerationResult,
   StudyCardRecord,
   StudyCardStatus,
   StudyCardUpdateRequest,
+  StudyAnswerAttemptRecord,
+  StudyAnswerAttemptRequest,
   StudyOverview,
   StudyReviewProgress,
+  StudyReviewSessionCompleteRequest,
+  StudyReviewSessionRecord,
+  StudyReviewSessionStartRequest,
   StudyReviewRating,
+  StudySettings,
   SummaryDetail,
   ViewMode,
+  WorkspaceExportManifest,
+  WorkspaceImportApplyResult,
+  WorkspaceImportPreview,
 } from './types'
 
 const DEFAULT_LOCAL_SERVICE_HOST = '127.0.0.1:8000'
@@ -254,6 +273,18 @@ export function fetchRecallStudyOverview() {
   return request<StudyOverview>('/api/recall/study/overview')
 }
 
+export function fetchRecallStudySettings() {
+  return request<StudySettings>('/api/recall/study/settings')
+}
+
+export function saveRecallStudySettings(settings: StudySettings) {
+  return request<StudySettings>('/api/recall/study/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+}
+
 export function fetchRecallStudyProgress(sourceDocumentId?: string | null, periodDays = 14) {
   const search = new URLSearchParams()
   if (sourceDocumentId) {
@@ -264,12 +295,31 @@ export function fetchRecallStudyProgress(sourceDocumentId?: string | null, perio
   return request<StudyReviewProgress>(`/api/recall/study/progress${query ? `?${query}` : ''}`)
 }
 
-export function fetchRecallStudyCards(status: 'all' | StudyCardStatus = 'all', limit = 20) {
+export function fetchRecallStudyCards(status: 'all' | StudyCardStatus = 'all', limit = 20, sourceDocumentId?: string | null) {
   const search = new URLSearchParams({
     limit: String(limit),
     status,
   })
+  if (sourceDocumentId) {
+    search.set('source_document_id', sourceDocumentId)
+  }
   return request<StudyCardRecord[]>(`/api/recall/study/cards?${search.toString()}`)
+}
+
+export function startRecallStudyReviewSession(payload: StudyReviewSessionStartRequest) {
+  return request<StudyReviewSessionRecord>('/api/recall/study/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function completeRecallStudyReviewSession(sessionId: string, payload: StudyReviewSessionCompleteRequest) {
+  return request<StudyReviewSessionRecord>(`/api/recall/study/sessions/${sessionId}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
 }
 
 export function createRecallStudyCard(payload: StudyCardCreateRequest) {
@@ -280,17 +330,31 @@ export function createRecallStudyCard(payload: StudyCardCreateRequest) {
   })
 }
 
-export function generateRecallStudyCards() {
+export function generateRecallStudyCards(payload?: StudyCardGenerationRequest) {
   return request<StudyCardGenerationResult>('/api/recall/study/cards/generate', {
     method: 'POST',
+    ...(payload
+      ? {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      : {}),
   })
 }
 
-export function reviewRecallStudyCard(cardId: string, rating: StudyReviewRating) {
+export function createRecallStudyAnswerAttempt(cardId: string, payload: StudyAnswerAttemptRequest) {
+  return request<StudyAnswerAttemptRecord>(`/api/recall/study/cards/${cardId}/attempts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function reviewRecallStudyCard(cardId: string, rating: StudyReviewRating, attemptId?: string | null) {
   return request<StudyCardRecord>(`/api/recall/study/cards/${cardId}/review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rating }),
+    body: JSON.stringify({ rating, ...(attemptId ? { attempt_id: attemptId } : {}) }),
   })
 }
 
@@ -328,6 +392,78 @@ export function buildRecallExportUrl(documentId: string) {
   return buildApiUrl(`/api/recall/documents/${documentId}/export.md`)
 }
 
+export function buildRecallLearningPackExportUrl(documentId: string) {
+  return buildApiUrl(`/api/recall/documents/${documentId}/learning-export.md`)
+}
+
+export function buildLibraryCollectionLearningPackExportUrl(collectionId: string) {
+  return buildApiUrl(`/api/recall/library/collections/${encodeURIComponent(collectionId)}/learning-export.zip`)
+}
+
+export function fetchLibraryCollectionOverview(collectionId: string) {
+  return request<LibraryCollectionOverview>(
+    `/api/recall/library/collections/${encodeURIComponent(collectionId)}/overview`,
+  )
+}
+
+export function fetchLibraryReadingQueue(options?: {
+  collectionId?: string | null
+  limit?: number | null
+  scope?: LibraryReadingQueueScope | null
+  state?: LibraryReadingQueueState | null
+}) {
+  const search = new URLSearchParams()
+  if (options?.collectionId) {
+    search.set('collection_id', options.collectionId)
+  }
+  if (options?.scope && options.scope !== 'all') {
+    search.set('scope', options.scope)
+  }
+  if (options?.state && options.state !== 'all') {
+    search.set('state', options.state)
+  }
+  if (options?.limit !== undefined && options.limit !== null) {
+    search.set('limit', String(options.limit))
+  }
+  const query = search.toString()
+  return request<LibraryReadingQueueResponse>(`/api/recall/library/reading-queue${query ? `?${query}` : ''}`)
+}
+
+export function completeRecallDocumentReading(documentId: string, mode?: ViewMode | null) {
+  return request<ReadingCompleteResult>(`/api/recall/documents/${documentId}/reading/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(mode ? { mode } : {}),
+  })
+}
+
+export function buildWorkspaceExportUrl() {
+  return buildApiUrl('/api/workspace/export.zip')
+}
+
+export function fetchWorkspaceExportManifest() {
+  return request<WorkspaceExportManifest>('/api/workspace/export.manifest.json')
+}
+
+export function previewWorkspaceImport(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request<WorkspaceImportPreview>('/api/workspace/import-preview', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+export function applyWorkspaceImport(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('restore_confirmation', 'restore-missing-items')
+  return request<WorkspaceImportApplyResult>('/api/workspace/import-apply', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
 export function importTextDocument(text: string, title?: string) {
   return request<DocumentRecord>('/api/documents/import-text', {
     method: 'POST',
@@ -350,6 +486,49 @@ export function importUrlDocument(url: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
+  })
+}
+
+export function previewBatchImport(file: File, sourceFormat: BatchImportFormat = 'auto', maxItems = 25) {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('source_format', sourceFormat)
+  formData.append('max_items', String(maxItems))
+  return request<BatchImportPreview>('/api/documents/import-batch-preview', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+export function importBatchDocuments(
+  file: File,
+  sourceFormat: BatchImportFormat = 'auto',
+  maxItems = 25,
+  selectedItemIds: string[] = [],
+  createCollections = false,
+) {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('source_format', sourceFormat)
+  formData.append('max_items', String(maxItems))
+  formData.append('selected_item_ids_json', JSON.stringify(selectedItemIds))
+  formData.append('create_collections', String(createCollections))
+  formData.append('import_confirmation', 'import-selected-sources')
+  return request<BatchImportResult>('/api/documents/import-batch', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+export function fetchLibrarySettings() {
+  return request<LibrarySettings>('/api/recall/library/settings')
+}
+
+export function saveLibrarySettings(settings: LibrarySettings) {
+  return request<LibrarySettings>('/api/recall/library/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
   })
 }
 

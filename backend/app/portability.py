@@ -7,6 +7,7 @@ from typing import Any
 
 
 WORKSPACE_EXPORT_FORMAT_VERSION = "1"
+WORKSPACE_DATA_ARCHIVE_PATH = "workspace-data.json"
 
 
 def canonical_json(payload: dict[str, Any]) -> str:

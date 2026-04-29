@@ -1,13 +1,18 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import App from './App'
 
 import type {
+  BatchImportPreview,
+  BatchImportResult,
   DocumentRecord,
   DocumentView,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
+  LibrarySettings,
+  LibraryCollectionOverview,
+  LibraryReadingQueueResponse,
   RecallDocumentPreview,
   RecallNoteRecord,
   RecallNoteSearchHit,
@@ -15,8 +20,15 @@ import type {
   RecallRetrievalHit,
   StudyCardCreateRequest,
   StudyCardRecord,
+  StudyCardUpdateRequest,
   StudyOverview,
   StudyReviewProgress,
+  StudyReviewSessionCompleteRequest,
+  StudyReviewSessionStartRequest,
+  StudySettings,
+  WorkspaceExportManifest,
+  WorkspaceImportApplyResult,
+  WorkspaceImportPreview,
 } from './types'
 
 const documents: DocumentRecord[] = [
@@ -364,6 +376,44 @@ const baseStudyProgress: StudyReviewProgress = {
   memory_progress: makeStudyMemoryProgress(14),
   recent_reviews: [],
   source_breakdown: [],
+  total_attempts: 0,
+  correct_attempts: 0,
+  accuracy: null,
+  recent_attempts: [],
+  recent_sessions: [],
+  difficulty_accuracy: [],
+  habit_goal: {
+    mode: 'daily',
+    target_count: 1,
+    current_count: 0,
+    remaining_count: 1,
+    is_met: false,
+    period_start: '2026-03-14',
+    period_end: '2026-03-14',
+    next_reset_date: '2026-03-15',
+    recent_history: [
+      {
+        period_start: '2026-03-14',
+        period_end: '2026-03-14',
+        count: 0,
+        target_count: 1,
+        is_met: false,
+      },
+    ],
+  },
+}
+
+const baseStudySettings: StudySettings = {
+  default_difficulty_filter: 'all',
+  default_session_limit: 10,
+  default_timer_seconds: 0,
+  daily_goal_reviews: 1,
+  streak_goal_mode: 'daily',
+  weekly_goal_days: 3,
+}
+
+const baseLibrarySettings: LibrarySettings = {
+  custom_collections: [],
 }
 
 const baseStudyCards: StudyCardRecord[] = [
@@ -389,8 +439,196 @@ const baseStudyCards: StudyCardRecord[] = [
     status: 'new',
     last_rating: null,
     knowledge_stage: 'new',
+    question_difficulty: 'hard',
   },
 ]
+
+const baseWorkspaceExportManifest: WorkspaceExportManifest = {
+  format_version: '1',
+  schema_version: '2026-04-28-test',
+  device_id: 'desktop-local',
+  exported_at: '2026-04-28T12:00:00Z',
+  latest_change_id: 'change-test-1',
+  change_event_count: 7,
+  entity_counts: {
+    source_document: recallDocuments.length,
+    recall_note: 2,
+    knowledge_node: 2,
+    review_card: baseStudyCards.length,
+    study_answer_attempt: 2,
+    study_review_session: 1,
+  },
+  entities: [],
+  attachments: [
+    {
+      id: 'attachment-test-1',
+      source_document_id: 'doc-search',
+      file_name: 'search-target.html',
+      media_type: 'text/html',
+      relative_path: 'attachments/doc-search/search-target.html',
+      logical_key: 'source',
+      content_digest: 'sha256:test',
+      byte_size: 512,
+      updated_at: '2026-04-28T12:00:00Z',
+      metadata: {},
+    },
+  ],
+  warnings: ['Missing source preview for Reader stays here.'],
+}
+
+const baseWorkspaceImportPreview: WorkspaceImportPreview = {
+  dry_run: true,
+  applied: false,
+  can_apply: true,
+  apply_blockers: [],
+  restorable_entity_counts: {
+    source_document: 1,
+    recall_note: 1,
+  },
+  backup: {
+    source_kind: 'zip',
+    format_version: '1',
+    schema_version: baseWorkspaceExportManifest.schema_version,
+    device_id: baseWorkspaceExportManifest.device_id,
+    exported_at: baseWorkspaceExportManifest.exported_at,
+    latest_change_id: baseWorkspaceExportManifest.latest_change_id,
+    change_event_count: baseWorkspaceExportManifest.change_event_count,
+    entity_counts: baseWorkspaceExportManifest.entity_counts,
+    attachment_count: 1,
+    bundled_attachment_count: 1,
+    missing_attachment_paths: [],
+    learning_pack_count: 2,
+    missing_learning_pack_paths: [],
+    bundle_coverage_available: true,
+    warnings: baseWorkspaceExportManifest.warnings,
+  },
+  merge_preview: {
+    operations: [],
+    summary: {
+      skip_equal: 8,
+    },
+  },
+}
+
+const baseWorkspaceImportApplyResult: WorkspaceImportApplyResult = {
+  dry_run: false,
+  applied: true,
+  imported_counts: {
+    source_document: 1,
+    recall_note: 1,
+  },
+  skipped_counts: {
+    source_document: 1,
+  },
+  conflict_counts: {},
+  operations: [],
+  warnings: [],
+  blockers: [],
+  integrity: null,
+}
+
+const baseBatchImportPreview: BatchImportPreview = {
+  dry_run: true,
+  applied: false,
+  source_format: 'url_list',
+  max_items: 25,
+  rows: [
+    {
+      id: 'batch-ready-1',
+      title: 'Bulk imported article',
+      url: 'http://127.0.0.1:19000/bulk-article',
+      source_format: 'url_list',
+      folder: null,
+      tags: ['reading-list'],
+      status: 'ready',
+      reason: null,
+    },
+    {
+      id: 'batch-duplicate-1',
+      title: 'Already saved article',
+      url: 'https://example.com/search-target',
+      source_format: 'url_list',
+      folder: null,
+      tags: [],
+      status: 'duplicate',
+      reason: 'This link is already saved in Recall.',
+    },
+  ],
+  collection_suggestions: [
+    {
+      id: 'collection-reading-list',
+      name: 'reading-list',
+      source_format: 'url_list',
+      item_ids: ['batch-ready-1'],
+      ready_count: 1,
+    },
+  ],
+  summary: {
+    total_count: 2,
+    ready_count: 1,
+    duplicate_count: 1,
+    invalid_count: 0,
+    unsupported_count: 0,
+    skipped_count: 0,
+  },
+}
+
+const baseBatchImportResult: BatchImportResult = {
+  dry_run: false,
+  applied: true,
+  source_format: 'url_list',
+  max_items: 25,
+  rows: [
+    {
+      id: 'batch-ready-1',
+      title: 'Bulk imported article',
+      url: 'http://127.0.0.1:19000/bulk-article',
+      source_format: 'url_list',
+      folder: null,
+      tags: ['reading-list'],
+      status: 'imported',
+      reason: null,
+      document: {
+        id: 'doc-bulk',
+        title: 'Bulk imported article',
+        source_type: 'web',
+        created_at: '2026-03-13T00:05:00Z',
+        updated_at: '2026-03-13T00:05:01Z',
+        available_modes: ['original', 'reflowed'],
+        progress_by_mode: {},
+      },
+    },
+    {
+      id: 'batch-duplicate-1',
+      title: 'Already saved article',
+      url: 'https://example.com/search-target',
+      source_format: 'url_list',
+      folder: null,
+      tags: [],
+      status: 'skipped',
+      reason: 'This link is already saved in Recall.',
+      document: null,
+    },
+  ],
+  collections: [
+    {
+      id: 'collection-reading-list',
+      name: 'reading-list',
+      document_ids: ['doc-bulk'],
+      source_format: 'url_list',
+      status: 'created',
+    },
+  ],
+  summary: {
+    total_count: 2,
+    imported_count: 1,
+    reused_count: 0,
+    skipped_count: 1,
+    failed_count: 0,
+    collection_created_count: 1,
+    collection_updated_count: 0,
+  },
+}
 
 function makeRecallNote(
   id: string,
@@ -517,6 +755,8 @@ let nodeDetailById: Record<string, KnowledgeNodeDetail>
 let studyOverviewState: StudyOverview
 let studyProgressState: StudyReviewProgress
 let studyCardsState: StudyCardRecord[]
+let studySettingsState: StudySettings
+let librarySettingsState: LibrarySettings
 
 function buildStudyOverview(cards: StudyCardRecord[]): StudyOverview {
   const nextDueCard = cards.find((card) => card.status !== 'unscheduled')
@@ -549,6 +789,18 @@ function scopeStudyProgress(
   const sourceBreakdown = progress.source_breakdown.filter((source) => source.source_document_id === sourceDocumentId)
   const scopedStageCounts = sourceBreakdown[0]?.knowledge_stage_counts ?? makeStudyKnowledgeStageCounts()
   const scopedTotalCount = scopedStageCounts.reduce((total, entry) => total + entry.count, 0)
+  const scopedGoalCurrent =
+    progress.habit_goal?.mode === 'weekly'
+      ? Math.min(progress.habit_goal.current_count, sourceBreakdown[0]?.review_count ?? 0)
+      : sourceBreakdown.reduce((total, source) => total + source.today_count, 0)
+  const scopedHabitGoal = progress.habit_goal
+    ? {
+        ...progress.habit_goal,
+        current_count: scopedGoalCurrent,
+        remaining_count: Math.max(progress.habit_goal.target_count - scopedGoalCurrent, 0),
+        is_met: scopedGoalCurrent >= progress.habit_goal.target_count,
+      }
+    : progress.habit_goal
   return {
     ...progress,
     daily_activity: dailyActivity,
@@ -561,6 +813,7 @@ function scopeStudyProgress(
     scope_source_document_id: sourceDocumentId,
     total_reviews: sourceBreakdown.reduce((total, source) => total + source.review_count, 0),
     today_count: sourceBreakdown.reduce((total, source) => total + source.today_count, 0),
+    habit_goal: scopedHabitGoal,
     knowledge_stage_counts: sourceBreakdown[0]?.knowledge_stage_counts ?? makeStudyKnowledgeStageCounts(),
     recent_reviews: recentReviews,
     source_breakdown: sourceBreakdown,
@@ -568,7 +821,9 @@ function scopeStudyProgress(
 }
 
 const {
+  createRecallStudyAnswerAttemptMock,
   createRecallStudyCardMock,
+  completeRecallStudyReviewSessionMock,
   createRecallNoteMock,
   decideRecallGraphEdgeMock,
   decideRecallGraphNodeMock,
@@ -581,10 +836,20 @@ const {
   fetchRecallDocumentsMock,
   fetchRecallGraphMock,
   fetchRecallGraphNodeMock,
+  fetchLibraryCollectionOverviewMock,
+  fetchLibraryReadingQueueMock,
+  completeRecallDocumentReadingMock,
   fetchRecallNotesMock,
   fetchRecallStudyCardsMock,
   fetchRecallStudyOverviewMock,
   fetchRecallStudyProgressMock,
+  fetchRecallStudySettingsMock,
+  fetchLibrarySettingsMock,
+  fetchWorkspaceExportManifestMock,
+  previewWorkspaceImportMock,
+  applyWorkspaceImportMock,
+  previewBatchImportMock,
+  importBatchDocumentsMock,
   generateRecallStudyCardsMock,
   bulkDeleteRecallStudyCardsMock,
   deleteRecallStudyCardMock,
@@ -593,16 +858,21 @@ const {
   promoteRecallNoteToStudyCardMock,
   retrieveRecallMock,
   reviewRecallStudyCardMock,
+  saveRecallStudySettingsMock,
+  saveLibrarySettingsMock,
   saveProgressMock,
   saveSettingsMock,
   searchRecallNotesMock,
   setRecallStudyCardScheduleStateMock,
+  startRecallStudyReviewSessionMock,
   updateRecallStudyCardMock,
   updateRecallNoteMock,
   mockSpeechState,
 } =
   vi.hoisted(() => {
+    const createRecallStudyAnswerAttemptMock = vi.fn()
     const createRecallStudyCardMock = vi.fn()
+    const completeRecallStudyReviewSessionMock = vi.fn()
     const createRecallNoteMock = vi.fn()
     const decideRecallGraphEdgeMock = vi.fn()
     const decideRecallGraphNodeMock = vi.fn()
@@ -617,10 +887,20 @@ const {
     const fetchRecallDocumentsMock = vi.fn()
     const fetchRecallGraphMock = vi.fn()
     const fetchRecallGraphNodeMock = vi.fn()
+    const fetchLibraryCollectionOverviewMock = vi.fn()
+    const fetchLibraryReadingQueueMock = vi.fn()
+    const completeRecallDocumentReadingMock = vi.fn()
     const fetchRecallNotesMock = vi.fn()
     const fetchRecallStudyCardsMock = vi.fn()
     const fetchRecallStudyOverviewMock = vi.fn()
     const fetchRecallStudyProgressMock = vi.fn()
+    const fetchRecallStudySettingsMock = vi.fn()
+    const fetchLibrarySettingsMock = vi.fn()
+    const fetchWorkspaceExportManifestMock = vi.fn<() => Promise<WorkspaceExportManifest>>()
+    const previewWorkspaceImportMock = vi.fn<(file: File) => Promise<WorkspaceImportPreview>>()
+    const applyWorkspaceImportMock = vi.fn<(file: File) => Promise<WorkspaceImportApplyResult>>()
+    const previewBatchImportMock = vi.fn()
+    const importBatchDocumentsMock = vi.fn()
     const generateRecallStudyCardsMock = vi.fn()
     const bulkDeleteRecallStudyCardsMock = vi.fn()
     const deleteRecallStudyCardMock = vi.fn()
@@ -629,15 +909,20 @@ const {
     const promoteRecallNoteToStudyCardMock = vi.fn()
     const retrieveRecallMock = vi.fn()
     const reviewRecallStudyCardMock = vi.fn()
+    const saveRecallStudySettingsMock = vi.fn()
+    const saveLibrarySettingsMock = vi.fn()
     const saveProgressMock = vi.fn()
     const saveSettingsMock = vi.fn<(nextSettings: ReaderSettings) => Promise<ReaderSettings>>()
     const searchRecallNotesMock = vi.fn()
     const setRecallStudyCardScheduleStateMock = vi.fn()
+    const startRecallStudyReviewSessionMock = vi.fn()
     const updateRecallStudyCardMock = vi.fn()
     const updateRecallNoteMock = vi.fn()
 
     return {
+      createRecallStudyAnswerAttemptMock,
       createRecallStudyCardMock,
+      completeRecallStudyReviewSessionMock,
       createRecallNoteMock,
       decideRecallGraphEdgeMock,
       decideRecallGraphNodeMock,
@@ -650,10 +935,20 @@ const {
       fetchRecallDocumentsMock,
       fetchRecallGraphMock,
       fetchRecallGraphNodeMock,
+      fetchLibraryCollectionOverviewMock,
+      fetchLibraryReadingQueueMock,
+      completeRecallDocumentReadingMock,
       fetchRecallNotesMock,
       fetchRecallStudyCardsMock,
       fetchRecallStudyOverviewMock,
       fetchRecallStudyProgressMock,
+      fetchRecallStudySettingsMock,
+      fetchLibrarySettingsMock,
+      fetchWorkspaceExportManifestMock,
+      previewWorkspaceImportMock,
+      applyWorkspaceImportMock,
+      previewBatchImportMock,
+      importBatchDocumentsMock,
       generateRecallStudyCardsMock,
       bulkDeleteRecallStudyCardsMock,
       deleteRecallStudyCardMock,
@@ -662,10 +957,13 @@ const {
       promoteRecallNoteToStudyCardMock,
       retrieveRecallMock,
       reviewRecallStudyCardMock,
+      saveRecallStudySettingsMock,
+      saveLibrarySettingsMock,
       saveProgressMock,
       saveSettingsMock,
       searchRecallNotesMock,
       setRecallStudyCardScheduleStateMock,
+      startRecallStudyReviewSessionMock,
       updateRecallStudyCardMock,
       updateRecallNoteMock,
       mockSpeechState: {
@@ -687,7 +985,19 @@ const {
 
 vi.mock('./api', () => ({
   buildRecallExportUrl: vi.fn((documentId: string) => `/api/recall/documents/${documentId}/export.md`),
+  buildRecallLearningPackExportUrl: vi.fn(
+    (documentId: string) => `/api/recall/documents/${documentId}/learning-export.md`,
+  ),
+  buildLibraryCollectionLearningPackExportUrl: vi.fn(
+    (collectionId: string) =>
+      `/api/recall/library/collections/${encodeURIComponent(collectionId)}/learning-export.zip`,
+  ),
+  buildWorkspaceExportUrl: vi.fn(() => '/api/workspace/export.zip'),
+  applyWorkspaceImport: applyWorkspaceImportMock,
   bulkDeleteRecallStudyCards: bulkDeleteRecallStudyCardsMock,
+  completeRecallStudyReviewSession: completeRecallStudyReviewSessionMock,
+  completeRecallDocumentReading: completeRecallDocumentReadingMock,
+  createRecallStudyAnswerAttempt: createRecallStudyAnswerAttemptMock,
   createRecallStudyCard: createRecallStudyCardMock,
   createRecallNote: createRecallNoteMock,
   decideRecallGraphEdge: decideRecallGraphEdgeMock,
@@ -701,12 +1011,22 @@ vi.mock('./api', () => ({
   fetchRecallDocuments: fetchRecallDocumentsMock,
   fetchRecallGraph: fetchRecallGraphMock,
   fetchRecallGraphNode: fetchRecallGraphNodeMock,
+  fetchLibraryCollectionOverview: fetchLibraryCollectionOverviewMock,
+  fetchLibraryReadingQueue: fetchLibraryReadingQueueMock,
   fetchRecallNotes: fetchRecallNotesMock,
   fetchSettings: vi.fn(async () => settings),
   fetchRecallStudyCards: fetchRecallStudyCardsMock,
   fetchRecallStudyOverview: fetchRecallStudyOverviewMock,
   fetchRecallStudyProgress: fetchRecallStudyProgressMock,
+  fetchRecallStudySettings: fetchRecallStudySettingsMock,
+  fetchLibrarySettings: fetchLibrarySettingsMock,
+  fetchWorkspaceExportManifest: fetchWorkspaceExportManifestMock,
+  previewWorkspaceImport: previewWorkspaceImportMock,
+  previewBatchImport: previewBatchImportMock,
+  importBatchDocuments: importBatchDocumentsMock,
   generateRecallStudyCards: generateRecallStudyCardsMock,
+  saveRecallStudySettings: saveRecallStudySettingsMock,
+  saveLibrarySettings: saveLibrarySettingsMock,
   saveSettings: saveSettingsMock,
   fetchDocuments: fetchDocumentsMock,
   fetchDocumentView: fetchDocumentViewMock,
@@ -720,6 +1040,7 @@ vi.mock('./api', () => ({
   reviewRecallStudyCard: reviewRecallStudyCardMock,
   searchRecallNotes: searchRecallNotesMock,
   setRecallStudyCardScheduleState: setRecallStudyCardScheduleStateMock,
+  startRecallStudyReviewSession: startRecallStudyReviewSessionMock,
   updateRecallStudyCard: updateRecallStudyCardMock,
   searchRecall: vi.fn(),
   saveProgress: saveProgressMock,
@@ -764,7 +1085,11 @@ beforeEach(() => {
   studyCardsState = structuredClone(baseStudyCards)
   studyOverviewState = structuredClone(baseStudyOverview)
   studyProgressState = structuredClone(baseStudyProgress)
+  studySettingsState = structuredClone(baseStudySettings)
+  librarySettingsState = structuredClone(baseLibrarySettings)
+  createRecallStudyAnswerAttemptMock.mockReset()
   createRecallStudyCardMock.mockReset()
+  completeRecallStudyReviewSessionMock.mockReset()
   createRecallNoteMock.mockReset()
   fetchDocumentsMock.mockReset()
   fetchDocumentViewMock.mockReset()
@@ -773,10 +1098,20 @@ beforeEach(() => {
   fetchRecallDocumentsMock.mockReset()
   fetchRecallGraphMock.mockReset()
   fetchRecallGraphNodeMock.mockReset()
+  fetchLibraryCollectionOverviewMock.mockReset()
+  fetchLibraryReadingQueueMock.mockReset()
+  completeRecallDocumentReadingMock.mockReset()
   fetchRecallNotesMock.mockReset()
   fetchRecallStudyCardsMock.mockReset()
   fetchRecallStudyOverviewMock.mockReset()
   fetchRecallStudyProgressMock.mockReset()
+  fetchRecallStudySettingsMock.mockReset()
+  fetchLibrarySettingsMock.mockReset()
+  fetchWorkspaceExportManifestMock.mockReset()
+  previewWorkspaceImportMock.mockReset()
+  applyWorkspaceImportMock.mockReset()
+  previewBatchImportMock.mockReset()
+  importBatchDocumentsMock.mockReset()
   generateRecallStudyCardsMock.mockReset()
   bulkDeleteRecallStudyCardsMock.mockReset()
   deleteRecallStudyCardMock.mockReset()
@@ -789,10 +1124,13 @@ beforeEach(() => {
   promoteRecallNoteToStudyCardMock.mockReset()
   retrieveRecallMock.mockReset()
   reviewRecallStudyCardMock.mockReset()
+  saveRecallStudySettingsMock.mockReset()
+  saveLibrarySettingsMock.mockReset()
   saveProgressMock.mockReset()
   saveSettingsMock.mockReset()
   searchRecallNotesMock.mockReset()
   setRecallStudyCardScheduleStateMock.mockReset()
+  startRecallStudyReviewSessionMock.mockReset()
   updateRecallStudyCardMock.mockReset()
   updateRecallNoteMock.mockReset()
   window.history.pushState({}, '', '/reader')
@@ -836,11 +1174,165 @@ beforeEach(() => {
     }
     return detail
   })
+  fetchLibraryCollectionOverviewMock.mockImplementation(async (collectionId: string) => {
+    const collection = librarySettingsState.custom_collections.find((candidate) => candidate.id === collectionId)
+    if (!collection) {
+      throw new Error('Collection not found.')
+    }
+    const descendantIds = new Set(collection.document_ids)
+    for (const candidate of librarySettingsState.custom_collections) {
+      if (candidate.parent_id === collection.id) {
+        candidate.document_ids.forEach((documentId) => descendantIds.add(documentId))
+      }
+    }
+    return {
+      id: collection.id,
+      name: collection.name,
+      parent_id: collection.parent_id ?? null,
+      path: [{ id: collection.id, name: collection.name }],
+      direct_document_ids: collection.document_ids,
+      descendant_document_ids: Array.from(descendantIds),
+      direct_document_count: collection.document_ids.length,
+      descendant_document_count: descendantIds.size,
+      child_collection_count: librarySettingsState.custom_collections.filter((candidate) => candidate.parent_id === collection.id).length,
+      memory_counts: { notes: 0, graph_nodes: 0, study_cards: 0 },
+      study_counts: { new: 0, due: 0, scheduled: 0, unscheduled: 0, reviewed: 0, total: 0 },
+      reading_summary: {
+        total_sources: descendantIds.size,
+        unread_sources: descendantIds.size,
+        in_progress_sources: 0,
+        completed_sources: 0,
+        last_read_at: null,
+      },
+      resume_sources: [],
+      highlight_review_items: [],
+      recent_sources: [],
+      recent_activity: [],
+    } satisfies LibraryCollectionOverview
+  })
+  fetchLibraryReadingQueueMock.mockImplementation(async (): Promise<LibraryReadingQueueResponse> => ({
+    dry_run: true,
+    scope: 'all',
+    state: 'all',
+    collection_id: null,
+    summary: {
+      total_sources: documents.length,
+      unread_sources: documents.length,
+      in_progress_sources: 0,
+      completed_sources: 0,
+    },
+    rows: documents.map((document) => ({
+      id: document.id,
+      title: document.title,
+      source_type: document.source_type,
+      state: 'unread',
+      mode: 'reflowed',
+      sentence_index: 0,
+      sentence_count: 0,
+      progress_percent: 0,
+      last_read_at: null,
+      updated_at: document.updated_at,
+      membership: null,
+      collection_paths: [],
+      note_count: recallNotesByDocument[document.id]?.length ?? 0,
+      highlight_count: (recallNotesByDocument[document.id] ?? []).filter((note) => note.anchor.kind === 'sentence').length,
+      study_counts: {
+        due: studyCardsState.filter((card) => card.source_document_id === document.id && card.status === 'due').length,
+        new: studyCardsState.filter((card) => card.source_document_id === document.id && card.status === 'new').length,
+        total: studyCardsState.filter((card) => card.source_document_id === document.id).length,
+      },
+    })),
+  }))
+  completeRecallDocumentReadingMock.mockImplementation(async (documentId: string, mode = 'reflowed') => ({
+    document_id: documentId,
+    mode,
+    sentence_index: documentId === 'doc-search' ? 2 : 1,
+    sentence_count: documentId === 'doc-search' ? 3 : 2,
+    completed_at: '2026-03-13T00:45:00Z',
+  }))
   fetchRecallStudyOverviewMock.mockImplementation(async () => studyOverviewState)
   fetchRecallStudyProgressMock.mockImplementation(async (sourceDocumentId?: string | null, periodDays?: number) =>
     scopeStudyProgress(studyProgressState, sourceDocumentId, periodDays ?? studyProgressState.period_days),
   )
-  fetchRecallStudyCardsMock.mockImplementation(async () => studyCardsState)
+  fetchRecallStudySettingsMock.mockImplementation(async () => studySettingsState)
+  fetchLibrarySettingsMock.mockImplementation(async () => structuredClone(librarySettingsState))
+  fetchWorkspaceExportManifestMock.mockImplementation(async () => structuredClone(baseWorkspaceExportManifest))
+  previewWorkspaceImportMock.mockImplementation(async () => structuredClone(baseWorkspaceImportPreview))
+  applyWorkspaceImportMock.mockImplementation(async () => structuredClone(baseWorkspaceImportApplyResult))
+  previewBatchImportMock.mockImplementation(async () => structuredClone(baseBatchImportPreview))
+  importBatchDocumentsMock.mockImplementation(async () => structuredClone(baseBatchImportResult))
+  saveRecallStudySettingsMock.mockImplementation(async (nextSettings: StudySettings) => {
+    studySettingsState = nextSettings
+    return studySettingsState
+  })
+  saveLibrarySettingsMock.mockImplementation(async (nextSettings: LibrarySettings) => {
+    librarySettingsState = structuredClone(nextSettings)
+    return structuredClone(librarySettingsState)
+  })
+  fetchRecallStudyCardsMock.mockImplementation(
+    async (status: string = 'all', _limit?: number, sourceDocumentId?: string | null) =>
+      studyCardsState.filter(
+        (card) =>
+          (status === 'all' || card.status === status) &&
+          (!sourceDocumentId || card.source_document_id === sourceDocumentId),
+      ),
+  )
+  startRecallStudyReviewSessionMock.mockImplementation(async (payload: StudyReviewSessionStartRequest) => ({
+    id: `study-session-mock-${startRecallStudyReviewSessionMock.mock.calls.length}`,
+    source_document_id: payload.source_document_id ?? null,
+    filter_snapshot: payload.filter_snapshot ?? {},
+    settings_snapshot: payload.settings_snapshot ?? {},
+    card_ids: payload.card_ids,
+    started_at: '2026-03-13T00:50:00Z',
+    completed_at: null,
+    summary: {},
+  }))
+  completeRecallStudyReviewSessionMock.mockImplementation(
+    async (sessionId: string, payload: StudyReviewSessionCompleteRequest) => ({
+      id: sessionId,
+      source_document_id: null,
+      filter_snapshot: {},
+      settings_snapshot: {},
+      card_ids: [],
+      started_at: '2026-03-13T00:50:00Z',
+      completed_at: '2026-03-13T00:55:00Z',
+      summary: payload.summary,
+    }),
+  )
+  createRecallStudyAnswerAttemptMock.mockImplementation(async (cardId: string, payload: { session_id?: string | null; response: Record<string, unknown> }) => {
+    const card = studyCardsState.find((candidate) => candidate.id === cardId) ?? studyCardsState[0]
+    const correctChoiceId =
+      card.question_payload?.kind === 'multiple_choice' ||
+      card.question_payload?.kind === 'true_false' ||
+      card.question_payload?.kind === 'fill_in_blank'
+        ? card.question_payload.correct_choice_id
+        : null
+    const selectedChoiceId = typeof payload.response.selected_choice_id === 'string' ? payload.response.selected_choice_id : null
+    const isCorrect =
+      card.card_type === 'flashcard'
+        ? null
+        : payload.response.timed_out === true
+          ? false
+          : correctChoiceId
+            ? selectedChoiceId === correctChoiceId
+            : typeof payload.response.answer_text === 'string'
+              ? payload.response.answer_text.trim().toLowerCase() === card.answer.trim().toLowerCase()
+              : null
+    return {
+      id: `attempt:${cardId}:${Date.now()}`,
+      review_card_id: cardId,
+      source_document_id: card.source_document_id,
+      document_title: card.document_title,
+      session_id: payload.session_id ?? null,
+      question_type: card.card_type as StudyCardRecord['card_type'],
+      response: payload.response,
+      is_correct: isCorrect,
+      attempted_at: '2026-03-13T00:55:00Z',
+      review_event_id: null,
+      prompt: card.prompt,
+      correct_answer: card.answer,
+    }
+  })
   generateRecallStudyCardsMock.mockImplementation(async () => ({
     generated_count: 1,
     total_count: studyCardsState.length,
@@ -852,6 +1344,8 @@ beforeEach(() => {
     }
     const cardType = payload.card_type ?? 'short_answer'
     const cardId = `card:manual:${studyCardsState.length + 1}`
+    const supportPayload = payload.support_payload ?? null
+    const questionDifficulty = payload.question_difficulty ?? 'medium'
     const createdCard: StudyCardRecord = {
       id: cardId,
       source_document_id: source.id,
@@ -873,7 +1367,9 @@ beforeEach(() => {
         manual_card_type: cardType,
         manual_content_created_at: '2026-03-13T00:45:00Z',
         manual_content_edited_at: '2026-03-13T00:45:00Z',
+        manual_question_difficulty: questionDifficulty,
         ...(payload.question_payload ? { manual_question_payload: payload.question_payload } : {}),
+        ...(supportPayload ? { manual_question_support_payload: supportPayload } : {}),
         review_count: 0,
       },
       due_at: '2026-03-13T00:45:00Z',
@@ -881,7 +1377,9 @@ beforeEach(() => {
       status: 'new',
       last_rating: null,
       knowledge_stage: 'new',
+      question_difficulty: questionDifficulty,
       question_payload: payload.question_payload ?? null,
+      question_support_payload: supportPayload,
     }
     studyCardsState = [createdCard, ...studyCardsState.filter((card) => card.id !== cardId)]
     studyOverviewState = buildStudyOverview(studyCardsState)
@@ -970,23 +1468,48 @@ beforeEach(() => {
     },
   )
   updateRecallStudyCardMock.mockImplementation(
-    async (cardId: string, payload: { prompt: string; answer: string; question_payload?: StudyCardRecord['question_payload'] }) => {
+    async (cardId: string, payload: StudyCardUpdateRequest) => {
       const nextCard = studyCardsState.find((card) => card.id === cardId)
       if (!nextCard) {
         throw new Error('Study card not found.')
       }
-      const updatedCard = {
+      const schedulingState: Record<string, unknown> = {
+        ...nextCard.scheduling_state,
+        manual_content_edited_at: '2026-04-27T12:00:00Z',
+      }
+      if (payload.question_payload !== undefined) {
+        if (payload.question_payload) {
+          schedulingState.manual_question_payload = payload.question_payload
+        } else {
+          delete schedulingState.manual_question_payload
+        }
+      }
+      if (payload.support_payload !== undefined) {
+        if (payload.support_payload) {
+          schedulingState.manual_question_support_payload = payload.support_payload
+        } else {
+          delete schedulingState.manual_question_support_payload
+        }
+      }
+      if (payload.question_difficulty !== undefined) {
+        if (payload.question_difficulty) {
+          schedulingState.manual_question_difficulty = payload.question_difficulty
+        } else {
+          delete schedulingState.manual_question_difficulty
+        }
+      }
+      const updatedCard: StudyCardRecord = {
         ...nextCard,
         prompt: payload.prompt,
         answer: payload.answer,
-        scheduling_state: {
-          ...nextCard.scheduling_state,
-          manual_content_edited_at: '2026-04-27T12:00:00Z',
-          ...(payload.question_payload !== undefined
-            ? { manual_question_payload: payload.question_payload ?? undefined }
-            : {}),
-        },
+        scheduling_state: schedulingState,
+        ...(payload.question_difficulty !== undefined
+          ? { question_difficulty: payload.question_difficulty ?? nextCard.question_difficulty }
+          : {}),
         ...(payload.question_payload !== undefined ? { question_payload: payload.question_payload ?? null } : {}),
+        ...(payload.support_payload !== undefined
+          ? { question_support_payload: payload.support_payload ?? null }
+          : {}),
       }
       studyCardsState = studyCardsState.map((card) => (card.id === cardId ? updatedCard : card))
       return updatedCard
@@ -1148,6 +1671,7 @@ beforeEach(() => {
       status: 'new',
       last_rating: null,
       knowledge_stage: 'new',
+      question_difficulty: 'hard',
     }
     studyCardsState = [promotedCard, ...studyCardsState.filter((card) => card.id !== cardId)]
     studyOverviewState = buildStudyOverview(studyCardsState)
@@ -1246,6 +1770,15 @@ async function ensureLibraryOpen() {
     }
     if (hasLibrarySearchControl(getLibrarySection())) {
       return
+    }
+    const searchTrigger =
+      within(librarySection).queryByRole('button', { name: 'Search saved sources' }) ??
+      screen.queryByRole('button', { name: 'Search saved sources' })
+    if (searchTrigger) {
+      fireEvent.click(searchTrigger as HTMLButtonElement)
+      if (queryGlobalLibrarySearchControl() || hasLibrarySearchControl(getLibrarySection())) {
+        return
+      }
     }
     const toggleButton = within(librarySection)
       .queryAllByRole('button', { name: /Show|Hide/ })
@@ -1347,6 +1880,238 @@ function findSourceWorkspaceContainer() {
     }) ?? null
   )
 }
+
+test('Home exposes workspace export manifest preview and ZIP action', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(fetchWorkspaceExportManifestMock).toHaveBeenCalled()
+  })
+
+  const exportPanel = screen.getByRole('group', { name: 'Export workspace' })
+  expect(exportPanel).toHaveAttribute('data-home-workspace-export-stage958', 'true')
+  expect(within(exportPanel).getByText('Export workspace')).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/2 sources/)).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/2 notes/)).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/1 study card/)).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/2 attempts/)).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/1 session/)).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/1 warning/)).toBeInTheDocument()
+  expect(within(exportPanel).getByRole('link', { name: 'Download ZIP' })).toHaveAttribute(
+    'href',
+    '/api/workspace/export.zip',
+  )
+  expect(within(exportPanel).getByText(/Preview a workspace ZIP or manifest/)).toBeInTheDocument()
+
+  fireEvent.change(within(exportPanel).getByLabelText('Preview backup file'), {
+    target: {
+      files: [new File(['workspace backup'], 'workspace-export.zip', { type: 'application/zip' })],
+    },
+  })
+
+  await waitFor(() => {
+    expect(previewWorkspaceImportMock).toHaveBeenCalled()
+  })
+
+  expect(within(exportPanel).getByText(/ZIP · 2 sources/)).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/2 learning packs/)).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/Dry run only/)).toBeInTheDocument()
+  expect(within(exportPanel).getByText('Verified as preview only')).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/2 missing items ready to restore/)).toBeInTheDocument()
+
+  fireEvent.click(within(exportPanel).getByRole('button', { name: 'Restore missing items' }))
+
+  await waitFor(() => {
+    expect(applyWorkspaceImportMock).toHaveBeenCalled()
+  })
+
+  expect(within(exportPanel).getByText(/2 items imported/)).toBeInTheDocument()
+  expect(within(exportPanel).getByText(/1 item skipped/)).toBeInTheDocument()
+})
+
+test('Home keeps manifest-only backup previews read-only', async () => {
+  previewWorkspaceImportMock.mockImplementationOnce(async () => ({
+    ...structuredClone(baseWorkspaceImportPreview),
+    can_apply: false,
+    apply_blockers: ['Restore requires a workspace ZIP backup; raw manifest files are preview-only.'],
+    restorable_entity_counts: { source_document: 1 },
+    backup: {
+      ...structuredClone(baseWorkspaceImportPreview.backup),
+      source_kind: 'manifest',
+      bundle_coverage_available: false,
+    },
+  }))
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(fetchWorkspaceExportManifestMock).toHaveBeenCalled()
+  })
+
+  const exportPanel = screen.getByRole('group', { name: 'Export workspace' })
+  fireEvent.change(within(exportPanel).getByLabelText('Preview backup file'), {
+    target: {
+      files: [new File(['workspace manifest'], 'manifest.json', { type: 'application/json' })],
+    },
+  })
+
+  await waitFor(() => {
+    expect(previewWorkspaceImportMock).toHaveBeenCalled()
+  })
+
+  expect(within(exportPanel).getByText(/raw manifest files are preview-only/)).toBeInTheDocument()
+  expect(within(exportPanel).queryByRole('button', { name: 'Restore missing items' })).not.toBeInTheDocument()
+  expect(applyWorkspaceImportMock).not.toHaveBeenCalled()
+})
+
+test('Source overview exposes plain source and learning pack exports', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-source-export-signal',
+        'doc-search',
+        'Search target only',
+        'Export source learning signal note.',
+      ),
+      ...(recallNotesByDocument['doc-search'] ?? []),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    const searchCard = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+    expect(
+      searchCard.querySelector(
+        '[data-home-source-memory-signal-stage908="true"][data-home-source-memory-signal-surface-stage908="card"]',
+      ),
+    ).not.toBeNull()
+  })
+
+  const searchCard = screen.getByRole('button', { name: 'Open Search target only' }) as HTMLElement
+  const cardSignal = searchCard.querySelector(
+    '[data-home-source-memory-signal-stage908="true"][data-home-source-memory-signal-surface-stage908="card"]',
+  ) as HTMLElement
+  fireEvent.click(cardSignal)
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+  })
+
+  expect(screen.getByRole('link', { name: 'Export source' })).toHaveAttribute(
+    'href',
+    '/api/recall/documents/doc-search/export.md',
+  )
+  expect(screen.getByRole('link', { name: 'Export learning pack' })).toHaveAttribute(
+    'href',
+    '/api/recall/documents/doc-search/learning-export.md',
+  )
+  expect(screen.getByRole('link', { name: 'Export learning pack' })).toHaveAttribute(
+    'data-source-overview-learning-pack-export-stage958',
+    'true',
+  )
+})
+
+test('Source overview organizes the active source into existing and new child collections', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: [],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Source overview', level: 2 })).toBeInTheDocument()
+  })
+
+  const collectionPanel = await screen.findByRole('region', { name: 'Source collections' })
+  expect(within(collectionPanel).getByText('No direct collections yet')).toBeInTheDocument()
+
+  fireEvent.click(within(collectionPanel).getByRole('button', { name: 'Organize source' }))
+  const organizePanel = await screen.findByRole('group', { name: 'Organize source collections' })
+  fireEvent.click(within(organizePanel).getByRole('button', { name: 'Add Research' }))
+
+  await waitFor(() => {
+    expect(saveLibrarySettingsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        custom_collections: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'collection:research',
+            document_ids: ['doc-search'],
+          }),
+        ]),
+      }),
+    )
+  })
+  expect(within(collectionPanel).getByText('Research')).toBeInTheDocument()
+
+  fireEvent.change(within(organizePanel).getByRole('textbox', { name: 'New collection name' }), {
+    target: { value: 'Source picks' },
+  })
+  fireEvent.change(within(organizePanel).getByLabelText('Parent collection'), {
+    target: { value: 'collection:research' },
+  })
+  fireEvent.click(within(organizePanel).getByRole('button', { name: 'Create collection for source' }))
+
+  await waitFor(() => {
+    expect(saveLibrarySettingsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        custom_collections: expect.arrayContaining([
+          expect.objectContaining({
+            name: 'Source picks',
+            parent_id: 'collection:research',
+            document_ids: ['doc-search'],
+          }),
+        ]),
+      }),
+    )
+  })
+})
+
+test('Reader source seam shows compact collection context for the active source', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:learning',
+        name: 'Learning',
+        document_ids: [],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+      {
+        id: 'collection:learning-ai',
+        name: 'AI',
+        document_ids: ['doc-search'],
+        origin: 'manual',
+        parent_id: 'collection:learning',
+        sort_index: 1,
+      },
+    ],
+  }
+
+  renderRecallApp('/reader')
+
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: 'Search target only', level: 2 })).toBeInTheDocument()
+  })
+
+  expect(await screen.findByText('Learning / AI')).toBeInTheDocument()
+})
 
 function openReaderOverflow() {
   const openOverflow = screen.queryByRole('group', { name: 'More reading controls' })
@@ -2077,6 +2842,553 @@ test('Recall home custom collections can still be created from organizer options
   ).toBeInTheDocument()
 })
 
+test('Home collection tree supports child collections, aggregate parent boards, reparenting, and delete promotion', async () => {
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  await openHomeOrganizerOptions(rail as HTMLElement)
+  fireEvent.click(within(rail).getByRole('button', { name: /Create collection|New collection/i }))
+
+  const management = await within(rail).findByRole('group', { name: 'Collection management' })
+  fireEvent.change(within(management).getByRole('textbox', { name: 'Collection name' }), {
+    target: { value: 'Research' },
+  })
+  fireEvent.click(within(management).getByRole('button', { name: 'Create collection' }))
+
+  await waitFor(() => {
+    expect(within(rail).getByRole('button', { name: /^Research/i })).toBeInTheDocument()
+  })
+  fireEvent.click(within(rail).getByRole('button', { name: 'New child' }))
+  const childManagement = await within(rail).findByRole('group', { name: 'Collection management' })
+  fireEvent.change(within(childManagement).getByRole('textbox', { name: 'Collection name' }), {
+    target: { value: 'AI' },
+  })
+  fireEvent.click(within(childManagement).getByRole('button', { name: 'Create collection' }))
+
+  await waitFor(() => {
+    expect(within(rail).getByRole('button', { name: /^AI/i })).toBeInTheDocument()
+  })
+  expect(saveLibrarySettingsMock).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      custom_collections: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'AI',
+          parent_id: expect.any(String),
+        }),
+      ]),
+    }),
+  )
+  await waitFor(() => {
+    const childButton = within(rail).getByRole('button', { name: /^AI/i })
+    const childRow = childButton.closest('[data-home-collection-tree-row-stage968="true"]')
+    expect(childRow).not.toBeNull()
+    expect(childRow).toHaveAttribute('data-home-collection-tree-depth-stage968', '1')
+  })
+
+  fireEvent.click(within(rail).getByRole('button', { name: /^Untagged/i }))
+  await waitFor(() => {
+    expect(within(rail).getByRole('button', { name: 'Open Search target only from Untagged' })).toBeInTheDocument()
+  })
+  fireEvent.click(within(rail).getByRole('button', { name: 'Open Search target only from Untagged' }), {
+    ctrlKey: true,
+  })
+  const selectionBar = await screen.findByRole('group', { name: 'Organizer selection bar' })
+  fireEvent.click(within(selectionBar).getByRole('button', { name: 'Add to collections' }))
+  const assignmentPanel = await screen.findByRole('group', { name: 'Collection assignment panel' })
+  fireEvent.click(within(assignmentPanel).getByRole('button', { name: 'Add Research / AI' }))
+
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+  await waitFor(() => {
+    expect(getHomeCanvas()).toHaveAccessibleName('Research collection canvas')
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(rail).getByRole('button', { name: /^AI/i }))
+  const childToolbar = await within(rail).findByRole('group', { name: 'Collection management' })
+  fireEvent.change(within(childToolbar).getByLabelText('Parent collection'), {
+    target: { value: '' },
+  })
+  await waitFor(() => {
+    expect(document.querySelector('[data-home-collection-tree-depth-stage968="1"]')).toBeNull()
+  })
+
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+  const parentToolbar = await within(rail).findByRole('group', { name: 'Collection management' })
+  fireEvent.click(within(parentToolbar).getByRole('button', { name: 'Delete collection' }))
+  await waitFor(() => {
+    expect(within(rail).queryByRole('button', { name: /^Research/i })).not.toBeInTheDocument()
+    expect(within(rail).getByRole('button', { name: /^AI/i })).toBeInTheDocument()
+  })
+
+  expect(saveLibrarySettingsMock).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      custom_collections: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'AI',
+          parent_id: null,
+        }),
+      ]),
+    }),
+  )
+})
+
+test('Home collection workspaces expose Review Graph and export actions for selected collections', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+      {
+        id: 'collection:research-ai',
+        name: 'AI',
+        document_ids: ['doc-search'],
+        origin: 'manual',
+        parent_id: 'collection:research',
+        sort_index: 1,
+      },
+    ],
+  }
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-reader',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      status: 'due',
+      due_at: '2026-03-13T00:05:00Z',
+    },
+    baseStudyCards[0],
+  ]
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const workspaceActions = await screen.findByRole('region', { name: 'Collection workspace actions' })
+  expect(within(workspaceActions).getByText('Research')).toBeInTheDocument()
+  expect(within(workspaceActions).getByText('1 direct source')).toBeInTheDocument()
+  expect(within(workspaceActions).getByText('2 sources with nested collections')).toBeInTheDocument()
+  expect(within(workspaceActions).getByRole('link', { name: 'Export collection pack' })).toHaveAttribute(
+    'href',
+    '/api/recall/library/collections/collection%3Aresearch/learning-export.zip',
+  )
+
+  fireEvent.click(within(workspaceActions).getByRole('button', { name: 'Graph collection' }))
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByLabelText('Filter graph')).toHaveValue('tag:collection:research')
+  })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Home' }))
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+  fireEvent.click(within(workspaceActions).getByRole('button', { name: 'Review collection' }))
+
+  await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: ['card-reader', 'card-1'],
+        filter_snapshot: expect.objectContaining({
+          collection_filter: 'collection:custom:collection:research',
+          launch_intent: 'collection-review',
+        }),
+        source_document_id: null,
+      }),
+    )
+  })
+  expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+})
+
+test('Home collection workspaces expose reading resume and highlight review inbox', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+      {
+        id: 'collection:research-ai',
+        name: 'AI',
+        document_ids: ['doc-search'],
+        origin: 'manual',
+        parent_id: 'collection:research',
+        sort_index: 1,
+      },
+    ],
+  }
+  fetchLibraryCollectionOverviewMock.mockImplementation(async () => ({
+    id: 'collection:research',
+    name: 'Research',
+    parent_id: null,
+    path: [{ id: 'collection:research', name: 'Research' }],
+    direct_document_ids: ['doc-reader'],
+    descendant_document_ids: ['doc-reader', 'doc-search'],
+    direct_document_count: 1,
+    descendant_document_count: 2,
+    child_collection_count: 1,
+    memory_counts: { notes: 2, graph_nodes: 1, study_cards: 2 },
+    study_counts: { new: 1, due: 1, scheduled: 0, unscheduled: 0, reviewed: 0, total: 2 },
+    reading_summary: {
+      total_sources: 2,
+      unread_sources: 1,
+      in_progress_sources: 1,
+      completed_sources: 0,
+      last_read_at: '2026-03-13T00:30:00Z',
+    },
+    resume_sources: [
+      {
+        id: 'doc-search',
+        title: 'Search target only',
+        source_type: 'paste',
+        mode: 'reflowed',
+        sentence_index: 1,
+        sentence_count: 3,
+        progress_percent: 67,
+        membership: 'descendant',
+        updated_at: '2026-03-13T00:30:00Z',
+      },
+    ],
+    highlight_review_items: [
+      {
+        note_id: 'note-reader-1',
+        note_kind: 'sentence',
+        source_document_id: 'doc-reader',
+        source_title: 'Reader stays here',
+        anchor_text: 'Reader sentence two.',
+        excerpt_preview: 'Reader sentence one. Reader sentence two.',
+        body_preview: 'Return to sentence two.',
+        global_sentence_start: 1,
+        global_sentence_end: 1,
+        membership: 'direct',
+        updated_at: '2026-03-13T00:31:00Z',
+      },
+    ],
+    recent_sources: [],
+    recent_activity: [],
+  } satisfies LibraryCollectionOverview))
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const workspaceActions = await screen.findByRole('region', { name: 'Collection workspace actions' })
+  const readingProgress = await within(workspaceActions).findByRole('region', { name: 'Collection reading progress' })
+  expect(within(readingProgress).getByText('1 unread')).toBeInTheDocument()
+  expect(within(readingProgress).getByText('1 in progress')).toBeInTheDocument()
+  expect(within(readingProgress).getByText('67% read')).toBeInTheDocument()
+  expect(within(readingProgress).getByText('Search target only')).toBeInTheDocument()
+
+  const highlightInbox = within(workspaceActions).getByRole('region', { name: 'Collection highlight review' })
+  expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+
+  fireEvent.click(within(workspaceActions).getByRole('button', { name: 'Continue reading' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+    expect(window.location.search).toContain('document=doc-search')
+    expect(window.location.search).toContain('sentenceStart=1')
+  })
+})
+
+test('Home reading queue filters rows and marks sources complete', async () => {
+  let markedComplete = false
+  fetchLibraryReadingQueueMock.mockImplementation(async (options?: { state?: string | null }) => {
+    const state = options?.state ?? 'all'
+    const allRows: LibraryReadingQueueResponse['rows'] = [
+      {
+        id: 'doc-search',
+        title: 'Search target only',
+        source_type: 'paste',
+        state: markedComplete ? 'completed' : 'in_progress',
+        mode: 'reflowed',
+        sentence_index: markedComplete ? 2 : 1,
+        sentence_count: 3,
+        progress_percent: markedComplete ? 100 : 67,
+        last_read_at: '2026-03-13T00:40:00Z',
+        updated_at: '2026-03-13T00:40:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 1,
+        highlight_count: 1,
+        study_counts: { due: 0, new: 1, total: 1 },
+      },
+      {
+        id: 'doc-reader',
+        title: 'Reader stays here',
+        source_type: 'paste',
+        state: 'unread',
+        mode: 'reflowed',
+        sentence_index: 0,
+        sentence_count: 2,
+        progress_percent: 0,
+        last_read_at: null,
+        updated_at: '2026-03-13T00:35:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 1,
+        highlight_count: 1,
+        study_counts: { due: 0, new: 0, total: 0 },
+      },
+    ]
+    const rows = state === 'all' ? allRows : allRows.filter((row) => row.state === state)
+    return {
+      dry_run: true,
+      scope: 'all',
+      state: state as LibraryReadingQueueResponse['state'],
+      collection_id: null,
+      summary: {
+        total_sources: 2,
+        unread_sources: 1,
+        in_progress_sources: markedComplete ? 0 : 1,
+        completed_sources: markedComplete ? 1 : 0,
+      },
+      rows,
+    }
+  })
+  completeRecallDocumentReadingMock.mockImplementation(async (documentId: string, mode = 'reflowed') => {
+    markedComplete = true
+    return {
+      document_id: documentId,
+      mode,
+      sentence_index: 2,
+      sentence_count: 3,
+      completed_at: '2026-03-13T00:45:00Z',
+    }
+  })
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  expect(within(readingQueue).getByText('Search target only')).toBeInTheDocument()
+  expect(within(readingQueue).getByText('Reader stays here')).toBeInTheDocument()
+  expect(within(readingQueue).getByText('1 unread')).toBeInTheDocument()
+
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Show in-progress reading queue' }))
+
+  await waitFor(() => {
+    expect(fetchLibraryReadingQueueMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        limit: 8,
+        state: 'in_progress',
+      }),
+    )
+  })
+  expect(within(readingQueue).getByText('Search target only')).toBeInTheDocument()
+  expect(within(readingQueue).queryByText('Reader stays here')).not.toBeInTheDocument()
+
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Mark Search target only complete' }))
+
+  await waitFor(() => {
+    expect(completeRecallDocumentReadingMock).toHaveBeenCalledWith('doc-search', 'reflowed')
+  })
+  await waitFor(() => {
+    expect(within(readingQueue).getByText('0 in progress')).toBeInTheDocument()
+  })
+})
+
+test('Home highlight inbox Create Study card opens the Notebook promotion seam with Study selected', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+  fetchLibraryCollectionOverviewMock.mockImplementation(async () => ({
+    id: 'collection:research',
+    name: 'Research',
+    parent_id: null,
+    path: [{ id: 'collection:research', name: 'Research' }],
+    direct_document_ids: ['doc-reader'],
+    descendant_document_ids: ['doc-reader'],
+    direct_document_count: 1,
+    descendant_document_count: 1,
+    child_collection_count: 0,
+    memory_counts: { notes: 1, graph_nodes: 0, study_cards: 0 },
+    study_counts: { new: 0, due: 0, scheduled: 0, unscheduled: 0, reviewed: 0, total: 0 },
+    reading_summary: {
+      total_sources: 1,
+      unread_sources: 0,
+      in_progress_sources: 1,
+      completed_sources: 0,
+      last_read_at: '2026-03-13T00:30:00Z',
+    },
+    resume_sources: [],
+    highlight_review_items: [
+      {
+        note_id: 'note-reader-1',
+        note_kind: 'sentence',
+        source_document_id: 'doc-reader',
+        source_title: 'Reader stays here',
+        anchor_text: 'Reader sentence two.',
+        excerpt_preview: 'Reader sentence one. Reader sentence two.',
+        body_preview: 'Return to sentence two.',
+        global_sentence_start: 1,
+        global_sentence_end: 1,
+        membership: 'direct',
+        updated_at: '2026-03-13T00:31:00Z',
+      },
+    ],
+    recent_sources: [],
+    recent_activity: [],
+  } satisfies LibraryCollectionOverview))
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Create Study card from Reader stays here' }))
+
+  const selectedWorkbench = await screen.findByRole('region', { name: 'Selected note workbench' })
+  const promotionHeading = within(selectedWorkbench).getByRole('heading', { name: 'Promote note', level: 3 })
+  const promotionCard =
+    promotionHeading.closest('.recall-note-promote-inline-stage872') ??
+    promotionHeading.closest('.recall-note-promotion-card')
+  expect(within(promotionCard as HTMLElement).getByRole('tab', { name: 'Create Study Card', selected: true })).toBeInTheDocument()
+  expect(within(promotionCard as HTMLElement).getByRole('textbox', { name: 'Study prompt' })).toBeInTheDocument()
+})
+
+test('Source overview shows reading resume and opens highlighted passages', async () => {
+  fetchDocumentsMock.mockImplementation(async () => [
+    {
+      ...documents[0],
+      progress_by_mode: { reflowed: 1 },
+      last_reader_session: {
+        mode: 'reflowed',
+        sentence_index: 1,
+        updated_at: '2026-03-13T00:40:00Z',
+      },
+    },
+    documents[1],
+  ])
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const readingContext = await screen.findByRole('region', { name: 'Source reading context' })
+  expect(within(readingContext).getByText('Last read')).toBeInTheDocument()
+  expect(within(readingContext).getByText('Sentence 2')).toBeInTheDocument()
+  expect(within(readingContext).getByText('Useful search note.')).toBeInTheDocument()
+
+  fireEvent.click(within(readingContext).getByRole('button', { name: 'Mark complete' }))
+  await waitFor(() => {
+    expect(completeRecallDocumentReadingMock).toHaveBeenCalledWith('doc-search', 'reflowed')
+  })
+
+  fireEvent.click(within(readingContext).getByRole('button', { name: 'Open highlighted passage from Search target only' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+    expect(window.location.search).toContain('document=doc-search')
+    expect(window.location.search).toContain('sentenceStart=0')
+  })
+})
+
+test('Reader exposes a jump to last read action for saved progress', async () => {
+  fetchDocumentsMock.mockImplementation(async () => [
+    {
+      ...documents[0],
+      progress_by_mode: { reflowed: 1 },
+      last_reader_session: {
+        mode: 'reflowed',
+        sentence_index: 1,
+        updated_at: '2026-03-13T00:40:00Z',
+      },
+    },
+    documents[1],
+  ])
+
+  renderRecallApp('/reader?document=doc-search')
+
+  const jumpButton = await screen.findByRole('button', { name: 'Jump to last read in Search target only' })
+  fireEvent.click(jumpButton)
+
+  expect(mockSpeechState.jumpTo).toHaveBeenCalledWith(1)
+})
+
+test('Reader Next in queue advances inside the launch scope', async () => {
+  fetchLibraryReadingQueueMock.mockImplementation(async (): Promise<LibraryReadingQueueResponse> => ({
+    dry_run: true,
+    scope: 'all',
+    state: 'all',
+    collection_id: null,
+    summary: {
+      total_sources: 2,
+      unread_sources: 1,
+      in_progress_sources: 1,
+      completed_sources: 0,
+    },
+    rows: [
+      {
+        id: 'doc-search',
+        title: 'Search target only',
+        source_type: 'paste',
+        state: 'in_progress',
+        mode: 'reflowed',
+        sentence_index: 1,
+        sentence_count: 3,
+        progress_percent: 67,
+        last_read_at: '2026-03-13T00:40:00Z',
+        updated_at: '2026-03-13T00:40:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 1,
+        highlight_count: 1,
+        study_counts: { due: 0, new: 1, total: 1 },
+      },
+      {
+        id: 'doc-reader',
+        title: 'Reader stays here',
+        source_type: 'paste',
+        state: 'unread',
+        mode: 'reflowed',
+        sentence_index: 0,
+        sentence_count: 2,
+        progress_percent: 0,
+        last_read_at: null,
+        updated_at: '2026-03-13T00:35:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 1,
+        highlight_count: 1,
+        study_counts: { due: 0, new: 0, total: 0 },
+      },
+    ],
+  }))
+
+  renderRecallApp('/reader?document=doc-search&queueScope=all')
+
+  const nextButton = await screen.findByRole('button', { name: 'Next in queue' })
+  fireEvent.click(nextButton)
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+    expect(window.location.search).toContain('document=doc-reader')
+    expect(window.location.search).toContain('queueScope=all')
+  })
+})
+
 test('Home can hide the organizer rail and reopen it from the section launcher while the board toolbar stays available', async () => {
   renderRecallApp('/recall')
 
@@ -2631,7 +3943,7 @@ test('Recall study queue shows an active card and records a review after reveali
   expect((activeCardSection as HTMLElement).querySelector('.recall-study-review-prompt-card')).toBeNull()
   expect((activeCardSection as HTMLElement).querySelector('.recall-study-review-reveal-band')).toBeNull()
   expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Preview evidence' })).not.toBeInTheDocument()
-  expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Refresh cards' })).not.toBeInTheDocument()
+  expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Generate cards' })).not.toBeInTheDocument()
   expect(within(studyEvidenceDock).queryByText('Keep one source reminder nearby without breaking the review flow.')).not.toBeInTheDocument()
   expect(within(studyEvidenceDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
   expect(within(studyEvidenceDock).getByText('Knowledge Graphs support Study Cards.')).toBeInTheDocument()
@@ -2987,6 +4299,10 @@ test('Study review progress dashboard renders events, scopes sources, and select
   await waitFor(() => {
     expect(screen.getByLabelText('Study review progress')).toHaveAttribute(
       'data-study-review-progress-source-scoped-stage922',
+      'true',
+    )
+    expect(screen.getByLabelText('Study habit goal')).toHaveAttribute(
+      'data-study-habit-goal-source-scoped-stage954',
       'true',
     )
     expect(document.querySelector('[data-study-source-scoped-question-search-stage914="true"]')).not.toBeNull()
@@ -3517,6 +4833,422 @@ test('Review filtered skips unscheduled matching cards and starts the eligible q
   })
 })
 
+test('Study quiz generation controls send selected types and use generated typed payloads', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-generated-matching',
+      prompt: 'Match generated study concepts.',
+      answer: 'Active recall -> Memory retrieval; Spacing -> Timed review',
+      card_type: 'matching',
+      question_payload: null,
+      scheduling_state: {
+        ...baseStudyCards[0].scheduling_state,
+        generated_question_payload: {
+          kind: 'matching',
+          pairs: [
+            { id: 'pair-a', left: 'Active recall', right: 'Memory retrieval' },
+            { id: 'pair-b', left: 'Spacing', right: 'Timed review' },
+          ],
+        },
+      },
+      status: 'due',
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+  generateRecallStudyCardsMock.mockImplementationOnce(async () => ({
+    generated_count: 2,
+    total_count: 2,
+    source_document_id: null,
+    question_types: ['short_answer', 'flashcard', 'multiple_choice', 'true_false', 'fill_in_blank', 'matching'],
+    generated_by_type: { short_answer: 1, matching: 1 },
+    total_by_type: { short_answer: 1, matching: 1 },
+  }))
+
+  renderRecallApp('/recall?section=study')
+
+  const generationControls = await screen.findByLabelText('Study generation controls')
+  expect(generationControls).toHaveAttribute('data-study-quiz-generation-controls-stage946', 'true')
+  expect(generationControls.querySelector('[data-study-generation-support-options-stage950="true"]')).not.toBeNull()
+  expect(document.querySelector('[data-study-matching-review-stage944="desktop"]')).not.toBeNull()
+
+  fireEvent.click(within(generationControls).getByRole('button', { name: 'Ordering' }))
+  fireEvent.click(within(generationControls).getByRole('button', { name: 'Hints' }))
+  fireEvent.change(within(generationControls).getByRole('spinbutton', { name: 'Max cards per source' }), {
+    target: { value: '3' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate cards' }))
+
+  await waitFor(() => {
+    expect(generateRecallStudyCardsMock).toHaveBeenCalledWith({
+      include_hints: false,
+      max_per_source: 3,
+      question_types: ['short_answer', 'flashcard', 'multiple_choice', 'true_false', 'fill_in_blank', 'matching'],
+    })
+    expect(screen.getAllByText(/Generated 2 workspace cards/i).length).toBeGreaterThan(0)
+    expect(document.querySelector('[data-study-quiz-generation-result-stage946="2"]')).not.toBeNull()
+  })
+})
+
+test('Study quiz settings save defaults and start difficulty-limited review sessions', async () => {
+  const hardCards = Array.from({ length: 6 }, (_, index) => ({
+    ...baseStudyCards[0],
+    id: `card-stage952-hard-${index + 1}`,
+    prompt: `Stage 952 hard prompt ${index + 1}?`,
+    answer: `Hard answer ${index + 1}.`,
+    card_type: 'flashcard',
+    due_at: `2026-03-12T00:${String(20 + index).padStart(2, '0')}:00Z`,
+    scheduling_state: {
+      ...baseStudyCards[0].scheduling_state,
+      due_at: `2026-03-12T00:${String(20 + index).padStart(2, '0')}:00Z`,
+      manual_question_difficulty: 'hard',
+    },
+    status: 'due' as const,
+    question_difficulty: 'hard' as const,
+  }))
+  studyCardsState = [
+    ...hardCards,
+    {
+      ...baseStudyCards[0],
+      id: 'card-stage952-medium',
+      prompt: 'Stage 952 medium prompt?',
+      answer: 'Medium answer.',
+      card_type: 'multiple_choice',
+      due_at: '2026-03-12T00:40:00Z',
+      scheduling_state: {
+        ...baseStudyCards[0].scheduling_state,
+        due_at: '2026-03-12T00:40:00Z',
+        manual_question_difficulty: 'medium',
+      },
+      status: 'due' as const,
+      question_difficulty: 'medium' as const,
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall?section=study')
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Questions' }))
+  const settingsPanel = await screen.findByLabelText('Study quiz settings')
+  expect(settingsPanel).toHaveAttribute('data-study-quiz-settings-stage952', 'true')
+
+  fireEvent.click(within(settingsPanel).getByRole('button', { name: '60s' }))
+  await waitFor(() => {
+    expect(saveRecallStudySettingsMock).toHaveBeenLastCalledWith({
+      default_timer_seconds: 60,
+      default_session_limit: 10,
+      default_difficulty_filter: 'all',
+      streak_goal_mode: 'daily',
+      daily_goal_reviews: 1,
+      weekly_goal_days: 3,
+    })
+  })
+  fireEvent.click(within(await screen.findByLabelText('Study quiz settings')).getByRole('button', { name: '5' }))
+  await waitFor(() => {
+    expect(saveRecallStudySettingsMock).toHaveBeenLastCalledWith({
+      default_timer_seconds: 60,
+      default_session_limit: 5,
+      default_difficulty_filter: 'all',
+      streak_goal_mode: 'daily',
+      daily_goal_reviews: 1,
+      weekly_goal_days: 3,
+    })
+  })
+  fireEvent.click(
+    within(await screen.findByLabelText('Study quiz settings')).getByRole('button', {
+      name: 'Default difficulty Hard',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(saveRecallStudySettingsMock).toHaveBeenLastCalledWith({
+      default_timer_seconds: 60,
+      default_session_limit: 5,
+      default_difficulty_filter: 'hard',
+      streak_goal_mode: 'daily',
+      daily_goal_reviews: 1,
+      weekly_goal_days: 3,
+    })
+    expect(screen.getByLabelText('Active study difficulty filter')).toHaveAttribute(
+      'data-study-difficulty-filter-value-stage952',
+      'hard',
+    )
+  })
+
+  const questionManager = screen.getByLabelText('Study questions manager')
+  expect(questionManager).toHaveTextContent('Stage 952 hard prompt 1?')
+  expect(questionManager).not.toHaveTextContent('Stage 952 medium prompt?')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Review filtered questions' }))
+
+  await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: hardCards.slice(0, 5).map((card) => card.id),
+        filter_snapshot: expect.objectContaining({ difficulty_filter: 'hard' }),
+        settings_snapshot: expect.objectContaining({
+          default_difficulty_filter: 'hard',
+          default_session_limit: 5,
+          default_timer_seconds: 60,
+        }),
+        source_document_id: null,
+      }),
+    )
+    expect(screen.getByLabelText('Active review prompt')).toHaveTextContent('Stage 952 hard prompt 1?')
+    expect(document.querySelector('[data-study-review-session-progress-stage952="1/5"]')).not.toBeNull()
+  })
+
+  for (const card of hardCards.slice(0, 5)) {
+    await waitFor(() => {
+      expect(screen.getByLabelText('Active review prompt')).toHaveTextContent(card.prompt)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Show answer' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Good' })).not.toBeDisabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Good' }))
+  }
+
+  await waitFor(() => {
+    expect(completeRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^study-session-/),
+      expect.objectContaining({
+        summary: expect.objectContaining({
+          difficulty_counts: { easy: 0, hard: 5, medium: 0 },
+          sources_touched: 1,
+        }),
+      }),
+    )
+    expect(document.querySelector('[data-study-session-recap-stage948]')).not.toBeNull()
+    expect(document.querySelector('[data-study-habit-goal-session-recap-stage954="5"]')).not.toBeNull()
+    expect(screen.getByText('Hard 5')).toBeInTheDocument()
+  })
+}, 10000)
+
+test('Study habit goal controls save and progress card renders', async () => {
+  studyProgressState = {
+    ...baseStudyProgress,
+    total_reviews: 8,
+    today_count: 2,
+    habit_goal: {
+      mode: 'daily',
+      target_count: 3,
+      current_count: 2,
+      remaining_count: 1,
+      is_met: false,
+      period_start: '2026-03-14',
+      period_end: '2026-03-14',
+      next_reset_date: '2026-03-15',
+      recent_history: [
+        {
+          period_start: '2026-03-11',
+          period_end: '2026-03-11',
+          count: 0,
+          target_count: 3,
+          is_met: false,
+        },
+        {
+          period_start: '2026-03-12',
+          period_end: '2026-03-12',
+          count: 3,
+          target_count: 3,
+          is_met: true,
+        },
+        {
+          period_start: '2026-03-13',
+          period_end: '2026-03-13',
+          count: 4,
+          target_count: 3,
+          is_met: true,
+        },
+        {
+          period_start: '2026-03-14',
+          period_end: '2026-03-14',
+          count: 2,
+          target_count: 3,
+          is_met: false,
+        },
+      ],
+    },
+  }
+  renderRecallApp('/recall?section=study')
+
+  const goalCard = await screen.findByLabelText('Study habit goal')
+  expect(goalCard).toHaveAttribute('data-study-habit-goal-progress-card-stage954', 'true')
+  expect(goalCard).toHaveAttribute('data-study-habit-goal-mode-stage954', 'daily')
+  expect(goalCard).toHaveTextContent('Today: 2/3')
+  expect(goalCard).toHaveTextContent('1 review left')
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Questions' }))
+  const settingsPanel = await screen.findByLabelText('Study quiz settings')
+  expect(settingsPanel.querySelector('[data-study-habit-goal-mode-options-stage954]')).not.toBeNull()
+  fireEvent.click(within(settingsPanel).getByRole('button', { name: 'Weekly goal' }))
+
+  await waitFor(() => {
+    expect(saveRecallStudySettingsMock).toHaveBeenLastCalledWith({
+      default_timer_seconds: 0,
+      default_session_limit: 10,
+      default_difficulty_filter: 'all',
+      streak_goal_mode: 'weekly',
+      daily_goal_reviews: 1,
+      weekly_goal_days: 3,
+    })
+  })
+
+  fireEvent.click(within(await screen.findByLabelText('Study quiz settings')).getByRole('button', { name: '5 days' }))
+  await waitFor(() => {
+    expect(saveRecallStudySettingsMock).toHaveBeenLastCalledWith({
+      default_timer_seconds: 0,
+      default_session_limit: 10,
+      default_difficulty_filter: 'all',
+      streak_goal_mode: 'weekly',
+      daily_goal_reviews: 1,
+      weekly_goal_days: 5,
+    })
+  })
+})
+
+test('Study manual support fields search, show hints, and record hinted review attempts', async () => {
+  renderRecallApp('/recall?section=study')
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Questions' }))
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  fireEvent.click(within(questionManager).getByRole('button', { name: 'New question' }))
+
+  const createDialog = await screen.findByLabelText('Create study question')
+  expect(createDialog.querySelector('[data-study-support-editor-stage950="create"]')).not.toBeNull()
+  fireEvent.change(within(createDialog).getByLabelText('Source'), { target: { value: 'doc-reader' } })
+  fireEvent.click(within(createDialog).getByRole('button', { name: 'Flashcard' }))
+  fireEvent.change(within(createDialog).getByLabelText('Prompt'), {
+    target: { value: 'What should support text stay grounded in?' },
+  })
+  fireEvent.change(within(createDialog).getByLabelText('Answer'), {
+    target: { value: 'Source evidence.' },
+  })
+  fireEvent.change(within(createDialog).getByLabelText('Hint'), {
+    target: { value: 'Look for the source-grounded clue.' },
+  })
+  fireEvent.change(within(createDialog).getByLabelText('Explanation'), {
+    target: { value: 'Support text explains the answer from the saved source.' },
+  })
+  fireEvent.click(within(createDialog).getByRole('button', { name: 'Save question' }))
+
+  await waitFor(() => {
+	    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
+	      source_document_id: 'doc-reader',
+	      prompt: 'What should support text stay grounded in?',
+	      answer: 'Source evidence.',
+	      card_type: 'flashcard',
+	      question_difficulty: 'medium',
+	      support_payload: {
+        hint: 'Look for the source-grounded clue.',
+        explanation: 'Support text explains the answer from the saved source.',
+      },
+    })
+    expect(screen.getByLabelText('Study questions manager')).toHaveTextContent('What should support text stay grounded in?')
+  })
+
+  fireEvent.change(within(screen.getByLabelText('Study questions manager')).getByLabelText('Search questions'), {
+    target: { value: 'source-grounded clue' },
+  })
+  await waitFor(() => {
+    expect(screen.getByLabelText('Study questions manager')).toHaveTextContent('What should support text stay grounded in?')
+    expect(screen.getByLabelText('Study questions manager')).not.toHaveTextContent('What do Knowledge Graphs support?')
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Review filtered questions' }))
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active review prompt')).toHaveTextContent('What should support text stay grounded in?')
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Hint' }))
+  expect(document.querySelector('[data-study-review-hint-stage950="visible"]')).not.toBeNull()
+  expect(screen.getByText('Look for the source-grounded clue.')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Show answer' }))
+
+  await waitFor(() => {
+    expect(createRecallStudyAnswerAttemptMock).toHaveBeenCalledWith('card:manual:2', {
+      session_id: expect.stringMatching(/^study-session-/),
+      response: { hint_used: true, revealed: true },
+    })
+    expect(document.querySelector('[data-study-review-explanation-stage950="true"]')).not.toBeNull()
+    expect(screen.getByText('Support text explains the answer from the saved source.')).toBeInTheDocument()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Good' }))
+  await waitFor(() => {
+    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith(
+      'card:manual:2',
+      'good',
+      expect.stringMatching(/^attempt:card:manual:2:/),
+    )
+    expect(document.querySelector('[data-study-session-recap-stage948]')).not.toBeNull()
+    expect(screen.getByText('1 hint used')).toBeInTheDocument()
+  })
+}, 10000)
+
+test('Study timed review expiry persists a timed-out attempt without rating first', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-stage950-timed',
+      prompt: 'What expires when the timer runs out?',
+      answer: 'The local attempt.',
+      card_type: 'short_answer',
+      scheduling_state: { due_at: '2026-03-13T00:20:00Z', review_count: 0 },
+      status: 'new',
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall?section=study')
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Questions' }))
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  fireEvent.change(within(questionManager).getByLabelText('Search questions'), {
+    target: { value: 'What expires' },
+  })
+  const timerControls = screen.getAllByLabelText('Review timer')[0]
+  fireEvent.click(within(timerControls).getByRole('button', { name: '30s' }))
+
+  vi.useFakeTimers()
+  try {
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review filtered questions' }))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_500)
+    })
+  } finally {
+    vi.useRealTimers()
+  }
+
+  await waitFor(() => {
+    expect(createRecallStudyAnswerAttemptMock).toHaveBeenCalledWith('card-stage950-timed', {
+      session_id: expect.stringMatching(/^study-session-/),
+      response: {
+        answer_text: '',
+        elapsed_ms: expect.any(Number),
+        time_limit_seconds: 30,
+        timed_out: true,
+      },
+    })
+    expect(document.querySelector('[data-study-attempt-feedback-stage948="incorrect"]')).not.toBeNull()
+  })
+  expect(reviewRecallStudyCardMock).not.toHaveBeenCalledWith('card-stage950-timed', expect.anything(), expect.anything())
+
+  fireEvent.click(screen.getByRole('button', { name: 'Good' }))
+  await waitFor(() => {
+    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith(
+      'card-stage950-timed',
+      'good',
+      expect.stringMatching(/^attempt:card-stage950-timed:/),
+    )
+    expect(screen.getByText('1 timed out')).toBeInTheDocument()
+  })
+}, 10000)
+
 test('Study Questions create a global manual flashcard and make it review eligible', async () => {
   renderRecallApp('/recall?section=study')
 
@@ -3538,12 +5270,13 @@ test('Study Questions create a global manual flashcard and make it review eligib
   fireEvent.click(saveButton)
 
   await waitFor(() => {
-    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
-      source_document_id: 'doc-reader',
-      prompt: 'Manual global prompt?',
-      answer: 'Manual global answer.',
-      card_type: 'flashcard',
-    })
+	    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
+	      source_document_id: 'doc-reader',
+	      prompt: 'Manual global prompt?',
+	      answer: 'Manual global answer.',
+	      card_type: 'flashcard',
+	      question_difficulty: 'medium',
+	    })
     expect(screen.getByLabelText('Study questions manager')).toHaveTextContent('Manual global prompt?')
   })
   expect(screen.getByLabelText('Study questions manager')).toHaveTextContent('Flashcard')
@@ -3665,12 +5398,13 @@ test('Study source-scoped creation clears question filters while preserving the 
   fireEvent.click(within(createDialog).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
-      source_document_id: 'doc-search',
-      prompt: 'Source scoped manual prompt?',
-      answer: 'Source scoped manual answer.',
-      card_type: 'short_answer',
-    })
+	    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
+	      source_document_id: 'doc-search',
+	      prompt: 'Source scoped manual prompt?',
+	      answer: 'Source scoped manual answer.',
+	      card_type: 'short_answer',
+	      question_difficulty: 'medium',
+	    })
     expect(document.querySelector('[data-study-question-active-filters-stage928="true"]')).toBeNull()
     expect(document.querySelector('[data-study-source-scoped-question-search-stage914="true"]')).not.toBeNull()
     expect(screen.getByLabelText('Study questions manager')).toHaveTextContent('Source scoped manual prompt?')
@@ -3708,12 +5442,13 @@ test('Study manual choice questions create, search, review, and preserve typed e
   fireEvent.click(within(createDialog).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
-      source_document_id: 'doc-reader',
-      prompt: 'Which practice retrieves from memory?',
-      answer: 'Active recall',
-      card_type: 'multiple_choice',
-      question_payload: {
+	    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
+	      source_document_id: 'doc-reader',
+	      prompt: 'Which practice retrieves from memory?',
+	      answer: 'Active recall',
+	      card_type: 'multiple_choice',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'multiple_choice',
         choices: [
           { id: 'choice-a', text: 'Passive rereading' },
@@ -3743,12 +5478,21 @@ test('Study manual choice questions create, search, review, and preserve typed e
   })
   fireEvent.click(screen.getByRole('button', { name: /Passive rereading/i }))
   await waitFor(() => {
+    expect(createRecallStudyAnswerAttemptMock).toHaveBeenCalledWith('card:manual:2', {
+      session_id: expect.stringMatching(/^study-session-/),
+      response: { selected_choice_id: 'choice-a' },
+    })
+    expect(document.querySelector('[data-study-attempt-feedback-stage948="incorrect"]')).not.toBeNull()
     expect(document.querySelector('[data-study-choice-review-result-stage940="incorrect"]')).not.toBeNull()
     expect(document.querySelector('[data-study-choice-review-option-correct-stage940="true"]')).not.toBeNull()
   })
   fireEvent.click(screen.getByRole('button', { name: 'Good' }))
   await waitFor(() => {
-    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', 'good')
+    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith(
+      'card:manual:2',
+      'good',
+      expect.stringMatching(/^attempt:card:manual:2:/),
+    )
   })
 
   fireEvent.click(screen.getByRole('tab', { name: 'Questions' }))
@@ -3769,10 +5513,11 @@ test('Study manual choice questions create, search, review, and preserve typed e
   fireEvent.click(within(editSurface).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', {
-      prompt: 'Which practice retrieves from memory?',
-      answer: 'Active recall',
-      question_payload: {
+	    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', {
+	      prompt: 'Which practice retrieves from memory?',
+	      answer: 'Active recall',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'multiple_choice',
         choices: [
           { id: 'choice-a', text: 'Copying notes' },
@@ -3783,6 +5528,76 @@ test('Study manual choice questions create, search, review, and preserve typed e
         correct_choice_id: 'choice-b',
       },
     })
+  })
+}, 10000)
+
+test('Study Review persists typed attempts, links ratings, and shows a filtered-session recap', async () => {
+  studyCardsState = [
+    {
+      id: 'card-stage948-choice',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      prompt: 'Which method checks recall?',
+      answer: 'Active recall',
+      card_type: 'multiple_choice',
+      source_spans: [{ excerpt: 'Active recall checks memory.' }],
+      scheduling_state: {
+        due_at: '2026-03-13T00:20:00Z',
+        generated_question_payload: {
+          kind: 'multiple_choice',
+          choices: [
+            { id: 'choice-a', text: 'Passive rereading' },
+            { id: 'choice-b', text: 'Active recall' },
+          ],
+          correct_choice_id: 'choice-b',
+        },
+      },
+      due_at: '2026-03-13T00:20:00Z',
+      review_count: 0,
+      status: 'new',
+      last_rating: null,
+      knowledge_stage: 'new',
+      question_payload: {
+        kind: 'multiple_choice',
+        choices: [
+          { id: 'choice-a', text: 'Passive rereading' },
+          { id: 'choice-b', text: 'Active recall' },
+        ],
+        correct_choice_id: 'choice-b',
+      },
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall?section=study')
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Questions' }))
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  fireEvent.change(within(questionManager).getByLabelText('Search questions'), {
+    target: { value: 'Active recall' },
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Review filtered questions' }))
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active review prompt')).toHaveTextContent('Which method checks recall?')
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: /Active recall/i }))
+  await waitFor(() => {
+    expect(createRecallStudyAnswerAttemptMock).toHaveBeenCalledWith('card-stage948-choice', {
+      session_id: expect.stringMatching(/^study-session-/),
+      response: { selected_choice_id: 'choice-b' },
+    })
+    expect(document.querySelector('[data-study-attempt-feedback-stage948="correct"]')).not.toBeNull()
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Good' }))
+  await waitFor(() => {
+    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith(
+      'card-stage948-choice',
+      'good',
+      expect.stringMatching(/^attempt:card-stage948-choice:/),
+    )
+    expect(document.querySelector('[data-study-session-recap-stage948]')).not.toBeNull()
   })
 }, 10000)
 
@@ -3819,12 +5634,13 @@ test('Study fill-in-the-blank questions create, search, review, and preserve typ
   fireEvent.click(within(createDialog).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
-      source_document_id: 'doc-reader',
-      prompt: 'Which phrase completes the retrieval sentence?',
-      answer: 'Active recall',
-      card_type: 'fill_in_blank',
-      question_payload: {
+	    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
+	      source_document_id: 'doc-reader',
+	      prompt: 'Which phrase completes the retrieval sentence?',
+	      answer: 'Active recall',
+	      card_type: 'fill_in_blank',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'fill_in_blank',
         template: '{{blank}} strengthens memory better than rereading.',
         choices: [
@@ -3860,7 +5676,11 @@ test('Study fill-in-the-blank questions create, search, review, and preserve typ
   })
   fireEvent.click(screen.getByRole('button', { name: 'Good' }))
   await waitFor(() => {
-    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', 'good')
+    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith(
+      'card:manual:2',
+      'good',
+      expect.stringMatching(/^attempt:card:manual:2:/),
+    )
   })
 
   fireEvent.click(screen.getByRole('tab', { name: 'Questions' }))
@@ -3884,10 +5704,11 @@ test('Study fill-in-the-blank questions create, search, review, and preserve typ
   fireEvent.click(within(editSurface).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', {
-      prompt: 'Which phrase completes the retrieval sentence?',
-      answer: 'Active recall',
-      question_payload: {
+	    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', {
+	      prompt: 'Which phrase completes the retrieval sentence?',
+	      answer: 'Active recall',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'fill_in_blank',
         template: 'Durable memory improves with {{blank}}.',
         choices: [
@@ -3937,12 +5758,13 @@ test('Study matching questions create, search, review, and preserve typed edit p
   fireEvent.click(within(createDialog).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
-      source_document_id: 'doc-reader',
-      prompt: 'Match each review practice to its purpose.',
-      answer: 'Active recall -> Retrieves from memory; Spacing -> Reviews over time; Interleaving -> Mixes topics',
-      card_type: 'matching',
-      question_payload: {
+	    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
+	      source_document_id: 'doc-reader',
+	      prompt: 'Match each review practice to its purpose.',
+	      answer: 'Active recall -> Retrieves from memory; Spacing -> Reviews over time; Interleaving -> Mixes topics',
+	      card_type: 'matching',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'matching',
         pairs: [
           { id: 'pair-a', left: 'Active recall', right: 'Retrieves from memory' },
@@ -3975,7 +5797,11 @@ test('Study matching questions create, search, review, and preserve typed edit p
   })
   fireEvent.click(screen.getByRole('button', { name: 'Good' }))
   await waitFor(() => {
-    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', 'good')
+    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith(
+      'card:manual:2',
+      'good',
+      expect.stringMatching(/^attempt:card:manual:2:/),
+    )
   })
 
   fireEvent.click(screen.getByRole('tab', { name: 'Questions' }))
@@ -3993,10 +5819,11 @@ test('Study matching questions create, search, review, and preserve typed edit p
   fireEvent.click(within(editSurface).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', {
-      prompt: 'Match each review practice to its purpose.',
-      answer: 'Active recall -> Recalls from memory; Spacing -> Reviews over time; Interleaving -> Mixes topics',
-      question_payload: {
+	    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', {
+	      prompt: 'Match each review practice to its purpose.',
+	      answer: 'Active recall -> Recalls from memory; Spacing -> Reviews over time; Interleaving -> Mixes topics',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'matching',
         pairs: [
           { id: 'pair-a', left: 'Active recall', right: 'Recalls from memory' },
@@ -4070,12 +5897,13 @@ test('Study source-scoped ordering questions create, search, review, and preserv
   fireEvent.click(within(createDialog).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
-      source_document_id: 'doc-search',
-      prompt: 'Put the review loop in order.',
-      answer: 'Read source; Answer from memory; Reveal and rate',
-      card_type: 'ordering',
-      question_payload: {
+	    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
+	      source_document_id: 'doc-search',
+	      prompt: 'Put the review loop in order.',
+	      answer: 'Read source; Answer from memory; Reveal and rate',
+	      card_type: 'ordering',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'ordering',
         items: [
           { id: 'item-a', text: 'Read source' },
@@ -4111,7 +5939,11 @@ test('Study source-scoped ordering questions create, search, review, and preserv
   const orderingGoodButtons = screen.getAllByRole('button', { name: 'Good' })
   fireEvent.click(orderingGoodButtons[orderingGoodButtons.length - 1])
   await waitFor(() => {
-    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', 'good')
+    expect(reviewRecallStudyCardMock).toHaveBeenCalledWith(
+      'card:manual:2',
+      'good',
+      expect.stringMatching(/^attempt:card:manual:2:/),
+    )
   })
 
   await waitFor(() => {
@@ -4129,10 +5961,11 @@ test('Study source-scoped ordering questions create, search, review, and preserv
   fireEvent.click(within(editSurface).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', {
-      prompt: 'Put the review loop in order.',
-      answer: 'Read source; Recall from memory; Reveal and rate',
-      question_payload: {
+	    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card:manual:2', {
+	      prompt: 'Put the review loop in order.',
+	      answer: 'Read source; Recall from memory; Reveal and rate',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'ordering',
         items: [
           { id: 'item-a', text: 'Read source' },
@@ -4179,7 +6012,11 @@ test('Study short-answer review shows local answer attempt feedback before ratin
   })
   fireEvent.click(screen.getByRole('button', { name: 'Reveal answer' }))
   await waitFor(() => {
-    expect(screen.getByText('Active recall')).toBeInTheDocument()
+    expect(screen.getAllByText('Active recall').length).toBeGreaterThan(0)
+    expect(createRecallStudyAnswerAttemptMock).toHaveBeenCalledWith('card-short-attempt', {
+      session_id: null,
+      response: { answer_text: ' active   recall ' },
+    })
     expect(screen.getByRole('button', { name: 'Good' })).toBeInTheDocument()
   })
 }, 10000)
@@ -4253,12 +6090,13 @@ test('Study source-scoped fill-in-the-blank creation preserves source scope', as
   fireEvent.click(within(createDialog).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
-      source_document_id: 'doc-search',
-      prompt: 'Which source phrase completes the blank?',
-      answer: 'Active recall',
-      card_type: 'fill_in_blank',
-      question_payload: {
+	    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
+	      source_document_id: 'doc-search',
+	      prompt: 'Which source phrase completes the blank?',
+	      answer: 'Active recall',
+	      card_type: 'fill_in_blank',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'fill_in_blank',
         template: 'Source memory improves with {{blank}}.',
         choices: [
@@ -4329,12 +6167,13 @@ test('Study source-scoped manual true-false creation preserves source scope and 
   fireEvent.click(within(createDialog).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
-      source_document_id: 'doc-search',
-      prompt: 'True or false: Stage 940 stores answer attempts durably.',
-      answer: 'False',
-      card_type: 'true_false',
-      question_payload: {
+	    expect(createRecallStudyCardMock).toHaveBeenCalledWith({
+	      source_document_id: 'doc-search',
+	      prompt: 'True or false: Stage 940 stores answer attempts durably.',
+	      answer: 'False',
+	      card_type: 'true_false',
+	      question_difficulty: 'medium',
+	      question_payload: {
         kind: 'true_false',
         choices: [
           { id: 'true', text: 'True' },
@@ -4382,10 +6221,11 @@ test('Study Questions row edit updates prompt and answer without clearing filter
   fireEvent.click(within(editSurface).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card-edit-row', {
-      prompt: 'Edited row prompt?',
-      answer: 'Edited row answer.',
-    })
+	    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card-edit-row', {
+	      prompt: 'Edited row prompt?',
+	      answer: 'Edited row answer.',
+	      question_difficulty: 'hard',
+	    })
     expect(screen.getByLabelText('Study questions manager')).toHaveTextContent('Edited row prompt?')
   })
 })
@@ -4422,10 +6262,11 @@ test('Study active-card edit updates the selected review card', async () => {
   fireEvent.click(within(editSurface).getByRole('button', { name: 'Save question' }))
 
   await waitFor(() => {
-    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card-edit-active', {
-      prompt: 'Edited active prompt?',
-      answer: 'Edited active answer.',
-    })
+	    expect(updateRecallStudyCardMock).toHaveBeenCalledWith('card-edit-active', {
+	      prompt: 'Edited active prompt?',
+	      answer: 'Edited active answer.',
+	      question_difficulty: 'hard',
+	    })
     expect(screen.getByLabelText('Active review prompt')).toHaveTextContent('Edited active prompt?')
   })
 })
@@ -4797,6 +6638,16 @@ test('Study collection subsets filter Questions, compose with history, and keep 
     expect(within(homeRail).getByRole('button', { name: /^Recall subset/i })).toBeInTheDocument()
     expect(within(homeRail).getByRole('button', { name: /^Untagged/i })).toBeInTheDocument()
   })
+  fireEvent.click(within(homeRail).getByRole('button', { name: 'New child' }))
+  const childCollectionManagement = await within(homeRail).findByRole('group', { name: 'Collection management' })
+  fireEvent.change(within(childCollectionManagement).getByRole('textbox', { name: 'Collection name' }), {
+    target: { value: 'Deep subset' },
+  })
+  fireEvent.click(within(childCollectionManagement).getByRole('button', { name: 'Create collection' }))
+
+  await waitFor(() => {
+    expect(within(homeRail).getByRole('button', { name: /^Deep subset/i })).toBeInTheDocument()
+  })
 
   fireEvent.click(within(homeRail).getByRole('button', { name: /^Untagged/i }))
   await waitFor(() => {
@@ -4813,7 +6664,7 @@ test('Study collection subsets filter Questions, compose with history, and keep 
   await waitFor(() => {
     expect(screen.getByRole('group', { name: 'Collection assignment panel' })).toBeInTheDocument()
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Add Recall subset' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add Recall subset / Deep subset' }))
 
   fireEvent.click(screen.getByRole('tab', { name: 'Study' }))
 
@@ -4825,11 +6676,13 @@ test('Study collection subsets filter Questions, compose with history, and keep 
     '[data-study-collection-subset-filter-stage930="collection:untagged"]',
   ) as HTMLElement
   const customSubsetRow = within(subsetPanel).getByText('Recall subset').closest('button') as HTMLElement
+  const childCustomSubsetRow = within(subsetPanel).getByText('Recall subset / Deep subset').closest('button') as HTMLElement
 
   expect(subsetPanel).toHaveAttribute('data-study-collection-subsets-panel-stage930', 'true')
   expect(webSubsetRow).toHaveAttribute('data-study-collection-subset-count-stage930', '2')
   expect(untaggedSubsetRow).toHaveAttribute('data-study-collection-subset-count-stage930', '2')
   expect(customSubsetRow).toHaveAttribute('data-study-collection-subset-count-stage930', '2')
+  expect(childCustomSubsetRow).toHaveAttribute('data-study-collection-subset-count-stage930', '2')
 
   fireEvent.click(webSubsetRow)
   await waitFor(() => {
@@ -5230,14 +7083,14 @@ test('Recall Study Questions view is canvas-owned while review handoff stays com
   expect(screen.getAllByRole('heading', { name: 'Questions', level: 2 })).toHaveLength(1)
   expect(within(questionsLeadActions).getByRole('tab', { name: 'Review', selected: false })).toBeInTheDocument()
   expect(within(questionsLeadActions).getByRole('tab', { name: 'Questions', selected: true })).toBeInTheDocument()
-  expect(within(questionsLeadActions).getByRole('button', { name: 'Refresh cards' })).toBeInTheDocument()
-  expect(screen.getAllByRole('button', { name: 'Refresh cards' })).toHaveLength(1)
+  expect(within(questionsLeadActions).getByRole('button', { name: 'Generate cards' })).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: 'Generate cards' })).toHaveLength(1)
   expect(questionManager).toHaveClass('recall-study-questions-stage')
   expect(questionManager).toHaveAttribute('data-study-questions-primary-canvas-stage852', 'true')
   expect(questionManager).toHaveAttribute('data-study-questions-fused-stage854', 'true')
   expect(within(questionManager).queryByRole('heading', { name: 'Questions', level: 2 })).not.toBeInTheDocument()
   expect(within(questionManager).queryByLabelText('Selected question summary')).not.toBeInTheDocument()
-  expect(within(questionManager).queryByRole('button', { name: 'Refresh cards' })).not.toBeInTheDocument()
+  expect(within(questionManager).queryByRole('button', { name: 'Generate cards' })).not.toBeInTheDocument()
   expect(within(questionManager).queryByRole('button', { name: 'Return to review' })).not.toBeInTheDocument()
   expect(within(questionManager).getByRole('tab', { name: 'All', selected: true })).toBeInTheDocument()
   expect(within(questionManager).getByRole('tab', { name: 'New' })).toBeInTheDocument()
@@ -6262,8 +8115,12 @@ test('Study filter and targeted card survive Reader handoff and return', async (
     },
   ]
   studyOverviewState = buildStudyOverview(studyCardsState)
-  fetchRecallStudyCardsMock.mockImplementation(async (status: string) =>
-    status === 'all' ? studyCardsState : studyCardsState.filter((card) => card.status === status),
+  fetchRecallStudyCardsMock.mockImplementation(async (status: string, _limit?: number, sourceDocumentId?: string | null) =>
+    studyCardsState.filter(
+      (card) =>
+        (status === 'all' || card.status === status) &&
+        (!sourceDocumentId || card.source_document_id === sourceDocumentId),
+    ),
   )
 
   renderRecallApp('/recall')
@@ -6298,7 +8155,7 @@ test('Study filter and targeted card survive Reader handoff and return', async (
     studyEvidenceDock = screen.getByLabelText('Study evidence support')
     expect(within(studyEvidenceDock).getByRole('button', { name: 'Preview evidence' })).toBeInTheDocument()
     expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Preview evidence' })).not.toBeInTheDocument()
-    expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Refresh cards' })).not.toBeInTheDocument()
+    expect(within(browseStudySupportStrip).queryByRole('button', { name: 'Generate cards' })).not.toBeInTheDocument()
   })
 
   if (!browseStudySupportStrip || !studyEvidenceDock) {
@@ -7180,6 +9037,11 @@ test('Reader short-document completion strip opens existing Source and Notebook 
   await waitFor(() => {
     expect(screen.getByRole('region', { name: 'Short document completion' })).toBeInTheDocument()
   })
+  const shortCompletion = screen.getByRole('region', { name: 'Short document completion' })
+  expect(within(shortCompletion).getByRole('button', { name: 'Start source quiz for Search target only' })).toHaveAttribute(
+    'data-reader-short-completion-study-cta-stage956',
+    'true',
+  )
 
   fireEvent.click(screen.getByRole('button', { name: 'Open Source from short document completion' }))
 
@@ -7984,6 +9846,52 @@ test('Recall source overview surfaces nearby notes, graph, and study context for
   expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
 })
 
+test('Source overview launches source-scoped quiz sessions and generator controls', async () => {
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const sourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  expect(sourceOverviewSection).not.toBeNull()
+  fireEvent.click(
+    within(sourceOverviewSection as HTMLElement).getByRole('button', { name: 'Start source quiz' }),
+  )
+
+  await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: ['card-1'],
+        source_document_id: 'doc-search',
+      }),
+    )
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(document.querySelector('[data-study-review-session-progress-stage952="1/1"]')).not.toBeNull()
+  })
+
+  cleanup()
+  studyCardsState = []
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall')
+
+  await focusRecallSourceFromHome()
+
+  const emptySourceOverviewSection = screen.getByRole('heading', { name: 'Source overview', level: 2 }).closest('section')
+  expect(emptySourceOverviewSection).not.toBeNull()
+  fireEvent.click(
+    within(emptySourceOverviewSection as HTMLElement).getByRole('button', { name: 'Generate questions' }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByLabelText('Study generation controls')).toHaveAttribute(
+      'data-study-quiz-generation-source-scoped-stage946',
+      'true',
+    )
+  })
+  expect(generateRecallStudyCardsMock).not.toHaveBeenCalled()
+})
+
 test('Recall source overview memory stack opens focused Graph and Study items', async () => {
   renderRecallApp('/recall')
 
@@ -8568,7 +10476,7 @@ test('Reader source memory graph count opens focused Graph', async () => {
   })
 })
 
-test('Reader source memory study count opens focused Study', async () => {
+test('Reader source Study CTA starts scoped quiz sessions', async () => {
   renderRecallApp('/reader?document=doc-search')
 
   await waitFor(() => {
@@ -8577,19 +10485,84 @@ test('Reader source memory study count opens focused Study', async () => {
 
   const sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
   await waitFor(() => {
-    expect(within(sourceWorkspace).getByRole('button', { name: 'Open source study memory' })).toHaveTextContent(
-      /[1-9]\d* study cards?/,
+    expect(within(sourceWorkspace).getByRole('button', { name: 'Start source quiz for Search target only' })).toHaveTextContent(
+      'Start source quiz',
     )
   })
-  fireEvent.click(within(sourceWorkspace).getByRole('button', { name: 'Open source study memory' }))
+  fireEvent.click(within(sourceWorkspace).getByRole('button', { name: 'Start source quiz for Search target only' }))
 
   await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: ['card-1'],
+        source_document_id: 'doc-search',
+      }),
+    )
     expect(window.location.pathname).toBe('/recall')
     expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
     expect(document.querySelector('[data-study-source-scoped-queue-stage914="true"]')).not.toBeNull()
+    expect(document.querySelector('[data-study-review-session-progress-stage952="1/1"]')).not.toBeNull()
     expect(screen.getAllByText('What do Knowledge Graphs support?').length).toBeGreaterThan(0)
   })
+})
+
+test('Reader source Study CTA opens Questions or generation controls without blind generation', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      due_at: '2026-04-30T00:00:00Z',
+      scheduling_state: { due_at: '2026-04-30T00:00:00Z', review_count: 1 },
+      status: 'scheduled',
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+  let sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
+  await waitFor(() => {
+    expect(within(sourceWorkspace).getByRole('button', { name: 'Open Study questions for Search target only' })).toHaveTextContent(
+      'Study questions',
+    )
+  })
+  fireEvent.click(within(sourceWorkspace).getByRole('button', { name: 'Open Study questions for Search target only' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Questions', selected: true })).toBeInTheDocument()
+    expect(screen.getByLabelText('Study questions manager')).toBeInTheDocument()
+  })
+  expect(startRecallStudyReviewSessionMock).not.toHaveBeenCalled()
+
+  cleanup()
+  studyCardsState = []
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/reader?document=doc-search')
+
+  await waitFor(() => {
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+  sourceWorkspace = screen.getByRole('region', { name: 'Search target only workspace' })
+  await waitFor(() => {
+    expect(within(sourceWorkspace).getByRole('button', { name: 'Generate questions for Search target only' })).toHaveTextContent(
+      'Generate questions',
+    )
+  })
+  fireEvent.click(within(sourceWorkspace).getByRole('button', { name: 'Generate questions for Search target only' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getByLabelText('Study generation controls')).toHaveAttribute(
+      'data-study-quiz-generation-source-scoped-stage946',
+      'true',
+    )
+  })
+  expect(generateRecallStudyCardsMock).not.toHaveBeenCalled()
 })
 
 test('source-focused notebook handoff keeps Reader visible while manual notebook browsing returns to the broader embedded workspace', async () => {
@@ -8955,6 +10928,78 @@ test('Home opens Add content as a global dialog without leaving the current Reca
 
   expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
   expect(`${window.location.pathname}${window.location.search}`).toBe(currentPath)
+})
+
+test('Add content bulk import previews an archive and imports selected ready links', async () => {
+  const bulkRecallDocument = {
+    id: 'doc-bulk',
+    title: 'Bulk imported article',
+    source_type: 'web',
+    file_name: null,
+    source_locator: 'http://127.0.0.1:19000/bulk-article',
+    created_at: '2026-03-13T00:05:00Z',
+    updated_at: '2026-03-13T00:05:01Z',
+    available_modes: ['original', 'reflowed'] as const,
+    chunk_count: 3,
+  }
+  importBatchDocumentsMock.mockImplementationOnce(async () => {
+    fetchRecallDocumentsMock.mockImplementation(async () => [bulkRecallDocument, ...recallDocuments])
+    librarySettingsState = {
+      custom_collections: [
+        {
+          id: 'collection-reading-list',
+          name: 'reading-list',
+          document_ids: ['doc-bulk'],
+          origin: 'import',
+          source_format: 'url_list',
+          created_at: '2026-03-13T00:05:02Z',
+          updated_at: '2026-03-13T00:05:02Z',
+        },
+      ],
+    }
+    return structuredClone(baseBatchImportResult)
+  })
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Home', selected: true })).toBeInTheDocument()
+  })
+
+  await ensureAddSourceDialogOpen()
+  const addDialog = screen.getByRole('dialog', { name: 'Add content' })
+  fireEvent.click(within(addDialog).getByRole('tab', { name: /^Bulk import/i }))
+
+  const importFile = new File(['http://127.0.0.1:19000/bulk-article'], 'links.txt', { type: 'text/plain' })
+  fireEvent.change(within(addDialog).getByLabelText('Archive file'), {
+    target: { files: [importFile] },
+  })
+  fireEvent.click(within(addDialog).getByRole('button', { name: 'Preview archive' }))
+
+  await waitFor(() => {
+    expect(previewBatchImportMock).toHaveBeenCalledWith(importFile, 'auto', 25)
+  })
+
+  expect(within(addDialog).getByRole('region', { name: 'Bulk import preview' })).toBeInTheDocument()
+  expect(within(addDialog).getByText('Bulk imported article')).toBeInTheDocument()
+  expect(within(addDialog).getByText('duplicate')).toBeInTheDocument()
+  expect(within(addDialog).getByText('reading-list · 1')).toBeInTheDocument()
+
+  fireEvent.click(within(addDialog).getByRole('button', { name: 'Import selected (1)' }))
+
+  await waitFor(() => {
+    expect(importBatchDocumentsMock).toHaveBeenCalledWith(importFile, 'auto', 25, ['batch-ready-1'], true)
+  })
+
+  expect(within(addDialog).getByRole('region', { name: 'Bulk import result' })).toHaveTextContent(
+    '1 imported · 0 reused · 1 skipped · 0 failed',
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Close Add content' }))
+  await waitFor(() => {
+    expect(screen.queryByRole('dialog', { name: 'Add content' })).not.toBeInTheDocument()
+    expect(screen.getAllByText('Bulk imported article').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('reading-list').length).toBeGreaterThan(0)
+  })
 })
 
 test('active reading collapses the library by default and lets the user expand it on demand', async () => {

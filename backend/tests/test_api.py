@@ -579,6 +579,784 @@ def test_import_url_rejects_pages_without_readable_article_content(tmp_path, mon
     assert "readable article" in import_response.json()["detail"]
 
 
+def test_import_batch_preview_parses_bookmark_html_without_mutating_workspace(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    bookmark_html = b"""
+    <!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <DL><p>
+      <DT><H3>Research</H3>
+      <DL><p>
+        <DT><H3>AI</H3>
+        <DL><p>
+          <DT><A HREF="https://example.com/recall" TAGS="learning,recall">Recall article</A>
+        </DL><p>
+        <DT><A HREF="ftp://example.com/file">Unsupported file</A>
+      </DL><p>
+    </DL><p>
+    """
+
+    preview_response = client.post(
+        "/api/documents/import-batch-preview",
+        data={"source_format": "bookmarks_html", "max_items": "10"},
+        files={"file": ("bookmarks.html", bookmark_html, "text/html")},
+    )
+
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["dry_run"] is True
+    assert preview["applied"] is False
+    assert preview["source_format"] == "bookmarks_html"
+    assert preview["summary"]["ready_count"] == 1
+    assert preview["summary"]["unsupported_count"] == 1
+    ready_row = next(row for row in preview["rows"] if row["status"] == "ready")
+    assert ready_row["title"] == "Recall article"
+    assert ready_row["folder"] == "Research / AI"
+    assert ready_row["tags"] == ["learning", "recall"]
+    assert {tuple(suggestion["path"]) for suggestion in preview["collection_suggestions"]} == {
+        ("Research",),
+        ("Research", "AI"),
+        ("learning",),
+        ("recall",),
+    }
+    child_suggestion = next(
+        suggestion for suggestion in preview["collection_suggestions"] if suggestion["path"] == ["Research", "AI"]
+    )
+    parent_suggestion = next(suggestion for suggestion in preview["collection_suggestions"] if suggestion["path"] == ["Research"])
+    assert child_suggestion["parent_id"] == parent_suggestion["id"]
+
+    listing_response = client.get("/api/documents")
+    assert listing_response.status_code == 200
+    assert listing_response.json() == []
+
+
+def test_library_settings_persist_and_prune_document_ids(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    defaults_response = client.get("/api/recall/library/settings")
+    assert defaults_response.status_code == 200
+    assert defaults_response.json() == {"custom_collections": []}
+
+    document_response = client.post(
+        "/api/documents/import-text",
+        json={"title": "Library source", "text": "A local source for collection persistence."},
+    )
+    assert document_response.status_code == 200
+    document = document_response.json()
+
+    save_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": "collection:manual",
+                    "name": "Manual collection",
+                    "document_ids": [document["id"], "missing-doc", document["id"]],
+                    "origin": "manual",
+                    "source_format": None,
+                    "sort_index": 0,
+                },
+                {
+                    "id": "collection:manual-child",
+                    "name": "Child collection",
+                    "document_ids": [document["id"]],
+                    "origin": "manual",
+                    "parent_id": "collection:manual",
+                    "source_format": None,
+                    "sort_index": 1,
+                }
+            ]
+        },
+    )
+
+    assert save_response.status_code == 200
+    saved = save_response.json()
+    assert saved["custom_collections"][0]["document_ids"] == [document["id"]]
+    assert saved["custom_collections"][0]["parent_id"] is None
+    assert saved["custom_collections"][1]["parent_id"] == "collection:manual"
+    assert saved["custom_collections"][0]["created_at"]
+    assert saved["custom_collections"][0]["updated_at"]
+
+    reloaded_response = client.get("/api/recall/library/settings")
+    assert reloaded_response.status_code == 200
+    assert reloaded_response.json()["custom_collections"][0]["document_ids"] == [document["id"]]
+
+    invalid_parent_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": "collection:orphan",
+                    "name": "Orphan",
+                    "document_ids": [],
+                    "origin": "manual",
+                    "parent_id": "collection:missing",
+                }
+            ]
+        },
+    )
+    assert invalid_parent_response.status_code == 400
+
+    self_parent_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": "collection:self",
+                    "name": "Self parent",
+                    "document_ids": [],
+                    "origin": "manual",
+                    "parent_id": "collection:self",
+                }
+            ]
+        },
+    )
+    assert self_parent_response.status_code == 400
+
+    cycle_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": "collection:cycle-a",
+                    "name": "Cycle A",
+                    "document_ids": [],
+                    "origin": "manual",
+                    "parent_id": "collection:cycle-b",
+                },
+                {
+                    "id": "collection:cycle-b",
+                    "name": "Cycle B",
+                    "document_ids": [],
+                    "origin": "manual",
+                    "parent_id": "collection:cycle-a",
+                },
+            ]
+        },
+    )
+    assert cycle_response.status_code == 400
+
+    too_deep_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": f"collection:level-{level}",
+                    "name": f"Level {level}",
+                    "document_ids": [],
+                    "origin": "manual",
+                    "parent_id": f"collection:level-{level - 1}" if level > 1 else None,
+                }
+                for level in range(1, 7)
+            ]
+        },
+    )
+    assert too_deep_response.status_code == 400
+
+
+def test_library_collection_overview_and_learning_export_use_descendant_membership(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    parent_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Collection parent source",
+            "text": "Parent source context. Collection workspaces make parent folders useful.",
+        },
+    )
+    child_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Collection child source",
+            "text": (
+                "Child source memory starts here. "
+                "Collection workspaces carry notes, graph, and study state. "
+                "Readers should resume before the final sentence."
+            ),
+        },
+    )
+    assert parent_response.status_code == 200
+    assert child_response.status_code == 200
+    parent_document = parent_response.json()
+    child_document = child_response.json()
+
+    settings_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": "collection:learning",
+                    "name": "Learning",
+                    "document_ids": [parent_document["id"]],
+                    "origin": "manual",
+                    "sort_index": 0,
+                },
+                {
+                    "id": "collection:learning-ai",
+                    "name": "AI",
+                    "document_ids": [child_document["id"]],
+                    "origin": "manual",
+                    "parent_id": "collection:learning",
+                    "sort_index": 1,
+                },
+            ]
+        },
+    )
+    assert settings_response.status_code == 200
+
+    note_response = client.post(
+        f"/api/recall/documents/{child_document['id']}/notes",
+        json={
+            "anchor": build_source_note_anchor(child_document["id"], title=child_document["title"]),
+            "body_text": "Child collection note belongs in the parent workspace.",
+        },
+    )
+    assert note_response.status_code == 200
+    child_view_response = client.get(
+        f"/api/documents/{child_document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert child_view_response.status_code == 200
+    highlight_response = client.post(
+        f"/api/recall/documents/{child_document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(child_document["id"], child_view_response.json(), sentence_start=1, sentence_end=1),
+            "body_text": "Collection highlight inbox should keep this sentence reviewable.",
+        },
+    )
+    assert highlight_response.status_code == 200
+    progress_response = client.put(
+        f"/api/documents/{child_document['id']}/progress",
+        json={"mode": "reflowed", "sentence_index": 1},
+    )
+    assert progress_response.status_code == 200
+    graph_response = client.post(
+        f"/api/recall/notes/{note_response.json()['id']}/promote/graph-node",
+        json={"label": "Child concept", "description": "A graph memory from the child collection source."},
+    )
+    assert graph_response.status_code == 200
+    study_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": child_document["id"],
+            "prompt": "What does the parent collection workspace include?",
+            "answer": "Descendant source memory",
+            "card_type": "short_answer",
+        },
+    )
+    assert study_response.status_code == 200
+
+    missing_response = client.get("/api/recall/library/collections/collection:missing/overview")
+    assert missing_response.status_code == 404
+
+    parent_overview_response = client.get("/api/recall/library/collections/collection:learning/overview")
+    assert parent_overview_response.status_code == 200
+    parent_overview = parent_overview_response.json()
+    assert parent_overview["id"] == "collection:learning"
+    assert parent_overview["path"] == [{"id": "collection:learning", "name": "Learning"}]
+    assert parent_overview["direct_document_count"] == 1
+    assert parent_overview["descendant_document_count"] == 2
+    assert parent_overview["child_collection_count"] == 1
+    assert parent_overview["direct_document_ids"] == [parent_document["id"]]
+    assert set(parent_overview["descendant_document_ids"]) == {parent_document["id"], child_document["id"]}
+    assert parent_overview["memory_counts"]["notes"] == 2
+    assert parent_overview["memory_counts"]["graph_nodes"] >= 1
+    assert parent_overview["memory_counts"]["study_cards"] >= 1
+    assert parent_overview["study_counts"]["new"] >= 1
+    assert parent_overview["study_counts"]["total"] >= 1
+    assert parent_overview["reading_summary"]["total_sources"] == 2
+    assert parent_overview["reading_summary"]["unread_sources"] == 1
+    assert parent_overview["reading_summary"]["in_progress_sources"] == 1
+    assert parent_overview["reading_summary"]["completed_sources"] == 0
+    assert parent_overview["reading_summary"]["last_read_at"]
+    assert len(parent_overview["resume_sources"]) == 1
+    assert parent_overview["resume_sources"][0]["id"] == child_document["id"]
+    assert parent_overview["resume_sources"][0]["title"] == "Collection child source"
+    assert parent_overview["resume_sources"][0]["mode"] == "reflowed"
+    assert parent_overview["resume_sources"][0]["sentence_index"] == 1
+    assert parent_overview["resume_sources"][0]["sentence_count"] == 3
+    assert parent_overview["resume_sources"][0]["progress_percent"] == 67
+    assert parent_overview["resume_sources"][0]["membership"] == "descendant"
+    assert parent_overview["resume_sources"][0]["updated_at"] == parent_overview["reading_summary"]["last_read_at"]
+    assert [item["note_kind"] for item in parent_overview["highlight_review_items"]] == ["sentence", "source"]
+    assert parent_overview["highlight_review_items"][0]["note_id"] == highlight_response.json()["id"]
+    assert parent_overview["highlight_review_items"][0]["source_document_id"] == child_document["id"]
+    assert parent_overview["highlight_review_items"][0]["source_title"] == "Collection child source"
+    assert parent_overview["highlight_review_items"][0]["global_sentence_start"] == 1
+    assert parent_overview["highlight_review_items"][0]["global_sentence_end"] == 1
+    assert parent_overview["highlight_review_items"][0]["membership"] == "descendant"
+    assert "Collection highlight inbox" in parent_overview["highlight_review_items"][0]["body_preview"]
+    assert parent_overview["highlight_review_items"][1]["note_kind"] == "source"
+    assert parent_overview["highlight_review_items"][1]["global_sentence_start"] is None
+    assert {source["title"] for source in parent_overview["recent_sources"]} == {
+        "Collection parent source",
+        "Collection child source",
+    }
+    assert {"note", "graph_node", "study_card"}.issubset(
+        {activity["kind"] for activity in parent_overview["recent_activity"]}
+    )
+
+    child_overview_response = client.get("/api/recall/library/collections/collection:learning-ai/overview")
+    assert child_overview_response.status_code == 200
+    child_overview = child_overview_response.json()
+    assert child_overview["path"] == [
+        {"id": "collection:learning", "name": "Learning"},
+        {"id": "collection:learning-ai", "name": "AI"},
+    ]
+    assert child_overview["direct_document_count"] == 1
+    assert child_overview["descendant_document_count"] == 1
+    assert child_overview["reading_summary"]["total_sources"] == 1
+    assert child_overview["reading_summary"]["in_progress_sources"] == 1
+    assert child_overview["resume_sources"][0]["membership"] == "direct"
+
+    export_response = client.get("/api/recall/library/collections/collection:learning/learning-export.zip")
+    assert export_response.status_code == 200
+    assert export_response.headers["content-type"].startswith("application/zip")
+    assert "collection-learning-pack" in export_response.headers["content-disposition"]
+    with ZipFile(BytesIO(export_response.content)) as archive:
+        names = archive.namelist()
+        assert "collection-manifest.json" in names
+        source_pack_paths = [name for name in names if name.startswith("sources/") and name.endswith("/learning-pack.md")]
+        assert len(source_pack_paths) == 2
+        manifest = json.loads(archive.read("collection-manifest.json").decode("utf-8"))
+        assert manifest["collection"]["id"] == "collection:learning"
+        assert manifest["collection"]["path"] == ["Learning"]
+        assert manifest["source_count"] == 2
+        assert manifest["warnings"] == []
+        bundled_child_pack = "\n".join(archive.read(path).decode("utf-8") for path in source_pack_paths)
+        assert "Child collection note belongs in the parent workspace." in bundled_child_pack
+        assert "Child concept" in bundled_child_pack
+        assert "What does the parent collection workspace include?" in bundled_child_pack
+
+    empty_settings = settings_response.json()
+    empty_settings["custom_collections"].append(
+        {
+            "id": "collection:empty",
+            "name": "Empty",
+            "document_ids": [],
+            "origin": "manual",
+            "sort_index": 2,
+        }
+    )
+    assert client.put("/api/recall/library/settings", json=empty_settings).status_code == 200
+    empty_export_response = client.get("/api/recall/library/collections/collection:empty/learning-export.zip")
+    assert empty_export_response.status_code == 200
+    with ZipFile(BytesIO(empty_export_response.content)) as archive:
+        assert archive.namelist() == ["collection-manifest.json"]
+        manifest = json.loads(archive.read("collection-manifest.json").decode("utf-8"))
+        assert manifest["source_count"] == 0
+        assert manifest["warnings"] == ["Collection has no sources to export."]
+
+
+def test_library_reading_queue_scopes_state_and_collection_membership(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    article_html = b"""
+    <html><body><article><h1>Queue web source</h1><p>Queue web sentence one. Queue web sentence two. Queue web sentence three.</p></article></body></html>
+    """
+    with serve_fixture_routes({"/queue": (200, "text/html; charset=utf-8", article_html)}) as base_url:
+        web_response = client.post("/api/documents/import-url", json={"url": f"{base_url}/queue"})
+    capture_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Queue capture source",
+            "text": "Capture sentence one. Capture sentence two. Capture sentence three.",
+        },
+    )
+    file_response = client.post(
+        "/api/documents/import-file",
+        files={"file": ("queue-notes.txt", b"File sentence one. File sentence two.", "text/plain")},
+    )
+    assert web_response.status_code == 200
+    assert capture_response.status_code == 200
+    assert file_response.status_code == 200
+    web_document = web_response.json()
+    capture_document = capture_response.json()
+    file_document = file_response.json()
+
+    settings_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": "collection:queue",
+                    "name": "Queue",
+                    "document_ids": [capture_document["id"]],
+                    "origin": "manual",
+                    "sort_index": 0,
+                },
+                {
+                    "id": "collection:queue-web",
+                    "name": "Web",
+                    "document_ids": [web_document["id"]],
+                    "origin": "manual",
+                    "parent_id": "collection:queue",
+                    "sort_index": 1,
+                },
+            ]
+        },
+    )
+    assert settings_response.status_code == 200
+
+    web_view_response = client.get(
+        f"/api/documents/{web_document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    file_view_response = client.get(
+        f"/api/documents/{file_document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert web_view_response.status_code == 200
+    assert file_view_response.status_code == 200
+    assert client.put(
+        f"/api/documents/{web_document['id']}/progress",
+        json={"mode": "reflowed", "sentence_index": 1},
+    ).status_code == 200
+    assert client.put(
+        f"/api/documents/{file_document['id']}/progress",
+        json={"mode": "reflowed", "sentence_index": 1},
+    ).status_code == 200
+    highlight_response = client.post(
+        f"/api/recall/documents/{web_document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(
+                web_document["id"],
+                web_view_response.json(),
+                block_index=1,
+                sentence_start=1,
+                sentence_end=1,
+            ),
+            "body_text": "Queue highlight should be counted.",
+        },
+    )
+    source_note_response = client.post(
+        f"/api/recall/documents/{web_document['id']}/notes",
+        json={
+            "anchor": build_source_note_anchor(web_document["id"], title=web_document["title"]),
+            "body_text": "Queue source note should be counted.",
+        },
+    )
+    assert highlight_response.status_code == 200
+    assert source_note_response.status_code == 200
+    study_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": web_document["id"],
+            "prompt": "What does the queue surface?",
+            "answer": "Reading progress and highlights.",
+            "card_type": "short_answer",
+        },
+    )
+    assert study_response.status_code == 200
+
+    queue_response = client.get("/api/recall/library/reading-queue", params={"collection_id": "collection:queue"})
+    assert queue_response.status_code == 200
+    queue = queue_response.json()
+    assert queue["dry_run"] is True
+    assert queue["scope"] == "all"
+    assert queue["collection_id"] == "collection:queue"
+    assert queue["summary"] == {
+        "total_sources": 2,
+        "unread_sources": 1,
+        "in_progress_sources": 1,
+        "completed_sources": 0,
+    }
+    web_row = next(row for row in queue["rows"] if row["id"] == web_document["id"])
+    capture_row = next(row for row in queue["rows"] if row["id"] == capture_document["id"])
+    assert web_row["state"] == "in_progress"
+    assert web_row["mode"] == "reflowed"
+    assert web_row["sentence_index"] == 1
+    assert web_row["sentence_count"] == 4
+    assert web_row["progress_percent"] == 50
+    assert web_row["membership"] == "descendant"
+    assert web_row["note_count"] == 2
+    assert web_row["highlight_count"] == 1
+    assert web_row["study_counts"]["new"] >= 1
+    assert web_row["study_counts"]["total"] >= 1
+    assert [item["name"] for item in web_row["collection_paths"][0]] == ["Queue", "Web"]
+    assert capture_row["state"] == "unread"
+    assert capture_row["membership"] == "direct"
+
+    in_progress_response = client.get(
+        "/api/recall/library/reading-queue",
+        params={"collection_id": "collection:queue", "state": "in_progress"},
+    )
+    assert in_progress_response.status_code == 200
+    assert [row["id"] for row in in_progress_response.json()["rows"]] == [web_document["id"]]
+
+    web_scope_response = client.get("/api/recall/library/reading-queue", params={"scope": "web"})
+    assert web_scope_response.status_code == 200
+    assert all(row["source_type"] == "web" for row in web_scope_response.json()["rows"])
+
+    documents_scope_response = client.get("/api/recall/library/reading-queue", params={"scope": "documents"})
+    assert documents_scope_response.status_code == 200
+    assert any(row["id"] == file_document["id"] and row["state"] == "completed" for row in documents_scope_response.json()["rows"])
+
+    untagged_response = client.get("/api/recall/library/reading-queue", params={"scope": "untagged"})
+    assert untagged_response.status_code == 200
+    assert {row["id"] for row in untagged_response.json()["rows"]} == {file_document["id"]}
+
+    missing_collection_response = client.get(
+        "/api/recall/library/reading-queue",
+        params={"collection_id": "collection:missing"},
+    )
+    assert missing_collection_response.status_code == 404
+
+
+def test_recall_document_reading_complete_updates_only_reader_progress(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Complete reading source",
+            "text": "Complete sentence one. Complete sentence two. Complete sentence three.",
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+    note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_source_note_anchor(document["id"], title=document["title"]),
+            "body_text": "Completion should not mutate this note.",
+        },
+    )
+    card_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "What should completion avoid changing?",
+            "answer": "Study scheduling.",
+            "card_type": "short_answer",
+        },
+    )
+    assert note_response.status_code == 200
+    assert card_response.status_code == 200
+    before_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 20}).json()
+    before_notes = client.get(f"/api/recall/documents/{document['id']}/notes").json()
+
+    complete_response = client.post(
+        f"/api/recall/documents/{document['id']}/reading/complete",
+        json={"mode": "reflowed"},
+    )
+
+    assert complete_response.status_code == 200
+    completion = complete_response.json()
+    assert completion["document_id"] == document["id"]
+    assert completion["mode"] == "reflowed"
+    assert completion["sentence_index"] == 2
+    assert completion["sentence_count"] == 3
+    assert completion["completed_at"]
+
+    refreshed_document = client.get(f"/api/documents/{document['id']}").json()
+    assert refreshed_document["progress_by_mode"]["reflowed"] == 2
+    queue_response = client.get("/api/recall/library/reading-queue", params={"state": "completed"})
+    assert queue_response.status_code == 200
+    assert any(row["id"] == document["id"] and row["progress_percent"] == 100 for row in queue_response.json()["rows"])
+    assert client.get("/api/recall/study/cards", params={"status": "all", "limit": 20}).json() == before_cards
+    assert client.get(f"/api/recall/documents/{document['id']}/notes").json() == before_notes
+
+    missing_response = client.post("/api/recall/documents/missing-doc/reading/complete", json={})
+    assert missing_response.status_code == 404
+
+
+def test_import_batch_preview_handles_pocket_csv_duplicates_and_bounds(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    article_html = b"""
+    <html><body><article><h1>Existing article</h1><p>Existing paragraph one.</p></article></body></html>
+    """
+
+    with serve_fixture_routes({
+        "/existing": (200, "text/html; charset=utf-8", article_html),
+    }) as base_url:
+        import_response = client.post("/api/documents/import-url", json={"url": f"{base_url}/existing"})
+        assert import_response.status_code == 200
+        pocket_csv = (
+            "url,title,tags,status\n"
+            f"{base_url}/existing,Existing article,read later,archive\n"
+            "https://example.com/new,New article,topic|saved,unread\n"
+            "https://example.com/new,New duplicate,topic,unread\n"
+        ).encode("utf-8")
+        preview_response = client.post(
+            "/api/documents/import-batch-preview",
+            data={"source_format": "pocket_csv", "max_items": "3"},
+            files={"file": ("pocket.csv", pocket_csv, "text/csv")},
+        )
+
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["source_format"] == "pocket_csv"
+    assert preview["summary"]["ready_count"] == 1
+    assert preview["summary"]["duplicate_count"] == 2
+    duplicate_reasons = [row["reason"] for row in preview["rows"] if row["status"] == "duplicate"]
+    assert "This link is already saved in Recall." in duplicate_reasons
+    assert "This link already appears in the uploaded file." in duplicate_reasons
+    ready_row = next(row for row in preview["rows"] if row["status"] == "ready")
+    assert ready_row["tags"] == ["topic", "saved"]
+
+
+def test_import_batch_preview_parses_pocket_zip_with_collection_suggestions(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    zip_buffer = BytesIO()
+    with ZipFile(zip_buffer, "w") as archive:
+        archive.writestr(
+            "pocket/part.csv",
+            "url,title,tags,status\n"
+            "https://example.com/pocket-one,Pocket one,ai|reading,unread\n"
+            "ftp://example.com/file,Unsupported,archive,archive\n",
+        )
+        archive.writestr("../ignored.csv", "url,title\nhttps://example.com/unsafe,Unsafe\n")
+
+    preview_response = client.post(
+        "/api/documents/import-batch-preview",
+        data={"source_format": "auto", "max_items": "10"},
+        files={"file": ("pocket-export.zip", zip_buffer.getvalue(), "application/zip")},
+    )
+
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["source_format"] == "pocket_zip"
+    assert preview["summary"]["ready_count"] == 1
+    assert preview["summary"]["unsupported_count"] == 1
+    assert {suggestion["name"] for suggestion in preview["collection_suggestions"]} == {"ai", "reading"}
+    assert all(row["url"] != "https://example.com/unsafe" for row in preview["rows"])
+
+
+def test_import_batch_imports_selected_ready_links_and_reports_partial_failures(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    readable_html = b"""
+    <html><body><article><h1>Bulk source one</h1><p>Bulk paragraph one.</p><p>Bulk paragraph two.</p></article></body></html>
+    """
+    empty_html = b"<html><body><nav>Navigation only</nav></body></html>"
+
+    with serve_fixture_routes({
+        "/one": (200, "text/html; charset=utf-8", readable_html),
+        "/empty": (200, "text/html; charset=utf-8", empty_html),
+    }) as base_url:
+        url_list = f"{base_url}/one\n{base_url}/empty\nhttps://example.com/unselected\n".encode("utf-8")
+        preview_response = client.post(
+            "/api/documents/import-batch-preview",
+            data={"source_format": "url_list", "max_items": "10"},
+            files={"file": ("links.txt", url_list, "text/plain")},
+        )
+        assert preview_response.status_code == 200
+        preview_rows = preview_response.json()["rows"]
+        selected_ids = [row["id"] for row in preview_rows if row["url"] in {f"{base_url}/one", f"{base_url}/empty"}]
+        apply_response = client.post(
+            "/api/documents/import-batch",
+            data={
+                "source_format": "url_list",
+                "max_items": "10",
+                "selected_item_ids_json": json.dumps(selected_ids),
+                "import_confirmation": "import-selected-sources",
+            },
+            files={"file": ("links.txt", url_list, "text/plain")},
+        )
+
+    assert apply_response.status_code == 200
+    result = apply_response.json()
+    assert result["applied"] is True
+    assert result["summary"]["imported_count"] == 1
+    assert result["summary"]["failed_count"] == 1
+    assert result["summary"]["skipped_count"] == 1
+    imported_row = next(row for row in result["rows"] if row["status"] == "imported")
+    assert imported_row["document"]["title"] == "Bulk source one"
+    failed_row = next(row for row in result["rows"] if row["status"] == "failed")
+    assert "readable article" in failed_row["reason"]
+
+    listing_response = client.get("/api/documents")
+    assert listing_response.status_code == 200
+    assert [document["title"] for document in listing_response.json()] == ["Bulk source one"]
+
+
+def test_import_batch_creates_collections_and_source_metadata_for_successful_rows(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    readable_html = b"""
+    <html><body><article><h1>Organized bulk source</h1><p>Bulk source paragraph one.</p><p>Bulk source paragraph two.</p></article></body></html>
+    """
+
+    with serve_fixture_routes({
+        "/organized": (200, "text/html; charset=utf-8", readable_html),
+    }) as base_url:
+        bookmark_html = f"""
+        <!DOCTYPE NETSCAPE-Bookmark-file-1>
+        <DL><p>
+          <DT><H3>Research</H3>
+          <DL><p>
+            <DT><H3>AI</H3>
+            <DL><p>
+              <DT><A HREF="{base_url}/organized" TAGS="recall">Organized source</A>
+            </DL><p>
+          </DL><p>
+        </DL><p>
+        """.encode("utf-8")
+        apply_response = client.post(
+            "/api/documents/import-batch",
+            data={
+                "source_format": "bookmarks_html",
+                "max_items": "10",
+                "create_collections": "true",
+                "import_confirmation": "import-selected-sources",
+            },
+            files={"file": ("bookmarks.html", bookmark_html, "text/html")},
+        )
+
+    assert apply_response.status_code == 200
+    result = apply_response.json()
+    assert result["summary"]["imported_count"] == 1
+    assert result["summary"]["collection_created_count"] == 3
+    assert {tuple(collection["path"]) for collection in result["collections"]} == {
+        ("Research",),
+        ("Research", "AI"),
+        ("recall",),
+    }
+    imported_document = next(row["document"] for row in result["rows"] if row["status"] == "imported")
+
+    settings_response = client.get("/api/recall/library/settings")
+    assert settings_response.status_code == 200
+    collections = settings_response.json()["custom_collections"]
+    assert {collection["name"] for collection in collections} == {"Research", "AI", "recall"}
+    research = next(collection for collection in collections if collection["name"] == "Research")
+    ai = next(collection for collection in collections if collection["name"] == "AI")
+    recall = next(collection for collection in collections if collection["name"] == "recall")
+    assert research["document_ids"] == []
+    assert ai["parent_id"] == research["id"]
+    assert ai["document_ids"] == [imported_document["id"]]
+    assert recall["parent_id"] is None
+    assert recall["document_ids"] == [imported_document["id"]]
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        row = connection.execute(
+            "SELECT metadata_json FROM source_documents WHERE id = ?",
+            (imported_document["id"],),
+        ).fetchone()
+    metadata = json.loads(row[0] or "{}")
+    assert metadata["batch_import"]["source_format"] == "bookmarks_html"
+    assert metadata["batch_import"]["folder"] == "Research / AI"
+    assert metadata["batch_import"]["tags"] == ["recall"]
+    assert metadata["batch_import"]["imported_at"]
+
+    learning_pack_response = client.get(f"/api/recall/documents/{imported_document['id']}/learning-export.md")
+    assert learning_pack_response.status_code == 200
+    learning_pack = learning_pack_response.text
+    assert "### Source Provenance" in learning_pack
+    assert "Collections: Research, AI, recall" in learning_pack
+    assert "Archive folder: Research / AI" in learning_pack
+    assert "Archive tags: recall" in learning_pack
+
+
+def test_import_batch_rejects_unconfirmed_apply_without_mutating_workspace(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    apply_response = client.post(
+        "/api/documents/import-batch",
+        data={"source_format": "url_list", "max_items": "10", "selected_item_ids_json": "[]"},
+        files={"file": ("links.txt", b"https://example.com/article", "text/plain")},
+    )
+
+    assert apply_response.status_code == 422
+    listing_response = client.get("/api/documents")
+    assert listing_response.status_code == 200
+    assert listing_response.json() == []
+
+
 def test_recall_document_preview_uses_meta_data_image_and_caches_asset(tmp_path, monkeypatch) -> None:
     client = create_client(tmp_path, monkeypatch)
     hero_data_url = build_png_data_url((88, 132, 206))
@@ -1682,10 +2460,379 @@ def test_workspace_attachments_manifest_and_zip_export(tmp_path, monkeypatch) ->
 
     with ZipFile(BytesIO(bundle_response.content)) as archive:
         assert "manifest.json" in archive.namelist()
+        assert "workspace-data.json" in archive.namelist()
         assert attachment["relative_path"] in archive.namelist()
         assert archive.read(attachment["relative_path"]) == raw_bytes
         manifest_in_archive = json.loads(archive.read("manifest.json").decode("utf-8"))
         assert manifest_in_archive["attachments"][0]["id"] == attachment["id"]
+        workspace_data = json.loads(archive.read("workspace-data.json").decode("utf-8"))
+        assert workspace_data["source_documents"][0]["id"] == document["id"]
+        assert workspace_data["document_variants"]
+        assert workspace_data["content_chunks"]
+
+    preview_response = client.post(
+        "/api/workspace/import-preview",
+        files={"file": ("workspace-export.zip", bundle_response.content, "application/zip")},
+    )
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["dry_run"] is True
+    assert preview["applied"] is False
+    assert preview["can_apply"] is True
+    assert preview["apply_blockers"] == []
+    assert preview["backup"]["source_kind"] == "zip"
+    assert preview["backup"]["attachment_count"] == 1
+    assert preview["backup"]["bundled_attachment_count"] == 1
+    assert preview["backup"]["missing_attachment_paths"] == []
+    assert preview["backup"]["bundle_coverage_available"] is True
+    assert preview["merge_preview"]["summary"]["skip_equal"] >= 1
+
+    after_preview_manifest_response = client.get("/api/workspace/export.manifest.json")
+    assert after_preview_manifest_response.status_code == 200
+    assert after_preview_manifest_response.json()["change_event_count"] == manifest["change_event_count"]
+
+    unsafe_manifest = json.loads(json.dumps(manifest))
+    unsafe_manifest["attachments"][0]["relative_path"] = "../escaped.txt"
+    unsafe_bundle = BytesIO()
+    with ZipFile(unsafe_bundle, "w") as archive:
+        archive.writestr("manifest.json", json.dumps(unsafe_manifest))
+        archive.writestr("../escaped.txt", raw_bytes)
+    unsafe_preview_response = client.post(
+        "/api/workspace/import-preview",
+        files={"file": ("unsafe-workspace.zip", unsafe_bundle.getvalue(), "application/zip")},
+    )
+    assert unsafe_preview_response.status_code == 200
+    unsafe_preview = unsafe_preview_response.json()
+    assert unsafe_preview["can_apply"] is False
+    assert unsafe_preview["apply_blockers"]
+    assert unsafe_preview["backup"]["bundled_attachment_count"] == 0
+    assert unsafe_preview["backup"]["missing_attachment_paths"] == ["../escaped.txt"]
+
+
+def test_source_learning_pack_export_and_workspace_backup_include_study_memory(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Portable learning source",
+            "text": (
+                "Learning packs preserve source memory. "
+                "Notebook notes can become graph memory. "
+                "Study sessions keep quiz history portable."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    plain_export_response = client.get(f"/api/recall/documents/{document['id']}/export.md")
+    assert plain_export_response.status_code == 200
+    assert "# Portable learning source" in plain_export_response.text
+    assert "## Learning Pack" not in plain_export_response.text
+
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(document["id"], view_response.json()),
+            "body_text": "Portable learning note for export.",
+        },
+    )
+    assert note_response.status_code == 200
+    note = note_response.json()
+    graph_response = client.post(
+        f"/api/recall/notes/{note['id']}/promote/graph-node",
+        json={"label": "Portable concept", "description": "Graph memory belongs in the learning pack."},
+    )
+    assert graph_response.status_code == 200
+
+    study_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which export keeps Study history?",
+            "answer": "Learning pack",
+            "card_type": "multiple_choice",
+            "question_difficulty": "hard",
+            "question_payload": {
+                "kind": "multiple_choice",
+                "choices": [
+                    {"id": "a", "text": "Learning pack"},
+                    {"id": "b", "text": "Plain source export"},
+                ],
+                "correct_choice_id": "a",
+            },
+            "support_payload": {
+                "hint": "Look at the source memory export.",
+                "explanation": "The learning pack carries source memory and Study history.",
+            },
+        },
+    )
+    assert study_response.status_code == 200
+    study_card = study_response.json()
+    deleted_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Do not export deleted card",
+            "answer": "Deleted",
+            "card_type": "short_answer",
+        },
+    )
+    assert deleted_response.status_code == 200
+    assert client.delete(f"/api/recall/study/cards/{deleted_response.json()['id']}").status_code == 200
+
+    session_response = client.post(
+        "/api/recall/study/sessions",
+        json={
+            "source_document_id": document["id"],
+            "filter_snapshot": {"source_document_id": document["id"]},
+            "settings_snapshot": {"default_timer_seconds": 30, "default_session_limit": 10},
+            "card_ids": [study_card["id"]],
+        },
+    )
+    assert session_response.status_code == 200
+    session = session_response.json()
+    attempt_response = client.post(
+        f"/api/recall/study/cards/{study_card['id']}/attempts",
+        json={"session_id": session["id"], "response": {"selected_choice_id": "a"}},
+    )
+    assert attempt_response.status_code == 200
+    attempt = attempt_response.json()
+    assert attempt["is_correct"] is True
+    review_response = client.post(
+        f"/api/recall/study/cards/{study_card['id']}/review",
+        json={"rating": "good", "attempt_id": attempt["id"]},
+    )
+    assert review_response.status_code == 200
+    complete_response = client.post(
+        f"/api/recall/study/sessions/{session['id']}/complete",
+        json={"summary": {"attempted": 1, "correct": 1, "duration_seconds": 25}},
+    )
+    assert complete_response.status_code == 200
+
+    learning_export_response = client.get(f"/api/recall/documents/{document['id']}/learning-export.md")
+    assert learning_export_response.status_code == 200
+    assert learning_export_response.headers["content-type"].startswith("text/markdown")
+    assert "learning-pack" in learning_export_response.headers["content-disposition"]
+    learning_pack = learning_export_response.text
+    assert "## Learning Pack" in learning_pack
+    assert "Portable learning note for export." in learning_pack
+    assert "Portable concept" in learning_pack
+    assert "Which export keeps Study history?" in learning_pack
+    assert "Recent Study Attempts" in learning_pack
+    assert "Recent Review Sessions" in learning_pack
+    assert "Do not export deleted card" not in learning_pack
+
+    manifest_response = client.get("/api/workspace/export.manifest.json")
+    assert manifest_response.status_code == 200
+    manifest = manifest_response.json()
+    assert manifest["entity_counts"]["study_answer_attempt"] == 1
+    assert manifest["entity_counts"]["study_review_session"] == 1
+    assert any(entity["entity_type"] == "study_answer_attempt" for entity in manifest["entities"])
+    assert any(entity["entity_type"] == "study_review_session" for entity in manifest["entities"])
+
+    bundle_response = client.get("/api/workspace/export.zip")
+    assert bundle_response.status_code == 200
+    with ZipFile(BytesIO(bundle_response.content)) as archive:
+        assert "workspace-data.json" in archive.namelist()
+        source_pack_paths = [
+            name
+            for name in archive.namelist()
+            if name.startswith("sources/") and name.endswith("/learning-pack.md")
+        ]
+        assert source_pack_paths
+        bundled_pack = archive.read(source_pack_paths[0]).decode("utf-8")
+        assert "Portable learning note for export." in bundled_pack
+        assert "Which export keeps Study history?" in bundled_pack
+        manifest_in_archive = json.loads(archive.read("manifest.json").decode("utf-8"))
+        assert manifest_in_archive["entity_counts"]["study_answer_attempt"] == 1
+        assert manifest_in_archive["entity_counts"]["study_review_session"] == 1
+        workspace_data = json.loads(archive.read("workspace-data.json").decode("utf-8"))
+        assert len(workspace_data["study_answer_attempts"]) == 1
+        assert len(workspace_data["study_review_sessions"]) == 1
+
+    preview_response = client.post(
+        "/api/workspace/import-preview",
+        files={"file": ("learning-workspace.zip", bundle_response.content, "application/zip")},
+    )
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["dry_run"] is True
+    assert preview["applied"] is False
+    assert preview["can_apply"] is True
+    assert preview["restorable_entity_counts"] == {}
+    assert preview["backup"]["entity_counts"]["study_answer_attempt"] == 1
+    assert preview["backup"]["entity_counts"]["study_review_session"] == 1
+    assert preview["backup"]["learning_pack_count"] >= 1
+    assert preview["backup"]["missing_learning_pack_paths"] == []
+
+
+def test_workspace_import_apply_restores_missing_workspace_data(tmp_path, monkeypatch) -> None:
+    source_client = create_client(tmp_path / "source", monkeypatch)
+    raw_bytes = b"Portable restore source. Notebook memory and Study attempts should come back."
+    import_response = source_client.post(
+        "/api/documents/import-file",
+        files={"file": ("portable-restore.txt", raw_bytes, "text/plain")},
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    settings_response = source_client.put(
+        "/api/settings",
+        json={
+            "font_preset": "atkinson",
+            "text_size": 23,
+            "line_spacing": 1.7,
+            "line_width": 68,
+            "contrast_theme": "high",
+            "focus_mode": True,
+            "preferred_voice": "default",
+            "speech_rate": 1.0,
+        },
+    )
+    assert settings_response.status_code == 200
+
+    view_response = source_client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    note_response = source_client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(document["id"], view_response.json()),
+            "body_text": "Restored portable note.",
+        },
+    )
+    assert note_response.status_code == 200
+    note = note_response.json()
+    graph_response = source_client.post(
+        f"/api/recall/notes/{note['id']}/promote/graph-node",
+        json={"label": "Restored graph node", "description": "Graph memory should restore."},
+    )
+    assert graph_response.status_code == 200
+
+    study_response = source_client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "What should restore?",
+            "answer": "Study attempts",
+            "card_type": "short_answer",
+        },
+    )
+    assert study_response.status_code == 200
+    study_card = study_response.json()
+    session_response = source_client.post(
+        "/api/recall/study/sessions",
+        json={
+            "source_document_id": document["id"],
+            "filter_snapshot": {"source_document_id": document["id"]},
+            "settings_snapshot": {"default_session_limit": 10},
+            "card_ids": [study_card["id"]],
+        },
+    )
+    assert session_response.status_code == 200
+    session = session_response.json()
+    attempt_response = source_client.post(
+        f"/api/recall/study/cards/{study_card['id']}/attempts",
+        json={"session_id": session["id"], "response": {"text": "Study attempts"}},
+    )
+    assert attempt_response.status_code == 200
+    review_response = source_client.post(
+        f"/api/recall/study/cards/{study_card['id']}/review",
+        json={"rating": "good", "attempt_id": attempt_response.json()["id"]},
+    )
+    assert review_response.status_code == 200
+    complete_response = source_client.post(
+        f"/api/recall/study/sessions/{session['id']}/complete",
+        json={"summary": {"attempted": 1, "correct": 1}},
+    )
+    assert complete_response.status_code == 200
+
+    bundle_response = source_client.get("/api/workspace/export.zip")
+    assert bundle_response.status_code == 200
+    bundle = bundle_response.content
+
+    restore_client = create_client(tmp_path / "restore", monkeypatch)
+    preview_response = restore_client.post(
+        "/api/workspace/import-preview",
+        files={"file": ("restore-workspace.zip", bundle, "application/zip")},
+    )
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["can_apply"] is True
+    assert preview["restorable_entity_counts"]["source_document"] == 1
+    assert preview["restorable_entity_counts"]["recall_note"] == 1
+    assert preview["restorable_entity_counts"]["study_answer_attempt"] == 1
+
+    apply_response = restore_client.post(
+        "/api/workspace/import-apply",
+        data={"restore_confirmation": "restore-missing-items"},
+        files={"file": ("restore-workspace.zip", bundle, "application/zip")},
+    )
+    assert apply_response.status_code == 200
+    apply_result = apply_response.json()
+    assert apply_result["applied"] is True
+    assert apply_result["dry_run"] is False
+    assert apply_result["imported_counts"]["source_document"] == 1
+    assert apply_result["imported_counts"]["recall_note"] == 1
+    assert apply_result["imported_counts"]["review_card"] >= 1
+    assert apply_result["imported_counts"]["study_answer_attempt"] == 1
+    assert apply_result["imported_counts"]["study_review_session"] == 1
+    assert apply_result["imported_counts"]["attachment"] == 1
+    assert apply_result["integrity"]["ok"] is True
+
+    documents_response = restore_client.get("/api/documents", params={"query": "portable restore"})
+    assert documents_response.status_code == 200
+    assert [item["id"] for item in documents_response.json()] == [document["id"]]
+
+    attachments_response = restore_client.get("/api/workspace/attachments")
+    assert attachments_response.status_code == 200
+    assert len(attachments_response.json()) == 1
+    download_response = restore_client.get(f"/api/workspace/attachments/{attachments_response.json()[0]['id']}")
+    assert download_response.status_code == 200
+    assert download_response.content == raw_bytes
+
+    notes_response = restore_client.get(f"/api/recall/documents/{document['id']}/notes")
+    assert notes_response.status_code == 200
+    assert notes_response.json()[0]["body_text"] == "Restored portable note."
+
+    graph_snapshot_response = restore_client.get("/api/recall/graph")
+    assert graph_snapshot_response.status_code == 200
+    assert any(node["label"] == "Restored graph node" for node in graph_snapshot_response.json()["nodes"])
+
+    study_cards_response = restore_client.get(
+        "/api/recall/study/cards",
+        params={"status": "all", "source_document_id": document["id"]},
+    )
+    assert study_cards_response.status_code == 200
+    assert any(card["prompt"] == "What should restore?" for card in study_cards_response.json())
+
+    progress_response = restore_client.get(
+        "/api/recall/study/progress",
+        params={"source_document_id": document["id"]},
+    )
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    assert progress["total_attempts"] == 1
+    assert progress["correct_attempts"] == 1
+    assert progress["recent_sessions"]
+
+    second_apply_response = restore_client.post(
+        "/api/workspace/import-apply",
+        data={"restore_confirmation": "restore-missing-items"},
+        files={"file": ("restore-workspace.zip", bundle, "application/zip")},
+    )
+    assert second_apply_response.status_code == 200
+    second_apply = second_apply_response.json()
+    assert second_apply["imported_counts"] == {}
+    assert second_apply["skipped_counts"]["source_document"] >= 1
 
 
 def test_workspace_integrity_and_repair_rebuild_fts_indexes(tmp_path, monkeypatch) -> None:
@@ -1739,6 +2886,9 @@ def test_workspace_manifest_warns_when_attachment_payload_is_missing(tmp_path, m
 
     stored_file = tmp_path / ".data" / "files" / f"{document['id']}.txt"
     stored_file.unlink()
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        connection.execute("DELETE FROM document_variants WHERE source_document_id = ?", (document["id"],))
+        connection.commit()
 
     integrity_response = client.get("/api/workspace/integrity")
     assert integrity_response.status_code == 200
@@ -1753,6 +2903,7 @@ def test_workspace_manifest_warns_when_attachment_payload_is_missing(tmp_path, m
     assert manifest["attachments"] == []
     assert manifest["warnings"]
     assert "Missing attachment payload" in manifest["warnings"][0]
+    assert any("Missing reflowed/default view for learning-pack export" in warning for warning in manifest["warnings"])
 
     bundle_response = client.get("/api/workspace/export.zip")
     assert bundle_response.status_code == 200
@@ -1868,6 +3019,70 @@ def test_workspace_merge_preview_returns_deterministic_decisions(tmp_path, monke
     assert preview["summary"]["keep_local"] >= 1
     assert preview["summary"]["prefer_remote"] >= 1
     assert preview["summary"]["skip_equal"] >= 1
+
+    manifest_upload_response = client.post(
+        "/api/workspace/import-preview",
+        files={"file": ("manifest.json", json.dumps(remote_manifest).encode("utf-8"), "application/json")},
+    )
+    assert manifest_upload_response.status_code == 200
+    manifest_upload_preview = manifest_upload_response.json()
+    assert manifest_upload_preview["dry_run"] is True
+    assert manifest_upload_preview["applied"] is False
+    assert manifest_upload_preview["can_apply"] is False
+    assert "raw manifest files are preview-only" in manifest_upload_preview["apply_blockers"][0]
+    assert manifest_upload_preview["backup"]["source_kind"] == "manifest"
+    assert manifest_upload_preview["backup"]["bundle_coverage_available"] is False
+    assert manifest_upload_preview["backup"]["entity_counts"] == remote_manifest["entity_counts"]
+    assert manifest_upload_preview["merge_preview"]["summary"]["import_remote"] >= 1
+
+
+def test_workspace_import_preview_rejects_invalid_backups(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    invalid_zip_response = client.post(
+        "/api/workspace/import-preview",
+        files={"file": ("not-a-backup.zip", b"not a zip", "application/zip")},
+    )
+    assert invalid_zip_response.status_code == 400
+    assert "workspace ZIP" in invalid_zip_response.json()["detail"]
+
+    zip_without_manifest = BytesIO()
+    with ZipFile(zip_without_manifest, "w") as archive:
+        archive.writestr("sources/example/learning-pack.md", "# Example")
+    missing_manifest_response = client.post(
+        "/api/workspace/import-preview",
+        files={"file": ("missing-manifest.zip", zip_without_manifest.getvalue(), "application/zip")},
+    )
+    assert missing_manifest_response.status_code == 400
+    assert "missing manifest.json" in missing_manifest_response.json()["detail"]
+
+    invalid_manifest_response = client.post(
+        "/api/workspace/import-preview",
+        files={"file": ("manifest.json", b"{", "application/json")},
+    )
+    assert invalid_manifest_response.status_code == 400
+    assert "valid workspace export manifest" in invalid_manifest_response.json()["detail"]
+
+    apply_without_confirmation_response = client.post(
+        "/api/workspace/import-apply",
+        data={"restore_confirmation": "nope"},
+        files={"file": ("not-a-backup.zip", b"not a zip", "application/zip")},
+    )
+    assert apply_without_confirmation_response.status_code == 400
+    assert "Confirm restore-missing-items" in apply_without_confirmation_response.json()["detail"]
+
+    manifest_response = client.get("/api/workspace/export.manifest.json")
+    assert manifest_response.status_code == 200
+    zip_without_data = BytesIO()
+    with ZipFile(zip_without_data, "w") as archive:
+        archive.writestr("manifest.json", json.dumps(manifest_response.json()))
+    apply_old_zip_response = client.post(
+        "/api/workspace/import-apply",
+        data={"restore_confirmation": "restore-missing-items"},
+        files={"file": ("old-workspace.zip", zip_without_data.getvalue(), "application/zip")},
+    )
+    assert apply_old_zip_response.status_code == 400
+    assert "workspace-data.json" in apply_old_zip_response.json()["detail"]
 
 
 def test_startup_repair_recovers_drifted_workspace(tmp_path, monkeypatch) -> None:
@@ -2013,6 +3228,108 @@ def test_recall_hybrid_retrieval_and_study_review_cycle(tmp_path, monkeypatch) -
     assert progress["recent_reviews"][0]["review_card_id"] == cards[0]["id"]
     assert progress["recent_reviews"][0]["rating"] == "good"
     assert sum(entry["count"] for entry in progress["knowledge_stage_counts"]) >= 1
+
+
+def test_recall_study_generation_controls_scope_types_and_payloads(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    first_import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Typed quiz generation guide",
+            "text": (
+                "Active Recall uses Spaced Repetition. "
+                "Retrieval Practice supports Long Term Memory. "
+                "Interleaving includes Mixed Topics. "
+                "Study Cards keep review sessions grounded in source evidence."
+            ),
+        },
+    )
+    assert first_import_response.status_code == 200
+    first_document = first_import_response.json()
+    second_import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Preserved manual source",
+            "text": "Manual source questions should survive generation for other sources.",
+        },
+    )
+    assert second_import_response.status_code == 200
+    second_document = second_import_response.json()
+
+    manual_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": second_document["id"],
+            "prompt": "Which source owns this manual card?",
+            "answer": "The preserved manual source.",
+            "card_type": "flashcard",
+        },
+    )
+    assert manual_response.status_code == 200
+    manual_card = manual_response.json()
+
+    all_types_response = client.post(
+        "/api/recall/study/cards/generate",
+        json={"source_document_id": first_document["id"], "max_per_source": 7},
+    )
+    assert all_types_response.status_code == 200
+    all_types_result = all_types_response.json()
+    assert all_types_result["source_document_id"] == first_document["id"]
+    assert "relation" not in all_types_result["total_by_type"]
+    assert "cloze" not in all_types_result["total_by_type"]
+
+    cards_after_all_types = client.get(
+        "/api/recall/study/cards",
+        params={"status": "all", "limit": 100},
+    ).json()
+    first_source_cards = [
+        card for card in cards_after_all_types if card["source_document_id"] == first_document["id"]
+    ]
+    preserved_unrequested_card = next(
+        card for card in first_source_cards if card["card_type"] != "short_answer"
+    )
+
+    selected_response = client.post(
+        "/api/recall/study/cards/generate",
+        json={
+            "source_document_id": first_document["id"],
+            "question_types": ["multiple_choice", "fill_in_blank"],
+            "max_per_source": 3,
+        },
+    )
+    assert selected_response.status_code == 200
+    selected_result = selected_response.json()
+    assert selected_result["source_document_id"] == first_document["id"]
+    assert selected_result["question_types"] == ["multiple_choice", "fill_in_blank"]
+    assert selected_result["total_count"] <= 3
+    assert set(selected_result["total_by_type"]).issubset({"multiple_choice", "fill_in_blank"})
+
+    cards_after_selected = client.get(
+        "/api/recall/study/cards",
+        params={"status": "all", "limit": 100},
+    ).json()
+    structured_cards = [
+        card
+        for card in cards_after_selected
+        if card["source_document_id"] == first_document["id"]
+        and card["card_type"] in {"multiple_choice", "fill_in_blank"}
+    ]
+    assert structured_cards
+    assert all("generated_question_payload" in card["scheduling_state"] for card in structured_cards)
+    assert all(
+        card["question_payload"]["kind"] == card["scheduling_state"]["generated_question_payload"]["kind"]
+        for card in structured_cards
+    )
+    generated_choice_text = structured_cards[0]["question_payload"]["choices"][0]["text"]
+    retrieval_response = client.get(
+        "/api/recall/retrieve",
+        params={"query": generated_choice_text, "limit": 50},
+    )
+    assert retrieval_response.status_code == 200
+    structured_card_ids = {card["id"] for card in structured_cards}
+    assert any(hit.get("card_id") in structured_card_ids for hit in retrieval_response.json())
+    assert any(card["id"] == preserved_unrequested_card["id"] for card in cards_after_selected)
+    assert any(card["id"] == manual_card["id"] for card in cards_after_selected)
 
 
 def test_recall_study_card_schedule_state_controls(tmp_path, monkeypatch) -> None:
@@ -2277,10 +3594,39 @@ def test_recall_study_manual_question_creation_preserves_source_owned_cards(tmp_
     assert default_type_response.status_code == 200
     assert default_type_response.json()["card_type"] == "short_answer"
 
+    other_import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Other manual card source",
+            "text": "This source owns a separate Study question for source-scoped card list reads.",
+        },
+    )
+    assert other_import_response.status_code == 200
+    other_document = other_import_response.json()
+    other_card_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": other_document["id"],
+            "prompt": "Which source owns this card?",
+            "answer": "The other source.",
+        },
+    )
+    assert other_card_response.status_code == 200
+
     list_response = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100})
     assert list_response.status_code == 200
     listed_cards = list_response.json()
     assert any(card["id"] == created_card["id"] for card in listed_cards)
+
+    scoped_list_response = client.get(
+        "/api/recall/study/cards",
+        params={"status": "all", "limit": 100, "source_document_id": document["id"]},
+    )
+    assert scoped_list_response.status_code == 200
+    scoped_cards = scoped_list_response.json()
+    assert {card["source_document_id"] for card in scoped_cards} == {document["id"]}
+    assert any(card["id"] == created_card["id"] for card in scoped_cards)
+    assert all(card["id"] != other_card_response.json()["id"] for card in scoped_cards)
 
     progress_response = client.get("/api/recall/study/progress", params={"source_document_id": document["id"]})
     assert progress_response.status_code == 200
@@ -2791,6 +4137,841 @@ def test_recall_study_matching_and_ordering_cards_validate_and_review(tmp_path, 
     assert delete_response.status_code == 200
     final_cards = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
     assert all(card["id"] != ordering_card["id"] for card in final_cards)
+
+
+def test_recall_study_answer_attempts_grade_locally_and_link_reviews(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Attempt memory source",
+            "text": (
+                "Answer attempts should be local memory. "
+                "Active recall is answering from memory. "
+                "A session recap should not change scheduling by itself."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    create_payloads = [
+        {
+            "prompt": "What is active recall?",
+            "answer": "Answering from memory",
+            "card_type": "short_answer",
+        },
+        {
+            "prompt": "Remember the definition of attempt memory.",
+            "answer": "Attempts are local Study responses.",
+            "card_type": "flashcard",
+        },
+        {
+            "prompt": "Which method answers from memory?",
+            "answer": "Active recall",
+            "card_type": "multiple_choice",
+            "question_payload": {
+                "kind": "multiple_choice",
+                "choices": [
+                    {"id": "a", "text": "Passive rereading"},
+                    {"id": "b", "text": "Active recall"},
+                    {"id": "c", "text": "Copying notes"},
+                ],
+                "correct_choice_id": "b",
+            },
+        },
+        {
+            "prompt": "Active recall answers from memory.",
+            "answer": "True",
+            "card_type": "true_false",
+            "question_payload": {"kind": "true_false", "correct_choice_id": "true"},
+        },
+        {
+            "prompt": "Fill the memory method.",
+            "answer": "Active recall",
+            "card_type": "fill_in_blank",
+            "question_payload": {
+                "kind": "fill_in_blank",
+                "template": "{{blank}} means answering from memory.",
+                "choices": [
+                    {"id": "a", "text": "Passive review"},
+                    {"id": "b", "text": "Active recall"},
+                    {"id": "c", "text": "Highlighting"},
+                ],
+                "correct_choice_id": "b",
+            },
+        },
+        {
+            "prompt": "Match the attempt memory terms.",
+            "answer": "Attempt -> Response; Recap -> Summary",
+            "card_type": "matching",
+            "question_payload": {
+                "kind": "matching",
+                "pairs": [
+                    {"id": "p1", "left": "Attempt", "right": "Response"},
+                    {"id": "p2", "left": "Recap", "right": "Summary"},
+                ],
+            },
+        },
+        {
+            "prompt": "Order the local review flow.",
+            "answer": "Submit answer; See feedback; Rate card",
+            "card_type": "ordering",
+            "question_payload": {
+                "kind": "ordering",
+                "items": [
+                    {"id": "i1", "text": "Submit answer"},
+                    {"id": "i2", "text": "See feedback"},
+                    {"id": "i3", "text": "Rate card"},
+                ],
+            },
+        },
+    ]
+    cards = []
+    for payload in create_payloads:
+        create_response = client.post(
+            "/api/recall/study/cards",
+            json={"source_document_id": document["id"], **payload},
+        )
+        assert create_response.status_code == 200
+        cards.append(create_response.json())
+
+    cards_by_type = {card["card_type"]: card for card in cards}
+    before_state = {
+        card["id"]: {
+            "due_at": card["due_at"],
+            "review_count": card["review_count"],
+            "status": card["status"],
+            "knowledge_stage": card["knowledge_stage"],
+        }
+        for card in cards
+    }
+    attempt_requests = {
+        "short_answer": {"answer_text": "answering from memory"},
+        "flashcard": {"revealed": True},
+        "multiple_choice": {"selected_choice_id": "b"},
+        "true_false": {"selected_choice_id": "true"},
+        "fill_in_blank": {"selected_choice_id": "b"},
+        "matching": {"selections": {"p1": "p1", "p2": "p2"}},
+        "ordering": {"item_ids": ["i1", "i2", "i3"]},
+    }
+    expected_correctness = {
+        "short_answer": True,
+        "flashcard": None,
+        "multiple_choice": True,
+        "true_false": True,
+        "fill_in_blank": True,
+        "matching": True,
+        "ordering": True,
+    }
+    attempts = {}
+    for question_type, response_payload in attempt_requests.items():
+        card = cards_by_type[question_type]
+        attempt_response = client.post(
+            f"/api/recall/study/cards/{card['id']}/attempts",
+            json={"session_id": "stage-948-session", "response": response_payload},
+        )
+        assert attempt_response.status_code == 200
+        attempt = attempt_response.json()
+        attempts[question_type] = attempt
+        assert attempt["review_card_id"] == card["id"]
+        assert attempt["source_document_id"] == document["id"]
+        assert attempt["question_type"] == question_type
+        assert attempt["response"] == response_payload
+        assert attempt["is_correct"] is expected_correctness[question_type]
+        assert attempt["review_event_id"] is None
+
+    cards_after_attempts = client.get("/api/recall/study/cards", params={"status": "all", "limit": 200}).json()
+    cards_after_attempts_by_id = {card["id"]: card for card in cards_after_attempts}
+    for card in cards:
+        after_card = cards_after_attempts_by_id[card["id"]]
+        assert after_card["due_at"] == before_state[card["id"]]["due_at"]
+        assert after_card["review_count"] == before_state[card["id"]]["review_count"]
+        assert after_card["status"] == before_state[card["id"]]["status"]
+        assert after_card["knowledge_stage"] == before_state[card["id"]]["knowledge_stage"]
+
+    reviewed_card = cards_by_type["multiple_choice"]
+    review_response = client.post(
+        f"/api/recall/study/cards/{reviewed_card['id']}/review",
+        json={"rating": "good", "attempt_id": attempts["multiple_choice"]["id"]},
+    )
+    assert review_response.status_code == 200
+    assert review_response.json()["last_rating"] == "good"
+
+    progress_response = client.get(
+        "/api/recall/study/progress",
+        params={"source_document_id": document["id"]},
+    )
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    assert progress["total_attempts"] == 7
+    assert progress["correct_attempts"] == 6
+    assert progress["accuracy"] == 1.0
+    assert progress["recent_reviews"][0]["attempt_id"] == attempts["multiple_choice"]["id"]
+    assert progress["recent_reviews"][0]["attempt_is_correct"] is True
+    assert {attempt["question_type"] for attempt in progress["recent_attempts"]} == set(attempt_requests)
+    assert progress["source_breakdown"][0]["source_document_id"] == document["id"]
+    assert progress["source_breakdown"][0]["attempt_count"] == 7
+    assert progress["source_breakdown"][0]["correct_attempt_count"] == 6
+    assert progress["source_breakdown"][0]["accuracy"] == 1.0
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        linked_attempt = connection.execute(
+            "SELECT review_event_id FROM study_answer_attempts WHERE id = ?",
+            (attempts["multiple_choice"]["id"],),
+        ).fetchone()
+    assert linked_attempt[0] == progress["recent_reviews"][0]["id"]
+
+
+def test_recall_study_support_payloads_generation_and_timed_attempts(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Support payload source",
+            "text": (
+                "Hints should point back to source evidence. "
+                "Explanations should stay deterministic and local. "
+                "Timed review expiry records an attempt without changing scheduling."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    support_payload = {
+        "hint": "Look for the deterministic source clue.",
+        "explanation": "The answer is grounded in the saved source evidence.",
+    }
+    create_payloads = [
+        {
+            "prompt": "What should hints point back to?",
+            "answer": "Source evidence",
+            "card_type": "short_answer",
+        },
+        {
+            "prompt": "Remember the explanation policy.",
+            "answer": "Stay deterministic and local.",
+            "card_type": "flashcard",
+        },
+        {
+            "prompt": "Which answer is grounded?",
+            "answer": "Source evidence",
+            "card_type": "multiple_choice",
+            "question_payload": {
+                "kind": "multiple_choice",
+                "choices": [
+                    {"id": "a", "text": "A cloud challenge"},
+                    {"id": "b", "text": "Source evidence"},
+                    {"id": "c", "text": "A chat transcript"},
+                ],
+                "correct_choice_id": "b",
+            },
+        },
+        {
+            "prompt": "Hints stay local.",
+            "answer": "True",
+            "card_type": "true_false",
+            "question_payload": {"kind": "true_false", "correct_choice_id": "true"},
+        },
+        {
+            "prompt": "Fill the support source.",
+            "answer": "source evidence",
+            "card_type": "fill_in_blank",
+            "question_payload": {
+                "kind": "fill_in_blank",
+                "template": "Hints point back to {{blank}}.",
+                "choices": [
+                    {"id": "a", "text": "source evidence"},
+                    {"id": "b", "text": "shared timers"},
+                ],
+                "correct_choice_id": "a",
+            },
+        },
+        {
+            "prompt": "Match support terms.",
+            "answer": "Hint -> Clue; Explanation -> Source answer",
+            "card_type": "matching",
+            "question_payload": {
+                "kind": "matching",
+                "pairs": [
+                    {"id": "p1", "left": "Hint", "right": "Clue"},
+                    {"id": "p2", "left": "Explanation", "right": "Source answer"},
+                ],
+            },
+        },
+        {
+            "prompt": "Order the timed flow.",
+            "answer": "Start timer; Time out; Rate later",
+            "card_type": "ordering",
+            "question_payload": {
+                "kind": "ordering",
+                "items": [
+                    {"id": "i1", "text": "Start timer"},
+                    {"id": "i2", "text": "Time out"},
+                    {"id": "i3", "text": "Rate later"},
+                ],
+            },
+        },
+    ]
+    cards = []
+    for payload in create_payloads:
+        create_response = client.post(
+            "/api/recall/study/cards",
+            json={
+                "source_document_id": document["id"],
+                "support_payload": support_payload,
+                **payload,
+            },
+        )
+        assert create_response.status_code == 200
+        created_card = create_response.json()
+        cards.append(created_card)
+        assert created_card["question_support_payload"]["hint"] == support_payload["hint"]
+        assert created_card["question_support_payload"]["explanation"] == support_payload["explanation"]
+        assert created_card["question_support_payload"]["source_excerpt"] is None
+        assert created_card["scheduling_state"]["manual_question_support_payload"] == support_payload
+
+    edited_response = client.patch(
+        f"/api/recall/study/cards/{cards[0]['id']}",
+        json={
+            "prompt": "What should updated hints point back to?",
+            "answer": "Source evidence",
+            "support_payload": {
+                "hint": "Updated deterministic source clue.",
+                "explanation": "Updated explanation still cites local evidence.",
+            },
+        },
+    )
+    assert edited_response.status_code == 200
+    edited_card = edited_response.json()
+    assert edited_card["question_support_payload"]["hint"] == "Updated deterministic source clue."
+
+    preserve_response = client.patch(
+        f"/api/recall/study/cards/{cards[1]['id']}",
+        json={
+            "prompt": "Remember the preserved explanation policy.",
+            "answer": "Stay deterministic and local.",
+        },
+    )
+    assert preserve_response.status_code == 200
+    preserved_support_payload = preserve_response.json()["question_support_payload"]
+    assert preserved_support_payload["hint"] == support_payload["hint"]
+    assert preserved_support_payload["explanation"] == support_payload["explanation"]
+    assert preserved_support_payload["source_excerpt"] is None
+
+    clear_response = client.patch(
+        f"/api/recall/study/cards/{cards[2]['id']}",
+        json={
+            "prompt": "Which answer is grounded?",
+            "answer": "Source evidence",
+            "question_payload": cards[2]["question_payload"],
+            "support_payload": None,
+        },
+    )
+    assert clear_response.status_code == 200
+    assert clear_response.json()["question_support_payload"] is None
+    assert "manual_question_support_payload" not in clear_response.json()["scheduling_state"]
+
+    retrieval_response = client.get(
+        "/api/recall/retrieve",
+        params={"query": "Updated deterministic source clue", "limit": 10},
+    )
+    assert retrieval_response.status_code == 200
+    assert any(hit.get("card_id") == cards[0]["id"] for hit in retrieval_response.json())
+
+    omit_support_response = client.post(
+        "/api/recall/study/cards/generate",
+        json={
+            "source_document_id": document["id"],
+            "question_types": ["short_answer"],
+            "max_per_source": 1,
+            "include_hints": False,
+            "include_explanations": False,
+        },
+    )
+    assert omit_support_response.status_code == 200
+    omit_support_result = omit_support_response.json()
+    assert omit_support_result["include_hints"] is False
+    assert omit_support_result["include_explanations"] is False
+    generated_without_support = [
+        card
+        for card in client.get("/api/recall/study/cards", params={"status": "all", "limit": 200}).json()
+        if card["source_document_id"] == document["id"]
+        and card["card_type"] == "short_answer"
+        and not card["scheduling_state"].get("manual_content_created_at")
+    ]
+    assert generated_without_support
+    assert all("generated_question_support_payload" not in card["scheduling_state"] for card in generated_without_support)
+    assert all(card["question_support_payload"] is None for card in generated_without_support)
+
+    include_support_response = client.post(
+        "/api/recall/study/cards/generate",
+        json={
+            "source_document_id": document["id"],
+            "question_types": ["short_answer"],
+            "max_per_source": 1,
+        },
+    )
+    assert include_support_response.status_code == 200
+    include_support_result = include_support_response.json()
+    assert include_support_result["include_hints"] is True
+    assert include_support_result["include_explanations"] is True
+    generated_with_support = [
+        card
+        for card in client.get("/api/recall/study/cards", params={"status": "all", "limit": 200}).json()
+        if card["source_document_id"] == document["id"]
+        and card["card_type"] == "short_answer"
+        and not card["scheduling_state"].get("manual_content_created_at")
+    ]
+    assert generated_with_support
+    assert all("generated_question_support_payload" in card["scheduling_state"] for card in generated_with_support)
+    assert all(card["question_support_payload"]["hint"] for card in generated_with_support)
+    assert all(card["question_support_payload"]["explanation"] for card in generated_with_support)
+
+    timed_card = cards[0]
+    before_timed_card = next(
+        card
+        for card in client.get("/api/recall/study/cards", params={"status": "all", "limit": 200}).json()
+        if card["id"] == timed_card["id"]
+    )
+    timed_attempt_response = client.post(
+        f"/api/recall/study/cards/{timed_card['id']}/attempts",
+        json={
+            "session_id": "stage-950-timed-session",
+            "response": {
+                "answer_text": "",
+                "elapsed_ms": 30000,
+                "time_limit_seconds": 30,
+                "timed_out": True,
+            },
+        },
+    )
+    assert timed_attempt_response.status_code == 200
+    timed_attempt = timed_attempt_response.json()
+    assert timed_attempt["response"]["timed_out"] is True
+    assert timed_attempt["response"]["elapsed_ms"] == 30000
+    assert timed_attempt["response"]["time_limit_seconds"] == 30
+    assert timed_attempt["is_correct"] is False
+
+    after_timed_card = next(
+        card
+        for card in client.get("/api/recall/study/cards", params={"status": "all", "limit": 200}).json()
+        if card["id"] == timed_card["id"]
+    )
+    assert after_timed_card["due_at"] == before_timed_card["due_at"]
+    assert after_timed_card["review_count"] == before_timed_card["review_count"]
+    assert after_timed_card["status"] == before_timed_card["status"]
+    assert after_timed_card["knowledge_stage"] == before_timed_card["knowledge_stage"]
+    assert client.get("/api/recall/study/progress").json()["total_reviews"] == 0
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{timed_card['id']}/review",
+        json={"rating": "hard", "attempt_id": timed_attempt["id"]},
+    )
+    assert review_response.status_code == 200
+    progress_response = client.get("/api/recall/study/progress")
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    assert progress["total_attempts"] == 1
+    assert progress["correct_attempts"] == 0
+    assert progress["accuracy"] == 0.0
+    assert progress["recent_reviews"][0]["attempt_id"] == timed_attempt["id"]
+    assert progress["recent_reviews"][0]["attempt_is_correct"] is False
+
+
+def test_recall_study_quiz_settings_difficulty_and_sessions(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Quiz settings source",
+            "text": (
+                "Quiz sessions make review deliberate. "
+                "Difficulty filters keep hard questions visible. "
+                "Session history summarizes local attempts without changing scheduling."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+
+    settings_response = client.get("/api/recall/study/settings")
+    assert settings_response.status_code == 200
+    assert settings_response.json() == {
+        "default_timer_seconds": 0,
+        "default_session_limit": 10,
+        "default_difficulty_filter": "all",
+        "streak_goal_mode": "daily",
+        "daily_goal_reviews": 1,
+        "weekly_goal_days": 3,
+    }
+
+    saved_settings_response = client.put(
+        "/api/recall/study/settings",
+        json={
+            "default_timer_seconds": 60,
+            "default_session_limit": 5,
+            "default_difficulty_filter": "hard",
+        },
+    )
+    assert saved_settings_response.status_code == 200
+    assert client.get("/api/recall/study/settings").json()["default_difficulty_filter"] == "hard"
+    invalid_settings_response = client.put(
+        "/api/recall/study/settings",
+        json={
+            "default_timer_seconds": 45,
+            "default_session_limit": 5,
+            "default_difficulty_filter": "hard",
+        },
+    )
+    assert invalid_settings_response.status_code == 422
+
+    manual_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which sessions summarize local attempts?",
+            "answer": "Quiz sessions",
+            "card_type": "multiple_choice",
+            "question_difficulty": "easy",
+            "question_payload": {
+                "kind": "multiple_choice",
+                "choices": [
+                    {"id": "a", "text": "Import sessions"},
+                    {"id": "b", "text": "Quiz sessions"},
+                    {"id": "c", "text": "Reader sessions"},
+                ],
+                "correct_choice_id": "b",
+            },
+        },
+    )
+    assert manual_response.status_code == 200
+    manual_card = manual_response.json()
+    assert manual_card["question_difficulty"] == "easy"
+    assert manual_card["scheduling_state"]["manual_question_difficulty"] == "easy"
+
+    updated_manual_response = client.patch(
+        f"/api/recall/study/cards/{manual_card['id']}",
+        json={
+            "prompt": manual_card["prompt"],
+            "answer": manual_card["answer"],
+            "question_payload": manual_card["question_payload"],
+            "question_difficulty": "hard",
+        },
+    )
+    assert updated_manual_response.status_code == 200
+    hard_card = updated_manual_response.json()
+    assert hard_card["question_difficulty"] == "hard"
+    assert hard_card["scheduling_state"]["manual_question_difficulty"] == "hard"
+
+    generation_response = client.post(
+        "/api/recall/study/cards/generate",
+        json={
+            "source_document_id": document["id"],
+            "question_types": ["flashcard", "true_false"],
+            "difficulty": "easy",
+            "max_per_source": 4,
+        },
+    )
+    assert generation_response.status_code == 200
+    generation_result = generation_response.json()
+    assert generation_result["difficulty"] == "easy"
+
+    cards_after_generation = client.get(
+        "/api/recall/study/cards",
+        params={"status": "all", "limit": 100},
+    ).json()
+    generated_easy_cards = [
+        card
+        for card in cards_after_generation
+        if card["source_document_id"] == document["id"]
+        and not card["scheduling_state"].get("manual_content_created_at")
+        and card["card_type"] in {"flashcard", "true_false"}
+    ]
+    assert generated_easy_cards
+    assert all(card["question_difficulty"] == "easy" for card in generated_easy_cards)
+    assert all(card["scheduling_state"]["generated_question_difficulty"] == "easy" for card in generated_easy_cards)
+    assert next(card for card in cards_after_generation if card["id"] == hard_card["id"])["question_difficulty"] == "hard"
+
+    session_cards = [hard_card["id"], generated_easy_cards[0]["id"]]
+    start_session_response = client.post(
+        "/api/recall/study/sessions",
+        json={
+            "source_document_id": document["id"],
+            "filter_snapshot": {"difficulty_filter": "hard"},
+            "settings_snapshot": {
+                "default_timer_seconds": 60,
+                "default_session_limit": 5,
+                "default_difficulty_filter": "hard",
+            },
+            "card_ids": session_cards,
+        },
+    )
+    assert start_session_response.status_code == 200
+    session = start_session_response.json()
+    assert session["source_document_id"] == document["id"]
+    assert session["card_ids"] == session_cards
+    assert session["completed_at"] is None
+
+    before_attempt_card = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    before_attempt_card = next(card for card in before_attempt_card if card["id"] == hard_card["id"])
+    attempt_response = client.post(
+        f"/api/recall/study/cards/{hard_card['id']}/attempts",
+        json={"session_id": session["id"], "response": {"selected_choice_id": "b"}},
+    )
+    assert attempt_response.status_code == 200
+    attempt = attempt_response.json()
+    assert attempt["session_id"] == session["id"]
+    assert attempt["is_correct"] is True
+
+    after_attempt_card = client.get("/api/recall/study/cards", params={"status": "all", "limit": 100}).json()
+    after_attempt_card = next(card for card in after_attempt_card if card["id"] == hard_card["id"])
+    assert after_attempt_card["due_at"] == before_attempt_card["due_at"]
+    assert after_attempt_card["review_count"] == before_attempt_card["review_count"]
+    assert after_attempt_card["status"] == before_attempt_card["status"]
+    assert after_attempt_card["knowledge_stage"] == before_attempt_card["knowledge_stage"]
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{hard_card['id']}/review",
+        json={"rating": "good", "attempt_id": attempt["id"]},
+    )
+    assert review_response.status_code == 200
+
+    complete_session_response = client.post(
+        f"/api/recall/study/sessions/{session['id']}/complete",
+        json={
+            "summary": {
+                "attempted": 1,
+                "correct": 1,
+                "skipped": 1,
+                "sources_touched": 1,
+                "timed_out": 0,
+                "hint_used": 0,
+                "duration_seconds": 42,
+                "difficulty_counts": {"easy": 1, "medium": 0, "hard": 1},
+            }
+        },
+    )
+    assert complete_session_response.status_code == 200
+    completed_session = complete_session_response.json()
+    assert completed_session["completed_at"] is not None
+    assert completed_session["summary"]["difficulty_counts"]["hard"] == 1
+
+    progress_response = client.get(
+        "/api/recall/study/progress",
+        params={"source_document_id": document["id"]},
+    )
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+    assert progress["recent_sessions"][0]["id"] == session["id"]
+    assert progress["recent_sessions"][0]["summary"]["duration_seconds"] == 42
+    assert progress["total_attempts"] == 1
+    assert progress["correct_attempts"] == 1
+    assert progress["accuracy"] == 1.0
+    difficulty_rows = {row["difficulty"]: row for row in progress["difficulty_accuracy"]}
+    assert difficulty_rows["hard"]["attempt_count"] == 1
+    assert difficulty_rows["hard"]["correct_attempt_count"] == 1
+    assert difficulty_rows["hard"]["accuracy"] == 1.0
+    assert progress["recent_reviews"][0]["attempt_id"] == attempt["id"]
+
+
+def test_recall_study_habit_goals_and_review_targets(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    first_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Habit goals first source",
+            "text": (
+                "Habit goals should count rated reviews only. "
+                "Attempts can help feedback without completing a target."
+            ),
+        },
+    )
+    second_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Habit goals second source",
+            "text": (
+                "Weekly review targets should count active review days. "
+                "Source scoped progress should show local contribution."
+            ),
+        },
+    )
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    first_document = first_response.json()
+    second_document = second_response.json()
+
+    first_card_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": first_document["id"],
+            "prompt": "What completes a habit target?",
+            "answer": "Rated reviews",
+            "card_type": "multiple_choice",
+            "question_payload": {
+                "kind": "multiple_choice",
+                "choices": [
+                    {"id": "a", "text": "Attempts alone"},
+                    {"id": "b", "text": "Rated reviews"},
+                    {"id": "c", "text": "Opened sessions"},
+                ],
+                "correct_choice_id": "b",
+            },
+        },
+    )
+    second_card_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": second_document["id"],
+            "prompt": "Which target counts active days?",
+            "answer": "Weekly target",
+            "card_type": "short_answer",
+        },
+    )
+    assert first_card_response.status_code == 200
+    assert second_card_response.status_code == 200
+    first_card = first_card_response.json()
+    second_card = second_card_response.json()
+
+    saved_daily_response = client.put(
+        "/api/recall/study/settings",
+        json={
+            "default_timer_seconds": 0,
+            "default_session_limit": 10,
+            "default_difficulty_filter": "all",
+            "streak_goal_mode": "daily",
+            "daily_goal_reviews": 3,
+            "weekly_goal_days": 3,
+        },
+    )
+    assert saved_daily_response.status_code == 200
+    assert saved_daily_response.json()["daily_goal_reviews"] == 3
+
+    invalid_goal_response = client.put(
+        "/api/recall/study/settings",
+        json={
+            "default_timer_seconds": 0,
+            "default_session_limit": 10,
+            "default_difficulty_filter": "all",
+            "streak_goal_mode": "weekly",
+            "daily_goal_reviews": 3,
+            "weekly_goal_days": 4,
+        },
+    )
+    assert invalid_goal_response.status_code == 422
+
+    attempt_response = client.post(
+        f"/api/recall/study/cards/{first_card['id']}/attempts",
+        json={"session_id": "habit-goal-session", "response": {"selected_choice_id": "b"}},
+    )
+    assert attempt_response.status_code == 200
+    before_rating_progress = client.get("/api/recall/study/progress").json()
+    assert before_rating_progress["total_attempts"] == 1
+    assert before_rating_progress["habit_goal"]["mode"] == "daily"
+    assert before_rating_progress["habit_goal"]["target_count"] == 3
+    assert before_rating_progress["habit_goal"]["current_count"] == 0
+    assert before_rating_progress["habit_goal"]["remaining_count"] == 3
+    assert before_rating_progress["habit_goal"]["is_met"] is False
+
+    review_response = client.post(
+        f"/api/recall/study/cards/{first_card['id']}/review",
+        json={"rating": "good", "attempt_id": attempt_response.json()["id"]},
+    )
+    assert review_response.status_code == 200
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    yesterday = now - timedelta(days=1)
+    week_start = now.date() - timedelta(days=now.date().weekday())
+    weekly_extra_days = [
+        datetime.combine(week_start + timedelta(days=offset), now.time(), tzinfo=UTC)
+        for offset in range(3)
+    ]
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        connection.executemany(
+            """
+            INSERT INTO review_events (
+                id,
+                review_card_id,
+                rating,
+                scheduling_state_json,
+                reviewed_at,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "habit-second-today",
+                    second_card["id"],
+                    3,
+                    json.dumps({"last_rating": "good", "due_at": second_card["due_at"]}),
+                    (now + timedelta(seconds=1)).isoformat(),
+                    (now + timedelta(seconds=1)).isoformat(),
+                ),
+                (
+                    "habit-second-yesterday",
+                    second_card["id"],
+                    2,
+                    json.dumps({"last_rating": "hard", "due_at": second_card["due_at"]}),
+                    yesterday.isoformat(),
+                    yesterday.isoformat(),
+                ),
+            ]
+            + [
+                (
+                    f"habit-weekly-extra-{index}",
+                    second_card["id"],
+                    3,
+                    json.dumps({"last_rating": "good", "due_at": second_card["due_at"]}),
+                    review_day.isoformat(),
+                    review_day.isoformat(),
+                )
+                for index, review_day in enumerate(weekly_extra_days)
+            ],
+        )
+
+    daily_progress_response = client.get("/api/recall/study/progress")
+    assert daily_progress_response.status_code == 200
+    daily_progress = daily_progress_response.json()
+    assert daily_progress["habit_goal"]["mode"] == "daily"
+    assert daily_progress["habit_goal"]["current_count"] >= 2
+    assert daily_progress["habit_goal"]["remaining_count"] <= 1
+    assert daily_progress["habit_goal"]["recent_history"][-1]["count"] >= 2
+    first_scope_progress = client.get(
+        "/api/recall/study/progress",
+        params={"source_document_id": first_document["id"]},
+    ).json()
+    assert first_scope_progress["habit_goal"]["current_count"] == 1
+    assert first_scope_progress["habit_goal"]["remaining_count"] == 2
+
+    saved_weekly_response = client.put(
+        "/api/recall/study/settings",
+        json={
+            "default_timer_seconds": 0,
+            "default_session_limit": 10,
+            "default_difficulty_filter": "all",
+            "streak_goal_mode": "weekly",
+            "daily_goal_reviews": 3,
+            "weekly_goal_days": 3,
+        },
+    )
+    assert saved_weekly_response.status_code == 200
+    weekly_progress_response = client.get("/api/recall/study/progress")
+    assert weekly_progress_response.status_code == 200
+    weekly_progress = weekly_progress_response.json()
+    assert weekly_progress["habit_goal"]["mode"] == "weekly"
+    assert weekly_progress["habit_goal"]["target_count"] == 3
+    assert weekly_progress["habit_goal"]["current_count"] >= 3
+    assert weekly_progress["habit_goal"]["remaining_count"] == 0
+    assert weekly_progress["habit_goal"]["is_met"] is True
+    assert len(weekly_progress["habit_goal"]["recent_history"]) == 6
+    second_scope_progress = client.get(
+        "/api/recall/study/progress",
+        params={"source_document_id": second_document["id"]},
+    ).json()
+    assert second_scope_progress["habit_goal"]["mode"] == "weekly"
+    assert second_scope_progress["habit_goal"]["current_count"] >= 3
 
 
 def test_recall_study_progress_empty_activity_range_and_validation(tmp_path, monkeypatch) -> None:

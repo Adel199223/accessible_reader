@@ -1,5 +1,7 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
 
+import type { BatchImportFormat, BatchImportPreview, BatchImportResult } from '../types'
+
 interface ImportPanelProps {
   busy: boolean
   collapsed?: boolean
@@ -11,11 +13,19 @@ interface ImportPanelProps {
   onImportText: (title: string, text: string) => Promise<void>
   onImportUrl: (url: string) => Promise<void>
   onImportFile: (file: File) => Promise<void>
+  onPreviewBatchImport: (file: File, sourceFormat: BatchImportFormat, maxItems: number) => Promise<BatchImportPreview>
+  onImportBatch: (
+    file: File,
+    sourceFormat: BatchImportFormat,
+    maxItems: number,
+    selectedItemIds: string[],
+    createCollections: boolean,
+  ) => Promise<BatchImportResult>
   showHeader?: boolean
   title?: string
 }
 
-type ImportMode = 'text' | 'url' | 'file'
+type ImportMode = 'text' | 'url' | 'file' | 'batch'
 
 const importModes: Array<{
   helperLabel: string
@@ -77,6 +87,22 @@ const importModes: Array<{
       'One file at a time through the same Reader-first workflow.',
     ],
   },
+  {
+    value: 'batch',
+    label: 'Bulk import',
+    panelTitle: 'Archive preview',
+    description: 'Preview bookmark, Pocket, or URL-list exports before importing.',
+    heroTitle: 'Preview an archive before saving',
+    heroDescription: 'Bring in a local reading list, review what Recall found, then import only the ready links.',
+    helperLabel: 'Preview first',
+    helperText: 'Bookmarks, Pocket-style exports, and URL lists stay local until you choose which ready rows to import.',
+    supportTitle: 'Supported archives',
+    supportPoints: [
+      'Browser bookmark HTML files.',
+      'Pocket-style CSV, HTML, or ZIP exports.',
+      'Plain TXT, Markdown, or CSV URL lists.',
+    ],
+  },
 ]
 
 function ImportModeIcon({ mode }: { mode: ImportMode }) {
@@ -91,6 +117,13 @@ function ImportModeIcon({ mode }: { mode: ImportMode }) {
     return (
       <svg aria-hidden="true" viewBox="0 0 20 20">
         <path d="M8.35 5.5H6.8A3.3 3.3 0 0 0 3.5 8.8v0A3.3 3.3 0 0 0 6.8 12.1h1.55M11.65 5.5h1.55a3.3 3.3 0 0 1 3.3 3.3v0a3.3 3.3 0 0 1-3.3 3.3h-1.55M7.35 10h5.3" />
+      </svg>
+    )
+  }
+  if (mode === 'batch') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20">
+        <path d="M4.25 5.25h11.5v2.5H4.25zM4.25 10h11.5v2.5H4.25zM4.25 14.75h7.5" />
       </svg>
     )
   }
@@ -113,6 +146,8 @@ export function ImportPanel({
   onImportText,
   onImportUrl,
   onImportFile,
+  onPreviewBatchImport,
+  onImportBatch,
   showHeader = true,
   title: panelTitle = 'Import',
 }: ImportPanelProps) {
@@ -120,7 +155,17 @@ export function ImportPanel({
   const [text, setText] = useState('')
   const [url, setUrl] = useState('')
   const [mode, setMode] = useState<ImportMode>('text')
+  const [batchFile, setBatchFile] = useState<File | null>(null)
+  const [batchFormat, setBatchFormat] = useState<BatchImportFormat>('auto')
+  const [batchMaxItems, setBatchMaxItems] = useState(25)
+  const [batchPreview, setBatchPreview] = useState<BatchImportPreview | null>(null)
+  const [batchResult, setBatchResult] = useState<BatchImportResult | null>(null)
+  const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set())
+  const [batchCreateCollections, setBatchCreateCollections] = useState(true)
+  const [batchError, setBatchError] = useState<string | null>(null)
   const activeMode = importModes.find((item) => item.value === mode) ?? importModes[0]
+  const readyBatchRows = batchPreview?.rows.filter((row) => row.status === 'ready') ?? []
+  const selectedReadyBatchCount = readyBatchRows.filter((row) => batchSelectedIds.has(row.id)).length
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -148,6 +193,65 @@ export function ImportPanel({
     }
     await onImportUrl(url)
     setUrl('')
+  }
+
+  async function handleBatchPreview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!batchFile) {
+      return
+    }
+    setBatchError(null)
+    setBatchResult(null)
+    try {
+      const preview = await onPreviewBatchImport(batchFile, batchFormat, batchMaxItems)
+      setBatchPreview(preview)
+      setBatchSelectedIds(new Set(preview.rows.filter((row) => row.status === 'ready').map((row) => row.id)))
+    } catch (error) {
+      setBatchPreview(null)
+      setBatchSelectedIds(new Set())
+      setBatchError(error instanceof Error ? error.message : 'Could not preview that import file.')
+    }
+  }
+
+  async function handleBatchImport() {
+    if (!batchFile || !batchPreview || selectedReadyBatchCount === 0) {
+      return
+    }
+    setBatchError(null)
+    try {
+      const result = await onImportBatch(
+        batchFile,
+        batchFormat,
+        batchMaxItems,
+        Array.from(batchSelectedIds),
+        batchCreateCollections,
+      )
+      setBatchResult(result)
+    } catch (error) {
+      setBatchResult(null)
+      setBatchError(error instanceof Error ? error.message : 'Could not import selected links.')
+    }
+  }
+
+  function handleBatchFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null
+    setBatchFile(file)
+    setBatchPreview(null)
+    setBatchResult(null)
+    setBatchSelectedIds(new Set())
+    setBatchError(null)
+  }
+
+  function toggleBatchRow(rowId: string) {
+    setBatchSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(rowId)) {
+        next.delete(rowId)
+      } else {
+        next.add(rowId)
+      }
+      return next
+    })
   }
 
   if (collapsed) {
@@ -315,6 +419,167 @@ export function ImportPanel({
                 Choose file
               </label>
             </section>
+          ) : null}
+
+          {mode === 'batch' ? (
+            <form className="stack-gap import-panel-bulk-form" onSubmit={handleBatchPreview}>
+              <div className="import-panel-bulk-controls">
+                <label className="field">
+                  <span>Archive file</span>
+                  <input
+                    type="file"
+                    accept=".html,.htm,.csv,.txt,.md,.zip"
+                    onChange={handleBatchFileChange}
+                  />
+                </label>
+                <label className="field">
+                  <span>Format</span>
+                  <select
+                    value={batchFormat}
+                    onChange={(event) => setBatchFormat(event.target.value as BatchImportFormat)}
+                  >
+                    <option value="auto">Auto-detect</option>
+                    <option value="bookmarks_html">Bookmark HTML</option>
+                    <option value="pocket_csv">Pocket CSV</option>
+                    <option value="pocket_zip">Pocket ZIP</option>
+                    <option value="url_list">URL list</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Max links</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={batchMaxItems}
+                    onChange={(event) => {
+                      const nextValue = Number(event.target.value)
+                      setBatchMaxItems(Number.isFinite(nextValue) ? Math.min(100, Math.max(1, nextValue)) : 25)
+                    }}
+                  />
+                </label>
+              </div>
+              <label className="import-panel-bulk-checkbox">
+                <input
+                  type="checkbox"
+                  checked={batchCreateCollections}
+                  onChange={(event) => setBatchCreateCollections(event.target.checked)}
+                />
+                <span>Create collections from folders/tags</span>
+              </label>
+              <p className="small-note">Preview is dry-run only. Recall imports selected ready links as one-time local snapshots.</p>
+              <div className="inline-actions">
+                <button disabled={busy || !batchFile} type="submit">
+                  {busy ? 'Previewing…' : 'Preview archive'}
+                </button>
+              </div>
+
+              {batchError ? (
+                <div className="inline-error" role="alert">
+                  <p>{batchError}</p>
+                </div>
+              ) : null}
+
+              {batchPreview ? (
+                <section className="import-panel-bulk-preview" aria-label="Bulk import preview">
+                  <div className="toolbar import-panel-bulk-summary">
+                    <div className="section-header section-header-compact">
+                      <h3>Preview</h3>
+                      <p>
+                        {batchPreview.summary.ready_count} ready · {batchPreview.summary.duplicate_count} duplicate ·{' '}
+                        {batchPreview.summary.invalid_count + batchPreview.summary.unsupported_count} skipped
+                      </p>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      disabled={busy || selectedReadyBatchCount === 0}
+                      type="button"
+                      onClick={handleBatchImport}
+                    >
+                      {busy ? 'Importing…' : `Import selected (${selectedReadyBatchCount})`}
+                    </button>
+                  </div>
+                  {batchPreview.collection_suggestions.length ? (
+                    <div className="import-panel-bulk-collections" aria-label="Suggested import collections">
+                      {batchPreview.collection_suggestions.slice(0, 8).map((collection) => (
+                        <span
+                          key={collection.id}
+                          className="import-panel-bulk-collection-chip"
+                          data-import-collection-path-depth-stage968={String((collection.path ?? []).length)}
+                        >
+                          {(collection.path?.length ? collection.path.join(' / ') : collection.name)} · {collection.ready_count}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="import-panel-bulk-list">
+                    {batchPreview.rows.slice(0, 8).map((row) => (
+                      <label
+                        key={row.id}
+                        className={
+                          row.status === 'ready'
+                            ? 'import-panel-bulk-row import-panel-bulk-row-ready'
+                            : 'import-panel-bulk-row'
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={batchSelectedIds.has(row.id)}
+                          disabled={row.status !== 'ready'}
+                          onChange={() => toggleBatchRow(row.id)}
+                        />
+                        <span className="import-panel-bulk-row-copy">
+                          <strong>{row.title || row.url}</strong>
+                          <span>{row.url}</span>
+                          {row.folder || row.tags.length ? (
+                            <em>
+                              {[row.folder, ...row.tags].filter(Boolean).join(' · ')}
+                            </em>
+                          ) : null}
+                        </span>
+                        <span className={`import-panel-bulk-status import-panel-bulk-status-${row.status}`}>
+                          {row.status}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {batchPreview.rows.length > 8 ? (
+                    <p className="small-note">{batchPreview.rows.length - 8} more preview rows are included in the import summary.</p>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {batchResult ? (
+                <section className="import-panel-bulk-result" aria-label="Bulk import result">
+                  <strong>
+                    {batchResult.summary.imported_count} imported · {batchResult.summary.reused_count} reused ·{' '}
+                    {batchResult.summary.skipped_count} skipped · {batchResult.summary.failed_count} failed
+                  </strong>
+                  {batchResult.summary.collection_created_count || batchResult.summary.collection_updated_count ? (
+                    <p className="small-note">
+                      {batchResult.summary.collection_created_count} collections created ·{' '}
+                      {batchResult.summary.collection_updated_count} updated
+                    </p>
+                  ) : null}
+                  {batchResult.collections.length ? (
+                    <div className="import-panel-bulk-collections" aria-label="Imported collections">
+                      {batchResult.collections.slice(0, 8).map((collection) => (
+                        <span key={collection.id} className="import-panel-bulk-collection-chip">
+                          {(collection.path?.length ? collection.path.join(' / ') : collection.name)} · {collection.document_ids.length}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {batchResult.rows.some((row) => row.status === 'failed') ? (
+                    <p className="small-note">
+                      Failed links stayed in the archive preview; the rest of the selected import finished normally.
+                    </p>
+                  ) : (
+                    <p className="small-note">Imported sources are now available from Home and Reader.</p>
+                  )}
+                </section>
+              ) : null}
+            </form>
           ) : null}
         </div>
       </div>

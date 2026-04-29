@@ -46,8 +46,28 @@ from .models import (
     KnowledgeNode,
     KnowledgeNodeDetail,
     KnowledgeNodeRecord,
+    LibraryCollection,
+    LibraryCollectionMemoryCounts,
+    LibraryCollectionHighlightReviewItem,
+    LibraryCollectionOverview,
+    LibraryCollectionPathItem,
+    LibraryCollectionRecentActivity,
+    LibraryCollectionRecentSource,
+    LibraryCollectionReadingSummary,
+    LibraryCollectionResumeSource,
+    LibraryReadingQueueResponse,
+    LibraryReadingQueueRow,
+    LibraryReadingQueueScope,
+    LibraryReadingQueueState,
+    LibraryReadingQueueStudyCounts,
+    LibraryReadingQueueSummary,
+    LibrarySettings,
+    LibraryCollectionStudyCounts,
+    BatchImportCollectionResult,
+    BatchResolvedImportFormat,
     ReaderSessionState,
     ReaderSettings,
+    ReadingCompleteResult,
     SourceDocument,
     RecallNoteAnchor,
     RecallNoteCreateRequest,
@@ -60,22 +80,35 @@ from .models import (
     RecallDocumentRecord,
     RecallSearchHit,
     StudyCardGenerationResult,
+    StudyCardGenerationRequest,
     StudyCardBulkDeleteResult,
     StudyCardCreateRequest,
     StudyCardDeleteResult,
     StudyCardRecord,
     StudyCardUpdateRequest,
+    StudyAnswerAttemptRecord,
+    StudyAnswerAttemptRequest,
     StudyOverview,
+    StudyReviewProgressDifficulty,
     StudyReviewProgress,
     StudyReviewProgressDay,
+    StudyReviewGoalHistoryRow,
+    StudyReviewGoalStatus,
     StudyReviewProgressRatingCount,
     StudyReviewProgressRecentReview,
+    StudyReviewSessionCompleteRequest,
+    StudyReviewSessionRecord,
+    StudyReviewSessionStartRequest,
     StudyReviewProgressStageCount,
     StudyReviewProgressStageSnapshot,
     StudyReviewProgressSource,
+    StudySettings,
     PortableEntityDigest,
+    RelationEvidence,
     WorkspaceChangeLogPage,
+    WorkspaceDataPayload,
     WorkspaceExportManifest,
+    WorkspaceImportApplyResult,
     WorkspaceIntegrityIssue,
     WorkspaceIntegrityReport,
     WorkspaceMergeOperation,
@@ -83,6 +116,7 @@ from .models import (
     WorkspaceRepairResult,
 )
 from .portability import (
+    WORKSPACE_DATA_ARCHIVE_PATH,
     WORKSPACE_EXPORT_FORMAT_VERSION,
     build_payload_digest,
     build_workspace_export_filename,
@@ -101,6 +135,7 @@ from .recall import (
 )
 from .text_utils import normalize_whitespace, now_iso, safe_query_terms, sha256_text
 from .study import (
+    GENERATED_STUDY_CARD_TYPES,
     LEXICAL_EMBEDDING_MODEL,
     build_embedding_id,
     build_initial_scheduling_state,
@@ -130,6 +165,16 @@ STUDY_MANUAL_CARD_TYPES = {
     "ordering",
 }
 STUDY_QUESTION_PAYLOAD_CARD_TYPES = {"multiple_choice", "true_false", "fill_in_blank", "matching", "ordering"}
+STUDY_QUESTION_DIFFICULTIES = {"easy", "medium", "hard"}
+STUDY_FALLBACK_DIFFICULTY_BY_TYPE = {
+    "flashcard": "easy",
+    "true_false": "easy",
+    "multiple_choice": "medium",
+    "fill_in_blank": "medium",
+    "short_answer": "hard",
+    "matching": "hard",
+    "ordering": "hard",
+}
 STUDY_FILL_IN_BLANK_MARKER = "{{blank}}"
 STUDY_TRUE_FALSE_CHOICES = (
     {"id": "true", "text": "True"},
@@ -161,6 +206,21 @@ def _study_card_is_manual_state(card_type: str | None, scheduling_state: dict[st
     return card_type in {"manual", "manual_note"} or bool(scheduling_state.get("manual_content_created_at"))
 
 
+def _normalize_study_question_difficulty(value: Any) -> str | None:
+    normalized = normalize_whitespace(str(value or "")).casefold()
+    return normalized if normalized in STUDY_QUESTION_DIFFICULTIES else None
+
+
+def _study_question_difficulty(card_type: str | None, scheduling_state: dict[str, Any]) -> str:
+    manual_difficulty = _normalize_study_question_difficulty(scheduling_state.get("manual_question_difficulty"))
+    if manual_difficulty:
+        return manual_difficulty
+    generated_difficulty = _normalize_study_question_difficulty(scheduling_state.get("generated_question_difficulty"))
+    if generated_difficulty:
+        return generated_difficulty
+    return STUDY_FALLBACK_DIFFICULTY_BY_TYPE.get(str(card_type or ""), "medium")
+
+
 def _study_question_payload_to_dict(payload: Any) -> dict[str, Any] | None:
     if payload is None:
         return None
@@ -168,6 +228,148 @@ def _study_question_payload_to_dict(payload: Any) -> dict[str, Any] | None:
         dumped = payload.model_dump(mode="json")
         return dumped if isinstance(dumped, dict) else None
     return payload if isinstance(payload, dict) else None
+
+
+def _normalize_study_support_payload(payload: Any) -> dict[str, str] | None:
+    if payload is None:
+        return None
+    if hasattr(payload, "model_dump"):
+        dumped = payload.model_dump(mode="json")
+        payload_dict = dumped if isinstance(dumped, dict) else {}
+    else:
+        payload_dict = payload if isinstance(payload, dict) else {}
+    normalized: dict[str, str] = {}
+    for key in ("hint", "explanation", "source_excerpt"):
+        value = normalize_whitespace(str(payload_dict.get(key) or ""))
+        if value:
+            normalized[key] = value
+    return normalized or None
+
+
+def _filter_study_support_payload(
+    payload: Any,
+    *,
+    include_hints: bool,
+    include_explanations: bool,
+) -> dict[str, str] | None:
+    normalized = _normalize_study_support_payload(payload)
+    if not normalized:
+        return None
+    filtered: dict[str, str] = {}
+    if include_hints and normalized.get("hint"):
+        filtered["hint"] = normalized["hint"]
+    if include_explanations and normalized.get("explanation"):
+        filtered["explanation"] = normalized["explanation"]
+    if filtered and normalized.get("source_excerpt"):
+        filtered["source_excerpt"] = normalized["source_excerpt"]
+    return filtered or None
+
+
+def _study_attempt_response_to_dict(response: Any) -> dict[str, Any]:
+    if response is None:
+        return {}
+    if hasattr(response, "model_dump"):
+        dumped = response.model_dump(mode="json")
+        return dumped if isinstance(dumped, dict) else {}
+    return response if isinstance(response, dict) else {}
+
+
+def _study_attempt_selected_value(response: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = response.get(key)
+        if value is not None:
+            return normalize_whitespace(str(value))
+    return ""
+
+
+def _study_normalized_answer_text(value: Any) -> str:
+    return normalize_whitespace(str(value or "")).casefold()
+
+
+def _study_attempt_correctness(
+    *,
+    card_type: str,
+    answer: str,
+    question_payload: dict[str, Any] | None,
+    response: dict[str, Any],
+) -> bool | None:
+    if card_type == "flashcard":
+        return None
+
+    if response.get("timed_out") is True:
+        return False
+
+    if card_type == "short_answer":
+        response_text = _study_attempt_selected_value(response, "answer_text", "answer", "text", "value")
+        if not response_text:
+            return False
+        return _study_normalized_answer_text(response_text) == _study_normalized_answer_text(answer)
+
+    payload = question_payload if isinstance(question_payload, dict) else {}
+
+    if card_type in {"multiple_choice", "fill_in_blank"}:
+        selected_choice_id = _study_attempt_selected_value(
+            response,
+            "selected_choice_id",
+            "choice_id",
+            "answer",
+            "value",
+        )
+        return bool(selected_choice_id) and selected_choice_id == normalize_whitespace(
+            str(payload.get("correct_choice_id") or "")
+        )
+
+    if card_type == "true_false":
+        selected_choice_id = _study_attempt_selected_value(
+            response,
+            "selected_choice_id",
+            "choice_id",
+            "answer",
+            "value",
+        ).casefold()
+        if selected_choice_id in {"1", "yes"}:
+            selected_choice_id = "true"
+        if selected_choice_id in {"0", "no"}:
+            selected_choice_id = "false"
+        expected_choice_id = normalize_whitespace(str(payload.get("correct_choice_id") or answer)).casefold()
+        return selected_choice_id in {"true", "false"} and selected_choice_id == expected_choice_id
+
+    if card_type == "matching":
+        raw_selections = response.get("selections")
+        selections = raw_selections if isinstance(raw_selections, dict) else {}
+        pairs = payload.get("pairs")
+        if not isinstance(pairs, list) or not pairs:
+            return False
+        expected_pair_ids = [
+            normalize_whitespace(str(pair.get("id") or ""))
+            for pair in pairs
+            if isinstance(pair, dict) and normalize_whitespace(str(pair.get("id") or ""))
+        ]
+        normalized_selections = {
+            normalize_whitespace(str(left_id)): normalize_whitespace(str(right_id))
+            for left_id, right_id in selections.items()
+        }
+        return bool(expected_pair_ids) and all(
+            normalized_selections.get(pair_id) == pair_id for pair_id in expected_pair_ids
+        )
+
+    if card_type == "ordering":
+        raw_item_ids = response.get("item_ids")
+        if raw_item_ids is None:
+            raw_item_ids = response.get("ordered_item_ids")
+        item_ids = raw_item_ids if isinstance(raw_item_ids, list) else []
+        response_ids = [normalize_whitespace(str(item_id)) for item_id in item_ids if normalize_whitespace(str(item_id))]
+        items = payload.get("items")
+        expected_ids: list[str] = []
+        if isinstance(items, list):
+            expected_ids = [
+                normalize_whitespace(str(item.get("id") or ""))
+                for item in items
+                if isinstance(item, dict) and normalize_whitespace(str(item.get("id") or ""))
+            ]
+        return bool(expected_ids) and response_ids == expected_ids
+
+    return None
 
 
 def _normalize_study_choice_options(
@@ -358,39 +560,50 @@ def _normalize_study_question_payload(
 def _study_payload_texts_from_state(scheduling_state: dict[str, Any]) -> list[str]:
     payload = scheduling_state.get("manual_question_payload")
     if not isinstance(payload, dict):
-        return []
+        payload = scheduling_state.get("generated_question_payload")
     texts: list[str] = []
-    template = normalize_whitespace(str(payload.get("template") or ""))
-    if template:
-        texts.append(template)
-    raw_choices = payload.get("choices")
-    if not isinstance(raw_choices, list):
-        return texts
-    for raw_choice in raw_choices:
-        if not isinstance(raw_choice, dict):
-            continue
-        text = normalize_whitespace(str(raw_choice.get("text") or ""))
-        if text:
-            texts.append(text)
-    raw_pairs = payload.get("pairs")
-    if isinstance(raw_pairs, list):
-        for raw_pair in raw_pairs:
-            if not isinstance(raw_pair, dict):
-                continue
-            left = normalize_whitespace(str(raw_pair.get("left") or ""))
-            right = normalize_whitespace(str(raw_pair.get("right") or ""))
-            if left:
-                texts.append(left)
-            if right:
-                texts.append(right)
-    raw_items = payload.get("items")
-    if isinstance(raw_items, list):
-        for raw_item in raw_items:
-            if not isinstance(raw_item, dict):
-                continue
-            text = normalize_whitespace(str(raw_item.get("text") or ""))
+    if isinstance(payload, dict):
+        template = normalize_whitespace(str(payload.get("template") or ""))
+        if template:
+            texts.append(template)
+        raw_choices = payload.get("choices")
+        if isinstance(raw_choices, list):
+            for raw_choice in raw_choices:
+                if not isinstance(raw_choice, dict):
+                    continue
+                text = normalize_whitespace(str(raw_choice.get("text") or ""))
+                if text:
+                    texts.append(text)
+        raw_pairs = payload.get("pairs")
+        if isinstance(raw_pairs, list):
+            for raw_pair in raw_pairs:
+                if not isinstance(raw_pair, dict):
+                    continue
+                left = normalize_whitespace(str(raw_pair.get("left") or ""))
+                right = normalize_whitespace(str(raw_pair.get("right") or ""))
+                if left:
+                    texts.append(left)
+                if right:
+                    texts.append(right)
+        raw_items = payload.get("items")
+        if isinstance(raw_items, list):
+            for raw_item in raw_items:
+                if not isinstance(raw_item, dict):
+                    continue
+                text = normalize_whitespace(str(raw_item.get("text") or ""))
+                if text:
+                    texts.append(text)
+    support_payload = scheduling_state.get("manual_question_support_payload")
+    if not isinstance(support_payload, dict):
+        support_payload = scheduling_state.get("generated_question_support_payload")
+    if isinstance(support_payload, dict):
+        for key in ("hint", "explanation", "source_excerpt"):
+            text = normalize_whitespace(str(support_payload.get(key) or ""))
             if text:
                 texts.append(text)
+    difficulty = _study_question_difficulty(None, scheduling_state)
+    if difficulty:
+        texts.append(difficulty)
     return texts
 
 
@@ -422,6 +635,13 @@ class Repository:
                 "SELECT id FROM source_documents WHERE content_hash = ?",
                 (content_hash,),
             ).fetchone()
+        if not row:
+            return None
+        return self.get_document(row["id"])
+
+    def find_web_document_by_url(self, page_url: str) -> DocumentRecord | None:
+        with self.connect() as connection:
+            row = self._find_exact_saved_page_row_with_connection(connection, page_url)
         if not row:
             return None
         return self.get_document(row["id"])
@@ -1142,6 +1362,746 @@ class Repository:
         )
         return document, build_export_filename(document.title), markdown
 
+    def build_recall_learning_pack_export(self, document_id: str) -> tuple[RecallDocumentRecord, str, str] | None:
+        plain_export = self.build_recall_markdown_export(document_id)
+        if not plain_export:
+            return None
+
+        document, _, source_markdown = plain_export
+        with self.connect() as connection:
+            source_row = connection.execute(
+                "SELECT metadata_json FROM source_documents WHERE id = ?",
+                (document_id,),
+            ).fetchone()
+            source_metadata = json.loads(source_row["metadata_json"] or "{}") if source_row else {}
+            library_row = connection.execute(
+                "SELECT value_json FROM app_settings WHERE namespace = 'library'",
+            ).fetchone()
+            library_settings = (
+                self._normalize_library_settings_with_connection(
+                    connection,
+                    LibrarySettings.model_validate_json(library_row["value_json"]),
+                )
+                if library_row
+                else LibrarySettings()
+            )
+            collection_names = self._library_collection_names_for_document_with_connection(
+                library_settings,
+                document_id,
+            )
+            note_rows = connection.execute(
+                """
+                SELECT *
+                FROM recall_notes
+                WHERE source_document_id = ?
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (document_id,),
+            ).fetchall()
+            node_rows = connection.execute(
+                """
+                SELECT *
+                FROM knowledge_nodes
+                ORDER BY confidence DESC, label COLLATE NOCASE ASC
+                """
+            ).fetchall()
+            edge_rows = connection.execute(
+                """
+                SELECT
+                    ke.*,
+                    source_node.label AS source_label,
+                    target_node.label AS target_label
+                FROM knowledge_edges ke
+                INNER JOIN knowledge_nodes source_node ON source_node.id = ke.source_id
+                INNER JOIN knowledge_nodes target_node ON target_node.id = ke.target_id
+                ORDER BY ke.confidence DESC, ke.relation_type COLLATE NOCASE ASC
+                """
+            ).fetchall()
+            mention_rows = connection.execute(
+                """
+                SELECT *
+                FROM entity_mentions
+                WHERE source_document_id = ?
+                ORDER BY confidence DESC, text COLLATE NOCASE ASC
+                """,
+                (document_id,),
+            ).fetchall()
+            card_rows = connection.execute(
+                """
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.source_document_id = ?
+                ORDER BY rc.updated_at DESC, rc.id ASC
+                """,
+                (document_id,),
+            ).fetchall()
+
+        notes = [self._row_to_recall_note_record(row) for row in note_rows]
+        graph_nodes = [
+            self._row_to_knowledge_node_record(row)
+            for row in node_rows
+            if document_id in list(self._metadata_from_row(row).get("source_document_ids", []))
+        ]
+        graph_nodes = [node for node in graph_nodes if node.status != "rejected"]
+        graph_edges = [
+            self._row_to_knowledge_edge_record(row)
+            for row in edge_rows
+            if document_id in list(self._metadata_from_row(row).get("source_document_ids", []))
+        ]
+        graph_edges = [edge for edge in graph_edges if edge.status != "rejected"]
+        graph_mentions = [self._row_to_knowledge_mention_record(row) for row in mention_rows]
+        study_cards = [
+            self._row_to_study_card_record(row)
+            for row in card_rows
+            if not _study_card_is_deleted_state(_study_scheduling_state_from_json(row["scheduling_state_json"]))
+        ]
+        study_progress = self.get_study_review_progress(source_document_id=document_id, period_days=30, recent_limit=8)
+        markdown = self._render_recall_learning_pack_markdown(
+            document=document,
+            source_markdown=source_markdown,
+            notes=notes,
+            graph_nodes=graph_nodes,
+            graph_edges=graph_edges,
+            graph_mentions=graph_mentions,
+            study_cards=study_cards,
+            study_progress=study_progress,
+            source_metadata=source_metadata,
+            collection_names=collection_names,
+        )
+        return document, self._learning_pack_filename(document), markdown
+
+    def get_library_collection_overview(self, collection_id: str) -> LibraryCollectionOverview | None:
+        with self.connect() as connection:
+            settings = self.get_library_settings()
+            collection_by_id = {collection.id: collection for collection in settings.custom_collections}
+            collection = collection_by_id.get(collection_id)
+            if not collection:
+                return None
+
+            direct_document_ids = self._valid_library_document_ids_with_connection(connection, collection.document_ids)
+            aggregate_document_ids = self._library_collection_document_ids_with_connection(
+                connection,
+                settings,
+                collection_id,
+            )
+            child_collection_count = sum(
+                1 for candidate in settings.custom_collections if candidate.parent_id == collection_id
+            )
+            path_items = [
+                LibraryCollectionPathItem(id=path_collection.id, name=path_collection.name)
+                for path_collection in self._library_collection_path(settings, collection_id)
+            ]
+
+            source_rows: list[sqlite3.Row] = []
+            note_rows: list[sqlite3.Row] = []
+            card_rows: list[sqlite3.Row] = []
+            session_rows: list[sqlite3.Row] = []
+            reader_session_rows: list[sqlite3.Row] = []
+            variant_rows: list[sqlite3.Row] = []
+            if aggregate_document_ids:
+                placeholders = ", ".join("?" for _ in aggregate_document_ids)
+                parameters = tuple(aggregate_document_ids)
+                source_rows = connection.execute(
+                    f"""
+                    SELECT id, title, source_type, updated_at
+                    FROM source_documents
+                    WHERE id IN ({placeholders})
+                    ORDER BY updated_at DESC, title COLLATE NOCASE ASC
+                    LIMIT 8
+                    """,
+                    parameters,
+                ).fetchall()
+                note_rows = connection.execute(
+                    f"""
+                    SELECT
+                        rn.id,
+                        rn.source_document_id,
+                        rn.anchor_kind,
+                        rn.anchor_text,
+                        rn.excerpt_text,
+                        rn.body_text,
+                        rn.global_sentence_start,
+                        rn.global_sentence_end,
+                        rn.updated_at,
+                        sd.title AS document_title
+                    FROM recall_notes rn
+                    INNER JOIN source_documents sd ON sd.id = rn.source_document_id
+                    WHERE rn.source_document_id IN ({placeholders})
+                    ORDER BY rn.updated_at DESC, rn.id DESC
+                    """,
+                    parameters,
+                ).fetchall()
+                card_rows = connection.execute(
+                    f"""
+                    SELECT rc.*, sd.title AS document_title
+                    FROM review_cards rc
+                    INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                    WHERE rc.source_document_id IN ({placeholders})
+                    ORDER BY rc.updated_at DESC, rc.id ASC
+                    """,
+                    parameters,
+                ).fetchall()
+                session_rows = connection.execute(
+                    f"""
+                    SELECT id, source_document_id, started_at, completed_at
+                    FROM study_review_sessions
+                    WHERE source_document_id IN ({placeholders})
+                    ORDER BY started_at DESC, id DESC
+                    LIMIT 8
+                    """,
+                    parameters,
+                ).fetchall()
+                reader_session_rows = connection.execute(
+                    f"""
+                    SELECT
+                        rs.source_document_id,
+                        rs.mode,
+                        rs.sentence_index,
+                        rs.updated_at,
+                        sd.title AS document_title,
+                        sd.source_type
+                    FROM reading_sessions rs
+                    INNER JOIN source_documents sd ON sd.id = rs.source_document_id
+                    WHERE rs.source_document_id IN ({placeholders})
+                        AND rs.session_kind = ?
+                        AND rs.device_id = ?
+                    ORDER BY rs.updated_at DESC, rs.source_document_id ASC
+                    """,
+                    (*parameters, DEFAULT_SESSION_KIND, self.device_id),
+                ).fetchall()
+                variant_rows = connection.execute(
+                    f"""
+                    SELECT source_document_id, mode, view_json
+                    FROM document_variants
+                    WHERE source_document_id IN ({placeholders})
+                        AND detail_level = 'default'
+                    """,
+                    parameters,
+                ).fetchall()
+
+            aggregate_document_id_set = set(aggregate_document_ids)
+            graph_node_count = 0
+            graph_activity: list[LibraryCollectionRecentActivity] = []
+            node_rows = connection.execute(
+                """
+                SELECT id, label, metadata_json, updated_at
+                FROM knowledge_nodes
+                ORDER BY updated_at DESC, label COLLATE NOCASE ASC
+                """
+            ).fetchall()
+            for row in node_rows:
+                metadata = self._metadata_from_row(row)
+                if metadata.get("status") == "rejected":
+                    continue
+                source_ids = set(metadata.get("source_document_ids", []))
+                if not source_ids.intersection(aggregate_document_id_set):
+                    continue
+                graph_node_count += 1
+                if len(graph_activity) < 8:
+                    graph_activity.append(
+                        LibraryCollectionRecentActivity(
+                            kind="graph_node",
+                            label=row["label"],
+                            source_document_id=next(iter(source_ids.intersection(aggregate_document_id_set)), None),
+                            occurred_at=row["updated_at"],
+                        )
+                    )
+
+            visible_cards = [
+                self._row_to_study_card_record(row)
+                for row in card_rows
+                if not _study_card_is_deleted_state(_study_scheduling_state_from_json(row["scheduling_state_json"]))
+            ]
+            status_counts = Counter(card.status for card in visible_cards)
+            reviewed_count = sum(1 for card in visible_cards if card.review_count > 0)
+
+            direct_document_id_set = set(direct_document_ids)
+            sentence_count_by_document_mode = {
+                (row["source_document_id"], row["mode"]): self._sentence_count_from_view_json(row["view_json"])
+                for row in variant_rows
+            }
+            latest_reader_session_by_document: dict[str, sqlite3.Row] = {}
+            for row in reader_session_rows:
+                document_id = row["source_document_id"]
+                if document_id not in latest_reader_session_by_document:
+                    latest_reader_session_by_document[document_id] = row
+
+            resume_sources: list[LibraryCollectionResumeSource] = []
+            completed_sources = 0
+            in_progress_sources = 0
+            last_read_at: str | None = None
+            for row in latest_reader_session_by_document.values():
+                document_id = row["source_document_id"]
+                mode = row["mode"]
+                sentence_count = sentence_count_by_document_mode.get((document_id, mode), 0)
+                if sentence_count <= 0:
+                    sentence_count = max(int(row["sentence_index"]) + 1, 1)
+                progress_percent = min(100, max(0, round(((int(row["sentence_index"]) + 1) / sentence_count) * 100)))
+                if progress_percent >= 95 or int(row["sentence_index"]) >= sentence_count - 1:
+                    completed_sources += 1
+                else:
+                    in_progress_sources += 1
+                last_read_at = max(last_read_at or row["updated_at"], row["updated_at"])
+                resume_sources.append(
+                    LibraryCollectionResumeSource(
+                        id=document_id,
+                        title=row["document_title"],
+                        source_type=row["source_type"],
+                        mode=mode,
+                        sentence_index=row["sentence_index"],
+                        sentence_count=sentence_count,
+                        progress_percent=progress_percent,
+                        membership="direct" if document_id in direct_document_id_set else "descendant",
+                        updated_at=row["updated_at"],
+                    )
+                )
+            resume_sources.sort(key=lambda source: source.updated_at, reverse=True)
+            reading_summary = LibraryCollectionReadingSummary(
+                total_sources=len(aggregate_document_ids),
+                unread_sources=max(0, len(aggregate_document_ids) - len(latest_reader_session_by_document)),
+                in_progress_sources=in_progress_sources,
+                completed_sources=completed_sources,
+                last_read_at=last_read_at,
+            )
+            highlight_review_items = [
+                LibraryCollectionHighlightReviewItem(
+                    note_id=row["id"],
+                    note_kind="source" if str(row["anchor_kind"] or "sentence") == "source" else "sentence",
+                    source_document_id=row["source_document_id"],
+                    source_title=row["document_title"],
+                    anchor_text=row["anchor_text"],
+                    excerpt_preview=self._truncate_text(row["excerpt_text"], 180) or row["anchor_text"],
+                    body_preview=self._truncate_text(row["body_text"], 180) if row["body_text"] else None,
+                    global_sentence_start=None
+                    if str(row["anchor_kind"] or "sentence") == "source"
+                    else row["global_sentence_start"],
+                    global_sentence_end=None
+                    if str(row["anchor_kind"] or "sentence") == "source"
+                    else row["global_sentence_end"],
+                    membership="direct" if row["source_document_id"] in direct_document_id_set else "descendant",
+                    updated_at=row["updated_at"],
+                )
+                for row in note_rows[:12]
+            ]
+            recent_sources = [
+                LibraryCollectionRecentSource(
+                    id=row["id"],
+                    title=row["title"],
+                    source_type=row["source_type"],
+                    updated_at=row["updated_at"],
+                    membership="direct" if row["id"] in direct_document_id_set else "descendant",
+                )
+                for row in source_rows
+            ]
+            recent_activity: list[LibraryCollectionRecentActivity] = [
+                LibraryCollectionRecentActivity(
+                    kind="source",
+                    label=row["title"],
+                    source_document_id=row["id"],
+                    occurred_at=row["updated_at"],
+                )
+                for row in source_rows[:4]
+            ]
+            recent_activity.extend(
+                LibraryCollectionRecentActivity(
+                    kind="note",
+                    label=self._truncate_text(row["body_text"], 120) or "Source note",
+                    source_document_id=row["source_document_id"],
+                    occurred_at=row["updated_at"],
+                )
+                for row in note_rows
+            )
+            recent_activity.extend(graph_activity)
+            recent_activity.extend(
+                LibraryCollectionRecentActivity(
+                    kind="study_card",
+                    label=card.prompt,
+                    source_document_id=card.source_document_id,
+                    occurred_at=str(card.scheduling_state.get("updated_at") or card.due_at),
+                )
+                for card in visible_cards[:8]
+            )
+            recent_activity.extend(
+                LibraryCollectionRecentActivity(
+                    kind="study_session",
+                    label="Study review session",
+                    source_document_id=row["source_document_id"],
+                    occurred_at=row["completed_at"] or row["started_at"],
+                )
+                for row in session_rows
+            )
+            recent_activity.sort(key=lambda item: item.occurred_at, reverse=True)
+
+        return LibraryCollectionOverview(
+            id=collection.id,
+            name=collection.name,
+            parent_id=collection.parent_id,
+            path=path_items,
+            direct_document_ids=direct_document_ids,
+            descendant_document_ids=aggregate_document_ids,
+            direct_document_count=len(direct_document_ids),
+            descendant_document_count=len(aggregate_document_ids),
+            child_collection_count=child_collection_count,
+            memory_counts=LibraryCollectionMemoryCounts(
+                notes=len(note_rows),
+                graph_nodes=graph_node_count,
+                study_cards=len(visible_cards),
+            ),
+            study_counts=LibraryCollectionStudyCounts(
+                new=status_counts.get("new", 0),
+                due=status_counts.get("due", 0),
+                scheduled=status_counts.get("scheduled", 0),
+                unscheduled=status_counts.get("unscheduled", 0),
+                reviewed=reviewed_count,
+                total=len(visible_cards),
+            ),
+            reading_summary=reading_summary,
+            resume_sources=resume_sources[:8],
+            highlight_review_items=highlight_review_items,
+            recent_sources=recent_sources,
+            recent_activity=recent_activity[:12],
+        )
+
+    def get_library_reading_queue(
+        self,
+        *,
+        scope: LibraryReadingQueueScope = "all",
+        collection_id: str | None = None,
+        state: LibraryReadingQueueState = "all",
+        limit: int = 20,
+    ) -> LibraryReadingQueueResponse | None:
+        if scope not in {"all", "web", "documents", "captures", "untagged"}:
+            raise ValueError("Unsupported reading queue scope.")
+        if state not in {"all", "unread", "in_progress", "completed"}:
+            raise ValueError("Unsupported reading queue state.")
+
+        capped_limit = min(max(limit, 1), 50)
+        with self.connect() as connection:
+            settings = self.get_library_settings()
+            collection_by_id = {collection.id: collection for collection in settings.custom_collections}
+            collection_direct_document_ids: set[str] = set()
+            collection_document_ids: set[str] | None = None
+            if collection_id:
+                collection = collection_by_id.get(collection_id)
+                if not collection:
+                    return None
+                collection_direct_document_ids = set(
+                    self._valid_library_document_ids_with_connection(connection, collection.document_ids)
+                )
+                collection_document_ids = set(
+                    self._library_collection_document_ids_with_connection(connection, settings, collection_id)
+                )
+
+            source_rows = connection.execute(
+                """
+                SELECT id, title, source_type, updated_at
+                FROM source_documents
+                ORDER BY updated_at DESC, title COLLATE NOCASE ASC
+                """
+            ).fetchall()
+            all_document_ids = [row["id"] for row in source_rows]
+            tagged_document_ids = {
+                document_id
+                for collection in settings.custom_collections
+                for document_id in self._valid_library_document_ids_with_connection(connection, collection.document_ids)
+            }
+
+            def row_matches_scope(row: sqlite3.Row) -> bool:
+                if collection_document_ids is not None:
+                    return row["id"] in collection_document_ids
+                source_type = str(row["source_type"] or "").lower()
+                if scope == "web":
+                    return source_type == "web"
+                if scope == "captures":
+                    return source_type == "paste"
+                if scope == "documents":
+                    return source_type not in {"web", "paste"}
+                if scope == "untagged":
+                    return row["id"] not in tagged_document_ids
+                return True
+
+            scoped_source_rows = [row for row in source_rows if row_matches_scope(row)]
+            scoped_document_ids = [row["id"] for row in scoped_source_rows]
+            if not scoped_document_ids:
+                return LibraryReadingQueueResponse(
+                    scope=scope,
+                    state=state,
+                    collection_id=collection_id,
+                    summary=LibraryReadingQueueSummary(),
+                    rows=[],
+                )
+
+            placeholders = ", ".join("?" for _ in scoped_document_ids)
+            parameters = tuple(scoped_document_ids)
+            variant_rows = connection.execute(
+                f"""
+                SELECT source_document_id, mode, view_json
+                FROM document_variants
+                WHERE source_document_id IN ({placeholders})
+                    AND detail_level = 'default'
+                """,
+                parameters,
+            ).fetchall()
+            session_rows = connection.execute(
+                f"""
+                SELECT source_document_id, mode, sentence_index, updated_at
+                FROM reading_sessions
+                WHERE source_document_id IN ({placeholders})
+                    AND session_kind = ?
+                    AND device_id = ?
+                ORDER BY updated_at DESC, source_document_id ASC
+                """,
+                (*parameters, DEFAULT_SESSION_KIND, self.device_id),
+            ).fetchall()
+            note_rows = connection.execute(
+                f"""
+                SELECT
+                    source_document_id,
+                    COUNT(*) AS note_count,
+                    SUM(CASE WHEN COALESCE(anchor_kind, 'sentence') = 'source' THEN 0 ELSE 1 END) AS highlight_count
+                FROM recall_notes
+                WHERE source_document_id IN ({placeholders})
+                GROUP BY source_document_id
+                """,
+                parameters,
+            ).fetchall()
+            card_rows = connection.execute(
+                f"""
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.source_document_id IN ({placeholders})
+                ORDER BY rc.updated_at DESC, rc.id ASC
+                """,
+                parameters,
+            ).fetchall()
+
+            sentence_count_by_document_mode = {
+                (row["source_document_id"], row["mode"]): self._sentence_count_from_view_json(row["view_json"])
+                for row in variant_rows
+            }
+            modes_by_document: dict[str, list[str]] = {}
+            for row in variant_rows:
+                modes_by_document.setdefault(row["source_document_id"], []).append(row["mode"])
+            latest_session_by_document: dict[str, sqlite3.Row] = {}
+            for row in session_rows:
+                latest_session_by_document.setdefault(row["source_document_id"], row)
+            note_counts = {
+                row["source_document_id"]: {
+                    "note_count": int(row["note_count"] or 0),
+                    "highlight_count": int(row["highlight_count"] or 0),
+                }
+                for row in note_rows
+            }
+            study_counts_by_document: dict[str, Counter[str]] = {}
+            for row in card_rows:
+                card = self._row_to_study_card_record(row)
+                if _study_card_is_deleted_state(card.scheduling_state):
+                    continue
+                study_counts_by_document.setdefault(card.source_document_id, Counter())[card.status] += 1
+
+            collection_paths_by_document: dict[str, list[list[LibraryCollectionPathItem]]] = {document_id: [] for document_id in all_document_ids}
+            for collection in settings.custom_collections:
+                path = [
+                    LibraryCollectionPathItem(id=path_collection.id, name=path_collection.name)
+                    for path_collection in self._library_collection_path(settings, collection.id)
+                ]
+                for document_id in self._valid_library_document_ids_with_connection(connection, collection.document_ids):
+                    collection_paths_by_document.setdefault(document_id, []).append(path)
+
+            rows: list[LibraryReadingQueueRow] = []
+            for row in scoped_source_rows:
+                document_id = row["id"]
+                latest_session = latest_session_by_document.get(document_id)
+                available_modes = modes_by_document.get(document_id, [])
+                mode = (
+                    latest_session["mode"]
+                    if latest_session is not None and latest_session["mode"] in available_modes
+                    else "reflowed"
+                    if "reflowed" in available_modes
+                    else "original"
+                    if "original" in available_modes
+                    else available_modes[0]
+                    if available_modes
+                    else "original"
+                )
+                sentence_count = sentence_count_by_document_mode.get((document_id, mode), 0)
+                if sentence_count <= 0:
+                    sentence_count = max(int(latest_session["sentence_index"]) + 1, 1) if latest_session else 1
+                sentence_index = int(latest_session["sentence_index"]) if latest_session else 0
+                progress_percent = (
+                    min(100, max(0, round(((sentence_index + 1) / sentence_count) * 100)))
+                    if latest_session
+                    else 0
+                )
+                if latest_session is None:
+                    row_state: LibraryReadingQueueState = "unread"
+                elif progress_percent >= 95 or sentence_index >= sentence_count - 1:
+                    row_state = "completed"
+                else:
+                    row_state = "in_progress"
+                note_count = note_counts.get(document_id, {}).get("note_count", 0)
+                highlight_count = note_counts.get(document_id, {}).get("highlight_count", 0)
+                study_counter = study_counts_by_document.get(document_id, Counter())
+                rows.append(
+                    LibraryReadingQueueRow(
+                        id=document_id,
+                        title=row["title"],
+                        source_type=row["source_type"],
+                        state=row_state,  # type: ignore[arg-type]
+                        mode=mode,  # type: ignore[arg-type]
+                        sentence_index=sentence_index,
+                        sentence_count=sentence_count,
+                        progress_percent=progress_percent,
+                        last_read_at=latest_session["updated_at"] if latest_session else None,
+                        updated_at=row["updated_at"],
+                        membership=(
+                            "direct"
+                            if collection_id and document_id in collection_direct_document_ids
+                            else "descendant"
+                            if collection_id
+                            else None
+                        ),
+                        collection_paths=collection_paths_by_document.get(document_id, []),
+                        note_count=note_count,
+                        highlight_count=highlight_count,
+                        study_counts=LibraryReadingQueueStudyCounts(
+                            new=study_counter.get("new", 0),
+                            due=study_counter.get("due", 0),
+                            total=sum(study_counter.values()),
+                        ),
+                    )
+                )
+
+        summary_counts = Counter(row.state for row in rows)
+        summary = LibraryReadingQueueSummary(
+            total_sources=len(rows),
+            unread_sources=summary_counts.get("unread", 0),
+            in_progress_sources=summary_counts.get("in_progress", 0),
+            completed_sources=summary_counts.get("completed", 0),
+        )
+        filtered_rows = [row for row in rows if state == "all" or row.state == state]
+        state_priority = {"in_progress": 0, "unread": 1, "completed": 2}
+        filtered_rows.sort(
+            key=lambda row: (
+                state_priority[row.state],
+                row.last_read_at or row.updated_at,
+                row.title.lower(),
+            ),
+            reverse=False,
+        )
+        return LibraryReadingQueueResponse(
+            scope=scope,
+            state=state,
+            collection_id=collection_id,
+            summary=summary,
+            rows=filtered_rows[:capped_limit],
+        )
+
+    def complete_document_reading(self, document_id: str, mode: str | None = None) -> ReadingCompleteResult | None:
+        document = self.get_document(document_id)
+        if not document:
+            return None
+
+        with self.connect() as connection:
+            variant_rows = connection.execute(
+                """
+                SELECT mode, view_json
+                FROM document_variants
+                WHERE source_document_id = ?
+                    AND detail_level = 'default'
+                """,
+                (document_id,),
+            ).fetchall()
+            if not variant_rows:
+                raise ValueError("Document has no readable view to complete.")
+            view_by_mode = {row["mode"]: row["view_json"] for row in variant_rows}
+            selected_mode = mode
+            if selected_mode is None:
+                latest_session = connection.execute(
+                    """
+                    SELECT mode
+                    FROM reading_sessions
+                    WHERE source_document_id = ?
+                        AND session_kind = ?
+                        AND device_id = ?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (document_id, DEFAULT_SESSION_KIND, self.device_id),
+                ).fetchone()
+                if latest_session and latest_session["mode"] in view_by_mode:
+                    selected_mode = latest_session["mode"]
+                elif "reflowed" in view_by_mode:
+                    selected_mode = "reflowed"
+                elif "original" in view_by_mode:
+                    selected_mode = "original"
+                else:
+                    selected_mode = next(iter(view_by_mode))
+            if selected_mode not in view_by_mode:
+                raise ValueError("Requested reading mode is unavailable for this source.")
+            sentence_count = self._sentence_count_from_view_json(view_by_mode[selected_mode])
+            sentence_count = max(sentence_count, 1)
+            sentence_index = max(sentence_count - 1, 0)
+
+        self.save_progress(document_id, selected_mode, sentence_index)
+        return ReadingCompleteResult(
+            document_id=document_id,
+            mode=selected_mode,  # type: ignore[arg-type]
+            sentence_index=sentence_index,
+            sentence_count=sentence_count,
+            completed_at=now_iso(),
+        )
+
+    def build_library_collection_learning_export(self, collection_id: str) -> tuple[str, bytes] | None:
+        overview = self.get_library_collection_overview(collection_id)
+        if not overview:
+            return None
+
+        warnings: list[str] = []
+        exported_at = now_iso()
+        archive_buffer = BytesIO()
+        with ZipFile(archive_buffer, "w", ZIP_DEFLATED) as archive:
+            exported_sources: list[dict[str, Any]] = []
+            for document_id in overview.descendant_document_ids:
+                export_payload = self.build_recall_learning_pack_export(document_id)
+                if not export_payload:
+                    warnings.append(f"Source {document_id} could not be exported.")
+                    continue
+                document, _, markdown = export_payload
+                archive_path = self._learning_pack_archive_path(document)
+                archive.writestr(archive_path, markdown)
+                exported_sources.append(
+                    {
+                        "id": document.id,
+                        "title": document.title,
+                        "source_type": document.source_type,
+                        "path": archive_path,
+                    }
+                )
+            if not exported_sources:
+                warnings.append("Collection has no sources to export.")
+            manifest = {
+                "exported_at": exported_at,
+                "collection": {
+                    "id": overview.id,
+                    "name": overview.name,
+                    "parent_id": overview.parent_id,
+                    "path": [item.name for item in overview.path],
+                    "direct_document_count": overview.direct_document_count,
+                    "descendant_document_count": overview.descendant_document_count,
+                },
+                "source_count": len(exported_sources),
+                "sources": exported_sources,
+                "warnings": warnings,
+            }
+            archive.writestr("collection-manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
+
+        filename = build_export_filename(f"{overview.name} collection learning pack")
+        stem = filename[:-3] if filename.endswith(".md") else filename
+        return f"{stem}.zip", archive_buffer.getvalue()
+
     def get_workspace_integrity(self) -> WorkspaceIntegrityReport:
         with self.connect() as connection:
             report = self._build_workspace_integrity_report_with_connection(
@@ -1258,7 +2218,10 @@ class Repository:
                 """
             ).fetchall()
             attachments = self._attachment_refs_from_rows(attachment_rows)
-            warnings = self._missing_attachment_warnings_from_rows(attachment_rows)
+            warnings = [
+                *self._missing_attachment_warnings_from_rows(attachment_rows),
+                *self._missing_learning_pack_view_warnings_with_connection(connection),
+            ]
 
         entity_counts = dict(sorted(Counter(entity.entity_type for entity in entities).items()))
         return WorkspaceExportManifest(
@@ -1274,11 +2237,106 @@ class Repository:
             warnings=warnings,
         )
 
+    def build_workspace_data_payload(self, exported_at: str | None = None) -> WorkspaceDataPayload:
+        payload_exported_at = exported_at or now_iso()
+        with self.connect() as connection:
+            schema_version = self._meta_value_with_connection(connection, "schema_version") or SCHEMA_VERSION
+            entity_key_lookup = {
+                (entity.entity_type, entity.entity_id): entity.entity_key
+                for entity in self._list_portable_entities_with_connection(connection)
+            }
+
+            def rows_for_table(table_name: str, order_by: str) -> list[dict[str, Any]]:
+                return [
+                    dict(row)
+                    for row in connection.execute(
+                        f"SELECT * FROM {table_name} ORDER BY {order_by}"
+                    ).fetchall()
+                ]
+
+            source_documents = rows_for_table("source_documents", "updated_at ASC, id ASC")
+            for row in source_documents:
+                row["_entity_key"] = entity_key_lookup.get(("source_document", str(row["id"])))
+                row["attachment_relative_path"] = None
+                if row.get("stored_path"):
+                    attachment_path = self._attachment_path_from_row_mapping(row)
+                    if attachment_path.exists():
+                        row["attachment_relative_path"] = self._relative_attachment_path(attachment_path)
+
+            document_variants = rows_for_table("document_variants", "updated_at ASC, id ASC")
+            for row in document_variants:
+                row["_entity_key"] = entity_key_lookup.get(("document_variant", str(row["id"])))
+
+            reading_sessions = rows_for_table("reading_sessions", "updated_at ASC, id ASC")
+            for row in reading_sessions:
+                row["_entity_key"] = entity_key_lookup.get(("reading_session", str(row["id"])))
+
+            app_settings = rows_for_table("app_settings", "namespace ASC")
+            for row in app_settings:
+                row["_entity_key"] = entity_key_lookup.get(("app_setting", str(row["namespace"])))
+
+            recall_notes = rows_for_table("recall_notes", "updated_at ASC, id ASC")
+            for row in recall_notes:
+                row["_entity_key"] = entity_key_lookup.get(("recall_note", str(row["id"])))
+
+            knowledge_nodes = rows_for_table("knowledge_nodes", "updated_at ASC, id ASC")
+            for row in knowledge_nodes:
+                row["_entity_key"] = entity_key_lookup.get(("knowledge_node", str(row["id"])))
+
+            knowledge_edges = rows_for_table("knowledge_edges", "updated_at ASC, id ASC")
+            for row in knowledge_edges:
+                row["_entity_key"] = entity_key_lookup.get(("knowledge_edge", str(row["id"])))
+
+            review_cards = rows_for_table("review_cards", "updated_at ASC, id ASC")
+            for row in review_cards:
+                row["_entity_key"] = entity_key_lookup.get(("review_card", str(row["id"])))
+
+            review_events = rows_for_table("review_events", "reviewed_at ASC, id ASC")
+            for row in review_events:
+                row["_entity_key"] = entity_key_lookup.get(("review_event", str(row["id"])))
+
+            study_answer_attempts = rows_for_table("study_answer_attempts", "attempted_at ASC, id ASC")
+            for row in study_answer_attempts:
+                row["_entity_key"] = entity_key_lookup.get(("study_answer_attempt", str(row["id"])))
+
+            study_review_sessions = rows_for_table("study_review_sessions", "started_at ASC, id ASC")
+            for row in study_review_sessions:
+                row["_entity_key"] = entity_key_lookup.get(("study_review_session", str(row["id"])))
+
+            content_chunks = rows_for_table("content_chunks", "source_document_id ASC, ordinal ASC, id ASC")
+
+        return WorkspaceDataPayload(
+            format_version=WORKSPACE_EXPORT_FORMAT_VERSION,
+            schema_version=str(schema_version),
+            device_id=self.device_id,
+            exported_at=payload_exported_at,
+            source_documents=source_documents,
+            document_variants=document_variants,
+            content_chunks=content_chunks,
+            reading_sessions=reading_sessions,
+            app_settings=app_settings,
+            recall_notes=recall_notes,
+            knowledge_nodes=knowledge_nodes,
+            knowledge_edges=knowledge_edges,
+            review_cards=review_cards,
+            review_events=review_events,
+            study_answer_attempts=study_answer_attempts,
+            study_review_sessions=study_review_sessions,
+        )
+
     def build_workspace_export_bundle(self) -> tuple[str, bytes]:
         manifest = self.build_workspace_export_manifest()
+        data_payload = self.build_workspace_data_payload(exported_at=manifest.exported_at)
         bundle = BytesIO()
         with ZipFile(bundle, "w", compression=ZIP_DEFLATED) as archive:
             archive.writestr("manifest.json", manifest.model_dump_json(indent=2))
+            archive.writestr(WORKSPACE_DATA_ARCHIVE_PATH, data_payload.model_dump_json(indent=2))
+            for document in self.list_recall_documents():
+                learning_export = self.build_recall_learning_pack_export(document.id)
+                if not learning_export:
+                    continue
+                learning_document, _, markdown = learning_export
+                archive.writestr(self._learning_pack_archive_path(learning_document), markdown)
             for attachment in manifest.attachments:
                 attachment_file = self.get_attachment_file(attachment.id)
                 if not attachment_file:
@@ -1419,6 +2477,608 @@ class Repository:
         operations.sort(key=lambda operation: (operation.entity_type, operation.entity_key, operation.decision))
         summary = dict(sorted(Counter(operation.decision for operation in operations).items()))
         return WorkspaceMergePreview(operations=operations, summary=summary)
+
+    def apply_workspace_import(
+        self,
+        *,
+        manifest: WorkspaceExportManifest,
+        data_payload: WorkspaceDataPayload,
+        attachment_payloads: dict[str, bytes],
+    ) -> WorkspaceImportApplyResult:
+        preview = self.preview_workspace_merge(manifest)
+        importable_keys = {
+            (operation.entity_type, operation.entity_key)
+            for operation in preview.operations
+            if operation.decision == "import_remote"
+        }
+        imported_counts: Counter[str] = Counter()
+        skipped_counts: Counter[str] = Counter()
+        conflict_counts: Counter[str] = Counter()
+        warnings: list[str] = list(manifest.warnings)
+        source_id_map: dict[str, str] = {}
+        variant_id_map: dict[str, str | None] = {}
+        review_card_id_map: dict[str, str] = {}
+        review_event_id_map: dict[str, str] = {}
+        study_session_id_map: dict[str, str] = {}
+
+        def entity_key(row: dict[str, Any]) -> str | None:
+            value = row.get("_entity_key")
+            return str(value) if value else None
+
+        def is_importable(entity_type: str, row: dict[str, Any]) -> bool:
+            key = entity_key(row)
+            return bool(key and (entity_type, key) in importable_keys)
+
+        def row_id(row: dict[str, Any]) -> str:
+            return str(row.get("id") or "")
+
+        def row_text(row: dict[str, Any], key: str, default: str = "") -> str:
+            value = row.get(key)
+            return str(value) if value is not None else default
+
+        def row_optional_text(row: dict[str, Any], key: str) -> str | None:
+            value = row.get(key)
+            return str(value) if value is not None else None
+
+        def row_int(row: dict[str, Any], key: str, default: int = 0) -> int:
+            try:
+                return int(row.get(key, default))
+            except (TypeError, ValueError):
+                return default
+
+        def row_float(row: dict[str, Any], key: str) -> float | None:
+            value = row.get(key)
+            if value is None:
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        with self.connect() as connection:
+            for row in data_payload.source_documents:
+                remote_id = row_id(row)
+                content_hash = row_text(row, "content_hash")
+                if not remote_id or not content_hash:
+                    conflict_counts["source_document"] += 1
+                    continue
+                existing_by_hash = connection.execute(
+                    "SELECT id FROM source_documents WHERE content_hash = ?",
+                    (content_hash,),
+                ).fetchone()
+                if existing_by_hash:
+                    source_id_map[remote_id] = existing_by_hash["id"]
+                    skipped_counts["source_document"] += 1
+                    continue
+                if not is_importable("source_document", row):
+                    skipped_counts["source_document"] += 1
+                    continue
+                local_id = remote_id
+                if connection.execute("SELECT 1 FROM source_documents WHERE id = ?", (local_id,)).fetchone():
+                    local_id = new_uuid7_str()
+                attachment_relative_path = row_optional_text(row, "attachment_relative_path")
+                stored_path = None
+                if attachment_relative_path:
+                    stored_path = self._restore_workspace_attachment_file(
+                        attachment_relative_path,
+                        attachment_payloads.get(attachment_relative_path),
+                        warnings,
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO source_documents (
+                        id, title, source_type, file_name, source_locator, stored_path,
+                        content_hash, metadata_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        local_id,
+                        row_text(row, "title", "Untitled"),
+                        row_text(row, "source_type", "imported"),
+                        row_optional_text(row, "file_name"),
+                        row_optional_text(row, "source_locator"),
+                        stored_path,
+                        content_hash,
+                        row_text(row, "metadata_json", "{}"),
+                        row_text(row, "created_at", now_iso()),
+                        row_text(row, "updated_at", now_iso()),
+                    ),
+                )
+                source_id_map[remote_id] = local_id
+                imported_counts["source_document"] += 1
+
+            attachment_operations = {
+                operation.remote_entity_id: operation
+                for operation in preview.operations
+                if operation.entity_type == "attachment" and operation.decision == "import_remote"
+            }
+            for attachment in manifest.attachments:
+                if attachment.id not in attachment_operations:
+                    skipped_counts["attachment"] += 1
+                    continue
+                local_source_id = source_id_map.get(attachment.source_document_id)
+                if not local_source_id or not attachment.relative_path:
+                    conflict_counts["attachment"] += 1
+                    continue
+                restored_path = self._restore_workspace_attachment_file(
+                    attachment.relative_path,
+                    attachment_payloads.get(attachment.relative_path),
+                    warnings,
+                )
+                if not restored_path:
+                    conflict_counts["attachment"] += 1
+                    continue
+                connection.execute(
+                    """
+                    UPDATE source_documents
+                    SET stored_path = COALESCE(stored_path, ?)
+                    WHERE id = ?
+                    """,
+                    (restored_path, local_source_id),
+                )
+                imported_counts["attachment"] += 1
+
+            for row in data_payload.document_variants:
+                remote_id = row_id(row)
+                local_source_id = source_id_map.get(row_text(row, "source_document_id"))
+                if not remote_id or not local_source_id:
+                    conflict_counts["document_variant"] += 1
+                    continue
+                mode = row_text(row, "mode")
+                detail_level = row_text(row, "detail_level", "default")
+                existing = connection.execute(
+                    """
+                    SELECT id
+                    FROM document_variants
+                    WHERE source_document_id = ? AND mode = ? AND detail_level = ?
+                    """,
+                    (local_source_id, mode, detail_level),
+                ).fetchone()
+                if existing:
+                    variant_id_map[remote_id] = existing["id"]
+                    skipped_counts["document_variant"] += 1
+                    continue
+                if not is_importable("document_variant", row):
+                    skipped_counts["document_variant"] += 1
+                    continue
+                local_id = remote_id
+                if connection.execute("SELECT 1 FROM document_variants WHERE id = ?", (local_id,)).fetchone():
+                    local_id = new_uuid7_str()
+                connection.execute(
+                    """
+                    INSERT INTO document_variants (
+                        id, source_document_id, mode, detail_level, generated_by, model,
+                        source_hash, view_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        local_id,
+                        local_source_id,
+                        mode,
+                        detail_level,
+                        row_text(row, "generated_by", "local"),
+                        row_optional_text(row, "model"),
+                        row_text(row, "source_hash"),
+                        row_text(row, "view_json", "{}"),
+                        row_text(row, "created_at", now_iso()),
+                        row_text(row, "updated_at", now_iso()),
+                    ),
+                )
+                variant_id_map[remote_id] = local_id
+                imported_counts["document_variant"] += 1
+
+            for row in data_payload.content_chunks:
+                remote_id = row_id(row)
+                if not remote_id:
+                    conflict_counts["content_chunk"] += 1
+                    continue
+                if connection.execute("SELECT 1 FROM content_chunks WHERE id = ?", (remote_id,)).fetchone():
+                    skipped_counts["content_chunk"] += 1
+                    continue
+                local_source_id = source_id_map.get(row_text(row, "source_document_id"))
+                remote_variant_id = row_optional_text(row, "variant_id")
+                local_variant_id = variant_id_map.get(remote_variant_id or "", None) if remote_variant_id else None
+                if not local_source_id or (remote_variant_id and not local_variant_id):
+                    conflict_counts["content_chunk"] += 1
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO content_chunks (
+                        id, source_document_id, variant_id, block_id, ordinal, text,
+                        metadata_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        remote_id,
+                        local_source_id,
+                        local_variant_id,
+                        row_optional_text(row, "block_id"),
+                        row_int(row, "ordinal"),
+                        row_text(row, "text"),
+                        row_text(row, "metadata_json", "{}"),
+                        row_text(row, "created_at", now_iso()),
+                        row_text(row, "updated_at", now_iso()),
+                    ),
+                )
+                imported_counts["content_chunk"] += 1
+
+            for row in data_payload.reading_sessions:
+                remote_id = row_id(row)
+                local_source_id = source_id_map.get(row_text(row, "source_document_id"))
+                if not remote_id or not local_source_id:
+                    conflict_counts["reading_session"] += 1
+                    continue
+                if connection.execute(
+                    """
+                    SELECT 1
+                    FROM reading_sessions
+                    WHERE source_document_id = ? AND session_kind = ? AND mode = ? AND device_id = ?
+                    """,
+                    (
+                        local_source_id,
+                        row_text(row, "session_kind", DEFAULT_SESSION_KIND),
+                        row_text(row, "mode", "reflowed"),
+                        row_text(row, "device_id", self.device_id),
+                    ),
+                ).fetchone():
+                    skipped_counts["reading_session"] += 1
+                    continue
+                if not is_importable("reading_session", row):
+                    skipped_counts["reading_session"] += 1
+                    continue
+                local_id = remote_id
+                if connection.execute("SELECT 1 FROM reading_sessions WHERE id = ?", (local_id,)).fetchone():
+                    local_id = new_uuid7_str()
+                connection.execute(
+                    """
+                    INSERT INTO reading_sessions (
+                        id, source_document_id, session_kind, mode, sentence_index,
+                        metadata_json, device_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        local_id,
+                        local_source_id,
+                        row_text(row, "session_kind", DEFAULT_SESSION_KIND),
+                        row_text(row, "mode", "reflowed"),
+                        row_int(row, "sentence_index"),
+                        row_text(row, "metadata_json", "{}"),
+                        row_text(row, "device_id", self.device_id),
+                        row_text(row, "created_at", now_iso()),
+                        row_text(row, "updated_at", now_iso()),
+                    ),
+                )
+                imported_counts["reading_session"] += 1
+
+            for row in data_payload.app_settings:
+                namespace = row_text(row, "namespace")
+                if not namespace:
+                    conflict_counts["app_setting"] += 1
+                    continue
+                if connection.execute("SELECT 1 FROM app_settings WHERE namespace = ?", (namespace,)).fetchone():
+                    skipped_counts["app_setting"] += 1
+                    continue
+                if not is_importable("app_setting", row):
+                    skipped_counts["app_setting"] += 1
+                    continue
+                connection.execute(
+                    "INSERT INTO app_settings (namespace, value_json, updated_at) VALUES (?, ?, ?)",
+                    (namespace, row_text(row, "value_json", "{}"), row_text(row, "updated_at", now_iso())),
+                )
+                imported_counts["app_setting"] += 1
+
+            for row in data_payload.recall_notes:
+                remote_id = row_id(row)
+                local_source_id = source_id_map.get(row_text(row, "source_document_id"))
+                local_variant_id = variant_id_map.get(row_text(row, "variant_id"))
+                if not remote_id or not local_source_id or not local_variant_id:
+                    conflict_counts["recall_note"] += 1
+                    continue
+                if not is_importable("recall_note", row):
+                    skipped_counts["recall_note"] += 1
+                    continue
+                local_id = remote_id
+                if connection.execute("SELECT 1 FROM recall_notes WHERE id = ?", (local_id,)).fetchone():
+                    local_id = new_uuid7_str()
+                connection.execute(
+                    """
+                    INSERT INTO recall_notes (
+                        id, anchor_kind, source_document_id, variant_id, block_id,
+                        sentence_start, sentence_end, global_sentence_start, global_sentence_end,
+                        anchor_text, excerpt_text, body_text, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        local_id,
+                        row_text(row, "anchor_kind", "sentence"),
+                        local_source_id,
+                        local_variant_id,
+                        row_text(row, "block_id"),
+                        row_int(row, "sentence_start"),
+                        row_int(row, "sentence_end"),
+                        row_int(row, "global_sentence_start"),
+                        row_int(row, "global_sentence_end"),
+                        row_text(row, "anchor_text"),
+                        row_text(row, "excerpt_text"),
+                        row_optional_text(row, "body_text"),
+                        row_text(row, "created_at", now_iso()),
+                        row_text(row, "updated_at", now_iso()),
+                    ),
+                )
+                imported_counts["recall_note"] += 1
+
+            for row in data_payload.knowledge_nodes:
+                remote_id = row_id(row)
+                if not remote_id:
+                    conflict_counts["knowledge_node"] += 1
+                    continue
+                if connection.execute("SELECT 1 FROM knowledge_nodes WHERE id = ?", (remote_id,)).fetchone():
+                    skipped_counts["knowledge_node"] += 1
+                    continue
+                if not is_importable("knowledge_node", row):
+                    skipped_counts["knowledge_node"] += 1
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO knowledge_nodes (
+                        id, label, node_type, description, confidence, metadata_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        remote_id,
+                        row_text(row, "label"),
+                        row_text(row, "node_type", "concept"),
+                        row_optional_text(row, "description"),
+                        row_float(row, "confidence"),
+                        row_text(row, "metadata_json", "{}"),
+                        row_text(row, "created_at", now_iso()),
+                        row_text(row, "updated_at", now_iso()),
+                    ),
+                )
+                imported_counts["knowledge_node"] += 1
+
+            for row in data_payload.knowledge_edges:
+                remote_id = row_id(row)
+                if not remote_id:
+                    conflict_counts["knowledge_edge"] += 1
+                    continue
+                if connection.execute("SELECT 1 FROM knowledge_edges WHERE id = ?", (remote_id,)).fetchone():
+                    skipped_counts["knowledge_edge"] += 1
+                    continue
+                if not is_importable("knowledge_edge", row):
+                    skipped_counts["knowledge_edge"] += 1
+                    continue
+                source_node_exists = connection.execute(
+                    "SELECT 1 FROM knowledge_nodes WHERE id = ?",
+                    (row_text(row, "source_id"),),
+                ).fetchone()
+                target_node_exists = connection.execute(
+                    "SELECT 1 FROM knowledge_nodes WHERE id = ?",
+                    (row_text(row, "target_id"),),
+                ).fetchone()
+                if not source_node_exists or not target_node_exists:
+                    conflict_counts["knowledge_edge"] += 1
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO knowledge_edges (
+                        id, source_id, target_id, relation_type, provenance, confidence,
+                        metadata_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        remote_id,
+                        row_text(row, "source_id"),
+                        row_text(row, "target_id"),
+                        row_text(row, "relation_type", "related"),
+                        row_text(row, "provenance", "inferred"),
+                        row_float(row, "confidence"),
+                        row_text(row, "metadata_json", "{}"),
+                        row_text(row, "created_at", now_iso()),
+                        row_text(row, "updated_at", now_iso()),
+                    ),
+                )
+                imported_counts["knowledge_edge"] += 1
+
+            for row in data_payload.review_cards:
+                remote_id = row_id(row)
+                local_source_id = source_id_map.get(row_text(row, "source_document_id"))
+                if not remote_id or not local_source_id:
+                    conflict_counts["review_card"] += 1
+                    continue
+                if not is_importable("review_card", row):
+                    skipped_counts["review_card"] += 1
+                    continue
+                local_id = remote_id
+                if connection.execute("SELECT 1 FROM review_cards WHERE id = ?", (local_id,)).fetchone():
+                    local_id = new_uuid7_str()
+                connection.execute(
+                    """
+                    INSERT INTO review_cards (
+                        id, source_document_id, prompt, answer, card_type, source_spans_json,
+                        scheduling_state_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        local_id,
+                        local_source_id,
+                        row_text(row, "prompt"),
+                        row_text(row, "answer"),
+                        row_text(row, "card_type", "short_answer"),
+                        row_text(row, "source_spans_json", "[]"),
+                        row_text(row, "scheduling_state_json", "{}"),
+                        row_text(row, "created_at", now_iso()),
+                        row_text(row, "updated_at", now_iso()),
+                    ),
+                )
+                review_card_id_map[remote_id] = local_id
+                imported_counts["review_card"] += 1
+
+            for row in data_payload.review_events:
+                remote_id = row_id(row)
+                local_card_id = review_card_id_map.get(row_text(row, "review_card_id"))
+                if not local_card_id:
+                    existing_card_id = row_text(row, "review_card_id")
+                    if connection.execute("SELECT 1 FROM review_cards WHERE id = ?", (existing_card_id,)).fetchone():
+                        local_card_id = existing_card_id
+                if not remote_id or not local_card_id:
+                    conflict_counts["review_event"] += 1
+                    continue
+                if not is_importable("review_event", row):
+                    skipped_counts["review_event"] += 1
+                    continue
+                local_id = remote_id
+                if connection.execute("SELECT 1 FROM review_events WHERE id = ?", (local_id,)).fetchone():
+                    local_id = new_uuid7_str()
+                connection.execute(
+                    """
+                    INSERT INTO review_events (
+                        id, review_card_id, rating, scheduling_state_json, reviewed_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        local_id,
+                        local_card_id,
+                        row_int(row, "rating"),
+                        row_text(row, "scheduling_state_json", "{}"),
+                        row_text(row, "reviewed_at", now_iso()),
+                        row_text(row, "created_at", now_iso()),
+                    ),
+                )
+                review_event_id_map[remote_id] = local_id
+                imported_counts["review_event"] += 1
+
+            for row in data_payload.study_review_sessions:
+                remote_id = row_id(row)
+                if not remote_id:
+                    conflict_counts["study_review_session"] += 1
+                    continue
+                if not is_importable("study_review_session", row):
+                    skipped_counts["study_review_session"] += 1
+                    continue
+                local_source_id = None
+                remote_source_id = row_optional_text(row, "source_document_id")
+                if remote_source_id:
+                    local_source_id = source_id_map.get(remote_source_id)
+                    if not local_source_id:
+                        conflict_counts["study_review_session"] += 1
+                        continue
+                local_id = remote_id
+                if connection.execute("SELECT 1 FROM study_review_sessions WHERE id = ?", (local_id,)).fetchone():
+                    local_id = new_uuid7_str()
+                card_ids = self._restore_json_id_list(row_text(row, "card_ids_json", "[]"), review_card_id_map)
+                connection.execute(
+                    """
+                    INSERT INTO study_review_sessions (
+                        id, source_document_id, filter_snapshot_json, settings_snapshot_json,
+                        card_ids_json, started_at, completed_at, summary_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        local_id,
+                        local_source_id,
+                        row_text(row, "filter_snapshot_json", "{}"),
+                        row_text(row, "settings_snapshot_json", "{}"),
+                        json.dumps(card_ids),
+                        row_text(row, "started_at", now_iso()),
+                        row_optional_text(row, "completed_at"),
+                        row_text(row, "summary_json", "{}"),
+                        row_text(row, "created_at", now_iso()),
+                        row_text(row, "updated_at", now_iso()),
+                    ),
+                )
+                study_session_id_map[remote_id] = local_id
+                imported_counts["study_review_session"] += 1
+
+            for row in data_payload.study_answer_attempts:
+                remote_id = row_id(row)
+                local_card_id = review_card_id_map.get(row_text(row, "review_card_id"))
+                local_source_id = source_id_map.get(row_text(row, "source_document_id"))
+                if not local_card_id:
+                    existing_card_id = row_text(row, "review_card_id")
+                    if connection.execute("SELECT 1 FROM review_cards WHERE id = ?", (existing_card_id,)).fetchone():
+                        local_card_id = existing_card_id
+                if not local_source_id:
+                    existing_source_id = row_text(row, "source_document_id")
+                    if connection.execute("SELECT 1 FROM source_documents WHERE id = ?", (existing_source_id,)).fetchone():
+                        local_source_id = existing_source_id
+                if not remote_id or not local_card_id or not local_source_id:
+                    conflict_counts["study_answer_attempt"] += 1
+                    continue
+                if not is_importable("study_answer_attempt", row):
+                    skipped_counts["study_answer_attempt"] += 1
+                    continue
+                local_id = remote_id
+                if connection.execute("SELECT 1 FROM study_answer_attempts WHERE id = ?", (local_id,)).fetchone():
+                    local_id = new_uuid7_str()
+                remote_review_event_id = row_optional_text(row, "review_event_id")
+                local_review_event_id = review_event_id_map.get(remote_review_event_id or "", remote_review_event_id)
+                if local_review_event_id and not connection.execute(
+                    "SELECT 1 FROM review_events WHERE id = ?",
+                    (local_review_event_id,),
+                ).fetchone():
+                    local_review_event_id = None
+                remote_session_id = row_optional_text(row, "session_id")
+                local_session_id = study_session_id_map.get(remote_session_id or "", remote_session_id)
+                connection.execute(
+                    """
+                    INSERT INTO study_answer_attempts (
+                        id, review_card_id, source_document_id, session_id, question_type,
+                        response_json, is_correct, attempted_at, review_event_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        local_id,
+                        local_card_id,
+                        local_source_id,
+                        local_session_id,
+                        row_text(row, "question_type", "short_answer"),
+                        row_text(row, "response_json", "{}"),
+                        row.get("is_correct"),
+                        row_text(row, "attempted_at", now_iso()),
+                        local_review_event_id,
+                        row_text(row, "created_at", now_iso()),
+                    ),
+                )
+                imported_counts["study_answer_attempt"] += 1
+
+            imported_total = sum(imported_counts.values())
+            integrity = None
+            if imported_total:
+                self._rebuild_source_documents_fts_with_connection(connection)
+                self._rebuild_content_chunks_fts_with_connection(connection)
+                self._rebuild_recall_notes_fts_with_connection(connection)
+                self._rebuild_lexical_embeddings_with_connection(connection)
+                self._append_change_event_with_connection(
+                    connection,
+                    entity_type="workspace",
+                    entity_id="import",
+                    event_type="backup_restored",
+                    payload={
+                        "device_id": data_payload.device_id,
+                        "exported_at": data_payload.exported_at,
+                        "imported_counts": dict(sorted(imported_counts.items())),
+                    },
+                    created_at=now_iso(),
+                )
+                integrity = self._build_workspace_integrity_report_with_connection(
+                    connection,
+                    checked_at=now_iso(),
+                    include_quick_check=True,
+                )
+                self._record_integrity_report_with_connection(connection, integrity)
+
+        return WorkspaceImportApplyResult(
+            dry_run=False,
+            applied=True,
+            imported_counts=dict(sorted(imported_counts.items())),
+            skipped_counts=dict(sorted(skipped_counts.items())),
+            conflict_counts=dict(sorted(conflict_counts.items())),
+            operations=preview.operations,
+            warnings=warnings,
+            blockers=[],
+            integrity=integrity,
+        )
 
     def _build_workspace_integrity_report_with_connection(
         self,
@@ -2414,6 +4074,32 @@ class Repository:
                 """,
                 (source_document_id, source_document_id),
             ).fetchall()
+            attempt_rows = connection.execute(
+                """
+                SELECT
+                    saa.*,
+                    rc.prompt,
+                    rc.answer,
+                    rc.scheduling_state_json AS card_scheduling_state_json,
+                    sd.title AS document_title
+                FROM study_answer_attempts saa
+                INNER JOIN review_cards rc ON rc.id = saa.review_card_id
+                INNER JOIN source_documents sd ON sd.id = saa.source_document_id
+                WHERE (? IS NULL OR saa.source_document_id = ?)
+                ORDER BY saa.attempted_at DESC, saa.id DESC
+                """,
+                (source_document_id, source_document_id),
+            ).fetchall()
+            session_rows = connection.execute(
+                """
+                SELECT *
+                FROM study_review_sessions
+                WHERE (? IS NULL OR source_document_id = ?)
+                ORDER BY started_at DESC, id DESC
+                LIMIT ?
+                """,
+                (source_document_id, source_document_id, safe_recent_limit),
+            ).fetchall()
             rows = [
                 row
                 for row in rows
@@ -2426,8 +4112,16 @@ class Repository:
                 for row in card_rows
                 if not _study_card_is_deleted_state(_study_scheduling_state_from_json(row["scheduling_state_json"]))
             ]
+            attempt_rows = [
+                row
+                for row in attempt_rows
+                if not _study_card_is_deleted_state(
+                    _study_scheduling_state_from_json(row["card_scheduling_state_json"])
+                )
+            ]
 
         today = datetime.now(UTC).date()
+        study_settings = self.get_study_settings()
         activity_start = today - timedelta(days=safe_period_days - 1)
         daily_counts: dict[str, int] = {
             (activity_start + timedelta(days=offset)).isoformat(): 0
@@ -2439,11 +4133,28 @@ class Repository:
         knowledge_stage_counts = {stage: 0 for stage in STUDY_KNOWLEDGE_STAGE_ORDER}
         source_totals: dict[str, dict[str, Any]] = {}
         recent_reviews: list[StudyReviewProgressRecentReview] = []
+        recent_attempts: list[StudyAnswerAttemptRecord] = []
+        recent_sessions = [
+            self._row_to_study_review_session_record(row)
+            for row in session_rows
+        ]
+        difficulty_totals = {
+            difficulty: {"attempt_count": 0, "correct_attempt_count": 0, "graded_attempt_count": 0}
+            for difficulty in ("easy", "medium", "hard")
+        }
         last_reviewed_at: str | None = None
+        attempt_rows_by_review_event = {
+            row["review_event_id"]: row for row in attempt_rows if row["review_event_id"]
+        }
         memory_progress = self._build_study_memory_progress_snapshots(
             card_rows=card_rows,
             review_rows=rows,
             activity_start=activity_start,
+            today=today,
+        )
+        habit_goal = self._build_study_habit_goal_status(
+            review_rows=rows,
+            settings=study_settings,
             today=today,
         )
 
@@ -2462,6 +4173,9 @@ class Repository:
                     "today_count": 0,
                     "last_reviewed_at": None,
                     "knowledge_stage_counts": {stage: 0 for stage in STUDY_KNOWLEDGE_STAGE_ORDER},
+                    "attempt_count": 0,
+                    "correct_attempt_count": 0,
+                    "graded_attempt_count": 0,
                 },
             )
             source_summary["card_ids"].add(card_row["id"])
@@ -2493,6 +4207,9 @@ class Repository:
                     "today_count": 0,
                     "last_reviewed_at": None,
                     "knowledge_stage_counts": {stage: 0 for stage in STUDY_KNOWLEDGE_STAGE_ORDER},
+                    "attempt_count": 0,
+                    "correct_attempt_count": 0,
+                    "graded_attempt_count": 0,
                 },
             )
             source_summary["review_count"] += 1
@@ -2504,6 +4221,8 @@ class Repository:
 
             if len(recent_reviews) < safe_recent_limit:
                 card_state = json.loads(row["card_scheduling_state_json"] or "{}")
+                linked_attempt = attempt_rows_by_review_event.get(row["id"])
+                attempt_is_correct = linked_attempt["is_correct"] if linked_attempt else None
                 recent_reviews.append(
                     StudyReviewProgressRecentReview(
                         id=row["id"],
@@ -2514,8 +4233,49 @@ class Repository:
                         rating=rating_label,
                         reviewed_at=reviewed_at,
                         next_due_at=card_state.get("due_at"),
+                        attempt_id=linked_attempt["id"] if linked_attempt else None,
+                        attempt_is_correct=None if attempt_is_correct is None else bool(attempt_is_correct),
+                        attempted_at=linked_attempt["attempted_at"] if linked_attempt else None,
+                        question_type=linked_attempt["question_type"] if linked_attempt else None,
                     )
                 )
+
+        total_attempts = len(attempt_rows)
+        correct_attempts = 0
+        graded_attempts = 0
+        for row in attempt_rows:
+            source_id = row["source_document_id"]
+            card_state = _study_scheduling_state_from_json(row["card_scheduling_state_json"])
+            difficulty = _study_question_difficulty(row["question_type"], card_state)
+            difficulty_summary = difficulty_totals[difficulty]
+            difficulty_summary["attempt_count"] += 1
+            source_summary = source_totals.setdefault(
+                source_id,
+                {
+                    "source_document_id": source_id,
+                    "document_title": row["document_title"],
+                    "review_count": 0,
+                    "card_ids": set(),
+                    "today_count": 0,
+                    "last_reviewed_at": None,
+                    "knowledge_stage_counts": {stage: 0 for stage in STUDY_KNOWLEDGE_STAGE_ORDER},
+                    "attempt_count": 0,
+                    "correct_attempt_count": 0,
+                    "graded_attempt_count": 0,
+                },
+            )
+            source_summary["card_ids"].add(row["review_card_id"])
+            source_summary["attempt_count"] += 1
+            if row["is_correct"] is not None:
+                graded_attempts += 1
+                source_summary["graded_attempt_count"] += 1
+                difficulty_summary["graded_attempt_count"] += 1
+                if bool(row["is_correct"]):
+                    correct_attempts += 1
+                    source_summary["correct_attempt_count"] += 1
+                    difficulty_summary["correct_attempt_count"] += 1
+            if len(recent_attempts) < safe_recent_limit:
+                recent_attempts.append(self._row_to_study_answer_attempt_record(row))
 
         current_daily_streak = 0
         streak_cursor = today
@@ -2533,6 +4293,13 @@ class Repository:
                 last_reviewed_at=summary["last_reviewed_at"],
                 dominant_knowledge_stage=self._dominant_knowledge_stage(summary["knowledge_stage_counts"]),
                 knowledge_stage_counts=self._knowledge_stage_count_models(summary["knowledge_stage_counts"]),
+                attempt_count=summary["attempt_count"],
+                correct_attempt_count=summary["correct_attempt_count"],
+                accuracy=(
+                    round(summary["correct_attempt_count"] / summary["graded_attempt_count"], 4)
+                    if summary["graded_attempt_count"]
+                    else None
+                ),
             )
             for summary in source_totals.values()
         ]
@@ -2564,18 +4331,165 @@ class Repository:
             memory_progress=memory_progress,
             recent_reviews=recent_reviews,
             source_breakdown=source_breakdown,
+            total_attempts=total_attempts,
+            correct_attempts=correct_attempts,
+            accuracy=round(correct_attempts / graded_attempts, 4) if graded_attempts else None,
+            recent_attempts=recent_attempts,
+            recent_sessions=recent_sessions,
+            difficulty_accuracy=[
+                StudyReviewProgressDifficulty(
+                    difficulty=difficulty,
+                    attempt_count=summary["attempt_count"],
+                    correct_attempt_count=summary["correct_attempt_count"],
+                    accuracy=(
+                        round(summary["correct_attempt_count"] / summary["graded_attempt_count"], 4)
+                        if summary["graded_attempt_count"]
+                        else None
+                    ),
+                )
+                for difficulty, summary in difficulty_totals.items()
+            ],
+            habit_goal=habit_goal,
         )
 
-    def list_study_cards(self, *, status: str = "due", limit: int = 20) -> list[StudyCardRecord]:
+    def start_study_review_session(
+        self,
+        payload: StudyReviewSessionStartRequest,
+    ) -> StudyReviewSessionRecord | None:
+        timestamp = now_iso()
+        session_id = new_uuid7_str()
+        source_document_id = normalize_whitespace(payload.source_document_id or "") or None
+        card_ids = list(dict.fromkeys(payload.card_ids))
+        with self.connect() as connection:
+            if source_document_id:
+                source_row = connection.execute(
+                    "SELECT id FROM source_documents WHERE id = ?",
+                    (source_document_id,),
+                ).fetchone()
+                if not source_row:
+                    return None
+            card_rows = connection.execute(
+                f"""
+                SELECT id, source_document_id, scheduling_state_json
+                FROM review_cards
+                WHERE id IN ({",".join("?" for _ in card_ids)})
+                """,
+                tuple(card_ids),
+            ).fetchall()
+            cards_by_id = {row["id"]: row for row in card_rows}
+            missing_ids = [card_id for card_id in card_ids if card_id not in cards_by_id]
+            if missing_ids:
+                raise ValueError("Review sessions can only include existing Study cards.")
+            for row in card_rows:
+                if _study_card_is_deleted_state(_study_scheduling_state_from_json(row["scheduling_state_json"])):
+                    raise ValueError("Review sessions cannot include deleted Study cards.")
+                if source_document_id and row["source_document_id"] != source_document_id:
+                    raise ValueError("Review session cards must belong to the selected source.")
+            connection.execute(
+                """
+                INSERT INTO study_review_sessions (
+                    id,
+                    source_document_id,
+                    filter_snapshot_json,
+                    settings_snapshot_json,
+                    card_ids_json,
+                    started_at,
+                    completed_at,
+                    summary_json,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL, '{}', ?, ?)
+                """,
+                (
+                    session_id,
+                    source_document_id,
+                    json.dumps(payload.filter_snapshot, sort_keys=True),
+                    json.dumps(payload.settings_snapshot, sort_keys=True),
+                    json.dumps(card_ids),
+                    timestamp,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="study_review_session",
+                entity_id=session_id,
+                event_type="started",
+                payload={
+                    "card_count": len(card_ids),
+                    "source_document_id": source_document_id,
+                },
+                created_at=timestamp,
+            )
+            row = connection.execute(
+                "SELECT * FROM study_review_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+        return self._row_to_study_review_session_record(row) if row else None
+
+    def complete_study_review_session(
+        self,
+        session_id: str,
+        payload: StudyReviewSessionCompleteRequest,
+    ) -> StudyReviewSessionRecord | None:
+        timestamp = now_iso()
+        normalized_session_id = normalize_whitespace(session_id)
+        with self.connect() as connection:
+            existing = connection.execute(
+                "SELECT id FROM study_review_sessions WHERE id = ?",
+                (normalized_session_id,),
+            ).fetchone()
+            if not existing:
+                return None
+            connection.execute(
+                """
+                UPDATE study_review_sessions
+                SET completed_at = ?, summary_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    timestamp,
+                    json.dumps(payload.summary if isinstance(payload.summary, dict) else {}, sort_keys=True),
+                    timestamp,
+                    normalized_session_id,
+                ),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="study_review_session",
+                entity_id=normalized_session_id,
+                event_type="completed",
+                payload=payload.summary if isinstance(payload.summary, dict) else {},
+                created_at=timestamp,
+            )
+            row = connection.execute(
+                "SELECT * FROM study_review_sessions WHERE id = ?",
+                (normalized_session_id,),
+            ).fetchone()
+        return self._row_to_study_review_session_record(row) if row else None
+
+    def list_study_cards(
+        self,
+        *,
+        status: str = "due",
+        limit: int = 20,
+        source_document_id: str | None = None,
+    ) -> list[StudyCardRecord]:
         capped_limit = min(max(limit, 1), 100)
+        normalized_source_document_id = normalize_whitespace(source_document_id or "")
+        source_clause = "WHERE rc.source_document_id = ?" if normalized_source_document_id else ""
+        parameters = (normalized_source_document_id,) if normalized_source_document_id else ()
         with self.connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT rc.*, sd.title AS document_title
                 FROM review_cards rc
                 INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                {source_clause}
                 ORDER BY rc.updated_at DESC, rc.id ASC
-                """
+                """,
+                parameters,
             ).fetchall()
 
         cards = [self._row_to_study_card_record(row) for row in rows]
@@ -2613,6 +4527,7 @@ class Repository:
             answer,
             payload.question_payload,
         )
+        support_payload = _normalize_study_support_payload(payload.support_payload)
 
         timestamp = now_iso()
         card_id = f"card:manual:{new_uuid7_str()}"
@@ -2620,8 +4535,13 @@ class Repository:
         scheduling_state["manual_content_created_at"] = timestamp
         scheduling_state["manual_content_edited_at"] = timestamp
         scheduling_state["manual_card_type"] = card_type
+        question_difficulty = _normalize_study_question_difficulty(payload.question_difficulty)
+        if question_difficulty:
+            scheduling_state["manual_question_difficulty"] = question_difficulty
         if question_payload is not None:
             scheduling_state["manual_question_payload"] = question_payload
+        if support_payload is not None:
+            scheduling_state["manual_question_support_payload"] = support_payload
         scheduling_state["status"] = study_card_status(scheduling_state)
 
         with self.connect() as connection:
@@ -2691,7 +4611,9 @@ class Repository:
                 event_type="created",
                 payload={
                     "card_type": card_type,
+                    "question_difficulty": _study_question_difficulty(card_type, scheduling_state),
                     "manual": True,
+                    "support_payload": bool(support_payload),
                     "source_document_id": source_document_id,
                 },
                 created_at=timestamp,
@@ -2710,13 +4632,110 @@ class Repository:
             return None
         return self._row_to_study_card_record(created_row)
 
-    def regenerate_study_cards(self) -> StudyCardGenerationResult:
+    def regenerate_study_cards(
+        self,
+        payload: StudyCardGenerationRequest | None = None,
+    ) -> StudyCardGenerationResult:
         with self.connect() as connection:
-            result = self._sync_review_cards_with_connection(connection)
+            result = self._sync_review_cards_with_connection(connection, payload)
             self._rebuild_lexical_embeddings_with_connection(connection)
             return result
 
-    def review_study_card(self, review_card_id: str, rating_label: str) -> StudyCardRecord | None:
+    def create_study_answer_attempt(
+        self,
+        review_card_id: str,
+        payload: StudyAnswerAttemptRequest,
+    ) -> StudyAnswerAttemptRecord | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT rc.*, sd.title AS document_title
+                FROM review_cards rc
+                INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+                WHERE rc.id = ?
+                """,
+                (review_card_id,),
+            ).fetchone()
+            if not row:
+                return None
+
+            scheduling_state = _study_scheduling_state_from_json(row["scheduling_state_json"])
+            if _study_card_is_deleted_state(scheduling_state):
+                return None
+            card_type = str(row["card_type"])
+            if card_type not in STUDY_MANUAL_CARD_TYPES:
+                raise ValueError("Study attempts require a supported Study question type.")
+
+            question_payload = scheduling_state.get("manual_question_payload")
+            if not isinstance(question_payload, dict):
+                question_payload = scheduling_state.get("generated_question_payload")
+            response = _study_attempt_response_to_dict(payload.response)
+            is_correct = _study_attempt_correctness(
+                card_type=card_type,
+                answer=row["answer"],
+                question_payload=question_payload if isinstance(question_payload, dict) else None,
+                response=response,
+            )
+            timestamp = now_iso()
+            attempt_id = new_uuid7_str()
+            connection.execute(
+                """
+                INSERT INTO study_answer_attempts (
+                    id,
+                    review_card_id,
+                    source_document_id,
+                    session_id,
+                    question_type,
+                    response_json,
+                    is_correct,
+                    attempted_at,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    attempt_id,
+                    review_card_id,
+                    row["source_document_id"],
+                    payload.session_id,
+                    card_type,
+                    json.dumps(response, sort_keys=True),
+                    None if is_correct is None else int(is_correct),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="study_answer_attempt",
+                entity_id=attempt_id,
+                event_type="created",
+                payload={
+                    "review_card_id": review_card_id,
+                    "source_document_id": row["source_document_id"],
+                    "question_type": card_type,
+                    "is_correct": is_correct,
+                },
+                created_at=timestamp,
+            )
+            attempt_row = connection.execute(
+                """
+                SELECT saa.*, rc.prompt, rc.answer, sd.title AS document_title
+                FROM study_answer_attempts saa
+                INNER JOIN review_cards rc ON rc.id = saa.review_card_id
+                INNER JOIN source_documents sd ON sd.id = saa.source_document_id
+                WHERE saa.id = ?
+                """,
+                (attempt_id,),
+            ).fetchone()
+        return self._row_to_study_answer_attempt_record(attempt_row) if attempt_row else None
+
+    def review_study_card(
+        self,
+        review_card_id: str,
+        rating_label: str,
+        *,
+        attempt_id: str | None = None,
+    ) -> StudyCardRecord | None:
         with self.connect() as connection:
             row = connection.execute(
                 """
@@ -2733,6 +4752,17 @@ class Repository:
             scheduling_state = json.loads(row["scheduling_state_json"] or "{}")
             if _study_card_is_deleted_state(scheduling_state):
                 return None
+            if attempt_id:
+                attempt_row = connection.execute(
+                    """
+                    SELECT id
+                    FROM study_answer_attempts
+                    WHERE id = ? AND review_card_id = ?
+                    """,
+                    (attempt_id, review_card_id),
+                ).fetchone()
+                if not attempt_row:
+                    raise ValueError("Study answer attempt not found for this card.")
             timestamp = now_iso()
             next_state, numeric_rating = review_scheduling_state(
                 review_card_id,
@@ -2752,6 +4782,7 @@ class Repository:
                     review_card_id,
                 ),
             )
+            review_event_id = new_uuid7_str()
             connection.execute(
                 """
                 INSERT INTO review_events (
@@ -2764,7 +4795,7 @@ class Repository:
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    new_uuid7_str(),
+                    review_event_id,
                     review_card_id,
                     numeric_rating,
                     json.dumps(next_state, sort_keys=True),
@@ -2772,12 +4803,34 @@ class Repository:
                     timestamp,
                 ),
             )
+            linked_attempt_id = attempt_id
+            if linked_attempt_id is None:
+                latest_attempt_row = connection.execute(
+                    """
+                    SELECT id
+                    FROM study_answer_attempts
+                    WHERE review_card_id = ? AND review_event_id IS NULL
+                    ORDER BY attempted_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (review_card_id,),
+                ).fetchone()
+                linked_attempt_id = latest_attempt_row["id"] if latest_attempt_row else None
+            if linked_attempt_id:
+                connection.execute(
+                    """
+                    UPDATE study_answer_attempts
+                    SET review_event_id = ?
+                    WHERE id = ? AND review_card_id = ?
+                    """,
+                    (review_event_id, linked_attempt_id, review_card_id),
+                )
             self._append_change_event_with_connection(
                 connection,
                 entity_type="review_card",
                 entity_id=review_card_id,
                 event_type="reviewed",
-                payload={"rating": rating_label},
+                payload={"rating": rating_label, "attempt_id": linked_attempt_id},
                 created_at=timestamp,
             )
             updated_row = connection.execute(
@@ -2885,11 +4938,30 @@ class Repository:
                 answer,
                 payload.question_payload,
             )
+            payload_field_set = getattr(payload, "model_fields_set", set())
+            question_difficulty_was_supplied = "question_difficulty" in payload_field_set
+            question_difficulty = _normalize_study_question_difficulty(payload.question_difficulty)
+            support_payload_was_supplied = "support_payload" in payload_field_set
+            support_payload = (
+                _normalize_study_support_payload(payload.support_payload)
+                if support_payload_was_supplied
+                else None
+            )
             scheduling_state["manual_content_edited_at"] = timestamp
+            if question_difficulty_was_supplied:
+                if question_difficulty:
+                    scheduling_state["manual_question_difficulty"] = question_difficulty
+                else:
+                    scheduling_state.pop("manual_question_difficulty", None)
             if question_payload is not None:
                 scheduling_state["manual_question_payload"] = question_payload
             else:
                 scheduling_state.pop("manual_question_payload", None)
+            if support_payload_was_supplied:
+                if support_payload is not None:
+                    scheduling_state["manual_question_support_payload"] = support_payload
+                else:
+                    scheduling_state.pop("manual_question_support_payload", None)
             scheduling_state["status"] = study_card_status(scheduling_state)
             connection.execute(
                 """
@@ -2910,7 +4982,12 @@ class Repository:
                 entity_type="review_card",
                 entity_id=review_card_id,
                 event_type="updated",
-                payload={"prompt": prompt, "answer": answer},
+                payload={
+                    "prompt": prompt,
+                    "answer": answer,
+                    "question_difficulty": _study_question_difficulty(card_type, scheduling_state),
+                    "support_payload": bool(support_payload),
+                },
                 created_at=timestamp,
             )
             self._rebuild_lexical_embeddings_with_connection(connection)
@@ -3026,6 +5103,224 @@ class Repository:
                 payload=settings.model_dump(mode="json"),
             )
         return settings
+
+    def get_study_settings(self) -> StudySettings:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT value_json FROM app_settings WHERE namespace = 'study'",
+            ).fetchone()
+        if not row:
+            return StudySettings()
+        return StudySettings.model_validate_json(row["value_json"])
+
+    def save_study_settings(self, settings: StudySettings) -> StudySettings:
+        timestamp = now_iso()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO app_settings (namespace, value_json, updated_at)
+                VALUES ('study', ?, ?)
+                ON CONFLICT(namespace) DO UPDATE SET
+                    value_json = excluded.value_json,
+                    updated_at = excluded.updated_at
+                """,
+                (settings.model_dump_json(), timestamp),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="app_settings",
+                entity_id="study",
+                event_type="updated",
+                payload=settings.model_dump(mode="json"),
+            )
+        return settings
+
+    def get_library_settings(self) -> LibrarySettings:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT value_json FROM app_settings WHERE namespace = 'library'",
+            ).fetchone()
+            if not row:
+                return LibrarySettings()
+            settings = LibrarySettings.model_validate_json(row["value_json"])
+            return self._normalize_library_settings_with_connection(connection, settings)
+
+    def save_library_settings(self, settings: LibrarySettings) -> LibrarySettings:
+        timestamp = now_iso()
+        with self.connect() as connection:
+            normalized = self._normalize_library_settings_with_connection(
+                connection,
+                settings,
+                timestamp=timestamp,
+                strict=True,
+            )
+            connection.execute(
+                """
+                INSERT INTO app_settings (namespace, value_json, updated_at)
+                VALUES ('library', ?, ?)
+                ON CONFLICT(namespace) DO UPDATE SET
+                    value_json = excluded.value_json,
+                    updated_at = excluded.updated_at
+                """,
+                (normalized.model_dump_json(), timestamp),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="app_settings",
+                entity_id="library",
+                event_type="updated",
+                payload=normalized.model_dump(mode="json"),
+            )
+        return normalized
+
+    def merge_import_collections(
+        self,
+        collection_documents: dict[tuple[tuple[str, ...], BatchResolvedImportFormat], list[str]],
+    ) -> list[BatchImportCollectionResult]:
+        if not collection_documents:
+            return []
+
+        timestamp = now_iso()
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT value_json FROM app_settings WHERE namespace = 'library'",
+            ).fetchone()
+            current = (
+                LibrarySettings.model_validate_json(row["value_json"])
+                if row
+                else LibrarySettings()
+            )
+            current = self._normalize_library_settings_with_connection(connection, current, timestamp=timestamp)
+            collections = list(current.custom_collections)
+            results: list[BatchImportCollectionResult] = []
+
+            for (path, source_format), document_ids in collection_documents.items():
+                normalized_path = tuple(normalize_whitespace(part) for part in path if normalize_whitespace(part))
+                if not normalized_path:
+                    continue
+                valid_document_ids = self._valid_library_document_ids_with_connection(connection, document_ids)
+                parent_id: str | None = None
+                for depth in range(1, len(normalized_path) + 1):
+                    prefix = normalized_path[:depth]
+                    normalized_name = prefix[-1]
+                    collection_id = self._library_import_collection_id(prefix, source_format)
+                    prefix_parent_id = parent_id
+                    existing_index = self._find_library_collection_index(
+                        collections,
+                        collection_id=collection_id,
+                        name=normalized_name,
+                        parent_id=prefix_parent_id,
+                    )
+                    prefix_document_ids = valid_document_ids if depth == len(normalized_path) else []
+
+                    if existing_index is None:
+                        collection = LibraryCollection(
+                            id=collection_id,
+                            name=normalized_name,
+                            document_ids=prefix_document_ids,
+                            origin="import",
+                            parent_id=prefix_parent_id,
+                            source_format=source_format,
+                            sort_index=len(collections),
+                            created_at=timestamp,
+                            updated_at=timestamp,
+                        )
+                        collections.append(collection)
+                        results.append(
+                            BatchImportCollectionResult(
+                                id=collection.id,
+                                name=collection.name,
+                                document_ids=collection.document_ids,
+                                parent_id=collection.parent_id,
+                                path=list(prefix),
+                                source_format=collection.source_format,
+                                status="created",
+                            )
+                        )
+                        parent_id = collection.id
+                        continue
+
+                    existing = collections[existing_index]
+                    merged_document_ids = (
+                        self._dedupe_texts([*existing.document_ids, *prefix_document_ids])
+                        if prefix_document_ids
+                        else existing.document_ids
+                    )
+                    source_format_changed = existing.source_format is None and source_format is not None
+                    parent_changed = existing.parent_id != prefix_parent_id
+                    document_ids_changed = merged_document_ids != existing.document_ids
+                    updated = LibraryCollection(
+                        id=existing.id,
+                        name=existing.name,
+                        document_ids=merged_document_ids,
+                        origin=existing.origin,
+                        parent_id=prefix_parent_id,
+                        source_format=existing.source_format or source_format,
+                        sort_index=existing.sort_index,
+                        created_at=existing.created_at or timestamp,
+                        updated_at=timestamp if (document_ids_changed or parent_changed or source_format_changed) else existing.updated_at,
+                    )
+                    collections[existing_index] = updated
+                    if document_ids_changed or parent_changed or source_format_changed:
+                        results.append(
+                            BatchImportCollectionResult(
+                                id=updated.id,
+                                name=updated.name,
+                                document_ids=updated.document_ids,
+                                parent_id=updated.parent_id,
+                                path=list(prefix),
+                                source_format=updated.source_format,
+                                status="updated",
+                            )
+                        )
+                    parent_id = updated.id
+
+            normalized = self._normalize_library_settings_with_connection(
+                connection,
+                LibrarySettings(custom_collections=collections),
+                timestamp=timestamp,
+            )
+            connection.execute(
+                """
+                INSERT INTO app_settings (namespace, value_json, updated_at)
+                VALUES ('library', ?, ?)
+                ON CONFLICT(namespace) DO UPDATE SET
+                    value_json = excluded.value_json,
+                    updated_at = excluded.updated_at
+                """,
+                (normalized.model_dump_json(), timestamp),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="app_settings",
+                entity_id="library",
+                event_type="updated",
+                payload=normalized.model_dump(mode="json"),
+            )
+        return results
+
+    def record_batch_import_metadata(
+        self,
+        document_id: str,
+        *,
+        source_format: BatchResolvedImportFormat,
+        url: str,
+        folder: str | None,
+        tags: list[str],
+        imported_at: str,
+    ) -> bool:
+        source_document = self.get_source_document(document_id)
+        if not source_document:
+            return False
+        metadata = dict(source_document.metadata)
+        metadata["batch_import"] = {
+            "source_format": source_format,
+            "url": url,
+            "folder": folder,
+            "tags": self._dedupe_texts(tags),
+            "imported_at": imported_at,
+        }
+        return self.save_source_document_metadata(document_id, metadata, touch_updated_at=True)
 
     def save_progress(
         self,
@@ -3292,6 +5587,36 @@ class Repository:
                 FOREIGN KEY (review_card_id) REFERENCES review_cards(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS study_answer_attempts (
+                id TEXT PRIMARY KEY,
+                review_card_id TEXT NOT NULL,
+                source_document_id TEXT NOT NULL,
+                session_id TEXT,
+                question_type TEXT NOT NULL,
+                response_json TEXT NOT NULL DEFAULT '{}',
+                is_correct INTEGER,
+                attempted_at TEXT NOT NULL,
+                review_event_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (review_card_id) REFERENCES review_cards(id) ON DELETE CASCADE,
+                FOREIGN KEY (source_document_id) REFERENCES source_documents(id) ON DELETE CASCADE,
+                FOREIGN KEY (review_event_id) REFERENCES review_events(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS study_review_sessions (
+                id TEXT PRIMARY KEY,
+                source_document_id TEXT,
+                filter_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                settings_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                card_ids_json TEXT NOT NULL DEFAULT '[]',
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                summary_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (source_document_id) REFERENCES source_documents(id) ON DELETE SET NULL
+            );
+
             CREATE TABLE IF NOT EXISTS recall_notes (
                 id TEXT PRIMARY KEY,
                 anchor_kind TEXT NOT NULL DEFAULT 'sentence',
@@ -3348,6 +5673,18 @@ class Repository:
 
             CREATE INDEX IF NOT EXISTS recall_notes_source_document_idx
             ON recall_notes (source_document_id, updated_at DESC);
+
+            CREATE INDEX IF NOT EXISTS study_answer_attempts_card_idx
+            ON study_answer_attempts (review_card_id, attempted_at DESC);
+
+            CREATE INDEX IF NOT EXISTS study_answer_attempts_source_idx
+            ON study_answer_attempts (source_document_id, attempted_at DESC);
+
+            CREATE INDEX IF NOT EXISTS study_answer_attempts_session_idx
+            ON study_answer_attempts (session_id, attempted_at DESC);
+
+            CREATE INDEX IF NOT EXISTS study_review_sessions_source_idx
+            ON study_review_sessions (source_document_id, started_at DESC);
             """
         )
         self._ensure_column_with_connection(
@@ -3959,13 +6296,29 @@ class Repository:
             updated_at=timestamp,
         )
 
-    def _sync_review_cards_with_connection(self, connection: sqlite3.Connection) -> StudyCardGenerationResult:
+    def _sync_review_cards_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        payload: StudyCardGenerationRequest | None = None,
+    ) -> StudyCardGenerationResult:
+        requested_source_document_id = payload.source_document_id if payload else None
+        requested_question_types = (
+            list(payload.question_types)
+            if payload and payload.question_types
+            else list(GENERATED_STUDY_CARD_TYPES)
+        )
+        max_per_source = payload.max_per_source if payload else 8
+        include_hints = payload.include_hints if payload else True
+        include_explanations = payload.include_explanations if payload else True
+        requested_difficulty = payload.difficulty if payload else "all"
         chunk_rows = connection.execute(
             """
             SELECT id, source_document_id, variant_id, block_id, ordinal, text, metadata_json
             FROM content_chunks
+            WHERE (? IS NULL OR source_document_id = ?)
             ORDER BY source_document_id ASC, ordinal ASC
-            """
+            """,
+            (requested_source_document_id, requested_source_document_id),
         ).fetchall()
         chunks = [
             ContentChunk(
@@ -4000,22 +6353,43 @@ class Repository:
                 relation_type=row["relation_type"],
                 provenance=row["provenance"],
                 confidence=row["confidence"],
-                evidence=[],
-                metadata=self._metadata_from_row(row),
+                evidence=[
+                    RelationEvidence(
+                        id=f"{row['id']}:evidence:{index}",
+                        source_document_id=str(evidence.get("source_document_id") or ""),
+                        block_id=evidence.get("block_id"),
+                        excerpt=evidence.get("excerpt"),
+                        confidence=evidence.get("confidence"),
+                        metadata=evidence.get("metadata") if isinstance(evidence.get("metadata"), dict) else {},
+                    )
+                    for index, evidence in enumerate(
+                        metadata.get("evidence", []) if isinstance(metadata.get("evidence"), list) else []
+                    )
+                    if isinstance(evidence, dict) and evidence.get("source_document_id")
+                ],
+                metadata=metadata,
             )
             for row in edge_rows
+            for metadata in [self._metadata_from_row(row)]
         ]
         document_titles = {
             row["id"]: row["title"]
             for row in connection.execute(
-                "SELECT id, title FROM source_documents"
+                "SELECT id, title FROM source_documents WHERE (? IS NULL OR id = ?)",
+                (requested_source_document_id, requested_source_document_id),
             ).fetchall()
         }
+        if requested_source_document_id and requested_source_document_id not in document_titles:
+            raise ValueError("Source document not found.")
         card_candidates = build_review_card_candidates(
             chunks=chunks,
             nodes=nodes,
             edges=edges,
             document_titles=document_titles,
+            question_types=requested_question_types,
+            source_document_id=requested_source_document_id,
+            max_per_source=max_per_source,
+            difficulty=requested_difficulty,
         )
         existing_rows = {
             row["id"]: row
@@ -4035,12 +6409,22 @@ class Repository:
             ).fetchall()
         }
         expected_ids = {candidate["id"] for candidate in card_candidates}
+        prunable_card_types = set(requested_question_types) | {"relation", "cloze"}
         obsolete_ids = [
             card_id
             for card_id, row in existing_rows.items()
             for scheduling_state in [_study_scheduling_state_from_json(row["scheduling_state_json"])]
             if (
                 card_id not in expected_ids
+                and row["card_type"] in prunable_card_types
+                and (
+                    requested_difficulty == "all"
+                    or _study_question_difficulty(row["card_type"], scheduling_state) == requested_difficulty
+                )
+                and (
+                    requested_source_document_id is None
+                    or row["source_document_id"] == requested_source_document_id
+                )
                 and not _study_card_is_manual_state(row["card_type"], scheduling_state)
                 and not _study_card_is_deleted_state(scheduling_state)
             )
@@ -4053,6 +6437,8 @@ class Repository:
 
         timestamp = now_iso()
         generated_count = 0
+        generated_by_type = {question_type: 0 for question_type in requested_question_types}
+        total_by_type = {question_type: 0 for question_type in requested_question_types}
         visible_candidate_count = len(card_candidates)
         for candidate in card_candidates:
             existing = existing_rows.get(candidate["id"])
@@ -4066,6 +6452,27 @@ class Repository:
                 continue
             scheduling_state["status"] = study_card_status(scheduling_state)
             manual_content_edited = bool(scheduling_state.get("manual_content_edited_at"))
+            if not manual_content_edited:
+                question_payload = candidate.get("question_payload")
+                if question_payload is not None:
+                    scheduling_state["generated_question_payload"] = question_payload
+                    scheduling_state.pop("manual_question_payload", None)
+                else:
+                    scheduling_state.pop("generated_question_payload", None)
+                candidate_difficulty = _normalize_study_question_difficulty(candidate.get("question_difficulty"))
+                if candidate_difficulty:
+                    scheduling_state["generated_question_difficulty"] = candidate_difficulty
+                    scheduling_state.pop("manual_question_difficulty", None)
+                support_payload = _filter_study_support_payload(
+                    candidate.get("question_support_payload"),
+                    include_hints=include_hints,
+                    include_explanations=include_explanations,
+                )
+                if support_payload is not None:
+                    scheduling_state["generated_question_support_payload"] = support_payload
+                    scheduling_state.pop("manual_question_support_payload", None)
+                else:
+                    scheduling_state.pop("generated_question_support_payload", None)
             next_prompt = existing["prompt"] if existing and manual_content_edited else candidate["prompt"]
             next_answer = existing["answer"] if existing and manual_content_edited else candidate["answer"]
             source_spans_json = json.dumps(candidate["source_spans"], sort_keys=True)
@@ -4081,6 +6488,8 @@ class Repository:
             )
             if needs_update:
                 generated_count += 1
+                generated_by_type[candidate["card_type"]] = generated_by_type.get(candidate["card_type"], 0) + 1
+            total_by_type[candidate["card_type"]] = total_by_type.get(candidate["card_type"], 0) + 1
             connection.execute(
                 """
                 INSERT INTO review_cards (
@@ -4123,7 +6532,14 @@ class Repository:
             event_type="synced",
             payload={
                 "generated_count": generated_count,
+                "generated_by_type": generated_by_type,
+                "question_types": requested_question_types,
+                "source_document_id": requested_source_document_id,
                 "study_schema_version": STUDY_SCHEMA_VERSION,
+                "include_hints": include_hints,
+                "include_explanations": include_explanations,
+                "difficulty": requested_difficulty,
+                "total_by_type": total_by_type,
                 "total_count": visible_candidate_count,
             },
             created_at=timestamp,
@@ -4137,6 +6553,13 @@ class Repository:
         return StudyCardGenerationResult(
             generated_count=generated_count,
             total_count=visible_candidate_count,
+            source_document_id=requested_source_document_id,
+            question_types=requested_question_types,
+            generated_by_type=generated_by_type,
+            total_by_type=total_by_type,
+            include_hints=include_hints,
+            include_explanations=include_explanations,
+            difficulty=requested_difficulty,
         )
 
     def _rebuild_lexical_embeddings_with_connection(self, connection: sqlite3.Connection) -> None:
@@ -5084,7 +7507,62 @@ class Repository:
             status=status,
             last_rating=scheduling_state.get("last_rating"),
             knowledge_stage=study_knowledge_stage(scheduling_state),
-            question_payload=scheduling_state.get("manual_question_payload"),
+            question_difficulty=_study_question_difficulty(row["card_type"], scheduling_state),
+            question_payload=scheduling_state.get("manual_question_payload")
+            or scheduling_state.get("generated_question_payload"),
+            question_support_payload=scheduling_state.get("manual_question_support_payload")
+            or scheduling_state.get("generated_question_support_payload"),
+        )
+
+    def _row_to_study_answer_attempt_record(self, row: sqlite3.Row) -> StudyAnswerAttemptRecord:
+        try:
+            response = json.loads(row["response_json"] or "{}")
+        except json.JSONDecodeError:
+            response = {}
+        if not isinstance(response, dict):
+            response = {}
+        is_correct = row["is_correct"]
+        return StudyAnswerAttemptRecord(
+            id=row["id"],
+            review_card_id=row["review_card_id"],
+            source_document_id=row["source_document_id"],
+            document_title=row["document_title"],
+            session_id=row["session_id"],
+            question_type=row["question_type"],
+            response=response,
+            is_correct=None if is_correct is None else bool(is_correct),
+            attempted_at=row["attempted_at"],
+            review_event_id=row["review_event_id"],
+            prompt=row["prompt"],
+            correct_answer=row["answer"],
+        )
+
+    def _row_to_study_review_session_record(self, row: sqlite3.Row) -> StudyReviewSessionRecord:
+        try:
+            filter_snapshot = json.loads(row["filter_snapshot_json"] or "{}")
+        except json.JSONDecodeError:
+            filter_snapshot = {}
+        try:
+            settings_snapshot = json.loads(row["settings_snapshot_json"] or "{}")
+        except json.JSONDecodeError:
+            settings_snapshot = {}
+        try:
+            card_ids = json.loads(row["card_ids_json"] or "[]")
+        except json.JSONDecodeError:
+            card_ids = []
+        try:
+            summary = json.loads(row["summary_json"] or "{}")
+        except json.JSONDecodeError:
+            summary = {}
+        return StudyReviewSessionRecord(
+            id=row["id"],
+            source_document_id=row["source_document_id"],
+            filter_snapshot=filter_snapshot if isinstance(filter_snapshot, dict) else {},
+            settings_snapshot=settings_snapshot if isinstance(settings_snapshot, dict) else {},
+            card_ids=card_ids if isinstance(card_ids, list) else [],
+            started_at=row["started_at"],
+            completed_at=row["completed_at"],
+            summary=summary if isinstance(summary, dict) else {},
         )
 
     @staticmethod
@@ -5102,6 +7580,80 @@ class Repository:
             StudyReviewProgressStageCount(stage=stage, count=int(stage_counts.get(stage, 0)))
             for stage in STUDY_KNOWLEDGE_STAGE_ORDER
         ]
+
+    def _build_study_habit_goal_status(
+        self,
+        *,
+        review_rows: list[sqlite3.Row],
+        settings: StudySettings,
+        today: date,
+    ) -> StudyReviewGoalStatus:
+        review_dates: list[date] = []
+        review_counts_by_date: dict[date, int] = {}
+        for row in review_rows:
+            reviewed_date = self._review_event_date(str(row["reviewed_at"]))
+            if reviewed_date is None:
+                continue
+            review_dates.append(reviewed_date)
+            review_counts_by_date[reviewed_date] = review_counts_by_date.get(reviewed_date, 0) + 1
+
+        if settings.streak_goal_mode == "weekly":
+            week_start = today - timedelta(days=today.weekday())
+            week_end = week_start + timedelta(days=6)
+            current_count = len({review_date for review_date in review_dates if week_start <= review_date <= week_end})
+            target_count = int(settings.weekly_goal_days)
+            history: list[StudyReviewGoalHistoryRow] = []
+            for offset in range(5, -1, -1):
+                period_start = week_start - timedelta(days=offset * 7)
+                period_end = period_start + timedelta(days=6)
+                count = len({review_date for review_date in review_dates if period_start <= review_date <= period_end})
+                history.append(
+                    StudyReviewGoalHistoryRow(
+                        period_start=period_start.isoformat(),
+                        period_end=period_end.isoformat(),
+                        count=count,
+                        target_count=target_count,
+                        is_met=count >= target_count,
+                    )
+                )
+            return StudyReviewGoalStatus(
+                mode="weekly",
+                target_count=target_count,
+                current_count=current_count,
+                remaining_count=max(target_count - current_count, 0),
+                is_met=current_count >= target_count,
+                period_start=week_start.isoformat(),
+                period_end=week_end.isoformat(),
+                next_reset_date=(week_end + timedelta(days=1)).isoformat(),
+                recent_history=history,
+            )
+
+        target_count = int(settings.daily_goal_reviews)
+        current_count = review_counts_by_date.get(today, 0)
+        history = []
+        for offset in range(6, -1, -1):
+            period_date = today - timedelta(days=offset)
+            count = review_counts_by_date.get(period_date, 0)
+            history.append(
+                StudyReviewGoalHistoryRow(
+                    period_start=period_date.isoformat(),
+                    period_end=period_date.isoformat(),
+                    count=count,
+                    target_count=target_count,
+                    is_met=count >= target_count,
+                )
+            )
+        return StudyReviewGoalStatus(
+            mode="daily",
+            target_count=target_count,
+            current_count=current_count,
+            remaining_count=max(target_count - current_count, 0),
+            is_met=current_count >= target_count,
+            period_start=today.isoformat(),
+            period_end=today.isoformat(),
+            next_reset_date=(today + timedelta(days=1)).isoformat(),
+            recent_history=history,
+        )
 
     def _build_study_memory_progress_snapshots(
         self,
@@ -5221,6 +7773,13 @@ class Repository:
             updated_at=row["updated_at"],
         )
 
+    def _sentence_count_from_view_json(self, view_json: str) -> int:
+        try:
+            view = DocumentView.model_validate_json(view_json)
+        except ValueError:
+            return 0
+        return sum(len(sentence_texts_for_block(block)) for block in view.blocks)
+
     def _latest_change_event_cursor(
         self,
         connection: sqlite3.Connection,
@@ -5338,11 +7897,61 @@ class Repository:
             return stored_path
         return self.database_path.parent / stored_path
 
+    def _attachment_path_from_row_mapping(self, row: dict[str, Any]) -> Path:
+        stored_path = Path(str(row["stored_path"]))
+        if stored_path.is_absolute():
+            return stored_path
+        return self.database_path.parent / stored_path
+
     def _relative_attachment_path(self, attachment_path: Path) -> str:
         try:
             return attachment_path.relative_to(self.database_path.parent).as_posix()
         except ValueError:
             return f"files/{attachment_path.name}"
+
+    def _is_safe_workspace_import_path(self, relative_path: str | None) -> bool:
+        if not relative_path:
+            return False
+        normalized = relative_path.replace("\\", "/")
+        if normalized.startswith("/") or normalized.startswith("../") or normalized == "..":
+            return False
+        return not any(part in {"", ".", ".."} for part in normalized.split("/"))
+
+    def _restore_workspace_attachment_file(
+        self,
+        relative_path: str,
+        payload: bytes | None,
+        warnings: list[str],
+    ) -> str | None:
+        if not self._is_safe_workspace_import_path(relative_path):
+            warnings.append(f"Skipped unsafe attachment path {relative_path}.")
+            return None
+        if payload is None:
+            warnings.append(f"Backup was missing attachment payload {relative_path}.")
+            return None
+        normalized_path = relative_path.replace("\\", "/")
+        target_path = self.database_path.parent / normalized_path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if target_path.exists() and target_path.read_bytes() != payload:
+            suffix = target_path.suffix or ".bin"
+            target_path = target_path.with_name(f"{target_path.stem}-{new_uuid7_str()}{suffix}")
+            normalized_path = target_path.relative_to(self.database_path.parent).as_posix()
+        if not target_path.exists():
+            target_path.write_bytes(payload)
+        return normalized_path
+
+    def _restore_json_id_list(self, raw_value: str, id_map: dict[str, str]) -> list[str]:
+        try:
+            values = json.loads(raw_value or "[]")
+        except json.JSONDecodeError:
+            values = []
+        if not isinstance(values, list):
+            return []
+        restored: list[str] = []
+        for value in values:
+            text_value = str(value)
+            restored.append(id_map.get(text_value, text_value))
+        return restored
 
     def _list_portable_entities_with_connection(
         self,
@@ -5617,7 +8226,12 @@ class Repository:
             identity_payload = {
                 "answer": row["answer"],
                 "card_type": row["card_type"],
+                "generated_question_payload": scheduling_state.get("generated_question_payload"),
+                "generated_question_difficulty": scheduling_state.get("generated_question_difficulty"),
+                "generated_question_support_payload": scheduling_state.get("generated_question_support_payload"),
                 "manual_question_payload": scheduling_state.get("manual_question_payload"),
+                "manual_question_difficulty": scheduling_state.get("manual_question_difficulty"),
+                "manual_question_support_payload": scheduling_state.get("manual_question_support_payload"),
                 "prompt": row["prompt"],
                 "source_document_content_hash": row["content_hash"],
                 "source_spans": source_spans,
@@ -5663,7 +8277,12 @@ class Repository:
             card_identity_payload = {
                 "answer": row["answer"],
                 "card_type": row["card_type"],
+                "generated_question_payload": event_scheduling_state.get("generated_question_payload"),
+                "generated_question_difficulty": event_scheduling_state.get("generated_question_difficulty"),
+                "generated_question_support_payload": event_scheduling_state.get("generated_question_support_payload"),
                 "manual_question_payload": event_scheduling_state.get("manual_question_payload"),
+                "manual_question_difficulty": event_scheduling_state.get("manual_question_difficulty"),
+                "manual_question_support_payload": event_scheduling_state.get("manual_question_support_payload"),
                 "prompt": row["prompt"],
                 "source_document_content_hash": row["content_hash"],
                 "source_spans": source_spans,
@@ -5686,8 +8305,616 @@ class Repository:
                 )
             )
 
+        attempt_rows = connection.execute(
+            """
+            SELECT
+                saa.id,
+                saa.review_card_id,
+                saa.source_document_id,
+                saa.session_id,
+                saa.question_type,
+                saa.response_json,
+                saa.is_correct,
+                saa.attempted_at,
+                saa.review_event_id,
+                rc.prompt,
+                rc.answer,
+                rc.card_type,
+                rc.source_spans_json,
+                rc.scheduling_state_json,
+                sd.content_hash
+            FROM study_answer_attempts saa
+            INNER JOIN review_cards rc ON rc.id = saa.review_card_id
+            INNER JOIN source_documents sd ON sd.id = saa.source_document_id
+            ORDER BY saa.attempted_at ASC, saa.id ASC
+            """
+        ).fetchall()
+        for row in attempt_rows:
+            source_spans = json.loads(row["source_spans_json"] or "[]")
+            scheduling_state = json.loads(row["scheduling_state_json"] or "{}")
+            card_identity_payload = {
+                "answer": row["answer"],
+                "card_type": row["card_type"],
+                "generated_question_payload": scheduling_state.get("generated_question_payload"),
+                "generated_question_difficulty": scheduling_state.get("generated_question_difficulty"),
+                "generated_question_support_payload": scheduling_state.get("generated_question_support_payload"),
+                "manual_question_payload": scheduling_state.get("manual_question_payload"),
+                "manual_question_difficulty": scheduling_state.get("manual_question_difficulty"),
+                "manual_question_support_payload": scheduling_state.get("manual_question_support_payload"),
+                "prompt": row["prompt"],
+                "source_document_content_hash": row["content_hash"],
+                "source_spans": source_spans,
+            }
+            card_key = f"review_card:{build_payload_digest(card_identity_payload)}"
+            try:
+                response = json.loads(row["response_json"] or "{}")
+            except json.JSONDecodeError:
+                response = {}
+            if not isinstance(response, dict):
+                response = {}
+            payload = {
+                "attempted_at": row["attempted_at"],
+                "is_correct": None if row["is_correct"] is None else bool(row["is_correct"]),
+                "question_type": row["question_type"],
+                "response": response,
+                "review_card_key": card_key,
+                "review_event_id": row["review_event_id"],
+                "session_id": row["session_id"],
+            }
+            entities.append(
+                PortableEntityDigest(
+                    entity_type="study_answer_attempt",
+                    entity_key=f"study_answer_attempt:{row['id']}",
+                    entity_id=row["id"],
+                    updated_at=row["attempted_at"],
+                    payload_digest=build_payload_digest(payload),
+                    source_document_id=row["source_document_id"],
+                    metadata={
+                        "is_correct": payload["is_correct"],
+                        "question_type": row["question_type"],
+                        "review_card_key": card_key,
+                    },
+                )
+            )
+
+        session_rows = connection.execute(
+            """
+            SELECT
+                srs.*,
+                sd.content_hash
+            FROM study_review_sessions srs
+            LEFT JOIN source_documents sd ON sd.id = srs.source_document_id
+            ORDER BY srs.started_at ASC, srs.id ASC
+            """
+        ).fetchall()
+        for row in session_rows:
+            try:
+                filter_snapshot = json.loads(row["filter_snapshot_json"] or "{}")
+            except json.JSONDecodeError:
+                filter_snapshot = {}
+            try:
+                settings_snapshot = json.loads(row["settings_snapshot_json"] or "{}")
+            except json.JSONDecodeError:
+                settings_snapshot = {}
+            try:
+                card_ids = json.loads(row["card_ids_json"] or "[]")
+            except json.JSONDecodeError:
+                card_ids = []
+            try:
+                summary = json.loads(row["summary_json"] or "{}")
+            except json.JSONDecodeError:
+                summary = {}
+            payload = {
+                "card_ids": card_ids if isinstance(card_ids, list) else [],
+                "completed_at": row["completed_at"],
+                "filter_snapshot": filter_snapshot if isinstance(filter_snapshot, dict) else {},
+                "settings_snapshot": settings_snapshot if isinstance(settings_snapshot, dict) else {},
+                "source_document_content_hash": row["content_hash"],
+                "started_at": row["started_at"],
+                "summary": summary if isinstance(summary, dict) else {},
+            }
+            entities.append(
+                PortableEntityDigest(
+                    entity_type="study_review_session",
+                    entity_key=f"study_review_session:{row['id']}",
+                    entity_id=row["id"],
+                    updated_at=row["updated_at"],
+                    payload_digest=build_payload_digest(payload),
+                    source_document_id=row["source_document_id"],
+                    metadata={
+                        "card_count": len(payload["card_ids"]),
+                        "completed_at": row["completed_at"],
+                        "started_at": row["started_at"],
+                    },
+                )
+            )
+
         entities.sort(key=lambda entity: (entity.entity_type, entity.entity_key, entity.updated_at, entity.entity_id))
         return entities
+
+    def _render_recall_learning_pack_markdown(
+        self,
+        *,
+        document: RecallDocumentRecord,
+        source_markdown: str,
+        notes: list[RecallNoteRecord],
+        graph_nodes: list[KnowledgeNodeRecord],
+        graph_edges: list[KnowledgeEdgeRecord],
+        graph_mentions: list[KnowledgeMentionRecord],
+        study_cards: list[StudyCardRecord],
+        study_progress: StudyReviewProgress,
+        source_metadata: dict[str, Any],
+        collection_names: list[str],
+    ) -> str:
+        lines = [
+            source_markdown.rstrip(),
+            "",
+            "## Learning Pack",
+            "",
+            f"- Source: {document.title}",
+            f"- Exported at: {now_iso()}",
+            f"- Study reviews: {study_progress.total_reviews}",
+            f"- Study attempts: {study_progress.total_attempts}",
+            f"- Study accuracy: {self._format_learning_pack_accuracy(study_progress.accuracy)}",
+            f"- Study cards: {len(study_cards)}",
+            f"- Notebook notes: {len(notes)}",
+            f"- Graph nodes: {len(graph_nodes)}",
+            "",
+        ]
+        batch_import = source_metadata.get("batch_import") if isinstance(source_metadata, dict) else None
+        if collection_names or isinstance(batch_import, dict):
+            lines.extend(["### Source Provenance", ""])
+            if collection_names:
+                lines.append(f"- Collections: {', '.join(collection_names)}")
+            else:
+                lines.append("- Collections: none")
+            if isinstance(batch_import, dict):
+                source_format = normalize_whitespace(str(batch_import.get("source_format") or ""))
+                folder = normalize_whitespace(str(batch_import.get("folder") or ""))
+                tags = [
+                    normalize_whitespace(str(tag))
+                    for tag in batch_import.get("tags", [])
+                    if normalize_whitespace(str(tag))
+                ]
+                imported_at = normalize_whitespace(str(batch_import.get("imported_at") or ""))
+                if source_format:
+                    lines.append(f"- Imported from: {source_format}")
+                if folder:
+                    lines.append(f"- Archive folder: {folder}")
+                if tags:
+                    lines.append(f"- Archive tags: {', '.join(tags)}")
+                if imported_at:
+                    lines.append(f"- Imported at: {imported_at}")
+            lines.append("")
+
+        lines.extend(["### Source Review Summary", ""])
+        if study_progress.habit_goal:
+            goal = study_progress.habit_goal
+            lines.extend(
+                [
+                    f"- Goal mode: {goal.mode}",
+                    f"- Goal progress: {goal.current_count}/{goal.target_count}",
+                    f"- Goal remaining: {goal.remaining_count}",
+                    f"- Goal met: {'yes' if goal.is_met else 'no'}",
+                ]
+            )
+        else:
+            lines.append("- Goal progress: not configured")
+        if study_progress.last_reviewed_at:
+            lines.append(f"- Last reviewed: {study_progress.last_reviewed_at}")
+        lines.append("")
+
+        lines.extend(["### Notebook Notes", ""])
+        if notes:
+            for note in notes:
+                anchor_kind = note.anchor.kind or "sentence"
+                note_body = normalize_whitespace(note.body_text or "") or "No note body."
+                lines.append(f"- {anchor_kind.title()} note updated {note.updated_at}")
+                lines.append(f"  - Anchor: {self._truncate_text(normalize_whitespace(note.anchor.anchor_text), 160)}")
+                lines.append(f"  - Excerpt: {self._truncate_text(normalize_whitespace(note.anchor.excerpt_text), 220)}")
+                lines.append(f"  - Note: {self._truncate_text(note_body, 320)}")
+        else:
+            lines.append("No Notebook notes are attached to this source.")
+        lines.append("")
+
+        lines.extend(["### Graph Memory", ""])
+        if graph_nodes:
+            lines.append("#### Nodes")
+            lines.append("")
+            for node in graph_nodes:
+                description = normalize_whitespace(node.description or "") or "No description."
+                lines.append(
+                    f"- {node.label} ({node.node_type}, {node.status}, confidence {node.confidence:.2f}): "
+                    f"{self._truncate_text(description, 220)}"
+                )
+        else:
+            lines.append("No graph nodes are attached to this source.")
+        if graph_edges:
+            lines.extend(["", "#### Relations", ""])
+            for edge in graph_edges:
+                excerpt = normalize_whitespace(edge.excerpt or "") or "No excerpt."
+                lines.append(
+                    f"- {edge.source_label} - {edge.relation_type} - {edge.target_label} "
+                    f"({edge.status}, confidence {edge.confidence:.2f}): {self._truncate_text(excerpt, 220)}"
+                )
+        if graph_mentions:
+            lines.extend(["", "#### Mentions", ""])
+            for mention in graph_mentions[:12]:
+                lines.append(
+                    f"- {mention.text} ({mention.entity_type}, confidence {mention.confidence:.2f}): "
+                    f"{self._truncate_text(normalize_whitespace(mention.excerpt), 220)}"
+                )
+            if len(graph_mentions) > 12:
+                lines.append(f"- {len(graph_mentions) - 12} more mentions omitted from this compact export.")
+        lines.append("")
+
+        lines.extend(["### Study Questions", ""])
+        if study_cards:
+            for index, card in enumerate(study_cards, start=1):
+                lines.append(
+                    f"{index}. {card.prompt} [{card.card_type}, {card.question_difficulty}, {card.status}, "
+                    f"{card.knowledge_stage}]"
+                )
+                lines.append(f"   - Answer: {self._truncate_text(normalize_whitespace(card.answer), 320)}")
+                payload_summary = self._study_question_payload_summary(card)
+                if payload_summary:
+                    lines.append(f"   - Question payload: {payload_summary}")
+                if card.question_support_payload:
+                    support = card.question_support_payload
+                    if support.hint:
+                        lines.append(f"   - Hint: {self._truncate_text(normalize_whitespace(support.hint), 220)}")
+                    if support.explanation:
+                        lines.append(
+                            f"   - Explanation: {self._truncate_text(normalize_whitespace(support.explanation), 320)}"
+                        )
+                    if support.source_excerpt:
+                        lines.append(
+                            f"   - Source excerpt: {self._truncate_text(normalize_whitespace(support.source_excerpt), 320)}"
+                        )
+        else:
+            lines.append("No visible Study questions are attached to this source.")
+        lines.append("")
+
+        lines.extend(["### Recent Study Attempts", ""])
+        if study_progress.recent_attempts:
+            for attempt in study_progress.recent_attempts:
+                correctness = (
+                    "self-rated"
+                    if attempt.is_correct is None
+                    else "correct"
+                    if attempt.is_correct
+                    else "incorrect"
+                )
+                response = json.dumps(attempt.response, ensure_ascii=True, sort_keys=True)
+                lines.append(
+                    f"- {attempt.attempted_at}: {correctness} {attempt.question_type} attempt on "
+                    f"\"{self._truncate_text(normalize_whitespace(attempt.prompt), 120)}\""
+                )
+                lines.append(f"  - Response: `{self._truncate_text(response, 240)}`")
+                if attempt.review_event_id:
+                    lines.append(f"  - Linked review event: {attempt.review_event_id}")
+        else:
+            lines.append("No answer attempts are recorded for this source.")
+        lines.append("")
+
+        lines.extend(["### Recent Review Sessions", ""])
+        if study_progress.recent_sessions:
+            for session in study_progress.recent_sessions:
+                summary = json.dumps(session.summary, ensure_ascii=True, sort_keys=True)
+                completed = session.completed_at or "incomplete"
+                lines.append(
+                    f"- {session.started_at} to {completed}: {len(session.card_ids)} "
+                    f"{'card' if len(session.card_ids) == 1 else 'cards'}"
+                )
+                lines.append(f"  - Session: {session.id}")
+                if session.summary:
+                    lines.append(f"  - Summary: `{self._truncate_text(summary, 320)}`")
+        else:
+            lines.append("No review sessions are recorded for this source.")
+
+        return "\n".join(lines).strip() + "\n"
+
+    def _study_question_payload_summary(self, card: StudyCardRecord) -> str | None:
+        payload = card.question_payload
+        if not payload:
+            return None
+        payload_data = payload.model_dump() if hasattr(payload, "model_dump") else payload
+        if not isinstance(payload_data, dict):
+            return None
+        kind = str(payload_data.get("kind") or "")
+        if kind in {"multiple_choice", "true_false", "fill_in_blank"}:
+            choices = [
+                normalize_whitespace(str(choice.get("text") or ""))
+                for choice in payload_data.get("choices", [])
+                if isinstance(choice, dict)
+            ]
+            choices = [choice for choice in choices if choice]
+            template = normalize_whitespace(str(payload_data.get("template") or ""))
+            parts = []
+            if template:
+                parts.append(f"template: {self._truncate_text(template, 160)}")
+            if choices:
+                parts.append(f"choices: {', '.join(choices[:6])}")
+            return "; ".join(parts) or None
+        if kind == "matching":
+            pairs = [
+                f"{normalize_whitespace(str(pair.get('left') or ''))} -> {normalize_whitespace(str(pair.get('right') or ''))}"
+                for pair in payload_data.get("pairs", [])
+                if isinstance(pair, dict)
+            ]
+            pairs = [pair for pair in pairs if pair != " -> "]
+            return f"pairs: {'; '.join(pairs[:8])}" if pairs else None
+        if kind == "ordering":
+            items = [
+                normalize_whitespace(str(item.get("text") or ""))
+                for item in payload_data.get("items", [])
+                if isinstance(item, dict)
+            ]
+            items = [item for item in items if item]
+            return f"order: {' -> '.join(items[:8])}" if items else None
+        return None
+
+    def _normalize_library_settings_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        settings: LibrarySettings,
+        *,
+        timestamp: str | None = None,
+        strict: bool = False,
+    ) -> LibrarySettings:
+        candidate_collections: list[LibraryCollection] = []
+        seen_collection_ids: set[str] = set()
+        effective_timestamp = timestamp or now_iso()
+        for index, collection in enumerate(settings.custom_collections):
+            collection_id = normalize_whitespace(collection.id)
+            name = normalize_whitespace(collection.name)
+            if not collection_id or not name:
+                continue
+            if collection_id in seen_collection_ids:
+                if strict:
+                    raise ValueError("Library collection ids must be unique.")
+                continue
+            document_ids = self._valid_library_document_ids_with_connection(connection, collection.document_ids)
+            candidate_collections.append(
+                LibraryCollection(
+                    id=collection_id,
+                    name=name,
+                    document_ids=document_ids,
+                    origin=collection.origin,
+                    parent_id=collection.parent_id,
+                    source_format=collection.source_format,
+                    sort_index=collection.sort_index if collection.sort_index is not None else index,
+                    created_at=collection.created_at or effective_timestamp,
+                    updated_at=collection.updated_at or effective_timestamp,
+                )
+            )
+            seen_collection_ids.add(collection_id)
+
+        collection_ids = {collection.id for collection in candidate_collections}
+        parent_by_id: dict[str, str | None] = {}
+        for collection in candidate_collections:
+            parent_id = collection.parent_id
+            if parent_id == collection.id:
+                if strict:
+                    raise ValueError("Library collections cannot be their own parent.")
+                parent_id = None
+            elif parent_id and parent_id not in collection_ids:
+                if strict:
+                    raise ValueError("Library collection parent_id must reference an existing collection.")
+                parent_id = None
+            parent_by_id[collection.id] = parent_id
+
+        for collection in candidate_collections:
+            seen_path: set[str] = set()
+            current_id: str | None = collection.id
+            depth = 0
+            while current_id:
+                if current_id in seen_path:
+                    if strict:
+                        raise ValueError("Library collection parent_id values cannot form a cycle.")
+                    parent_by_id[collection.id] = None
+                    break
+                seen_path.add(current_id)
+                depth += 1
+                if depth > 5:
+                    if strict:
+                        raise ValueError("Library collection nesting is limited to five levels.")
+                    parent_by_id[collection.id] = None
+                    break
+                current_id = parent_by_id.get(current_id)
+
+        normalized_collections: list[LibraryCollection] = []
+        seen_sibling_names: set[tuple[str, str]] = set()
+        for collection in candidate_collections:
+            parent_id = parent_by_id.get(collection.id)
+            sibling_key = (parent_id or "", collection.name.casefold())
+            if sibling_key in seen_sibling_names:
+                if strict:
+                    raise ValueError("Library collection names must be unique within the same parent.")
+                continue
+            normalized_collections.append(
+                LibraryCollection(
+                    id=collection.id,
+                    name=collection.name,
+                    document_ids=collection.document_ids,
+                    origin=collection.origin,
+                    parent_id=parent_id,
+                    source_format=collection.source_format,
+                    sort_index=collection.sort_index,
+                    created_at=collection.created_at,
+                    updated_at=collection.updated_at,
+                )
+            )
+            seen_sibling_names.add(sibling_key)
+        return LibrarySettings(custom_collections=normalized_collections)
+
+    def _valid_library_document_ids_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        document_ids: list[str],
+    ) -> list[str]:
+        requested_ids = self._dedupe_texts(document_ids)
+        if not requested_ids:
+            return []
+        placeholders = ", ".join("?" for _ in requested_ids)
+        rows = connection.execute(
+            f"SELECT id FROM source_documents WHERE id IN ({placeholders})",
+            tuple(requested_ids),
+        ).fetchall()
+        valid_ids = {row["id"] for row in rows}
+        return [document_id for document_id in requested_ids if document_id in valid_ids]
+
+    def _library_collection_descendant_ids(
+        self,
+        settings: LibrarySettings,
+        collection_id: str,
+    ) -> list[str]:
+        descendants = [collection_id]
+        queue = [collection_id]
+        while queue:
+            parent_id = queue.pop(0)
+            child_ids = [
+                collection.id
+                for collection in settings.custom_collections
+                if collection.parent_id == parent_id and collection.id not in descendants
+            ]
+            descendants.extend(child_ids)
+            queue.extend(child_ids)
+        return descendants
+
+    def _library_collection_document_ids_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        settings: LibrarySettings,
+        collection_id: str,
+    ) -> list[str]:
+        descendant_ids = set(self._library_collection_descendant_ids(settings, collection_id))
+        document_ids: list[str] = []
+        for collection in settings.custom_collections:
+            if collection.id in descendant_ids:
+                document_ids.extend(collection.document_ids)
+        return self._valid_library_document_ids_with_connection(connection, document_ids)
+
+    @staticmethod
+    def _library_collection_path(
+        settings: LibrarySettings,
+        collection_id: str,
+    ) -> list[LibraryCollection]:
+        collection_by_id = {collection.id: collection for collection in settings.custom_collections}
+        path: list[LibraryCollection] = []
+        current = collection_by_id.get(collection_id)
+        visited: set[str] = set()
+        while current and current.id not in visited:
+            visited.add(current.id)
+            path.append(current)
+            current = collection_by_id.get(current.parent_id or "")
+        return list(reversed(path))
+
+    @staticmethod
+    def _library_collection_names_for_document_with_connection(
+        settings: LibrarySettings,
+        document_id: str,
+    ) -> list[str]:
+        collection_by_id = {collection.id: collection for collection in settings.custom_collections}
+        names: list[str] = []
+        seen_names: set[str] = set()
+
+        def add_collection_and_ancestors(collection: LibraryCollection) -> None:
+            ancestor_chain: list[LibraryCollection] = []
+            current: LibraryCollection | None = collection
+            visited: set[str] = set()
+            while current and current.id not in visited:
+                visited.add(current.id)
+                ancestor_chain.append(current)
+                current = collection_by_id.get(current.parent_id or "")
+            for candidate in reversed(ancestor_chain):
+                normalized_name = normalize_whitespace(candidate.name)
+                key = normalized_name.casefold()
+                if normalized_name and key not in seen_names:
+                    names.append(normalized_name)
+                    seen_names.add(key)
+
+        for collection in settings.custom_collections:
+            if document_id in collection.document_ids:
+                add_collection_and_ancestors(collection)
+        return names
+
+    @staticmethod
+    def _dedupe_texts(values: list[str]) -> list[str]:
+        normalized_values: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            normalized = normalize_whitespace(str(value))
+            if not normalized:
+                continue
+            key = normalized.casefold()
+            if key in seen:
+                continue
+            normalized_values.append(normalized)
+            seen.add(key)
+        return normalized_values
+
+    @staticmethod
+    def _library_import_collection_id(path: tuple[str, ...] | list[str] | str, source_format: BatchResolvedImportFormat) -> str:
+        if isinstance(path, str):
+            normalized_path = normalize_whitespace(path).casefold()
+        else:
+            normalized_path = "/".join(normalize_whitespace(part).casefold() for part in path if normalize_whitespace(part))
+        key = f"{source_format}|{normalized_path}"
+        return f"collection:{sha256(key.encode('utf-8')).hexdigest()[:16]}"
+
+    @staticmethod
+    def _find_library_collection_index(
+        collections: list[LibraryCollection],
+        *,
+        collection_id: str,
+        name: str,
+        parent_id: str | None,
+    ) -> int | None:
+        for index, collection in enumerate(collections):
+            if collection.id == collection_id:
+                return index
+        normalized_name = normalize_whitespace(name).casefold()
+        for index, collection in enumerate(collections):
+            if (collection.parent_id or None) == (parent_id or None) and collection.name.casefold() == normalized_name:
+                return index
+        return None
+
+    def _learning_pack_filename(self, document: RecallDocumentRecord) -> str:
+        plain_filename = build_export_filename(document.title)
+        stem = plain_filename[:-3] if plain_filename.endswith(".md") else plain_filename
+        return f"{stem}-learning-pack.md"
+
+    def _learning_pack_archive_path(self, document: RecallDocumentRecord) -> str:
+        plain_filename = build_export_filename(document.title)
+        stem = plain_filename[:-3] if plain_filename.endswith(".md") else plain_filename
+        return f"sources/{stem}-{document.id}/learning-pack.md"
+
+    def _missing_learning_pack_view_warnings_with_connection(self, connection: sqlite3.Connection) -> list[str]:
+        rows = connection.execute(
+            """
+            SELECT sd.id, sd.title
+            FROM source_documents sd
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM document_variants dv
+                WHERE dv.source_document_id = sd.id
+                  AND dv.mode = 'reflowed'
+                  AND dv.detail_level = 'default'
+            )
+            ORDER BY sd.updated_at DESC, sd.id DESC
+            """
+        ).fetchall()
+        return [
+            f"Missing reflowed/default view for learning-pack export: {row['title']} ({row['id']})."
+            for row in rows
+        ]
+
+    @staticmethod
+    def _format_learning_pack_accuracy(accuracy: float | None) -> str:
+        if accuracy is None:
+            return "not enough graded attempts"
+        return f"{round(accuracy * 100, 1)}%"
 
     def _mode_rows_for_document(self, connection: sqlite3.Connection, document_id: str) -> list[sqlite3.Row]:
         return connection.execute(

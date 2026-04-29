@@ -10,6 +10,11 @@ export type RecallStudyFilter = 'all' | 'new' | 'due' | 'scheduled' | 'unschedul
 export type RecallStudyScheduleDrilldown = 'all' | 'due-now' | 'due-this-week' | 'upcoming' | 'new' | 'reviewed'
 export type RecallStudyKnowledgeStageFilter = 'all' | 'new' | 'learning' | 'practiced' | 'confident' | 'mastered'
 export type RecallStudyReviewHistoryFilter = 'all' | 'unreviewed' | 'forgot' | 'hard' | 'good' | 'easy'
+export type RecallStudyDifficultyFilter = 'all' | 'easy' | 'medium' | 'hard'
+export type RecallStudyLaunchIntent = 'review' | 'questions' | 'generate' | 'start-session'
+export type RecallReaderLaunchIntent = 'resume' | 'highlight'
+export type RecallReaderQueueScope = 'all' | 'web' | 'documents' | 'captures' | 'untagged'
+export type RecallReaderQueueState = 'all' | 'unread' | 'in_progress' | 'completed'
 export type RecallStudyCollectionFilter =
   | 'all'
   | 'collection:web'
@@ -70,9 +75,15 @@ export interface RecallWorkspaceFocusRequest {
   newNote?: boolean | null
   nodeId?: string | null
   noteId?: string | null
+  readerIntent?: RecallReaderLaunchIntent | null
+  readerMode?: 'original' | 'reflowed' | 'simplified' | 'summary' | null
+  readerSentenceEnd?: number | null
+  readerSentenceStart?: number | null
   section: RecallSection
+  scheduleDrilldown?: RecallStudyScheduleDrilldown | null
   sourceMemorySearchFocus?: boolean | null
   sourceTab?: SourceWorkspaceTab | null
+  studyIntent?: RecallStudyLaunchIntent | null
   token: number
 }
 
@@ -110,6 +121,7 @@ export interface RecallWorkspaceContinuityState {
   study: {
     activeCardId: string | null
     collectionFilter: RecallStudyCollectionFilter
+    difficultyFilter?: RecallStudyDifficultyFilter
     filter: RecallStudyFilter
     knowledgeStageFilter: RecallStudyKnowledgeStageFilter
     progressPeriodDays: RecallStudyProgressPeriodDays
@@ -131,6 +143,9 @@ export interface RecallWorkspaceContinuityState {
 export interface AppRoute {
   documentId: string | null
   path: AppSection
+  queueCollectionId: string | null
+  queueScope: RecallReaderQueueScope | null
+  queueState: RecallReaderQueueState | null
   recallSection: RecallSection
   sentenceEnd: number | null
   sentenceStart: number | null
@@ -170,6 +185,7 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
   study: {
     activeCardId: null,
     collectionFilter: 'all',
+    difficultyFilter: 'all',
     filter: 'all',
     knowledgeStageFilter: 'all',
     progressPeriodDays: 14,
@@ -201,18 +217,33 @@ export function parseAppRoute(locationLike: Pick<Location, 'pathname' | 'search'
   const searchParams = new URLSearchParams(locationLike.search)
   const documentId = searchParams.get('document')
   const recallSection = parseRecallSection(searchParams.get('section'))
+  const queueScope = parseReaderQueueScope(searchParams.get('queueScope'))
+  const queueCollectionId = searchParams.get('queueCollectionId')
+  const queueState = parseReaderQueueState(searchParams.get('queueState'))
   const sentenceStart = parseRouteSentenceIndex(searchParams.get('sentenceStart'))
   const sentenceEnd = parseRouteSentenceIndex(searchParams.get('sentenceEnd'))
   if (pathname === '/reader') {
     return {
       path: 'reader',
       documentId,
+      queueCollectionId,
+      queueScope,
+      queueState,
       recallSection,
       sentenceStart,
       sentenceEnd: sentenceEnd ?? sentenceStart,
     }
   }
-  return { path: 'recall', documentId: null, recallSection, sentenceStart: null, sentenceEnd: null }
+  return {
+    path: 'recall',
+    documentId: null,
+    queueCollectionId: null,
+    queueScope: null,
+    queueState: null,
+    recallSection,
+    sentenceStart: null,
+    sentenceEnd: null,
+  }
 }
 
 
@@ -220,6 +251,9 @@ export function buildAppHref(
   path: AppSection,
   documentId?: string | null,
   options?: {
+    queueCollectionId?: string | null
+    queueScope?: RecallReaderQueueScope | null
+    queueState?: RecallReaderQueueState | null
     recallSection?: RecallSection | null
     sentenceEnd?: number | null
     sentenceStart?: number | null
@@ -234,6 +268,15 @@ export function buildAppHref(
       options?.sentenceEnd !== undefined ? options.sentenceEnd : options?.sentenceStart
     if (resolvedSentenceEnd !== undefined && resolvedSentenceEnd !== null) {
       search.set('sentenceEnd', String(resolvedSentenceEnd))
+    }
+    if (options?.queueScope) {
+      search.set('queueScope', options.queueScope)
+    }
+    if (options?.queueCollectionId) {
+      search.set('queueCollectionId', options.queueCollectionId)
+    }
+    if (options?.queueState && options.queueState !== 'all') {
+      search.set('queueState', options.queueState)
     }
     return `/reader?${search.toString()}`
   }
@@ -257,4 +300,18 @@ function parseRecallSection(value: string | null): RecallSection {
     return value
   }
   return 'library'
+}
+
+function parseReaderQueueScope(value: string | null): RecallReaderQueueScope | null {
+  if (value === 'all' || value === 'web' || value === 'documents' || value === 'captures' || value === 'untagged') {
+    return value
+  }
+  return null
+}
+
+function parseReaderQueueState(value: string | null): RecallReaderQueueState | null {
+  if (value === 'all' || value === 'unread' || value === 'in_progress' || value === 'completed') {
+    return value
+  }
+  return null
 }

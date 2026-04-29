@@ -15,11 +15,14 @@ import {
   createRecallNote,
   deleteRecallNote,
   deleteDocumentRecord,
+  fetchLibraryReadingQueue,
   fetchDocumentView,
   fetchDocuments,
   fetchRecallGraph,
+  fetchLibrarySettings,
   fetchRecallNotes,
   fetchRecallStudyCards,
+  fetchRecallStudyProgress,
   generateDocumentView,
   promoteRecallNoteToGraphNode,
   promoteRecallNoteToStudyCard,
@@ -30,10 +33,16 @@ import type {
   DocumentRecord,
   DocumentView,
   HealthResponse,
+  LibraryCollection,
+  LibraryReadingQueueResponse,
+  LibraryReadingQueueRow,
+  LibraryReadingQueueScope,
+  LibraryReadingQueueState,
   RecallNoteGraphPromotionRequest,
   RecallNoteRecord,
   RecallNoteStudyPromotionRequest,
   ReaderSettings,
+  StudyReviewProgress,
   SummaryDetail,
   ViewMode,
 } from '../types'
@@ -44,7 +53,7 @@ import { ReaderSurface } from './ReaderSurface'
 import { SourceWorkspaceFrame, type SourceWorkspaceFrameState } from './SourceWorkspaceFrame'
 import { ThemePanel } from './ThemePanel'
 import { useSpeech } from '../hooks/useSpeech'
-import type { WorkspaceDockContext } from '../lib/appRoute'
+import type { RecallStudyLaunchIntent, WorkspaceDockContext } from '../lib/appRoute'
 import { loadReaderSession, resolveReaderSession, saveReaderSession } from '../lib/readerSession'
 import { buildRenderableBlocks, type RenderSentence, type RenderableBlock } from '../lib/segment'
 
@@ -54,12 +63,15 @@ interface ReaderWorkspaceProps {
   onOpenRecallGraph: (documentId: string) => void
   onOpenRecallLibrary: (documentId: string, options?: { focusMemorySearch?: boolean | null }) => void
   onOpenRecallNotes: (documentId: string, noteId?: string | null) => void
-  onOpenRecallStudy: (documentId: string) => void
+  onOpenRecallStudy: (documentId: string, options?: { intent?: RecallStudyLaunchIntent | null }) => void
   onRequestNewSource: () => void
   onShellContextChange: (context: WorkspaceDockContext | null) => void
   onShellHeroChange: (hero: WorkspaceHeroProps) => void
   onShellSourceWorkspaceChange: (workspace: SourceWorkspaceFrameState | null) => void
   routeDocumentId?: string | null
+  routeQueueCollectionId?: string | null
+  routeQueueScope?: LibraryReadingQueueScope | null
+  routeQueueState?: LibraryReadingQueueState | null
   routeSentenceEnd?: number | null
   routeSentenceStart?: number | null
   settings: ReaderSettings
@@ -67,6 +79,44 @@ interface ReaderWorkspaceProps {
 }
 
 type LoadState = 'idle' | 'loading' | 'success' | 'error'
+
+function formatReaderStudyGoalLabel(progress: StudyReviewProgress | null) {
+  const goal = progress?.habit_goal
+  if (!goal) {
+    return null
+  }
+  if (goal.is_met) {
+    return goal.mode === 'weekly' ? 'Weekly goal met' : 'Daily goal met'
+  }
+  const unit = goal.mode === 'weekly' ? 'day' : 'review'
+  return `${goal.remaining_count} ${goal.mode} ${goal.remaining_count === 1 ? unit : `${unit}s`} left`
+}
+
+function formatReaderCollectionPath(collectionId: string, collections: LibraryCollection[]) {
+  const collectionById = new Map(collections.map((collection) => [collection.id, collection]))
+  const pathIds: string[] = []
+  const visited = new Set<string>()
+  let current = collectionById.get(collectionId) ?? null
+  while (current && !visited.has(current.id)) {
+    pathIds.unshift(current.id)
+    visited.add(current.id)
+    const parentId = current.parent_id?.trim()
+    current = parentId ? collectionById.get(parentId) ?? null : null
+  }
+
+  return pathIds
+    .map((id) => collectionById.get(id)?.name.trim())
+    .filter((name): name is string => Boolean(name))
+    .join(' / ')
+}
+
+function getReaderSourceCollectionLabel(documentId: string, collections: LibraryCollection[]) {
+  return collections
+    .filter((collection) => collection.document_ids.includes(documentId))
+    .map((collection) => formatReaderCollectionPath(collection.id, collections))
+    .filter((label) => label.length > 0)
+    .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }))[0] ?? null
+}
 
 interface NoteSelection {
   anchorText: string
@@ -443,6 +493,9 @@ export function ReaderWorkspace({
   onShellSourceWorkspaceChange,
   onSettingsChange,
   routeDocumentId = null,
+  routeQueueCollectionId = null,
+  routeQueueScope = null,
+  routeQueueState = null,
   routeSentenceEnd = null,
   routeSentenceStart = null,
   settings,
@@ -476,13 +529,20 @@ export function ReaderWorkspace({
   const [notesError, setNotesError] = useState<string | null>(null)
   const [readerSourceMemoryCounts, setReaderSourceMemoryCounts] = useState<{
     graph: number
+    studyEligible: number
+    studyGoalLabel: string | null
     status: LoadState
     study: number
   }>({
     graph: 0,
+    studyEligible: 0,
+    studyGoalLabel: null,
     status: 'idle',
     study: 0,
   })
+  const [readerSourceCollectionLabel, setReaderSourceCollectionLabel] = useState<string | null>(null)
+  const [readerQueue, setReaderQueue] = useState<LibraryReadingQueueResponse | null>(null)
+  const [readerQueueStatus, setReaderQueueStatus] = useState<LoadState>('idle')
   const [noteCaptureActive, setNoteCaptureActive] = useState(false)
   const [noteSelection, setNoteSelection] = useState<NoteSelection | null>(null)
   const [noteDraftBody, setNoteDraftBody] = useState('')
@@ -639,6 +699,8 @@ export function ReaderWorkspace({
     if (!selectedDocument) {
       setReaderSourceMemoryCounts({
         graph: 0,
+        studyEligible: 0,
+        studyGoalLabel: null,
         status: 'idle',
         study: 0,
       })
@@ -650,16 +712,19 @@ export function ReaderWorkspace({
       ...current,
       status: 'loading',
     }))
-    void Promise.all([fetchRecallGraph(80, 120), fetchRecallStudyCards('all', 200)])
-      .then(([graphSnapshot, studyCards]) => {
+    void Promise.all([fetchRecallGraph(80, 120), fetchRecallStudyCards('all', 100, selectedDocument.id), fetchRecallStudyProgress(selectedDocument.id)])
+      .then(([graphSnapshot, studyCards, studyProgress]) => {
         if (!active) {
           return
         }
         const documentId = selectedDocument.id
+        const sourceStudyCards = studyCards.filter((card) => card.source_document_id === documentId)
         setReaderSourceMemoryCounts({
           graph: graphSnapshot.nodes.filter((node) => node.source_document_ids.includes(documentId)).length,
+          studyEligible: sourceStudyCards.filter((card) => card.status === 'new' || card.status === 'due').length,
+          studyGoalLabel: formatReaderStudyGoalLabel(studyProgress),
           status: 'success',
-          study: studyCards.filter((card) => card.source_document_id === documentId).length,
+          study: sourceStudyCards.length,
         })
       })
       .catch(() => {
@@ -668,6 +733,8 @@ export function ReaderWorkspace({
         }
         setReaderSourceMemoryCounts({
           graph: 0,
+          studyEligible: 0,
+          studyGoalLabel: null,
           status: 'error',
           study: 0,
         })
@@ -677,6 +744,68 @@ export function ReaderWorkspace({
       active = false
     }
   }, [selectedDocument])
+
+  useEffect(() => {
+    if (!selectedDocument) {
+      setReaderSourceCollectionLabel(null)
+      return
+    }
+
+    let active = true
+    void fetchLibrarySettings()
+      .then((settings) => {
+        if (!active) {
+          return
+        }
+        setReaderSourceCollectionLabel(
+          getReaderSourceCollectionLabel(selectedDocument.id, settings.custom_collections),
+        )
+      })
+      .catch(() => {
+        if (active) {
+          setReaderSourceCollectionLabel(null)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [selectedDocument])
+
+  useEffect(() => {
+    if (!routeQueueCollectionId && !routeQueueScope) {
+      setReaderQueue(null)
+      setReaderQueueStatus('idle')
+      return
+    }
+
+    let active = true
+    setReaderQueueStatus('loading')
+    void fetchLibraryReadingQueue({
+      collectionId: routeQueueCollectionId,
+      limit: 50,
+      scope: routeQueueScope ?? 'all',
+      state: routeQueueState ?? 'all',
+    })
+      .then((queue) => {
+        if (!active) {
+          return
+        }
+        setReaderQueue(queue)
+        setReaderQueueStatus('success')
+      })
+      .catch(() => {
+        if (!active) {
+          return
+        }
+        setReaderQueue(null)
+        setReaderQueueStatus('error')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [routeQueueCollectionId, routeQueueScope, routeQueueState])
 
   const initialSentenceIndex = selectedDocument?.progress_by_mode[activeMode] ?? 0
   const { blocks: renderBlocks, flatSentences } = buildRenderableBlocks(view)
@@ -755,6 +884,58 @@ export function ReaderWorkspace({
   const visibleViewModeOptions = viewModeOptions.filter(
     (option) => option.mode === activeMode || selectedDocument?.available_modes.includes(option.mode),
   )
+  const readerSourceStudyAction = useMemo(():
+    | {
+        ariaLabel: string
+        intent: RecallStudyLaunchIntent
+        label: string
+        tone?: 'default' | 'muted'
+      }
+    | null => {
+    if (!selectedDocument) {
+      return null
+    }
+    if (readerSourceMemoryCounts.status === 'error') {
+      return {
+        ariaLabel: 'Open source Study questions',
+        intent: 'questions',
+        label: 'Study unavailable',
+        tone: 'muted',
+      }
+    }
+    if (readerSourceMemoryCounts.status === 'loading') {
+      return {
+        ariaLabel: 'Open source Study',
+        intent: 'questions',
+        label: 'Loading study',
+        tone: 'muted',
+      }
+    }
+    if (readerSourceMemoryCounts.study === 0) {
+      return {
+        ariaLabel: `Generate questions for ${selectedDocument.title}`,
+        intent: 'generate',
+        label: 'Generate questions',
+      }
+    }
+    if (readerSourceMemoryCounts.studyEligible > 0) {
+      return {
+        ariaLabel: `Start source quiz for ${selectedDocument.title}`,
+        intent: 'start-session',
+        label: 'Start source quiz',
+      }
+    }
+    return {
+      ariaLabel: `Open Study questions for ${selectedDocument.title}`,
+      intent: 'questions',
+      label: 'Study questions',
+    }
+  }, [
+    readerSourceMemoryCounts.status,
+    readerSourceMemoryCounts.study,
+    readerSourceMemoryCounts.studyEligible,
+    selectedDocument,
+  ])
   const sourceWorkspaceCounts = useMemo(
     () =>
       selectedDocument
@@ -774,6 +955,16 @@ export function ReaderWorkspace({
               },
               tone: 'muted' as const,
             },
+            ...(readerSourceCollectionLabel
+              ? [
+                  {
+                    ariaLabel: 'Open source collections',
+                    label: readerSourceCollectionLabel,
+                    onSelect: () => onOpenRecallLibrary(selectedDocument.id),
+                    tone: 'muted' as const,
+                  },
+                ]
+              : []),
             {
               ariaLabel: 'Open source graph memory',
               label:
@@ -784,14 +975,21 @@ export function ReaderWorkspace({
               tone: readerSourceMemoryCounts.status === 'error' ? ('muted' as const) : undefined,
             },
             {
-              ariaLabel: 'Open source study memory',
-              label:
-                readerSourceMemoryCounts.study === 1
-                  ? '1 study card'
-                  : `${readerSourceMemoryCounts.study} study cards`,
-              onSelect: () => onOpenRecallStudy(selectedDocument.id),
-              tone: readerSourceMemoryCounts.status === 'error' ? ('muted' as const) : undefined,
+              ariaLabel: readerSourceStudyAction?.ariaLabel ?? 'Open source Study',
+              label: readerSourceStudyAction?.label ?? 'Study',
+              onSelect: () => onOpenRecallStudy(selectedDocument.id, { intent: readerSourceStudyAction?.intent ?? 'review' }),
+              tone:
+                readerSourceStudyAction?.tone ??
+                (readerSourceMemoryCounts.status === 'error' ? ('muted' as const) : undefined),
             },
+            ...(readerSourceMemoryCounts.studyGoalLabel
+              ? [
+                  {
+                    label: readerSourceMemoryCounts.studyGoalLabel,
+                    tone: 'muted' as const,
+                  },
+                ]
+              : []),
           ]
         : [],
     [
@@ -801,9 +999,12 @@ export function ReaderWorkspace({
       onOpenRecallLibrary,
       onOpenRecallNotes,
       onOpenRecallStudy,
+      readerSourceCollectionLabel,
+      readerSourceStudyAction,
       readerSourceMemoryCounts.graph,
       readerSourceMemoryCounts.status,
       readerSourceMemoryCounts.study,
+      readerSourceMemoryCounts.studyGoalLabel,
       selectedDocument,
     ],
   )
@@ -1147,6 +1348,73 @@ export function ReaderWorkspace({
     speech.jumpTo(sentence.globalIndex)
   }
 
+  function handleJumpToLastRead() {
+    if (readerSavedResumeSentenceIndex === null) {
+      return
+    }
+    setRouteAnchorRange(null)
+    speech.jumpTo(readerSavedResumeSentenceIndex)
+  }
+
+  function handleOpenNextQueueSource(row: LibraryReadingQueueRow) {
+    const nextDocument = documents.find((document) => document.id === row.id) ?? null
+    const nextMode = row.mode
+    const nextSentenceIndex = Math.max(0, row.sentence_index)
+    const nextProgress =
+      row.state === 'unread'
+        ? nextDocument?.progress_by_mode ?? {}
+        : {
+            ...(nextDocument?.progress_by_mode ?? {}),
+            [nextMode]: nextSentenceIndex,
+          }
+
+    speech.stop()
+    setRouteAnchorRange(null)
+    resetNoteComposer()
+    setLibraryOpen(false)
+    startTransition(() => {
+      if (nextDocument) {
+        const hydratedDocument = {
+          ...nextDocument,
+          progress_by_mode: nextProgress,
+          last_reader_session:
+            row.state === 'unread'
+              ? nextDocument.last_reader_session
+              : {
+                  mode: nextMode,
+                  sentence_index: nextSentenceIndex,
+                  updated_at: row.last_read_at ?? row.updated_at,
+                },
+        }
+        setDocuments((currentDocuments) =>
+          currentDocuments.map((document) => (document.id === row.id ? hydratedDocument : document)),
+        )
+        setActiveDocument(hydratedDocument)
+      } else {
+        setActiveDocument(null)
+      }
+      setActiveDocumentId(row.id)
+      setActiveMode(nextMode)
+    })
+
+    const nextSearch = new URLSearchParams()
+    nextSearch.set('document', row.id)
+    if (row.state !== 'unread') {
+      nextSearch.set('sentenceStart', String(nextSentenceIndex))
+      nextSearch.set('sentenceEnd', String(nextSentenceIndex))
+    }
+    if (routeQueueScope) {
+      nextSearch.set('queueScope', routeQueueScope)
+    }
+    if (routeQueueCollectionId) {
+      nextSearch.set('queueCollectionId', routeQueueCollectionId)
+    }
+    if (routeQueueState && routeQueueState !== 'all') {
+      nextSearch.set('queueState', routeQueueState)
+    }
+    window.history.pushState({}, '', `/reader?${nextSearch.toString()}`)
+  }
+
   function handleSetActiveMode(nextMode: ViewMode) {
     speech.stop()
     setRouteAnchorRange(null)
@@ -1285,6 +1553,29 @@ export function ReaderWorkspace({
   const currentSentenceLabel = `Sentence ${flatSentences.length === 0 ? 0 : speech.currentSentenceIndex + 1} of ${flatSentences.length}`
   const currentSpeechSentence = flatSentences[speech.currentSentenceIndex] ?? null
   const currentSpeechSentenceText = currentSpeechSentence?.text.trim() ?? ''
+  const readerSavedResumeSession =
+    selectedDocument?.last_reader_session?.mode === activeMode ? selectedDocument.last_reader_session : null
+  const rawReaderSavedResumeSentenceIndex =
+    readerSavedResumeSession?.sentence_index ?? selectedDocument?.progress_by_mode[activeMode] ?? null
+  const readerSavedResumeSentenceIndex =
+    rawReaderSavedResumeSentenceIndex !== null &&
+    rawReaderSavedResumeSentenceIndex !== undefined &&
+    rawReaderSavedResumeSentenceIndex > 0
+      ? flatSentences.length > 0
+        ? Math.min(rawReaderSavedResumeSentenceIndex, Math.max(0, flatSentences.length - 1))
+        : rawReaderSavedResumeSentenceIndex
+      : null
+  const showReaderSavedResumeAction = Boolean(selectedDocument && readerSavedResumeSentenceIndex !== null)
+  const readerQueueRows = readerQueue?.rows ?? []
+  const readerQueueActiveIndex = selectedDocument
+    ? readerQueueRows.findIndex((row) => row.id === selectedDocument.id)
+    : -1
+  const nextReaderQueueRow =
+    readerQueueActiveIndex >= 0
+      ? readerQueueRows.slice(readerQueueActiveIndex + 1).find((row) => row.id !== selectedDocument?.id) ??
+        readerQueueRows.find((row) => row.id !== selectedDocument?.id) ??
+        null
+      : readerQueueRows.find((row) => row.id !== selectedDocument?.id) ?? null
   const readerTransportExpanded = speech.isSpeaking || speech.isPaused
   const readerOriginalParityMode = hasActiveDocument && activeMode === 'original'
   const showReaderDerivedContext = hasActiveDocument && (activeMode === 'simplified' || activeMode === 'summary')
@@ -1937,6 +2228,21 @@ export function ReaderWorkspace({
               ) : null}
 
               {!compactReaderHeaderFusionActive ? readerControlRibbon : null}
+              {showReaderSavedResumeAction && selectedDocument ? (
+                <div className="reader-meta-row reader-stage-glance-meta" role="list" aria-label="Reader resume point">
+                  <button
+                    aria-label={`Jump to last read in ${selectedDocument.title}`}
+                    className="ghost-button"
+                    type="button"
+                    onClick={handleJumpToLastRead}
+                  >
+                    Jump to last read
+                  </button>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    Sentence {(readerSavedResumeSentenceIndex ?? 0) + 1}
+                  </span>
+                </div>
+              ) : null}
               <div
                 className={`reader-reading-deck-layout${
                   readerOriginalParityMode ? ' reader-reading-deck-layout-original-parity' : ''
@@ -2090,6 +2396,31 @@ export function ReaderWorkspace({
                         >
                           Notebook notes
                         </button>
+                        {readerSourceStudyAction ? (
+                          <button
+                            aria-label={readerSourceStudyAction.ariaLabel}
+                            className="ghost-button"
+                            data-reader-short-completion-study-cta-stage956="true"
+                            type="button"
+                            onClick={() =>
+                              onOpenRecallStudy(selectedDocument.id, { intent: readerSourceStudyAction.intent })
+                            }
+                          >
+                            {readerSourceStudyAction.label}
+                          </button>
+                        ) : null}
+                        {nextReaderQueueRow ? (
+                          <button
+                            aria-label="Next in queue"
+                            className="ghost-button"
+                            data-reader-next-queue-stage974="true"
+                            disabled={readerQueueStatus === 'loading'}
+                            type="button"
+                            onClick={() => handleOpenNextQueueSource(nextReaderQueueRow)}
+                          >
+                            Next in queue
+                          </button>
+                        ) : null}
                       </div>
                     </section>
                   ) : null}

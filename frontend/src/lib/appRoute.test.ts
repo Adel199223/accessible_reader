@@ -16,9 +16,27 @@ test('parseAppRoute reads reader anchor params and defaults sentenceEnd to sente
   expect(route).toEqual({
     documentId: 'doc-reader',
     path: 'reader',
+    queueCollectionId: null,
+    queueScope: null,
+    queueState: null,
     recallSection: 'library',
     sentenceEnd: 4,
     sentenceStart: 4,
+  })
+})
+
+test('parseAppRoute preserves reader queue scope params', () => {
+  const route = parseAppRoute({
+    pathname: '/reader',
+    search: '?document=doc-reader&queueScope=web&queueCollectionId=collection%3Aread&queueState=in_progress',
+  })
+
+  expect(route).toMatchObject({
+    documentId: 'doc-reader',
+    path: 'reader',
+    queueCollectionId: 'collection:read',
+    queueScope: 'web',
+    queueState: 'in_progress',
   })
 })
 
@@ -31,6 +49,9 @@ test('parseAppRoute reads the active recall section from /recall query params', 
   expect(route).toEqual({
     documentId: null,
     path: 'recall',
+    queueCollectionId: null,
+    queueScope: null,
+    queueState: null,
     recallSection: 'study',
     sentenceEnd: null,
     sentenceStart: null,
@@ -105,6 +126,9 @@ test('parseAppRoute keeps the legacy notes section alias available for notebook 
   expect(route).toEqual({
     documentId: null,
     path: 'recall',
+    queueCollectionId: null,
+    queueScope: null,
+    queueState: null,
     recallSection: 'notes',
     sentenceEnd: null,
     sentenceStart: null,

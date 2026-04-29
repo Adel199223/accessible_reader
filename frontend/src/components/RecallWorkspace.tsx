@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type CSSProperties,
   type Dispatch,
   type DragEvent as ReactDragEvent,
@@ -18,7 +19,14 @@ import {
 
 import {
   buildRecallExportUrl,
+  buildRecallLearningPackExportUrl,
+  buildLibraryCollectionLearningPackExportUrl,
+  buildWorkspaceExportUrl,
+  applyWorkspaceImport,
   bulkDeleteRecallStudyCards,
+  completeRecallDocumentReading,
+  completeRecallStudyReviewSession,
+  createRecallStudyAnswerAttempt,
   createRecallStudyCard,
   deleteRecallStudyCard,
   deleteRecallNote,
@@ -27,6 +35,7 @@ import {
   fetchDocumentView,
   fetchRecallDocumentPreview,
   createRecallNote,
+  fetchDocuments,
   fetchRecallNotes,
   fetchRecallDocument,
   fetchRecallDocuments,
@@ -35,17 +44,29 @@ import {
   fetchRecallStudyCards,
   fetchRecallStudyOverview,
   fetchRecallStudyProgress,
+  fetchRecallStudySettings,
+  fetchLibraryCollectionOverview,
+  fetchLibraryReadingQueue,
+  fetchLibrarySettings,
+  fetchWorkspaceExportManifest,
   generateRecallStudyCards,
   promoteRecallNoteToGraphNode,
   promoteRecallNoteToStudyCard,
+  previewWorkspaceImport,
   searchRecallNotes,
   reviewRecallStudyCard,
+  saveRecallStudySettings,
+  saveLibrarySettings,
   setRecallStudyCardScheduleState,
+  startRecallStudyReviewSession,
   updateRecallStudyCard,
   updateRecallNote,
 } from '../api'
 import type {
   ReaderAnchorRange,
+  RecallReaderLaunchIntent,
+  RecallReaderQueueScope,
+  RecallReaderQueueState,
   RecallHomeMemoryFilter,
   RecallHomeOrganizerLens,
   RecallHomeReviewFilter,
@@ -58,8 +79,10 @@ import type {
   WorkspaceDockAction,
   WorkspaceDockContext,
   RecallStudyCollectionFilter,
+  RecallStudyDifficultyFilter,
   RecallStudyFilter,
   RecallStudyKnowledgeStageFilter,
+  RecallStudyLaunchIntent,
   RecallStudyProgressPeriodDays,
   RecallStudyReviewHistoryFilter,
   RecallStudyScheduleDrilldown,
@@ -76,11 +99,19 @@ import {
 } from '../lib/graphViewFilters'
 import type {
   DocumentView,
+  DocumentRecord,
   KnowledgeEdgeRecord,
   KnowledgeGraphSnapshot,
   KnowledgeMentionRecord,
   KnowledgeNodeDetail,
   KnowledgeNodeRecord,
+  BatchResolvedImportFormat,
+  LibraryCollection,
+  LibraryCollectionHighlightReviewItem,
+  LibraryCollectionOverview,
+  LibraryReadingQueueResponse,
+  LibraryReadingQueueRow,
+  LibrarySettings,
   RecallDocumentPreview,
   RecallDocumentRecord,
   RecallNoteGraphPromotionRequest,
@@ -89,20 +120,31 @@ import type {
   ReaderSettings,
   StudyCardChoiceOption,
   StudyCardCreateRequest,
+  StudyCardGenerationResult,
   StudyCardMatchingPair,
   StudyCardOrderingItem,
   StudyCardQuestionPayload,
   StudyCardRecord,
+  StudyCardSupportPayload,
   StudyCardUpdateRequest,
+  StudyAnswerAttemptRecord,
+  StudyGeneratedCardType,
   StudyKnowledgeStage,
   StudyManualCardType,
+  StudyQuestionDifficulty,
+  StudyQuestionDifficultyFilter,
   RecallNoteStudyPromotionRequest,
   StudyOverview,
   StudyReviewProgress,
+  StudyReviewSessionRecord,
   StudyReviewProgressRecentReview,
   StudyReviewProgressSource,
   StudyReviewRating,
+  StudySettings,
   ViewMode,
+  WorkspaceExportManifest,
+  WorkspaceImportApplyResult,
+  WorkspaceImportPreview,
 } from '../types'
 import type { WorkspaceHeroProps } from './WorkspaceHero'
 import { FocusedSourceReaderPane } from './FocusedSourceReaderPane'
@@ -128,12 +170,17 @@ interface RecallWorkspaceProps {
   onOpenReader: (
     documentId: string,
     options?: {
+      queueCollectionId?: string | null
+      queueScope?: RecallReaderQueueScope | null
+      queueState?: RecallReaderQueueState | null
+      readerIntent?: RecallReaderLaunchIntent | null
       returnNoteId?: string | null
       returnToNotebook?: boolean | null
       sentenceEnd?: number | null
       sentenceStart?: number | null
     },
   ) => void
+  reloadToken?: number
   settings: ReaderSettings
   section: RecallSection
 }
@@ -146,6 +193,9 @@ type StudyCardEditDraft = {
   cardType: StudyManualCardType | string
   choices: StudyCardChoiceOption[]
   correctChoiceId: string
+  difficulty: StudyQuestionDifficulty
+  explanation: string
+  hint: string
   matchingPairs: StudyCardMatchingPair[]
   orderingItems: StudyCardOrderingItem[]
   prompt: string
@@ -158,6 +208,9 @@ type StudyCardCreateDraft = {
   cardType: StudyManualCardType
   choices: StudyCardChoiceOption[]
   correctChoiceId: string
+  difficulty: StudyQuestionDifficulty
+  explanation: string
+  hint: string
   matchingPairs: StudyCardMatchingPair[]
   orderingItems: StudyCardOrderingItem[]
   prompt: string
@@ -182,6 +235,29 @@ type StudyMatchingReviewAttempt = {
 type StudyOrderingReviewAttempt = {
   revealed: boolean
   itemIds: string[]
+}
+
+type StudyReviewSessionState = {
+  id: string
+  cardIds: string[]
+  completedCardIds: string[]
+  difficultyCounts: Record<StudyQuestionDifficulty, number>
+  sourceDocumentIds: string[]
+  startedAt: string
+  timeLimitSeconds: number
+}
+
+type StudyReviewSessionRecap = {
+  sessionId: string
+  attempted: number
+  correct: number
+  difficultyCounts: Record<StudyQuestionDifficulty, number>
+  durationSeconds: number
+  rated: number
+  hintUsed: number
+  skipped: number
+  sourcesTouched: number
+  timedOut: number
 }
 
 interface SourceMemoryTextMatch {
@@ -317,9 +393,81 @@ function formatStudyCardTypeLabel(cardType: string) {
   return cardType.replace(/_/g, ' ')
 }
 
+function formatStudyDifficultyLabel(difficulty: StudyQuestionDifficultyFilter | RecallStudyDifficultyFilter) {
+  if (difficulty === 'all') {
+    return 'All difficulty'
+  }
+  return difficulty.slice(0, 1).toUpperCase() + difficulty.slice(1)
+}
+
+function getStudyCardDifficulty(card: StudyCardRecord | null | undefined): StudyQuestionDifficulty {
+  if (!card) {
+    return 'medium'
+  }
+  const schedulingDifficulty =
+    card.question_difficulty ??
+    (card.scheduling_state.manual_question_difficulty as StudyQuestionDifficulty | undefined) ??
+    (card.scheduling_state.generated_question_difficulty as StudyQuestionDifficulty | undefined)
+  return STUDY_QUESTION_DIFFICULTIES.includes(schedulingDifficulty as StudyQuestionDifficulty)
+    ? (schedulingDifficulty as StudyQuestionDifficulty)
+    : card.card_type === 'flashcard' || card.card_type === 'true_false'
+      ? 'easy'
+      : card.card_type === 'multiple_choice' || card.card_type === 'fill_in_blank'
+        ? 'medium'
+        : 'hard'
+}
+
 const STUDY_TRUE_FALSE_CHOICES: StudyCardChoiceOption[] = [
   { id: 'true', text: 'True' },
   { id: 'false', text: 'False' },
+]
+
+const STUDY_GENERATED_CARD_TYPES: StudyGeneratedCardType[] = [
+  'short_answer',
+  'flashcard',
+  'multiple_choice',
+  'true_false',
+  'fill_in_blank',
+  'matching',
+  'ordering',
+]
+
+const STUDY_QUESTION_DIFFICULTIES: StudyQuestionDifficulty[] = ['easy', 'medium', 'hard']
+
+const STUDY_DEFAULT_SETTINGS: StudySettings = {
+  default_difficulty_filter: 'all',
+  default_session_limit: 10,
+  default_timer_seconds: 0,
+  daily_goal_reviews: 1,
+  streak_goal_mode: 'daily',
+  weekly_goal_days: 3,
+}
+
+const STUDY_SESSION_LIMIT_OPTIONS: Array<{ label: string; value: StudySettings['default_session_limit'] }> = [
+  { label: '5', value: 5 },
+  { label: '10', value: 10 },
+  { label: '20', value: 20 },
+  { label: 'All', value: null },
+]
+
+const STUDY_REVIEW_TIMER_OPTIONS = [
+  { label: 'Off', value: 0 },
+  { label: '30s', value: 30 },
+  { label: '60s', value: 60 },
+  { label: '120s', value: 120 },
+]
+
+const STUDY_DAILY_GOAL_OPTIONS: Array<{ label: string; value: StudySettings['daily_goal_reviews'] }> = [
+  { label: '1 review', value: 1 },
+  { label: '3 reviews', value: 3 },
+  { label: '5 reviews', value: 5 },
+  { label: '10 reviews', value: 10 },
+]
+
+const STUDY_WEEKLY_GOAL_OPTIONS: Array<{ label: string; value: StudySettings['weekly_goal_days'] }> = [
+  { label: '3 days', value: 3 },
+  { label: '5 days', value: 5 },
+  { label: '7 days', value: 7 },
 ]
 
 function makeDefaultStudyChoiceOptions(): StudyCardChoiceOption[] {
@@ -369,8 +517,36 @@ function isStudyOrderingCardType(cardType: string) {
   return cardType === 'ordering'
 }
 
+function isStudyAttemptPersistableCardType(cardType: string): cardType is StudyGeneratedCardType {
+  return STUDY_GENERATED_CARD_TYPES.includes(cardType as StudyGeneratedCardType)
+}
+
 function getStudyCardQuestionPayload(card: StudyCardRecord): StudyCardQuestionPayload | null {
-  return card.question_payload ?? (card.scheduling_state.manual_question_payload as StudyCardQuestionPayload | undefined) ?? null
+  return (
+    card.question_payload ??
+    (card.scheduling_state.manual_question_payload as StudyCardQuestionPayload | undefined) ??
+    (card.scheduling_state.generated_question_payload as StudyCardQuestionPayload | undefined) ??
+    null
+  )
+}
+
+function getStudyCardSupportPayload(card: StudyCardRecord | null | undefined): StudyCardSupportPayload | null {
+  if (!card) {
+    return null
+  }
+  return (
+    card.question_support_payload ??
+    (card.scheduling_state.manual_question_support_payload as StudyCardSupportPayload | undefined) ??
+    (card.scheduling_state.generated_question_support_payload as StudyCardSupportPayload | undefined) ??
+    null
+  )
+}
+
+function getStudySupportTexts(card: StudyCardRecord) {
+  const payload = getStudyCardSupportPayload(card)
+  return [payload?.hint, payload?.explanation, payload?.source_excerpt].filter(
+    (value): value is string => Boolean(value),
+  )
 }
 
 function getStudyChoiceOptionsFromCard(card: StudyCardRecord) {
@@ -604,6 +780,18 @@ function isStudyQuestionDraftAnswerReady(
     matchingPairs,
     orderingItems,
   ).error === null
+}
+
+function buildStudySupportPayloadFromDraft(hint: string, explanation: string): StudyCardSupportPayload | null {
+  const trimmedHint = hint.trim().replace(/\s+/g, ' ')
+  const trimmedExplanation = explanation.trim().replace(/\s+/g, ' ')
+  if (!trimmedHint && !trimmedExplanation) {
+    return null
+  }
+  return {
+    ...(trimmedHint ? { hint: trimmedHint } : {}),
+    ...(trimmedExplanation ? { explanation: trimmedExplanation } : {}),
+  }
 }
 
 function getStudyScheduleStateAction(card: StudyCardRecord): 'schedule' | 'unschedule' {
@@ -1298,11 +1486,18 @@ interface HomeCustomCollection {
   documentIds: string[]
   id: string
   name: string
+  origin: 'manual' | 'import'
+  parentId?: string | null
+  sourceFormat?: BatchResolvedImportFormat | null
+  sortIndex?: number | null
+  createdAt?: string | null
+  updatedAt?: string | null
 }
 
 interface HomeCollectionDraftState {
   collectionId?: string
   mode: 'create' | 'rename'
+  parentId?: string | null
   seedDocumentIds?: string[]
 }
 
@@ -1336,6 +1531,8 @@ interface SourceStudyReviewSummary {
   totalCount: number
   upcomingCount: number
 }
+
+const detachedHomeCollectionReviewHandlers = new WeakSet<HTMLButtonElement>()
 
 interface StudySourceScheduleRow extends SourceStudyReviewSummary {
   document: RecallDocumentRecord | null
@@ -1413,11 +1610,13 @@ const STUDY_KNOWLEDGE_STAGE_LABELS: Record<StudyKnowledgeStage, string> = {
 const STUDY_PROGRESS_PERIOD_OPTIONS: RecallStudyProgressPeriodDays[] = [14, 30, 90, 365]
 
 interface LibraryBrowseSection {
+  collectionDepth?: number
   description: string
   documents: RecallDocumentRecord[]
   key: LibraryBrowseSectionKey
   label: string
   lens: RecallHomeOrganizerLens
+  parentCollectionId?: string | null
   sectionKind?: 'sources' | 'personal-notes'
 }
 
@@ -1539,8 +1738,191 @@ function isHomeUntaggedSection(sectionKey: LibraryBrowseSectionKey) {
   return sectionKey === 'collection:untagged'
 }
 
+function getReadingQueueScopeForHomeSection(sectionKey: LibraryBrowseSectionKey | null): RecallReaderQueueScope {
+  if (sectionKey === 'collection:web') {
+    return 'web'
+  }
+  if (sectionKey === 'collection:documents') {
+    return 'documents'
+  }
+  if (sectionKey === 'collection:captures') {
+    return 'captures'
+  }
+  if (sectionKey === 'collection:untagged') {
+    return 'untagged'
+  }
+  return 'all'
+}
+
 function createHomeCustomCollectionId() {
   return `home-collection-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function getHomeCustomCollectionParentId(collection: HomeCustomCollection) {
+  return collection.parentId?.trim() || null
+}
+
+function getHomeCustomCollectionChildren(collectionId: string | null, collections: HomeCustomCollection[]) {
+  return collections
+    .filter((collection) => getHomeCustomCollectionParentId(collection) === collectionId)
+    .sort((left, right) => {
+      const leftIndex = left.sortIndex ?? Number.MAX_SAFE_INTEGER
+      const rightIndex = right.sortIndex ?? Number.MAX_SAFE_INTEGER
+      if (leftIndex !== rightIndex) {
+        return leftIndex - rightIndex
+      }
+      return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+    })
+}
+
+function flattenHomeCustomCollectionTree(collections: HomeCustomCollection[]) {
+  const rows: Array<{ collection: HomeCustomCollection; depth: number }> = []
+  const visit = (parentId: string | null, depth: number, visited: Set<string>) => {
+    for (const collection of getHomeCustomCollectionChildren(parentId, collections)) {
+      if (visited.has(collection.id)) {
+        continue
+      }
+      rows.push({ collection, depth })
+      visit(collection.id, depth + 1, new Set([...visited, collection.id]))
+    }
+  }
+  visit(null, 0, new Set())
+  for (const collection of collections) {
+    if (!rows.some((row) => row.collection.id === collection.id)) {
+      rows.push({ collection, depth: 0 })
+    }
+  }
+  return rows
+}
+
+function getHomeCustomCollectionDescendantIds(collectionId: string, collections: HomeCustomCollection[]) {
+  const descendants: string[] = []
+  const visit = (parentId: string, visited: Set<string>) => {
+    for (const child of getHomeCustomCollectionChildren(parentId, collections)) {
+      if (visited.has(child.id)) {
+        continue
+      }
+      descendants.push(child.id)
+      visit(child.id, new Set([...visited, child.id]))
+    }
+  }
+  visit(collectionId, new Set([collectionId]))
+  return descendants
+}
+
+function getHomeCustomCollectionAggregateDocumentIds(collectionId: string, collections: HomeCustomCollection[]) {
+  const collectionById = new Map(collections.map((collection) => [collection.id, collection]))
+  const documentIds: string[] = []
+  const addDocumentIds = (candidateId: string) => {
+    const collection = collectionById.get(candidateId)
+    if (!collection) {
+      return
+    }
+    for (const documentId of collection.documentIds) {
+      if (!documentIds.includes(documentId)) {
+        documentIds.push(documentId)
+      }
+    }
+  }
+  addDocumentIds(collectionId)
+  for (const descendantId of getHomeCustomCollectionDescendantIds(collectionId, collections)) {
+    addDocumentIds(descendantId)
+  }
+  return documentIds
+}
+
+function getHomeCustomCollectionAncestorIds(collectionId: string, collections: HomeCustomCollection[]) {
+  const collectionById = new Map(collections.map((collection) => [collection.id, collection]))
+  const ancestorIds: string[] = []
+  let current = collectionById.get(collectionId)
+  const visited = new Set<string>([collectionId])
+  while (current?.parentId && !visited.has(current.parentId)) {
+    const parent = collectionById.get(current.parentId)
+    if (!parent) {
+      break
+    }
+    ancestorIds.unshift(parent.id)
+    visited.add(parent.id)
+    current = parent
+  }
+  return ancestorIds
+}
+
+function formatHomeCustomCollectionPathLabel(collectionId: string, collections: HomeCustomCollection[]) {
+  const collectionById = new Map(collections.map((collection) => [collection.id, collection]))
+  const collection = collectionById.get(collectionId)
+  if (!collection) {
+    return 'Missing collection'
+  }
+  return getHomeCustomCollectionPath(collectionId, collections)
+    .map((collection) => collection.name.trim())
+    .filter((name): name is string => Boolean(name))
+    .join(' / ')
+}
+
+function getHomeCustomCollectionPath(collectionId: string, collections: HomeCustomCollection[]) {
+  const collectionById = new Map(collections.map((collection) => [collection.id, collection]))
+  return [...getHomeCustomCollectionAncestorIds(collectionId, collections), collectionId]
+    .map((id) => collectionById.get(id))
+    .filter((collection): collection is HomeCustomCollection => Boolean(collection))
+}
+
+function isHomeCustomCollectionDescendant(
+  candidateCollectionId: string,
+  ancestorCollectionId: string,
+  collections: HomeCustomCollection[],
+) {
+  return getHomeCustomCollectionAncestorIds(candidateCollectionId, collections).includes(ancestorCollectionId)
+}
+
+function mapLibraryCollectionToHome(collection: LibraryCollection): HomeCustomCollection {
+  return {
+    documentIds: collection.document_ids,
+    id: collection.id,
+    name: collection.name,
+    origin: collection.origin,
+    parentId: collection.parent_id ?? null,
+    sourceFormat: collection.source_format ?? null,
+    sortIndex: collection.sort_index ?? null,
+    createdAt: collection.created_at ?? null,
+    updatedAt: collection.updated_at ?? null,
+  }
+}
+
+function mapHomeCustomCollectionToLibrary(collection: HomeCustomCollection): LibraryCollection {
+  return {
+    id: collection.id,
+    name: collection.name,
+    document_ids: collection.documentIds,
+    origin: collection.origin ?? 'manual',
+    parent_id: collection.parentId ?? null,
+    source_format: collection.sourceFormat ?? null,
+    sort_index: collection.sortIndex ?? null,
+    created_at: collection.createdAt ?? null,
+    updated_at: collection.updatedAt ?? null,
+  }
+}
+
+function buildLibrarySettingsFromHomeCollections(collections: HomeCustomCollection[]): LibrarySettings {
+  return {
+    custom_collections: collections.map(mapHomeCustomCollectionToLibrary),
+  }
+}
+
+function getHomeCustomCollectionsForDocument(documentId: string, collections: HomeCustomCollection[]) {
+  return collections
+    .filter((collection) => collection.documentIds.includes(documentId))
+    .sort((left, right) =>
+      formatHomeCustomCollectionPathLabel(left.id, collections).localeCompare(
+        formatHomeCustomCollectionPathLabel(right.id, collections),
+        undefined,
+        { sensitivity: 'base' },
+      ),
+    )
+}
+
+function createStudyReviewSessionId() {
+  return `study-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function orderItemsByManualKeys<T>(items: T[], orderedKeys: string[], getKey: (item: T) => string) {
@@ -1668,7 +2050,7 @@ function formatStudyCollectionFilterLabel(
   const customCollection = customCollectionId
     ? customCollections.find((collection) => collection.id === customCollectionId)
     : null
-  return customCollection?.name.trim() || 'Missing collection'
+  return customCollectionId ? formatHomeCustomCollectionPathLabel(customCollectionId, customCollections) : customCollection?.name.trim() || 'Missing collection'
 }
 
 function studyCardMatchesCollectionFilter(
@@ -1683,11 +2065,7 @@ function studyCardMatchesCollectionFilter(
 
   const customCollectionId = getStudyCustomCollectionFilterId(filter)
   if (customCollectionId) {
-    return Boolean(
-      customCollections
-        .find((collection) => collection.id === customCollectionId)
-        ?.documentIds.includes(card.source_document_id),
-    )
+    return getHomeCustomCollectionAggregateDocumentIds(customCollectionId, customCollections).includes(card.source_document_id)
   }
 
   if (filter === 'collection:untagged') {
@@ -2131,28 +2509,39 @@ function buildLibraryBrowseSections(
     if (customCollections.length > 0) {
       const documentById = new Map(documents.map((document) => [document.id, document]))
       const assignedDocumentIds = new Set<string>()
-      const customSections = customCollections.map((collection) => {
+      const treeRows = flattenHomeCustomCollectionTree(customCollections)
+      const customSections = treeRows.map(({ collection, depth }) => {
         const seenDocumentIds = new Set<string>()
-        const collectionDocuments = collection.documentIds
+        for (const documentId of collection.documentIds) {
+          assignedDocumentIds.add(documentId)
+        }
+        const aggregateDocumentIds = getHomeCustomCollectionAggregateDocumentIds(collection.id, customCollections)
+        const collectionDocuments = aggregateDocumentIds
           .map((documentId) => documentById.get(documentId))
           .filter((document): document is RecallDocumentRecord => {
             if (!document || seenDocumentIds.has(document.id)) {
               return false
             }
             seenDocumentIds.add(document.id)
-            assignedDocumentIds.add(document.id)
             return true
           })
+        const childCount = getHomeCustomCollectionChildren(collection.id, customCollections).length
 
         return {
           description:
             collectionDocuments.length > 0
-              ? 'Custom collection managed directly from the organizer.'
-              : 'Custom collection ready for sources from the organizer.',
+              ? childCount > 0
+                ? 'Parent collection aggregates sources from its nested collections.'
+                : 'Custom collection managed directly from the organizer.'
+              : childCount > 0
+                ? 'Parent collection ready for nested sources.'
+                : 'Custom collection ready for sources from the organizer.',
+          collectionDepth: depth,
           documents: collectionDocuments,
           key: buildHomeCustomCollectionSectionKey(collection.id),
           label: collection.name,
           lens: 'collections' as const,
+          parentCollectionId: getHomeCustomCollectionParentId(collection),
         }
       })
 
@@ -2739,7 +3128,7 @@ function buildStudyCollectionSubsetRows(
     }
   })
 
-  const customRows = customCollections.map((collection) => {
+  const customRows = flattenHomeCustomCollectionTree(customCollections).map(({ collection }) => {
     const filter = buildHomeCustomCollectionSectionKey(collection.id)
     const subsetCards = cards.filter((card) =>
       studyCardMatchesCollectionFilter(card, filter, documentById, customCollections),
@@ -2748,7 +3137,7 @@ function buildStudyCollectionSubsetRows(
       ...buildSourceStudyReviewSummary(subsetCards),
       customCollectionId: collection.id,
       filter,
-      label: collection.name.trim() || 'Untitled collection',
+      label: formatHomeCustomCollectionPathLabel(collection.id, customCollections) || 'Untitled collection',
     }
   })
 
@@ -2974,6 +3363,7 @@ function studyCardMatchesSourceMemorySearch(card: StudyCardRecord, normalizedQue
       card.answer,
       card.status,
       card.card_type,
+      getStudyCardDifficulty(card),
       ...getStudyChoiceTexts(card),
       ...card.source_spans.flatMap((sourceSpan) => [
         getStudyEvidenceExcerpt(sourceSpan),
@@ -2998,7 +3388,10 @@ function studyCardMatchesQuestionSearch(card: StudyCardRecord, normalizedQuery: 
       formatStudyStatus(card.status),
       card.card_type,
       formatStudyCardTypeLabel(card.card_type),
+      getStudyCardDifficulty(card),
+      formatStudyDifficultyLabel(getStudyCardDifficulty(card)),
       ...getStudyChoiceTexts(card),
+      ...getStudySupportTexts(card),
       getStudyCardPreview(card),
       ...card.source_spans.flatMap((sourceSpan) => [
         getStudyEvidenceExcerpt(sourceSpan),
@@ -3136,10 +3529,12 @@ export function RecallWorkspace({
   onSectionChange,
   onShellHeroChange,
   onShellSourceWorkspaceChange,
+  reloadToken: externalReloadToken = 0,
   settings,
   section,
 }: RecallWorkspaceProps) {
   const [documents, setDocuments] = useState<RecallDocumentRecord[]>([])
+  const [readerDocuments, setReaderDocuments] = useState<DocumentRecord[]>([])
   const [selectedDocument, setSelectedDocument] = useState<RecallDocumentRecord | null>(null)
   const [sourceWorkspaceDocument, setSourceWorkspaceDocument] = useState<RecallDocumentRecord | null>(null)
   const [homeDocumentPreviewById, setHomeDocumentPreviewById] = useState<Record<string, RecallDocumentPreview>>({})
@@ -3215,6 +3610,8 @@ export function RecallWorkspace({
   const [graphManualNodePositions, setGraphManualNodePositions] = useState<Record<string, GraphCanvasDragPosition>>({})
   const [studyOverview, setStudyOverview] = useState<StudyOverview | null>(null)
   const [studyProgress, setStudyProgress] = useState<StudyReviewProgress | null>(null)
+  const [studySettings, setStudySettings] = useState<StudySettings>(STUDY_DEFAULT_SETTINGS)
+  const [studySettingsStatus, setStudySettingsStatus] = useState<LoadState>('idle')
   const [studyCards, setStudyCards] = useState<StudyCardRecord[]>([])
   const [studyStatus, setStudyStatus] = useState<LoadState>('loading')
   const [studyError, setStudyError] = useState<string | null>(null)
@@ -3224,11 +3621,27 @@ export function RecallWorkspace({
   const [studyShortAnswerReviewAttempts, setStudyShortAnswerReviewAttempts] = useState<Record<string, StudyShortAnswerReviewAttempt>>({})
   const [studyMatchingReviewAttempts, setStudyMatchingReviewAttempts] = useState<Record<string, StudyMatchingReviewAttempt>>({})
   const [studyOrderingReviewAttempts, setStudyOrderingReviewAttempts] = useState<Record<string, StudyOrderingReviewAttempt>>({})
+  const [studyPersistedAttempts, setStudyPersistedAttempts] = useState<Record<string, StudyAnswerAttemptRecord>>({})
+  const [studyAttemptBusyCardId, setStudyAttemptBusyCardId] = useState<string | null>(null)
+  const [studyReviewSession, setStudyReviewSession] = useState<StudyReviewSessionState | null>(null)
+  const [studyReviewSessionRecap, setStudyReviewSessionRecap] = useState<StudyReviewSessionRecap | null>(null)
+  const [studyReviewTimerSeconds, setStudyReviewTimerSeconds] = useState(0)
+  const [studyReviewTimerRemainingSeconds, setStudyReviewTimerRemainingSeconds] = useState<number | null>(null)
+  const [studyTimedOutCardIds, setStudyTimedOutCardIds] = useState<Set<string>>(() => new Set())
+  const [studyHintVisibleCardIds, setStudyHintVisibleCardIds] = useState<Set<string>>(() => new Set())
   const [studyEvidencePeekOpen, setStudyEvidencePeekOpen] = useState(false)
   const [studyMessage, setStudyMessage] = useState<string | null>(null)
   const [studySelectedQuestionIds, setStudySelectedQuestionIds] = useState<Set<string>>(() => new Set())
   const [studyEditDraft, setStudyEditDraft] = useState<StudyCardEditDraft | null>(null)
   const [studyCreateDraft, setStudyCreateDraft] = useState<StudyCardCreateDraft | null>(null)
+  const [studyGenerationQuestionTypes, setStudyGenerationQuestionTypes] = useState<StudyGeneratedCardType[]>(() => [
+    ...STUDY_GENERATED_CARD_TYPES,
+  ])
+  const [studyGenerationMaxPerSource, setStudyGenerationMaxPerSource] = useState(8)
+  const [studyGenerationIncludeHints, setStudyGenerationIncludeHints] = useState(true)
+  const [studyGenerationIncludeExplanations, setStudyGenerationIncludeExplanations] = useState(true)
+  const [studyGenerationDifficulty, setStudyGenerationDifficulty] = useState<StudyQuestionDifficultyFilter>('all')
+  const [studyGenerationResult, setStudyGenerationResult] = useState<StudyCardGenerationResult | null>(null)
   const [documentNotes, setDocumentNotes] = useState<RecallNoteRecord[]>([])
   const [sourceWorkspaceNotes, setSourceWorkspaceNotes] = useState<RecallNoteRecord[]>([])
   const [sourceWorkspaceNotesStatus, setSourceWorkspaceNotesStatus] = useState<LoadState>('idle')
@@ -3248,6 +3661,7 @@ export function RecallWorkspace({
   const [newNoteDraftOpen, setNewNoteDraftOpen] = useState(false)
   const [newNoteDraftBody, setNewNoteDraftBody] = useState('')
   const [notePromotionMode, setNotePromotionMode] = useState<'graph' | 'study' | null>(null)
+  const pendingNotePromotionModeRef = useRef<'graph' | 'study' | null>(null)
   const [noteGraphDraft, setNoteGraphDraft] = useState<RecallNoteGraphPromotionRequest>({
     label: '',
     description: '',
@@ -3266,21 +3680,53 @@ export function RecallWorkspace({
   const [studyQueueExpanded, setStudyQueueExpanded] = useState(false)
   const [homeSelectedSectionKey, setHomeSelectedSectionKey] = useState<LibraryBrowseSection['key'] | null>(null)
   const [homeBrowsePreviewsCollapsed, setHomeBrowsePreviewsCollapsed] = useState(false)
+  const [workspaceExportManifest, setWorkspaceExportManifest] = useState<WorkspaceExportManifest | null>(null)
+  const [workspaceExportStatus, setWorkspaceExportStatus] = useState<LoadState>('idle')
+  const [workspaceExportError, setWorkspaceExportError] = useState<string | null>(null)
+  const [workspaceImportPreview, setWorkspaceImportPreview] = useState<WorkspaceImportPreview | null>(null)
+  const [workspaceImportPreviewFile, setWorkspaceImportPreviewFile] = useState<File | null>(null)
+  const [workspaceImportPreviewStatus, setWorkspaceImportPreviewStatus] = useState<LoadState>('idle')
+  const [workspaceImportPreviewError, setWorkspaceImportPreviewError] = useState<string | null>(null)
+  const [workspaceImportApplyResult, setWorkspaceImportApplyResult] = useState<WorkspaceImportApplyResult | null>(null)
+  const [workspaceImportApplyStatus, setWorkspaceImportApplyStatus] = useState<LoadState>('idle')
+  const [workspaceImportApplyError, setWorkspaceImportApplyError] = useState<string | null>(null)
   const [homeOrganizerRailWidth, setHomeOrganizerRailWidth] = useState(HOME_ORGANIZER_RAIL_DEFAULT_WIDTH)
   const [homeOrganizerRailResizing, setHomeOrganizerRailResizing] = useState(false)
   const [homeOrganizerSelectionKeys, setHomeOrganizerSelectionKeys] = useState<HomeOrganizerSelectionKey[]>([])
   const [homeOrganizerDragSession, setHomeOrganizerDragSession] = useState<HomeOrganizerDragSession | null>(null)
   const [homeOrganizerDropTarget, setHomeOrganizerDropTarget] = useState<HomeOrganizerDropTarget | null>(null)
   const [homeCustomCollections, setHomeCustomCollections] = useState<HomeCustomCollection[]>([])
+  const [homeCollectionOverview, setHomeCollectionOverview] = useState<LibraryCollectionOverview | null>(null)
+  const [homeCollectionOverviewStatus, setHomeCollectionOverviewStatus] = useState<LoadState>('idle')
+  const [homeCollectionOverviewError, setHomeCollectionOverviewError] = useState<string | null>(null)
+  const [homeReadingQueue, setHomeReadingQueue] = useState<LibraryReadingQueueResponse | null>(null)
+  const [homeReadingQueueStatus, setHomeReadingQueueStatus] = useState<LoadState>('idle')
+  const [homeReadingQueueError, setHomeReadingQueueError] = useState<string | null>(null)
+  const [homeReadingQueueState, setHomeReadingQueueState] = useState<RecallReaderQueueState>('all')
+  const [homeReadingQueueBusyDocumentId, setHomeReadingQueueBusyDocumentId] = useState<string | null>(null)
+  const [homeCollectionSettingsError, setHomeCollectionSettingsError] = useState<string | null>(null)
   const [homeCollectionDraftState, setHomeCollectionDraftState] = useState<HomeCollectionDraftState | null>(null)
   const [homeCollectionDraftName, setHomeCollectionDraftName] = useState('')
   const [homeCollectionAssignmentPanelOpen, setHomeCollectionAssignmentPanelOpen] = useState(false)
+  const [sourceCollectionOrganizerOpen, setSourceCollectionOrganizerOpen] = useState(false)
+  const [sourceCollectionDraftName, setSourceCollectionDraftName] = useState('')
+  const [sourceCollectionDraftParentId, setSourceCollectionDraftParentId] = useState('')
+  const [sourceReadingCompleteBusy, setSourceReadingCompleteBusy] = useState(false)
   const [homeStage567RailMenuOpen, setHomeStage567RailMenuOpen] = useState(false)
   const [homeStage563SortMenuOpen, setHomeStage563SortMenuOpen] = useState(false)
   const [homeHiddenReopenDisclosureOpen, setHomeHiddenReopenDisclosureOpen] = useState(false)
   const homeOrganizerRailResizeSessionRef = useRef<HomeOrganizerRailResizeSession | null>(null)
   const homeStage567RailMenuRef = useRef<HTMLDivElement | null>(null)
   const homeStage563SortMenuRef = useRef<HTMLDivElement | null>(null)
+  const persistHomeCustomCollections = useCallback(async (collections: HomeCustomCollection[]) => {
+    try {
+      const savedSettings = await saveLibrarySettings(buildLibrarySettingsFromHomeCollections(collections))
+      setHomeCustomCollections(savedSettings.custom_collections.map(mapLibraryCollectionToHome))
+      setHomeCollectionSettingsError(null)
+    } catch (error) {
+      setHomeCollectionSettingsError(getErrorMessage(error, 'Could not save Library collections.'))
+    }
+  }, [])
   const [homeManualSectionOrderByLens, setHomeManualSectionOrderByLens] = useState<
     Record<RecallHomeOrganizerLens, LibraryBrowseSectionKey[]>
   >({
@@ -3315,7 +3761,9 @@ export function RecallWorkspace({
   })
   const previousActiveSourceDocumentIdRef = useRef<string | null>(null)
   const lastNewNoteFocusTokenRef = useRef<number | null>(null)
+  const lastStudyLaunchFocusTokenRef = useRef<number | null>(null)
   const requestedHomeSourceNoteDocumentIdsRef = useRef<Set<string>>(new Set())
+  const studySettingsAppliedRef = useRef(false)
   const libraryActiveSurface = continuityState.library.activeSurface ?? 'home'
   const libraryFilterQuery = continuityState.library.filterQuery
   const homeMemoryFilter = continuityState.library.homeMemoryFilter ?? 'all'
@@ -3332,6 +3780,7 @@ export function RecallWorkspace({
   const graphTourDismissed = continuityState.graph.tourDismissed
   const graphTourStep = continuityState.graph.tourStep
   const studyCollectionFilter = continuityState.study.collectionFilter ?? 'all'
+  const studyDifficultyFilter = continuityState.study.difficultyFilter ?? 'all'
   const studyFilter = continuityState.study.filter
   const studyKnowledgeStageFilter = continuityState.study.knowledgeStageFilter ?? 'all'
   const studyProgressPeriodDays = continuityState.study.progressPeriodDays ?? 14
@@ -3413,6 +3862,7 @@ export function RecallWorkspace({
     updateStudyState((current) => ({
       ...current,
       collectionFilter: 'all',
+      difficultyFilter: 'all',
       filter: 'all',
       knowledgeStageFilter: 'all',
       questionSearchQuery: '',
@@ -3676,6 +4126,10 @@ export function RecallWorkspace({
 
   const documentById = useMemo(() => new Map(documents.map((document) => [document.id, document])), [documents])
   const documentTitleById = useMemo(() => new Map(documents.map((document) => [document.id, document.title])), [documents])
+  const readerDocumentById = useMemo(
+    () => new Map(readerDocuments.map((document) => [document.id, document])),
+    [readerDocuments],
+  )
   const studyCreateSourceDocument =
     studyCreateDraft?.sourceDocumentId ? documentById.get(studyCreateDraft.sourceDocumentId) ?? null : null
   const studySourceScopeDocument =
@@ -3732,22 +4186,31 @@ export function RecallWorkspace({
         : stageFilteredStudyQuestionCards,
     [stageFilteredStudyQuestionCards, studyReviewHistoryFilter, studyReviewHistoryFilterActive],
   )
+  const studyDifficultyFilterActive = studyDifficultyFilter !== 'all'
+  const difficultyFilteredStudyQuestionCards = useMemo(
+    () =>
+      studyDifficultyFilterActive
+        ? reviewHistoryFilteredStudyQuestionCards.filter((card) => getStudyCardDifficulty(card) === studyDifficultyFilter)
+        : reviewHistoryFilteredStudyQuestionCards,
+    [reviewHistoryFilteredStudyQuestionCards, studyDifficultyFilter, studyDifficultyFilterActive],
+  )
   const normalizedStudyQuestionSearchQuery = normalizeSourceMemorySearchText(deferredStudyQuestionSearch)
   const studyQuestionSearchActive = normalizedStudyQuestionSearchQuery.length > 0
   const visibleStudyQuestionCards = useMemo(
     () =>
       studyQuestionSearchActive
-        ? reviewHistoryFilteredStudyQuestionCards.filter((card) =>
+        ? difficultyFilteredStudyQuestionCards.filter((card) =>
             studyCardMatchesQuestionSearch(card, normalizedStudyQuestionSearchQuery),
           )
-        : reviewHistoryFilteredStudyQuestionCards,
-    [normalizedStudyQuestionSearchQuery, reviewHistoryFilteredStudyQuestionCards, studyQuestionSearchActive],
+        : difficultyFilteredStudyQuestionCards,
+    [difficultyFilteredStudyQuestionCards, normalizedStudyQuestionSearchQuery, studyQuestionSearchActive],
   )
   const scopedStudyCardCount = scopedStudyCards.length
   const collectionFilteredStudyQuestionCount = collectionFilteredStudyCards.length
   const scheduleFilteredStudyQuestionCount = scheduleFilteredStudyQuestionCards.length
   const stageFilteredStudyQuestionCount = stageFilteredStudyQuestionCards.length
   const reviewHistoryFilteredStudyQuestionCount = reviewHistoryFilteredStudyQuestionCards.length
+  const difficultyFilteredStudyQuestionCount = difficultyFilteredStudyQuestionCards.length
   const studyQuestionResultCount = visibleStudyQuestionCards.length
   const visibleStudyQuestionIdSet = useMemo(
     () => new Set(visibleStudyQuestionCards.map((card) => card.id)),
@@ -3763,12 +4226,14 @@ export function RecallWorkspace({
   const studyScheduleDrilldownLabel = formatStudyScheduleDrilldownLabel(studyScheduleDrilldown)
   const studyKnowledgeStageFilterLabel = formatStudyKnowledgeStageLabel(studyKnowledgeStageFilter)
   const studyReviewHistoryFilterLabel = formatStudyReviewHistoryFilterLabel(studyReviewHistoryFilter)
+  const studyDifficultyFilterLabel = formatStudyDifficultyLabel(studyDifficultyFilter)
   const studyQuestionFilterStackActive =
     studyCollectionFilterActive ||
     studyFilter !== 'all' ||
     studyScheduleDrilldownActive ||
     studyKnowledgeStageFilterActive ||
     studyReviewHistoryFilterActive ||
+    studyDifficultyFilterActive ||
     studyQuestionSearchActive
   const studyQuestionSelectionScopeKey = [
     studySourceScopeDocumentId ?? 'global',
@@ -3777,6 +4242,7 @@ export function RecallWorkspace({
     studyScheduleDrilldown,
     studyKnowledgeStageFilter,
     studyReviewHistoryFilter,
+    studyDifficultyFilter,
     normalizedStudyQuestionSearchQuery,
   ].join('|')
   const activeStudyCard =
@@ -3835,13 +4301,17 @@ export function RecallWorkspace({
   const homeCustomCollectionNamesByDocumentId = useMemo(() => {
     const collectionNamesByDocumentId = new Map<string, Set<string>>()
     for (const collection of homeCustomCollections) {
-      const trimmedCollectionName = collection.name.trim()
-      if (!trimmedCollectionName) {
-        continue
-      }
+      const ancestorIds = getHomeCustomCollectionAncestorIds(collection.id, homeCustomCollections)
+      const collectionNames = [...ancestorIds, collection.id].flatMap((collectionId) => {
+        const matchingCollection = homeCustomCollections.find((candidate) => candidate.id === collectionId)
+        const name = matchingCollection?.name.trim()
+        return name ? [collectionId, name] : [collectionId]
+      })
       for (const documentId of collection.documentIds) {
         const names = collectionNamesByDocumentId.get(documentId) ?? new Set<string>()
-        names.add(trimmedCollectionName)
+        for (const collectionName of collectionNames) {
+          names.add(collectionName)
+        }
         collectionNamesByDocumentId.set(documentId, names)
       }
     }
@@ -5575,7 +6045,9 @@ export function RecallWorkspace({
     }
 
     if (!homeSelectedSectionKey) {
-      return orderedLibraryBrowseSectionsWithPersonalNotes[0] ?? null
+      return orderedLibraryBrowseSectionsWithPersonalNotes.find((section) => section.documents.length > 0) ??
+        orderedLibraryBrowseSectionsWithPersonalNotes[0] ??
+        null
     }
 
     return orderedLibraryBrowseSectionsWithPersonalNotes.find((section) => section.key === homeSelectedSectionKey) ?? null
@@ -5590,6 +6062,86 @@ export function RecallWorkspace({
     }
     return homeCustomCollections.find((collection) => collection.id === collectionId) ?? null
   }, [homeCustomCollections, homeSelectedBrowseSection])
+  useEffect(() => {
+    if (libraryFilterActive || !homeSelectedCustomCollection) {
+      setHomeCollectionOverview(null)
+      setHomeCollectionOverviewStatus('idle')
+      setHomeCollectionOverviewError(null)
+      return
+    }
+
+    let active = true
+    setHomeCollectionOverviewStatus('loading')
+    setHomeCollectionOverviewError(null)
+    void fetchLibraryCollectionOverview(homeSelectedCustomCollection.id)
+      .then((overview) => {
+        if (!active) {
+          return
+        }
+        setHomeCollectionOverview(overview)
+        setHomeCollectionOverviewStatus('success')
+      })
+      .catch((error) => {
+        if (!active) {
+          return
+        }
+        setHomeCollectionOverview(null)
+        setHomeCollectionOverviewStatus('error')
+        setHomeCollectionOverviewError(getErrorMessage(error, 'Could not load collection reading context.'))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [externalReloadToken, homeSelectedCustomCollection, libraryFilterActive, reloadToken])
+  useEffect(() => {
+    if (section !== 'library' || libraryActiveSurface !== 'home') {
+      return
+    }
+
+    const selectedQueueSectionKey = homeSelectedSectionKey ? homeSelectedBrowseSection?.key ?? null : null
+    const collectionId =
+      libraryFilterActive || !selectedQueueSectionKey ? null : homeSelectedCustomCollection?.id ?? null
+    const scope = collectionId ? 'all' : getReadingQueueScopeForHomeSection(selectedQueueSectionKey)
+    let active = true
+    setHomeReadingQueueStatus('loading')
+    setHomeReadingQueueError(null)
+    void fetchLibraryReadingQueue({
+      collectionId,
+      limit: 8,
+      scope,
+      state: homeReadingQueueState,
+    })
+      .then((queue) => {
+        if (!active) {
+          return
+        }
+        setHomeReadingQueue(queue)
+        setHomeReadingQueueStatus('success')
+      })
+      .catch((error) => {
+        if (!active) {
+          return
+        }
+        setHomeReadingQueue(null)
+        setHomeReadingQueueStatus('error')
+        setHomeReadingQueueError(getErrorMessage(error, 'Could not load reading queue.'))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [
+    libraryActiveSurface,
+    externalReloadToken,
+    homeReadingQueueState,
+    homeSelectedSectionKey,
+    homeSelectedBrowseSection?.key,
+    homeSelectedCustomCollection?.id,
+    libraryFilterActive,
+    reloadToken,
+    section,
+  ])
   const homeSelectedWorkspaceSection = useMemo(() => {
     if (!homeSelectedBrowseSection) {
       return null
@@ -5840,7 +6392,9 @@ export function RecallWorkspace({
       }`
     : `${homeCanvasDocuments.length} total ${homeCanvasDocuments.length === 1 ? 'source' : 'sources'}`
   const homeCanvasEmptyNote =
-    documentsStatus === 'error'
+    homeCollectionSettingsError
+      ? homeCollectionSettingsError
+      : documentsStatus === 'error'
       ? 'Saved sources are unavailable until the local service reconnects.'
       : libraryFilterActive
         ? homeMemoryFilterActive || homeReviewFilterActive
@@ -5868,7 +6422,7 @@ export function RecallWorkspace({
     setHomeSourceNoteSearchResults([])
     setHomeSourceNoteSearchStatus('idle')
     setHomeSourceNoteSearchError(null)
-  }, [reloadToken])
+  }, [externalReloadToken, reloadToken])
 
   useEffect(() => {
     if (section !== 'library' || documentsStatus !== 'success' || homeSourceNotePrefetchDocumentIds.length === 0) {
@@ -6095,10 +6649,12 @@ export function RecallWorkspace({
         return {
           branchDisplayLimit,
           branchExpanded,
+          collectionDepth: section.collectionDepth ?? 0,
           count: personalNotesSection ? homeCachedPersonalNoteBoardItems.length : section.documents.length,
           description: section.description,
           key: section.key,
           label: section.label,
+          parentCollectionId: section.parentCollectionId ?? null,
           previewLeadDocument: personalNotesSection ? null : section.documents[0] ?? null,
           previewDocuments,
         }
@@ -6439,7 +6995,7 @@ export function RecallWorkspace({
     homeSelectedOrganizerDocumentIds.length > 0
   const homeCollectionAssignmentEntries = useMemo(
     () =>
-      homeCustomCollections.map((collection) => {
+      flattenHomeCustomCollectionTree(homeCustomCollections).map(({ collection, depth }) => {
         const selectedDocumentMembershipCount = homeSelectedOrganizerDocumentIds.filter((documentId) =>
           collection.documentIds.includes(documentId),
         ).length
@@ -6448,18 +7004,25 @@ export function RecallWorkspace({
           collectionOwnsAllSelectedDocuments:
             homeSelectedOrganizerDocumentIds.length > 0 &&
             selectedDocumentMembershipCount === homeSelectedOrganizerDocumentIds.length,
+          depth,
           selectedDocumentMembershipCount,
         }
       }),
     [homeCustomCollections, homeSelectedOrganizerDocumentIds],
   )
   const homeCollectionDraftTitle =
-    homeCollectionDraftState?.mode === 'rename' ? 'Rename collection' : 'Create custom collection'
+    homeCollectionDraftState?.mode === 'rename'
+      ? 'Rename collection'
+      : homeCollectionDraftState?.parentId
+        ? 'Create child collection'
+        : 'Create custom collection'
   const homeCollectionDraftActionLabel =
     homeCollectionDraftState?.mode === 'rename' ? 'Save name' : 'Create collection'
   const homeCollectionDraftHint =
     homeCollectionDraftState?.mode === 'rename'
       ? 'Update the organizer label without leaving the workbench.'
+      : homeCollectionDraftState?.parentId
+        ? `Nest this collection under ${formatHomeCustomCollectionPathLabel(homeCollectionDraftState.parentId, homeCustomCollections)}.`
       : homeCollectionDraftState?.seedDocumentIds?.length
         ? `Create a new collection with ${formatCountLabel(homeCollectionDraftState.seedDocumentIds.length, 'selected source', 'selected sources')}.`
         : 'Create an empty collection, then fill it from any organizer branch.'
@@ -6467,6 +7030,28 @@ export function RecallWorkspace({
     homeSelectedOrganizerDocumentIds.length > 0
       ? `${formatCountLabel(homeSelectedOrganizerDocumentIds.length, 'selected source', 'selected sources')} can move into or out of custom collections.`
       : 'Select sources in the organizer to assign them into custom collections.'
+  const homeSelectedCustomCollectionDepth = homeSelectedCustomCollection
+    ? getHomeCustomCollectionAncestorIds(homeSelectedCustomCollection.id, homeCustomCollections).length
+    : 0
+  const homeSelectedCustomCollectionCanCreateChild = Boolean(
+    homeSelectedCustomCollection && homeSelectedCustomCollectionDepth < 4,
+  )
+  const homeCollectionParentOptions = homeSelectedCustomCollection
+    ? [
+        { collection: null, depth: 0, label: 'Root collection' },
+        ...flattenHomeCustomCollectionTree(homeCustomCollections)
+          .filter(
+            ({ collection }) =>
+              collection.id !== homeSelectedCustomCollection.id &&
+              !isHomeCustomCollectionDescendant(collection.id, homeSelectedCustomCollection.id, homeCustomCollections),
+          )
+          .map(({ collection, depth }) => ({
+            collection,
+            depth,
+            label: formatHomeCustomCollectionPathLabel(collection.id, homeCustomCollections),
+          })),
+      ]
+    : []
 
   const rememberHomeSourceNotesForDocument = useCallback((documentId: string, notes: RecallNoteRecord[]) => {
     setHomeSourceNotesByDocumentId((current) => ({
@@ -6539,8 +7124,11 @@ export function RecallWorkspace({
     try {
       const overview = await fetchRecallStudyOverview()
       const totalStudyCards = overview.new_count + overview.due_count + overview.scheduled_count
+      const cardLimit = Math.min(100, Math.max(24, totalStudyCards || 24))
       const [cards, progress] = await Promise.all([
-        fetchRecallStudyCards(status, Math.min(100, Math.max(24, totalStudyCards || 24))),
+        studySourceScopeDocumentId
+          ? fetchRecallStudyCards(status, cardLimit, studySourceScopeDocumentId)
+          : fetchRecallStudyCards(status, cardLimit),
         fetchRecallStudyProgress(studySourceScopeDocumentId, studyProgressPeriodDays),
       ])
       setStudyOverview(overview)
@@ -6558,6 +7146,67 @@ export function RecallWorkspace({
       return []
     }
   }, [studyProgressPeriodDays, studySourceScopeDocumentId, updateStudyState])
+
+  useEffect(() => {
+    if (!activeSourceDocumentId) {
+      return
+    }
+
+    let active = true
+    void fetchRecallStudyCards('all', 100, activeSourceDocumentId)
+      .then((sourceCards) => {
+        if (!active) {
+          return
+        }
+        setStudyCards((current) => [
+          ...sourceCards,
+          ...current.filter((card) => card.source_document_id !== activeSourceDocumentId),
+        ])
+      })
+      .catch(() => undefined)
+
+    return () => {
+      active = false
+    }
+  }, [activeSourceDocumentId])
+
+  const applyLoadedStudySettings = useCallback((settings: StudySettings) => {
+    setStudySettings(settings)
+    if (!studySettingsAppliedRef.current) {
+      studySettingsAppliedRef.current = true
+      setStudyReviewTimerSeconds(settings.default_timer_seconds)
+      updateStudyState((current) => ({
+        ...current,
+        difficultyFilter:
+          (current.difficultyFilter ?? 'all') === 'all'
+            ? settings.default_difficulty_filter
+            : current.difficultyFilter,
+      }))
+    }
+  }, [updateStudyState])
+
+  useEffect(() => {
+    let active = true
+    setStudySettingsStatus('loading')
+    void fetchRecallStudySettings()
+      .then((settings) => {
+        if (!active) {
+          return
+        }
+        applyLoadedStudySettings(settings)
+        setStudySettingsStatus('success')
+      })
+      .catch(() => {
+        if (!active) {
+          return
+        }
+        applyLoadedStudySettings(STUDY_DEFAULT_SETTINGS)
+        setStudySettingsStatus('error')
+      })
+    return () => {
+      active = false
+    }
+  }, [applyLoadedStudySettings])
 
   const loadNotes = useCallback(async (documentId: string) => {
     setNotesStatus('loading')
@@ -6583,6 +7232,66 @@ export function RecallWorkspace({
       return []
     }
   }, [rememberHomeSourceNotesForDocument, selectedLibraryDocumentId])
+
+  const loadWorkspaceExportManifest = useCallback(async () => {
+    setWorkspaceExportStatus('loading')
+    setWorkspaceExportError(null)
+    try {
+      const manifest = await fetchWorkspaceExportManifest()
+      setWorkspaceExportManifest(manifest)
+      setWorkspaceExportStatus('success')
+      return manifest
+    } catch (loadError) {
+      setWorkspaceExportManifest(null)
+      setWorkspaceExportError(getErrorMessage(loadError, 'Could not preview workspace export.'))
+      setWorkspaceExportStatus('error')
+      return null
+    }
+  }, [])
+
+  const handleWorkspaceBackupPreviewUpload = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const backupFile = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!backupFile) {
+      return
+    }
+
+    setWorkspaceImportPreviewStatus('loading')
+    setWorkspaceImportPreviewError(null)
+    setWorkspaceImportApplyResult(null)
+    setWorkspaceImportApplyError(null)
+    setWorkspaceImportApplyStatus('idle')
+    try {
+      const preview = await previewWorkspaceImport(backupFile)
+      setWorkspaceImportPreview(preview)
+      setWorkspaceImportPreviewFile(backupFile)
+      setWorkspaceImportPreviewStatus('success')
+    } catch (previewError) {
+      setWorkspaceImportPreview(null)
+      setWorkspaceImportPreviewFile(null)
+      setWorkspaceImportPreviewError(getErrorMessage(previewError, 'Could not preview that backup.'))
+      setWorkspaceImportPreviewStatus('error')
+    }
+  }, [])
+
+  const handleWorkspaceBackupRestore = useCallback(async () => {
+    if (!workspaceImportPreview?.can_apply || !workspaceImportPreviewFile) {
+      return
+    }
+    setWorkspaceImportApplyStatus('loading')
+    setWorkspaceImportApplyError(null)
+    try {
+      const result = await applyWorkspaceImport(workspaceImportPreviewFile)
+      setWorkspaceImportApplyResult(result)
+      setWorkspaceImportApplyStatus('success')
+      setReloadToken((current) => current + 1)
+      void loadWorkspaceExportManifest()
+    } catch (applyError) {
+      setWorkspaceImportApplyResult(null)
+      setWorkspaceImportApplyError(getErrorMessage(applyError, 'Could not restore that backup.'))
+      setWorkspaceImportApplyStatus('error')
+    }
+  }, [loadWorkspaceExportManifest, workspaceImportPreview, workspaceImportPreviewFile])
 
   useEffect(() => {
     let active = true
@@ -6647,7 +7356,54 @@ export function RecallWorkspace({
     return () => {
       active = false
     }
-  }, [reloadToken, updateContinuityState])
+  }, [externalReloadToken, reloadToken, updateContinuityState])
+
+  useEffect(() => {
+    let active = true
+    void fetchDocuments()
+      .then((loadedDocuments) => {
+        if (active) {
+          setReaderDocuments(loadedDocuments)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setReaderDocuments([])
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [externalReloadToken, reloadToken])
+
+  useEffect(() => {
+    let active = true
+    void fetchLibrarySettings()
+      .then((settings) => {
+        if (!active) {
+          return
+        }
+        setHomeCustomCollections(settings.custom_collections.map(mapLibraryCollectionToHome))
+        setHomeCollectionSettingsError(null)
+      })
+      .catch((error) => {
+        if (active) {
+          setHomeCollectionSettingsError(getErrorMessage(error, 'Could not load Library collections.'))
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [externalReloadToken, reloadToken])
+
+  useEffect(() => {
+    if (section !== 'library' || documentsStatus === 'loading') {
+      return
+    }
+    void loadWorkspaceExportManifest()
+  }, [documentsStatus, externalReloadToken, loadWorkspaceExportManifest, reloadToken, section])
 
   useEffect(() => {
     if (!selectedLibraryDocumentId) {
@@ -6678,7 +7434,7 @@ export function RecallWorkspace({
     return () => {
       active = false
     }
-  }, [reloadToken, selectedLibraryDocumentId])
+  }, [externalReloadToken, reloadToken, selectedLibraryDocumentId])
 
   useEffect(() => {
     if (!activeSourceDocumentId) {
@@ -6735,18 +7491,20 @@ export function RecallWorkspace({
       Boolean(studySourceScopeDocumentId) && activeSourceDocumentId !== studySourceScopeDocumentId
     if (sourceScopeChanged) {
       updateStudyState((current) =>
-        current.questionSearchQuery ||
-        current.scheduleDrilldown !== 'all' ||
-        (current.collectionFilter ?? 'all') !== 'all' ||
-        (current.knowledgeStageFilter ?? 'all') !== 'all' ||
-        (current.reviewHistoryFilter ?? 'all') !== 'all'
-          ? {
-              ...current,
-              collectionFilter: 'all',
-              knowledgeStageFilter: 'all',
-              questionSearchQuery: '',
-              reviewHistoryFilter: 'all',
-              scheduleDrilldown: 'all',
+	        current.questionSearchQuery ||
+	        current.scheduleDrilldown !== 'all' ||
+	        (current.collectionFilter ?? 'all') !== 'all' ||
+	        (current.difficultyFilter ?? 'all') !== 'all' ||
+	        (current.knowledgeStageFilter ?? 'all') !== 'all' ||
+	        (current.reviewHistoryFilter ?? 'all') !== 'all'
+	          ? {
+	              ...current,
+	              collectionFilter: 'all',
+	              difficultyFilter: 'all',
+	              knowledgeStageFilter: 'all',
+	              questionSearchQuery: '',
+	              reviewHistoryFilter: 'all',
+	              scheduleDrilldown: 'all',
             }
           : current,
       )
@@ -6911,7 +7669,7 @@ export function RecallWorkspace({
     return () => {
       active = false
     }
-  }, [reloadToken, rememberHomeSourceNotesForDocument, selectedLibraryDocumentId])
+  }, [externalReloadToken, reloadToken, rememberHomeSourceNotesForDocument, selectedLibraryDocumentId])
 
   useEffect(() => {
     if (!activeSourceDocumentId) {
@@ -6979,7 +7737,7 @@ export function RecallWorkspace({
     }
 
     void loadNotes(selectedNotesDocumentId)
-  }, [loadNotes, reloadToken, selectedNotesDocumentId])
+  }, [externalReloadToken, loadNotes, reloadToken, selectedNotesDocumentId])
 
   useEffect(() => {
     if (!showingNoteSearch) {
@@ -7036,7 +7794,7 @@ export function RecallWorkspace({
 
   useEffect(() => {
     void loadGraph()
-  }, [loadGraph, reloadToken])
+  }, [externalReloadToken, loadGraph, reloadToken])
 
   useEffect(() => {
     setGraphDetailPeekOpen(false)
@@ -7103,9 +7861,12 @@ export function RecallWorkspace({
 
   useEffect(() => {
     void loadStudy(studyFilter)
-  }, [loadStudy, reloadToken, studyFilter])
+  }, [externalReloadToken, loadStudy, reloadToken, studyFilter])
 
   useEffect(() => {
+    if (studyReviewSessionRecap) {
+      return
+    }
     const activeQueueCards = studyQuestionFilterStackActive ? visibleStudyQuestionCards : scopedStudyCards
     updateStudyState((current) => {
       const currentCardMatches = current.activeCardId
@@ -7121,7 +7882,46 @@ export function RecallWorkspace({
             activeCardId: nextActiveCardId,
           }
     })
-  }, [scopedStudyCards, studyQuestionFilterStackActive, updateStudyState, visibleStudyQuestionCards])
+  }, [scopedStudyCards, studyQuestionFilterStackActive, studyReviewSessionRecap, updateStudyState, visibleStudyQuestionCards])
+
+  useEffect(() => {
+    if (
+      !activeStudyCard ||
+      !studyReviewSession ||
+      !studyReviewSession.cardIds.includes(activeStudyCard.id) ||
+      !activeStudyCardReviewEligible ||
+      studyReviewSession.timeLimitSeconds <= 0 ||
+      showAnswer ||
+      studyPersistedAttempts[activeStudyCard.id] ||
+      studyTimedOutCardIds.has(activeStudyCard.id)
+    ) {
+      setStudyReviewTimerRemainingSeconds(null)
+      return
+    }
+
+    const startedAt = Date.now()
+    const timeLimitSeconds = studyReviewSession.timeLimitSeconds
+    let expired = false
+    setStudyReviewTimerRemainingSeconds(timeLimitSeconds)
+    const timer = window.setInterval(() => {
+      const elapsedMs = Date.now() - startedAt
+      const remainingSeconds = Math.max(0, Math.ceil((timeLimitSeconds * 1000 - elapsedMs) / 1000))
+      setStudyReviewTimerRemainingSeconds(remainingSeconds)
+      if (remainingSeconds <= 0 && !expired) {
+        expired = true
+        window.clearInterval(timer)
+        void handleStudyTimerExpired(activeStudyCard, timeLimitSeconds, elapsedMs)
+      }
+    }, 250)
+    return () => window.clearInterval(timer)
+  }, [
+    activeStudyCard,
+    activeStudyCardReviewEligible,
+    showAnswer,
+    studyPersistedAttempts,
+    studyReviewSession,
+    studyTimedOutCardIds,
+  ])
 
   useEffect(() => {
     setStudySelectedQuestionIds((current) => {
@@ -7181,12 +7981,15 @@ export function RecallWorkspace({
 
   useEffect(() => {
     if (!activeNoteId) {
+      pendingNotePromotionModeRef.current = null
       setNotePromotionMode(null)
       setNoteGraphDraft({ label: '', description: '' })
       setNoteStudyDraft({ prompt: '', answer: '' })
       return
     }
-    setNotePromotionMode(null)
+    const pendingPromotionMode = pendingNotePromotionModeRef.current
+    pendingNotePromotionModeRef.current = null
+    setNotePromotionMode(pendingPromotionMode)
   }, [activeNoteId])
 
   useEffect(() => {
@@ -7218,6 +8021,9 @@ export function RecallWorkspace({
     if (!focusRequest || focusRequest.section !== section) {
       return
     }
+    const focusStudyDifficultyFilter =
+      focusRequest.studyIntent === 'start-session' ? studySettings.default_difficulty_filter : 'all'
+    const focusStudyScheduleDrilldown = focusRequest.scheduleDrilldown ?? 'all'
     const newNoteRequestAlreadyConsumed = Boolean(
       focusRequest.newNote && lastNewNoteFocusTokenRef.current === focusRequest.token,
     )
@@ -7294,28 +8100,31 @@ export function RecallWorkspace({
     if (focusRequest.cardId) {
       updateStudyState((current) => ({
         ...current,
-        collectionFilter: 'all',
-        filter: 'all',
-        activeCardId: focusRequest.cardId ?? null,
-        knowledgeStageFilter: 'all',
-        reviewHistoryFilter: 'all',
-        scheduleDrilldown: 'all',
+	        collectionFilter: 'all',
+	        difficultyFilter: focusStudyDifficultyFilter,
+	        filter: 'all',
+	        activeCardId: focusRequest.cardId ?? null,
+	        knowledgeStageFilter: 'all',
+	        reviewHistoryFilter: 'all',
+        scheduleDrilldown: focusStudyScheduleDrilldown,
         sourceScopeDocumentId:
           focusRequest.section === 'study' ? focusRequest.documentId ?? current.sourceScopeDocumentId : current.sourceScopeDocumentId,
       }))
     }
     if (!focusRequest.cardId && focusRequest.section === 'study') {
       updateStudyState((current) => ({
-        ...current,
-        collectionFilter: 'all',
-        filter: focusRequest.documentId ? 'all' : current.filter,
-        questionSearchQuery:
-          focusRequest.documentId && focusRequest.documentId === current.sourceScopeDocumentId
+	        ...current,
+	        activeCardId: focusRequest.documentId ? null : current.activeCardId,
+	        collectionFilter: 'all',
+	        difficultyFilter: focusStudyDifficultyFilter,
+	        filter: focusRequest.documentId ? 'all' : current.filter,
+	        questionSearchQuery:
+	          focusRequest.documentId && focusRequest.documentId === current.sourceScopeDocumentId
             ? current.questionSearchQuery
             : '',
         knowledgeStageFilter: 'all',
         reviewHistoryFilter: 'all',
-        scheduleDrilldown: 'all',
+        scheduleDrilldown: focusStudyScheduleDrilldown,
         sourceScopeDocumentId: focusRequest.documentId ?? null,
       }))
     }
@@ -7325,11 +8134,44 @@ export function RecallWorkspace({
     section,
     selectedLibraryDocumentId,
     selectedNotesDocumentId,
+    studySettings.default_difficulty_filter,
     updateGraphState,
     updateLibraryState,
     updateNotesState,
     updateSourceWorkspaceState,
     updateStudyState,
+  ])
+
+  useEffect(() => {
+    if (
+      !focusRequest ||
+      focusRequest.section !== 'study' ||
+      focusRequest.studyIntent !== 'start-session' ||
+      !focusRequest.documentId ||
+      section !== 'study'
+    ) {
+      return
+    }
+    if (lastStudyLaunchFocusTokenRef.current === focusRequest.token) {
+      return
+    }
+    if (studySourceScopeDocumentId !== focusRequest.documentId) {
+      return
+    }
+    if (studyStatus !== 'success' || studySettingsStatus !== 'success') {
+      return
+    }
+    lastStudyLaunchFocusTokenRef.current = focusRequest.token
+    void handleStartSourceStudyLaunchSession(focusRequest.documentId)
+  }, [
+    focusRequest,
+    section,
+    studyCards,
+    studySettings.default_difficulty_filter,
+    studySettings.default_session_limit,
+    studySettingsStatus,
+    studySourceScopeDocumentId,
+    studyStatus,
   ])
 
   useEffect(() => {
@@ -8055,6 +8897,10 @@ export function RecallWorkspace({
   const handleOpenDocumentInReader = useCallback((
     documentId: string,
     options?: {
+      queueCollectionId?: string | null
+      queueScope?: RecallReaderQueueScope | null
+      queueState?: RecallReaderQueueState | null
+      readerIntent?: RecallReaderLaunchIntent | null
       returnNoteId?: string | null
       returnToNotebook?: boolean | null
       sentenceEnd?: number | null
@@ -8115,8 +8961,149 @@ export function RecallWorkspace({
     setStudyShortAnswerReviewAttempts({})
     setStudyMatchingReviewAttempts({})
     setStudyOrderingReviewAttempts({})
+    setStudyHintVisibleCardIds(new Set())
+    setStudyReviewTimerRemainingSeconds(null)
     setStudyEvidencePeekOpen(false)
+    setStudyReviewSessionRecap(null)
     setFocusedStudySourceSpanIndex(0)
+  }
+
+  function buildStudyAnswerAttemptResponse(card: StudyCardRecord, choiceId?: string): Record<string, unknown> {
+    const supportResponse = studyHintVisibleCardIds.has(card.id) ? { hint_used: true } : {}
+    if (isStudyChoiceCardType(card.card_type)) {
+      return {
+        ...supportResponse,
+        selected_choice_id: choiceId ?? studyChoiceReviewAttempts[card.id]?.selectedChoiceId ?? '',
+      }
+    }
+    if (isStudyMatchingCardType(card.card_type)) {
+      return {
+        ...supportResponse,
+        selections: studyMatchingReviewAttempts[card.id]?.selections ?? {},
+      }
+    }
+    if (isStudyOrderingCardType(card.card_type)) {
+      return {
+        ...supportResponse,
+        item_ids: getStudyOrderingAttemptItemIds(card),
+      }
+    }
+    if (isStudyShortAnswerCardType(card.card_type)) {
+      return {
+        ...supportResponse,
+        answer_text: studyShortAnswerReviewAttempts[card.id]?.value ?? '',
+      }
+    }
+    return { ...supportResponse, revealed: true }
+  }
+
+  async function persistStudyAnswerAttempt(card: StudyCardRecord, response: Record<string, unknown>) {
+    if (!isStudyAttemptPersistableCardType(card.card_type)) {
+      return null
+    }
+    setStudyAttemptBusyCardId(card.id)
+    setError(null)
+    try {
+      const attempt = await createRecallStudyAnswerAttempt(card.id, {
+        session_id: studyReviewSession?.id ?? null,
+        response,
+      })
+      setStudyPersistedAttempts((current) => ({
+        ...current,
+        [card.id]: attempt,
+      }))
+      fetchRecallStudyProgress(studySourceScopeDocumentId, studyProgressPeriodDays)
+        .then((progress) => setStudyProgress(progress))
+        .catch(() => undefined)
+      return attempt
+    } catch (attemptError) {
+      setError(attemptError instanceof Error ? attemptError.message : 'Could not save that answer attempt.')
+      return null
+    } finally {
+      setStudyAttemptBusyCardId((current) => (current === card.id ? null : current))
+    }
+  }
+
+  async function handleStudyTimerExpired(card: StudyCardRecord, timeLimitSeconds: number, elapsedMs: number) {
+    setStudyTimedOutCardIds((current) => new Set(current).add(card.id))
+    if (isStudyChoiceCardType(card.card_type)) {
+      setStudyChoiceReviewAttempts((current) => ({
+        ...current,
+        [card.id]: {
+          revealed: true,
+          selectedChoiceId: current[card.id]?.selectedChoiceId ?? null,
+        },
+      }))
+    }
+    if (isStudyMatchingCardType(card.card_type)) {
+      setStudyMatchingReviewAttempts((current) => ({
+        ...current,
+        [card.id]: {
+          revealed: true,
+          selections: current[card.id]?.selections ?? {},
+        },
+      }))
+    }
+    if (isStudyOrderingCardType(card.card_type)) {
+      setStudyOrderingReviewAttempts((current) => ({
+        ...current,
+        [card.id]: {
+          revealed: true,
+          itemIds: current[card.id]?.itemIds ?? getStudyOrderingItemsFromCard(card).map((item) => item.id),
+        },
+      }))
+    }
+    setShowAnswer(true)
+    await persistStudyAnswerAttempt(card, {
+      ...buildStudyAnswerAttemptResponse(card),
+      elapsed_ms: Math.max(0, Math.round(elapsedMs)),
+      time_limit_seconds: timeLimitSeconds,
+      timed_out: true,
+    })
+  }
+
+  function buildStudyReviewSessionRecap(
+    session: StudyReviewSessionState,
+    completedCardIds: string[],
+  ): StudyReviewSessionRecap {
+    const attemptedCards = session.cardIds
+      .map((cardId) => studyPersistedAttempts[cardId])
+      .filter((attempt): attempt is StudyAnswerAttemptRecord => Boolean(attempt))
+    return {
+      sessionId: session.id,
+      attempted: attemptedCards.length,
+      correct: attemptedCards.filter((attempt) => attempt.is_correct === true).length,
+      difficultyCounts: session.difficultyCounts,
+      durationSeconds: Math.max(0, Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000)),
+      hintUsed: attemptedCards.filter((attempt) => attempt.response.hint_used === true).length,
+      rated: completedCardIds.length,
+      skipped: Math.max(0, completedCardIds.length - attemptedCards.length),
+      sourcesTouched: new Set(session.sourceDocumentIds).size,
+      timedOut: attemptedCards.filter((attempt) => attempt.response.timed_out === true).length,
+    }
+  }
+
+  function buildStudySessionDifficultyCounts(cards: StudyCardRecord[]) {
+    return cards.reduce<Record<StudyQuestionDifficulty, number>>(
+      (counts, card) => {
+        counts[getStudyCardDifficulty(card)] += 1
+        return counts
+      },
+      { easy: 0, hard: 0, medium: 0 },
+    )
+  }
+
+  function buildStudySessionFilterSnapshot() {
+    return {
+      collection_filter: studyCollectionFilter,
+      difficulty_filter: studyDifficultyFilter,
+      knowledge_stage_filter: studyKnowledgeStageFilter,
+      question_search_query: studyQuestionSearchQuery,
+      review_history_filter: studyReviewHistoryFilter,
+      schedule_drilldown: studyScheduleDrilldown,
+      source_document_id: studySourceScopeDocumentId,
+      status_filter: studyFilter,
+    }
   }
 
   function handleRevealStudyAnswer(card: StudyCardRecord) {
@@ -8148,6 +9135,11 @@ export function RecallWorkspace({
       }))
     }
     setShowAnswer(true)
+    void persistStudyAnswerAttempt(card, buildStudyAnswerAttemptResponse(card))
+  }
+
+  function handleShowStudyHint(card: StudyCardRecord) {
+    setStudyHintVisibleCardIds((current) => new Set(current).add(card.id))
   }
 
   function handleSelectStudyChoiceAnswer(card: StudyCardRecord, choiceId: string) {
@@ -8159,6 +9151,7 @@ export function RecallWorkspace({
       },
     }))
     setShowAnswer(true)
+    void persistStudyAnswerAttempt(card, buildStudyAnswerAttemptResponse(card, choiceId))
   }
 
   function handleSelectStudyMatchingAnswer(card: StudyCardRecord, pairId: string, rightPairId: string) {
@@ -8211,12 +9204,150 @@ export function RecallWorkspace({
     }))
   }
 
-  function handleReviewFilteredStudyQuestions() {
-    const firstVisibleCard = visibleStudyQuestionCards.find(isStudyCardReviewEligible) ?? null
-    if (firstVisibleCard) {
-      handleSelectStudyCard(firstVisibleCard)
+  async function startStudyReviewSessionForQueue(
+    queueCards: StudyCardRecord[],
+    options: {
+      filterSnapshot: Record<string, unknown>
+      sourceDocumentId?: string | null
+    },
+  ) {
+    const firstVisibleCard = queueCards[0] ?? null
+    if (!firstVisibleCard) {
+      return false
     }
+
+    setStudyBusyKey('session-start')
+    setError(null)
+    let startedSession: StudyReviewSessionRecord | null = null
+    try {
+      startedSession = await startRecallStudyReviewSession({
+        card_ids: queueCards.map((card) => card.id),
+        filter_snapshot: options.filterSnapshot,
+        settings_snapshot: {
+          daily_goal_reviews: studySettings.daily_goal_reviews,
+          default_difficulty_filter: studySettings.default_difficulty_filter,
+          default_session_limit: studySettings.default_session_limit,
+          default_timer_seconds: studyReviewTimerSeconds,
+          streak_goal_mode: studySettings.streak_goal_mode,
+          weekly_goal_days: studySettings.weekly_goal_days,
+        },
+        source_document_id: options.sourceDocumentId ?? null,
+      })
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : 'Could not start that review session.')
+      setStudyBusyKey(null)
+      return false
+    }
+    const sessionId = startedSession.id || createStudyReviewSessionId()
+    setStudyReviewSession({
+      id: sessionId,
+      cardIds: queueCards.map((card) => card.id),
+      completedCardIds: [],
+      difficultyCounts: buildStudySessionDifficultyCounts(queueCards),
+      sourceDocumentIds: queueCards.map((card) => card.source_document_id),
+      startedAt: startedSession.started_at,
+      timeLimitSeconds: studyReviewTimerSeconds,
+    })
+    setStudyPersistedAttempts((current) => {
+      const next = { ...current }
+      for (const card of queueCards) {
+        delete next[card.id]
+      }
+      return next
+    })
+    setStudyHintVisibleCardIds((current) => {
+      const next = new Set(current)
+      for (const card of queueCards) {
+        next.delete(card.id)
+      }
+      return next
+    })
+    setStudyTimedOutCardIds((current) => {
+      const next = new Set(current)
+      for (const card of queueCards) {
+        next.delete(card.id)
+      }
+      return next
+    })
+    setStudyReviewSessionRecap(null)
+    handleSelectStudyCard(firstVisibleCard)
     setBrowseDrawerOpen('study', false)
+    setStudyBusyKey(null)
+    return true
+  }
+
+  async function handleStartSourceStudyLaunchSession(documentId: string) {
+    const localSourceCards = studyCards.filter((card) => card.source_document_id === documentId)
+    let sourceCards = orderStudyCardsForReviewQueue(localSourceCards)
+    try {
+      const fetchedSourceCards = await fetchRecallStudyCards('all', 100, documentId)
+      sourceCards = orderStudyCardsForReviewQueue(fetchedSourceCards)
+      setStudyCards((current) => [
+        ...fetchedSourceCards,
+        ...current.filter((card) => card.source_document_id !== documentId),
+      ])
+    } catch {
+      sourceCards = orderStudyCardsForReviewQueue(localSourceCards)
+    }
+    const sourceDifficultyCards =
+      studySettings.default_difficulty_filter === 'all'
+        ? sourceCards
+        : sourceCards.filter((card) => getStudyCardDifficulty(card) === studySettings.default_difficulty_filter)
+    const eligibleQueueCards = getReviewEligibleStudyCards(sourceDifficultyCards)
+    const queueCards =
+      studySettings.default_session_limit === null
+        ? eligibleQueueCards
+        : eligibleQueueCards.slice(0, studySettings.default_session_limit)
+    const firstSourceCard = queueCards[0] ?? sourceDifficultyCards[0] ?? sourceCards[0] ?? null
+
+    updateStudyState((current) => ({
+      ...current,
+      activeCardId: firstSourceCard?.id ?? null,
+      collectionFilter: 'all',
+      difficultyFilter: studySettings.default_difficulty_filter,
+      filter: 'all',
+      knowledgeStageFilter: 'all',
+      questionSearchQuery: '',
+      reviewHistoryFilter: 'all',
+      scheduleDrilldown: 'all',
+      sourceScopeDocumentId: documentId,
+    }))
+
+    if (queueCards.length === 0) {
+      setBrowseDrawerOpen('study', true)
+      return false
+    }
+
+    const started = await startStudyReviewSessionForQueue(queueCards, {
+      filterSnapshot: {
+        collection_filter: 'all',
+        difficulty_filter: studySettings.default_difficulty_filter,
+        knowledge_stage_filter: 'all',
+        launch_intent: 'start-session',
+        question_search_query: '',
+        review_history_filter: 'all',
+        schedule_drilldown: 'all',
+        source_document_id: documentId,
+        status_filter: 'all',
+      },
+      sourceDocumentId: documentId,
+    })
+    if (!started) {
+      setBrowseDrawerOpen('study', true)
+    }
+    return started
+  }
+
+  async function handleReviewFilteredStudyQuestions() {
+    const eligibleQueueCards = getReviewEligibleStudyCards(getFilteredStudyQuestionQueueFromCards(studyCards))
+    const queueCards =
+      studySettings.default_session_limit === null
+        ? eligibleQueueCards
+        : eligibleQueueCards.slice(0, studySettings.default_session_limit)
+    await startStudyReviewSessionForQueue(queueCards, {
+      filterSnapshot: buildStudySessionFilterSnapshot(),
+      sourceDocumentId: studySourceScopeDocumentId ?? null,
+    })
   }
 
   function handleToggleStudyQuestionSelection(cardId: string, selected: boolean) {
@@ -8266,6 +9397,9 @@ export function RecallWorkspace({
         questionPayload?.kind === 'fill_in_blank'
           ? questionPayload.correct_choice_id
           : 'choice-a',
+      difficulty: getStudyCardDifficulty(card),
+      explanation: getStudyCardSupportPayload(card)?.explanation ?? '',
+      hint: getStudyCardSupportPayload(card)?.hint ?? '',
       matchingPairs: questionPayload?.kind === 'matching' ? questionPayload.pairs : makeDefaultStudyMatchingPairs(),
       orderingItems: questionPayload?.kind === 'ordering' ? questionPayload.items : makeDefaultStudyOrderingItems(),
       prompt: card.prompt,
@@ -8290,6 +9424,9 @@ export function RecallWorkspace({
       cardType: 'short_answer',
       choices: makeDefaultStudyChoiceOptions(),
       correctChoiceId: 'choice-a',
+      difficulty: 'medium',
+      explanation: '',
+      hint: '',
       matchingPairs: makeDefaultStudyMatchingPairs(),
       orderingItems: makeDefaultStudyOrderingItems(),
       prompt: '',
@@ -8342,10 +9479,15 @@ export function RecallWorkspace({
       answer: questionDraft.answer,
       card_type: studyCreateDraft.cardType,
       prompt,
+      question_difficulty: studyCreateDraft.difficulty,
       source_document_id: sourceDocumentId,
     }
     if (questionDraft.questionPayload) {
       payload.question_payload = questionDraft.questionPayload
+    }
+    const supportPayload = buildStudySupportPayloadFromDraft(studyCreateDraft.hint, studyCreateDraft.explanation)
+    if (supportPayload) {
+      payload.support_payload = supportPayload
     }
     setStudyBusyKey('create')
     setStudyMessage(null)
@@ -8359,11 +9501,12 @@ export function RecallWorkspace({
       }
       updateStudyState((current) => ({
         ...current,
-        activeCardId: createdCard.id,
-        collectionFilter: 'all',
-        filter: 'all',
-        knowledgeStageFilter: 'all',
-        questionSearchQuery: '',
+	        activeCardId: createdCard.id,
+	        collectionFilter: 'all',
+	        difficultyFilter: 'all',
+	        filter: 'all',
+	        knowledgeStageFilter: 'all',
+	        questionSearchQuery: '',
         reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
         sourceScopeDocumentId: current.sourceScopeDocumentId,
@@ -8498,16 +9641,79 @@ export function RecallWorkspace({
     }
   }
 
-  async function handleGenerateStudyCards() {
+  function getStudyGenerationRequest(sourceDocumentId?: string | null) {
+    const selectedQuestionTypes = studyGenerationQuestionTypes.length
+      ? studyGenerationQuestionTypes
+      : STUDY_GENERATED_CARD_TYPES
+    return {
+      ...(sourceDocumentId ? { source_document_id: sourceDocumentId } : {}),
+      ...(!studyGenerationIncludeExplanations ? { include_explanations: false } : {}),
+      ...(!studyGenerationIncludeHints ? { include_hints: false } : {}),
+      ...(studyGenerationDifficulty !== 'all' ? { difficulty: studyGenerationDifficulty } : {}),
+      max_per_source: studyGenerationMaxPerSource,
+      question_types: selectedQuestionTypes,
+    }
+  }
+
+  async function handleUpdateStudySettings(nextSettings: StudySettings) {
+    setStudySettings(nextSettings)
+    setStudySettingsStatus('loading')
+    if (!studyReviewSession) {
+      setStudyReviewTimerSeconds(nextSettings.default_timer_seconds)
+      updateStudyState((current) => ({
+        ...current,
+        difficultyFilter: nextSettings.default_difficulty_filter,
+      }))
+    }
+    try {
+      const savedSettings = await saveRecallStudySettings(nextSettings)
+      setStudySettings(savedSettings)
+      setStudySettingsStatus('success')
+      if (!studyReviewSession) {
+        setStudyReviewTimerSeconds(savedSettings.default_timer_seconds)
+      }
+    } catch (settingsError) {
+      setStudySettingsStatus('error')
+      setError(settingsError instanceof Error ? settingsError.message : 'Could not save Study quiz settings.')
+    }
+  }
+
+  function handleToggleStudyGenerationQuestionType(questionType: StudyGeneratedCardType) {
+    setStudyGenerationQuestionTypes((current) => {
+      if (current.includes(questionType)) {
+        return current.length > 1 ? current.filter((candidate) => candidate !== questionType) : current
+      }
+      return STUDY_GENERATED_CARD_TYPES.filter((candidate) => candidate === questionType || current.includes(candidate))
+    })
+  }
+
+  function formatStudyGenerationResultSummary(result: StudyCardGenerationResult) {
+    const typeSummaries = STUDY_GENERATED_CARD_TYPES
+      .map((questionType) => {
+        const total = result.total_by_type?.[questionType] ?? 0
+        return total > 0 ? `${formatStudyCardTypeLabel(questionType)} ${total}` : null
+      })
+      .filter(Boolean)
+    const scopeLabel = result.source_document_id ? 'source' : 'workspace'
+    const difficultyLabel =
+      result.difficulty && result.difficulty !== 'all' ? `${formatStudyDifficultyLabel(result.difficulty).toLowerCase()} ` : ''
+    return typeSummaries.length
+      ? `Generated ${result.total_count} ${difficultyLabel}${scopeLabel} cards: ${typeSummaries.join(', ')}.`
+      : `Generated ${result.total_count} ${difficultyLabel}${scopeLabel} cards.`
+  }
+
+  async function handleGenerateStudyCards(options: { sourceDocumentId?: string | null } = {}) {
+    const requestedSourceDocumentId = options.sourceDocumentId ?? studySourceScopeDocumentId ?? null
     setStudyBusyKey('generate')
     setStudyMessage(null)
     setError(null)
     try {
-      const result = await generateRecallStudyCards()
-      setStudyMessage(`Refreshed ${result.total_count} study cards.`)
+      const result = await generateRecallStudyCards(getStudyGenerationRequest(requestedSourceDocumentId))
+      setStudyGenerationResult(result)
+      setStudyMessage(formatStudyGenerationResultSummary(result))
       await loadStudy(studyFilter)
     } catch (generationError) {
-      setError(generationError instanceof Error ? generationError.message : 'Could not refresh study cards.')
+      setError(generationError instanceof Error ? generationError.message : 'Could not generate study cards.')
     } finally {
       setStudyBusyKey(null)
     }
@@ -8633,11 +9839,12 @@ export function RecallWorkspace({
         answer: noteStudyDraft.answer,
       })
       updateStudyState((current) => ({
-        ...current,
-        collectionFilter: 'all',
-        filter: 'all',
-        knowledgeStageFilter: 'all',
-        reviewHistoryFilter: 'all',
+	        ...current,
+	        collectionFilter: 'all',
+	        difficultyFilter: 'all',
+	        filter: 'all',
+	        knowledgeStageFilter: 'all',
+	        reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
       }))
       const loadedCards = await loadStudy('all')
@@ -8648,11 +9855,12 @@ export function RecallWorkspace({
         })
       }
       updateStudyState((current) => ({
-        ...current,
-        collectionFilter: 'all',
-        filter: 'all',
-        activeCardId: promotedCard.id,
-        knowledgeStageFilter: 'all',
+	        ...current,
+	        collectionFilter: 'all',
+	        difficultyFilter: 'all',
+	        filter: 'all',
+	        activeCardId: promotedCard.id,
+	        knowledgeStageFilter: 'all',
         reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
       }))
@@ -8719,10 +9927,14 @@ export function RecallWorkspace({
       studyReviewHistoryFilter === 'all'
         ? stageFilteredCards
         : stageFilteredCards.filter((card) => studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter))
+    const difficultyFilteredCards =
+      studyDifficultyFilter === 'all'
+        ? reviewFilteredCards
+        : reviewFilteredCards.filter((card) => getStudyCardDifficulty(card) === studyDifficultyFilter)
     const normalizedQuery = normalizeSourceMemorySearchText(studyQuestionSearchQuery)
     return normalizedQuery
-      ? reviewFilteredCards.filter((card) => studyCardMatchesQuestionSearch(card, normalizedQuery))
-      : reviewFilteredCards
+      ? difficultyFilteredCards.filter((card) => studyCardMatchesQuestionSearch(card, normalizedQuery))
+      : difficultyFilteredCards
   }
 
   async function handleReviewCard(rating: StudyReviewRating) {
@@ -8732,10 +9944,20 @@ export function RecallWorkspace({
     const reviewedCardId = activeStudyCard.id
     const reviewedSourceScopeDocumentId = studySourceScopeDocumentId
     const reviewQuestionFilterStackWasActive = studyQuestionFilterStackActive
+    const linkedAttemptId = studyPersistedAttempts[reviewedCardId]?.id ?? null
+    const activeReviewSession = studyReviewSession?.cardIds.includes(reviewedCardId) ? studyReviewSession : null
+    const nextSessionCompletedCardIds = activeReviewSession
+      ? Array.from(new Set([...activeReviewSession.completedCardIds, reviewedCardId]))
+      : []
+    const sessionCompleted =
+      Boolean(activeReviewSession) &&
+      activeReviewSession?.cardIds.every((cardId) => nextSessionCompletedCardIds.includes(cardId))
     setStudyBusyKey(`review:${activeStudyCard.id}:${rating}`)
     setError(null)
     try {
-      const reviewedCard = await reviewRecallStudyCard(activeStudyCard.id, rating)
+      const reviewedCard = linkedAttemptId
+        ? await reviewRecallStudyCard(activeStudyCard.id, rating, linkedAttemptId)
+        : await reviewRecallStudyCard(activeStudyCard.id, rating)
       setStudyCards((currentCards) =>
         currentCards.map((card) => (card.id === reviewedCard.id ? reviewedCard : card)),
       )
@@ -8760,9 +9982,67 @@ export function RecallWorkspace({
         delete next[reviewedCardId]
         return next
       })
+      setStudyHintVisibleCardIds((current) => {
+        const next = new Set(current)
+        next.delete(reviewedCardId)
+        return next
+      })
+      setStudyTimedOutCardIds((current) => {
+        const next = new Set(current)
+        next.delete(reviewedCardId)
+        return next
+      })
+      setStudyReviewTimerRemainingSeconds(null)
       setStudyEvidencePeekOpen(false)
       const loadedCards = await loadStudy(studyFilter)
-      if (reviewQuestionFilterStackWasActive) {
+      if (activeReviewSession) {
+        if (sessionCompleted) {
+          const recap = buildStudyReviewSessionRecap(activeReviewSession, nextSessionCompletedCardIds)
+          await completeRecallStudyReviewSession(activeReviewSession.id, {
+            summary: {
+              attempted: recap.attempted,
+              correct: recap.correct,
+              difficulty_counts: recap.difficultyCounts,
+              duration_seconds: recap.durationSeconds,
+              goal_contribution_count: recap.rated,
+              hint_used: recap.hintUsed,
+              rated: recap.rated,
+              skipped: recap.skipped,
+              sources_touched: recap.sourcesTouched,
+              timed_out: recap.timedOut,
+            },
+          }).catch(() => undefined)
+          fetchRecallStudyProgress(studySourceScopeDocumentId, studyProgressPeriodDays)
+            .then((progress) => setStudyProgress(progress))
+            .catch(() => undefined)
+          setStudyReviewSession(null)
+          setStudyReviewSessionRecap(recap)
+        } else {
+          setStudyReviewSession({
+            ...activeReviewSession,
+            completedCardIds: nextSessionCompletedCardIds,
+          })
+          setStudyReviewSessionRecap(null)
+        }
+      }
+      if (activeReviewSession && !sessionCompleted) {
+        const nextSessionCard =
+          activeReviewSession.cardIds
+            .filter((cardId) => !nextSessionCompletedCardIds.includes(cardId))
+            .map((cardId) => loadedCards.find((card) => card.id === cardId && isStudyCardReviewEligible(card)) ?? null)
+            .find((card): card is StudyCardRecord => Boolean(card)) ?? null
+        updateStudyState((current) => ({
+          ...current,
+          activeCardId: nextSessionCard?.id ?? null,
+          sourceScopeDocumentId: reviewedSourceScopeDocumentId ?? current.sourceScopeDocumentId,
+        }))
+      } else if (activeReviewSession && sessionCompleted) {
+        updateStudyState((current) => ({
+          ...current,
+          activeCardId: null,
+          sourceScopeDocumentId: reviewedSourceScopeDocumentId ?? current.sourceScopeDocumentId,
+        }))
+      } else if (reviewQuestionFilterStackWasActive) {
         const nextFilteredCard =
           getReviewEligibleStudyCards(getFilteredStudyQuestionQueueFromCards(loadedCards)).find(
             (card) => card.id !== reviewedCardId,
@@ -8828,6 +10108,8 @@ export function RecallWorkspace({
         setStudyShortAnswerReviewAttempts({})
         setStudyMatchingReviewAttempts({})
         setStudyOrderingReviewAttempts({})
+        setStudyHintVisibleCardIds(new Set())
+        setStudyReviewTimerRemainingSeconds(null)
         setStudyEvidencePeekOpen(false)
       }
       setStudyMessage(
@@ -8869,9 +10151,17 @@ export function RecallWorkspace({
     const payload: StudyCardUpdateRequest = {
       answer: questionDraft.answer,
       prompt,
+      question_difficulty: studyEditDraft.difficulty,
     }
     if (questionDraft.questionPayload) {
       payload.question_payload = questionDraft.questionPayload
+    }
+    const supportPayload = buildStudySupportPayloadFromDraft(studyEditDraft.hint, studyEditDraft.explanation)
+    const originalSupportPayload = getStudyCardSupportPayload(
+      studyCards.find((card) => card.id === studyEditDraft.cardId) ?? null,
+    )
+    if (supportPayload || originalSupportPayload) {
+      payload.support_payload = supportPayload
     }
     setStudyBusyKey(`edit:${studyEditDraft.cardId}`)
     setStudyMessage(null)
@@ -9301,7 +10591,10 @@ export function RecallWorkspace({
   )
 
   const openHomeCollectionDraft = useCallback(
-    (mode: HomeCollectionDraftState['mode'], options?: { collectionId?: string; seedDocumentIds?: string[] }) => {
+    (
+      mode: HomeCollectionDraftState['mode'],
+      options?: { collectionId?: string; parentId?: string | null; seedDocumentIds?: string[] },
+    ) => {
       setHomeCollectionAssignmentPanelOpen(false)
       if (mode === 'rename' && options?.collectionId) {
         const collection = homeCustomCollections.find((candidate) => candidate.id === options.collectionId)
@@ -9316,6 +10609,7 @@ export function RecallWorkspace({
       setHomeCollectionDraftName('')
       setHomeCollectionDraftState({
         mode,
+        parentId: options?.parentId ?? null,
         seedDocumentIds: options?.seedDocumentIds ?? [],
       })
     },
@@ -9334,30 +10628,42 @@ export function RecallWorkspace({
     }
 
     if (homeCollectionDraftState.mode === 'rename' && homeCollectionDraftState.collectionId) {
-      setHomeCustomCollections((current) =>
-        current.map((collection) =>
-          collection.id === homeCollectionDraftState.collectionId
-            ? {
-                ...collection,
-                name: trimmedName,
-              }
-            : collection,
-        ),
+      const timestamp = new Date().toISOString()
+      const nextCollections = homeCustomCollections.map((collection) =>
+        collection.id === homeCollectionDraftState.collectionId
+          ? {
+              ...collection,
+              name: trimmedName,
+              updatedAt: timestamp,
+            }
+          : collection,
       )
+      setHomeCustomCollections(nextCollections)
+      void persistHomeCustomCollections(nextCollections)
       closeHomeCollectionDraft()
       return
     }
 
     const nextCollectionId = createHomeCustomCollectionId()
     const seedDocumentIds = Array.from(new Set(homeCollectionDraftState.seedDocumentIds ?? []))
-    setHomeCustomCollections((current) => [
-      ...current,
+    const timestamp = new Date().toISOString()
+    const parentId = homeCollectionDraftState.parentId ?? null
+    const nextCollections = [
+      ...homeCustomCollections,
       {
         documentIds: seedDocumentIds,
         id: nextCollectionId,
         name: trimmedName,
+        origin: 'manual' as const,
+        parentId,
+        sourceFormat: null,
+        sortIndex: homeCustomCollections.length,
+        createdAt: timestamp,
+        updatedAt: timestamp,
       },
-    ])
+    ]
+    setHomeCustomCollections(nextCollections)
+    void persistHomeCustomCollections(nextCollections)
     updateLibraryState((current) => ({
       ...current,
       homeOrganizerLens: 'collections',
@@ -9369,8 +10675,10 @@ export function RecallWorkspace({
   }, [
     clearHomeOrganizerSelection,
     closeHomeCollectionDraft,
+    homeCustomCollections,
     homeCollectionDraftName,
     homeCollectionDraftState,
+    persistHomeCustomCollections,
     updateLibraryState,
   ])
 
@@ -9378,9 +10686,23 @@ export function RecallWorkspace({
     if (!homeSelectedCustomCollection) {
       return
     }
-    setHomeCustomCollections((current) => current.filter((collection) => collection.id !== homeSelectedCustomCollection.id))
+    const promotedParentId = homeSelectedCustomCollection.parentId ?? null
+    const timestamp = new Date().toISOString()
+    const nextCollections = homeCustomCollections
+      .filter((collection) => collection.id !== homeSelectedCustomCollection.id)
+      .map((collection) =>
+        collection.parentId === homeSelectedCustomCollection.id
+          ? {
+              ...collection,
+              parentId: promotedParentId,
+              updatedAt: timestamp,
+            }
+          : collection,
+      )
+    setHomeCustomCollections(nextCollections)
+    void persistHomeCustomCollections(nextCollections)
     if (homeSelectedSectionKey === buildHomeCustomCollectionSectionKey(homeSelectedCustomCollection.id)) {
-      setHomeSelectedSectionKey(null)
+      setHomeSelectedSectionKey(promotedParentId ? buildHomeCustomCollectionSectionKey(promotedParentId) : null)
     }
     if (
       homeCollectionDraftState?.mode === 'rename' &&
@@ -9391,34 +10713,257 @@ export function RecallWorkspace({
     setHomeCollectionAssignmentPanelOpen(false)
   }, [
     closeHomeCollectionDraft,
+    homeCustomCollections,
     homeCollectionDraftState,
     homeSelectedCustomCollection,
     homeSelectedSectionKey,
+    persistHomeCustomCollections,
   ])
+
+  const handleMoveSelectedHomeCustomCollection = useCallback(
+    (parentId: string | null) => {
+      if (!homeSelectedCustomCollection) {
+        return
+      }
+      const normalizedParentId = parentId || null
+      if (
+        normalizedParentId === homeSelectedCustomCollection.id ||
+        (normalizedParentId &&
+          isHomeCustomCollectionDescendant(normalizedParentId, homeSelectedCustomCollection.id, homeCustomCollections))
+      ) {
+        return
+      }
+      const timestamp = new Date().toISOString()
+      const nextCollections = homeCustomCollections.map((collection) =>
+        collection.id === homeSelectedCustomCollection.id
+          ? {
+              ...collection,
+              parentId: normalizedParentId,
+              updatedAt: timestamp,
+            }
+          : collection,
+      )
+      setHomeCustomCollections(nextCollections)
+      void persistHomeCustomCollections(nextCollections)
+    },
+    [homeCustomCollections, homeSelectedCustomCollection, persistHomeCustomCollections],
+  )
 
   const handleToggleHomeCollectionAssignment = useCallback(
     (collectionId: string) => {
       if (!homeSelectedOrganizerDocumentIds.length) {
         return
       }
-      setHomeCustomCollections((current) =>
-        current.map((collection) => {
-          if (collection.id !== collectionId) {
-            return collection
-          }
-          const collectionOwnsAllSelectedDocuments = homeSelectedOrganizerDocumentIds.every((documentId) =>
-            collection.documentIds.includes(documentId),
-          )
-          return {
-            ...collection,
-            documentIds: collectionOwnsAllSelectedDocuments
-              ? collection.documentIds.filter((documentId) => !homeSelectedOrganizerDocumentIds.includes(documentId))
-              : [...collection.documentIds, ...homeSelectedOrganizerDocumentIds.filter((documentId) => !collection.documentIds.includes(documentId))],
-          }
-        }),
-      )
+      const timestamp = new Date().toISOString()
+      const nextCollections = homeCustomCollections.map((collection) => {
+        if (collection.id !== collectionId) {
+          return collection
+        }
+        const collectionOwnsAllSelectedDocuments = homeSelectedOrganizerDocumentIds.every((documentId) =>
+          collection.documentIds.includes(documentId),
+        )
+        return {
+          ...collection,
+          documentIds: collectionOwnsAllSelectedDocuments
+            ? collection.documentIds.filter((documentId) => !homeSelectedOrganizerDocumentIds.includes(documentId))
+            : [
+                ...collection.documentIds,
+                ...homeSelectedOrganizerDocumentIds.filter((documentId) => !collection.documentIds.includes(documentId)),
+              ],
+          updatedAt: timestamp,
+        }
+      })
+      setHomeCustomCollections(nextCollections)
+      void persistHomeCustomCollections(nextCollections)
     },
-    [homeSelectedOrganizerDocumentIds],
+    [homeCustomCollections, homeSelectedOrganizerDocumentIds, persistHomeCustomCollections],
+  )
+
+  const handleToggleSourceCollectionAssignment = useCallback(
+    (documentId: string, collectionId: string) => {
+      const timestamp = new Date().toISOString()
+      const nextCollections = homeCustomCollections.map((collection) => {
+        if (collection.id !== collectionId) {
+          return collection
+        }
+        const ownsDocument = collection.documentIds.includes(documentId)
+        return {
+          ...collection,
+          documentIds: ownsDocument
+            ? collection.documentIds.filter((candidateId) => candidateId !== documentId)
+            : [...collection.documentIds, documentId],
+          updatedAt: timestamp,
+        }
+      })
+      setHomeCustomCollections(nextCollections)
+      void persistHomeCustomCollections(nextCollections)
+    },
+    [homeCustomCollections, persistHomeCustomCollections],
+  )
+
+  const handleCreateSourceCollection = useCallback(
+    (documentId: string) => {
+      const trimmedName = sourceCollectionDraftName.trim()
+      if (!trimmedName) {
+        return
+      }
+      const parentId = sourceCollectionDraftParentId || null
+      const timestamp = new Date().toISOString()
+      const nextCollectionId = createHomeCustomCollectionId()
+      const nextCollections = [
+        ...homeCustomCollections,
+        {
+          documentIds: [documentId],
+          id: nextCollectionId,
+          name: trimmedName,
+          origin: 'manual' as const,
+          parentId,
+          sourceFormat: null,
+          sortIndex: homeCustomCollections.length,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      ]
+      setHomeCustomCollections(nextCollections)
+      void persistHomeCustomCollections(nextCollections)
+      setSourceCollectionDraftName('')
+      setSourceCollectionDraftParentId(parentId ?? '')
+    },
+    [homeCustomCollections, persistHomeCustomCollections, sourceCollectionDraftName, sourceCollectionDraftParentId],
+  )
+
+  const focusHomeCustomCollectionQuestions = useCallback(
+    (collectionId: string) => {
+      const collectionFilter = buildHomeCustomCollectionSectionKey(collectionId)
+      const matchingCard = orderStudyCardsForReviewQueue(
+        studyCards.filter((card) => studyCardMatchesCollectionFilter(card, collectionFilter, documentById, homeCustomCollections)),
+      )[0] ?? null
+      updateStudyState((current) => ({
+        ...current,
+        activeCardId: matchingCard?.id ?? null,
+        collectionFilter,
+        difficultyFilter: studySettings.default_difficulty_filter,
+        filter: 'all',
+        knowledgeStageFilter: 'all',
+        questionSearchQuery: '',
+        reviewHistoryFilter: 'all',
+        scheduleDrilldown: 'all',
+        sourceScopeDocumentId: null,
+      }))
+      setBrowseDrawerOpen('study', true)
+      onSectionChange('study')
+    },
+    [documentById, homeCustomCollections, onSectionChange, setBrowseDrawerOpen, studyCards, studySettings.default_difficulty_filter, updateStudyState],
+  )
+
+  const focusHomeCustomCollectionGraph = useCallback(
+    (collectionId: string) => {
+      setGraphFilterQuery(`tag:${collectionId}`)
+      setGraphRequestedPathSelectionKey(null)
+      updateSourceWorkspaceState((current) => ({
+        ...current,
+        activeTab: 'graph',
+        mode: 'browse',
+        readerAnchor: null,
+      }))
+      updateGraphState((current) => ({
+        ...current,
+        focusTrailNodeIds: [],
+        pathSelectedNodeIds: [],
+        selectedNodeId: null,
+      }))
+      setBrowseDrawerOpen('graph', true)
+      onSectionChange('graph')
+    },
+    [onSectionChange, setBrowseDrawerOpen, updateGraphState, updateSourceWorkspaceState],
+  )
+
+  const handleReviewHomeCustomCollection = useCallback(
+    async (collectionId: string) => {
+      const collectionFilter = buildHomeCustomCollectionSectionKey(collectionId)
+      const aggregateDocumentIds = getHomeCustomCollectionAggregateDocumentIds(collectionId, homeCustomCollections)
+      let collectionCards = orderStudyCardsForReviewQueue(
+        studyCards.filter((card) => studyCardMatchesCollectionFilter(card, collectionFilter, documentById, homeCustomCollections)),
+      )
+      if (aggregateDocumentIds.length > 0) {
+        try {
+          const fetchedCardGroups = await Promise.all(
+            aggregateDocumentIds.map((documentId) => fetchRecallStudyCards('all', 100, documentId)),
+          )
+          const fetchedCards = fetchedCardGroups.flat()
+          if (fetchedCards.length > 0) {
+            const aggregateDocumentIdSet = new Set(aggregateDocumentIds)
+            collectionCards = orderStudyCardsForReviewQueue(fetchedCards)
+            setStudyCards((current) => [
+              ...fetchedCards,
+              ...current.filter((card) => !aggregateDocumentIdSet.has(card.source_document_id)),
+            ])
+          }
+        } catch {
+          collectionCards = orderStudyCardsForReviewQueue(
+            studyCards.filter((card) => studyCardMatchesCollectionFilter(card, collectionFilter, documentById, homeCustomCollections)),
+          )
+        }
+      }
+      const difficultyCards =
+        studySettings.default_difficulty_filter === 'all'
+          ? collectionCards
+          : collectionCards.filter((card) => getStudyCardDifficulty(card) === studySettings.default_difficulty_filter)
+      const eligibleQueueCards = getReviewEligibleStudyCards(difficultyCards)
+      const queueCards =
+        studySettings.default_session_limit === null
+          ? eligibleQueueCards
+          : eligibleQueueCards.slice(0, studySettings.default_session_limit)
+      const firstCard = queueCards[0] ?? difficultyCards[0] ?? collectionCards[0] ?? null
+
+      updateStudyState((current) => ({
+        ...current,
+        activeCardId: firstCard?.id ?? null,
+        collectionFilter,
+        difficultyFilter: studySettings.default_difficulty_filter,
+        filter: 'all',
+        knowledgeStageFilter: 'all',
+        questionSearchQuery: '',
+        reviewHistoryFilter: 'all',
+        scheduleDrilldown: 'all',
+        sourceScopeDocumentId: null,
+      }))
+      onSectionChange('study')
+
+      if (queueCards.length === 0) {
+        setBrowseDrawerOpen('study', true)
+        return false
+      }
+
+      const started = await startStudyReviewSessionForQueue(queueCards, {
+        filterSnapshot: {
+          collection_filter: collectionFilter,
+          difficulty_filter: studySettings.default_difficulty_filter,
+          knowledge_stage_filter: 'all',
+          launch_intent: 'collection-review',
+          question_search_query: '',
+          review_history_filter: 'all',
+          schedule_drilldown: 'all',
+          source_document_id: null,
+          status_filter: 'all',
+        },
+        sourceDocumentId: null,
+      })
+      if (!started) {
+        setBrowseDrawerOpen('study', true)
+      }
+      return started
+    },
+    [
+      documentById,
+      homeCustomCollections,
+      onSectionChange,
+      setBrowseDrawerOpen,
+      studyCards,
+      studySettings.default_difficulty_filter,
+      studySettings.default_session_limit,
+      updateStudyState,
+    ],
   )
 
   const renderHomeCreateCollectionButton = () => {
@@ -9440,6 +10985,523 @@ export function RecallWorkspace({
       >
         {homeCreateCollectionButtonCompactLabel}
       </button>
+    )
+  }
+
+  const renderHomeCollectionWorkspaceActions = () => {
+    if (libraryFilterActive || !homeSelectedCustomCollection) {
+      return null
+    }
+
+    const aggregateDocumentIds = getHomeCustomCollectionAggregateDocumentIds(
+      homeSelectedCustomCollection.id,
+      homeCustomCollections,
+    )
+    const aggregateSourceCount = aggregateDocumentIds.filter((documentId) => documentById.has(documentId)).length
+    const directSourceCount = homeSelectedCustomCollection.documentIds.filter((documentId) =>
+      documentById.has(documentId),
+    ).length
+    const collectionPath = formatHomeCustomCollectionPathLabel(homeSelectedCustomCollection.id, homeCustomCollections)
+    const firstCollectionDocument = aggregateDocumentIds
+      .map((documentId) => documentById.get(documentId) ?? null)
+      .filter((document): document is RecallDocumentRecord => Boolean(document))
+      .sort((left, right) => getDocumentSortTimestamp(right, 'updated') - getDocumentSortTimestamp(left, 'updated'))[0]
+    const activeCollectionOverview =
+      homeCollectionOverview?.id === homeSelectedCustomCollection.id ? homeCollectionOverview : null
+    const collectionReadingSummary = activeCollectionOverview?.reading_summary ?? null
+    const collectionResumeSource = activeCollectionOverview?.resume_sources[0] ?? null
+    const collectionHighlightItems = activeCollectionOverview?.highlight_review_items.slice(0, 4) ?? []
+    const handleOpenCollectionResume = () => {
+      if (collectionResumeSource) {
+        handleOpenDocumentInReader(collectionResumeSource.id, {
+          readerIntent: 'resume',
+          sentenceEnd: collectionResumeSource.sentence_index,
+          sentenceStart: collectionResumeSource.sentence_index,
+        })
+        return
+      }
+      if (firstCollectionDocument) {
+        handleOpenDocumentInReader(firstCollectionDocument.id)
+      }
+    }
+    const handleOpenCollectionHighlight = (item: LibraryCollectionHighlightReviewItem) => {
+      if (item.note_kind === 'sentence' && item.global_sentence_start !== null && item.global_sentence_start !== undefined) {
+        handleOpenDocumentInReader(item.source_document_id, {
+          readerIntent: 'highlight',
+          sentenceEnd: item.global_sentence_end ?? item.global_sentence_start,
+          sentenceStart: item.global_sentence_start,
+        })
+        return
+      }
+      focusSourceNotes(item.source_document_id, item.note_id)
+    }
+    const handleOpenCollectionHighlightNotebook = (item: LibraryCollectionHighlightReviewItem) => {
+      focusSourceNotes(item.source_document_id, item.note_id)
+    }
+    const handleCreateCollectionHighlightStudyCard = (item: LibraryCollectionHighlightReviewItem) => {
+      focusSourceNotes(item.source_document_id, item.note_id, { promotionMode: 'study' })
+    }
+
+    return (
+      <section
+        className="recall-detail-panel recall-source-summary-card recall-home-collection-workspace-stage970"
+        role="region"
+        aria-label="Collection workspace actions"
+        data-home-collection-workspace-stage970="true"
+      >
+        <div className="recall-source-memory-heading-stage900">
+          <strong>{collectionPath}</strong>
+          <span>Collection workspace</span>
+        </div>
+        <div className="reader-meta-row" role="list" aria-label="Collection workspace source counts">
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {formatCountLabel(directSourceCount, 'direct source', 'direct sources')}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {formatCountLabel(aggregateSourceCount, 'source with nested collections', 'sources with nested collections')}
+          </span>
+        </div>
+        {homeCollectionOverviewStatus === 'error' && homeCollectionOverviewError ? (
+          <p className="small-note">{homeCollectionOverviewError}</p>
+        ) : null}
+        {collectionReadingSummary ? (
+          <section
+            className="recall-detail-panel recall-source-summary-card"
+            role="region"
+            aria-label="Collection reading progress"
+          >
+            <div className="recall-source-memory-heading-stage900">
+              <strong>Reading progress</strong>
+              <span>
+                {collectionReadingSummary.last_read_at
+                  ? `Last read ${dateFormatter.format(new Date(collectionReadingSummary.last_read_at))}`
+                  : 'No saved resume point yet'}
+              </span>
+            </div>
+            <div className="reader-meta-row" role="list" aria-label="Collection reading state">
+              <span className="status-chip reader-meta-chip" role="listitem">
+                {collectionReadingSummary.unread_sources} unread
+              </span>
+              <span className="status-chip reader-meta-chip" role="listitem">
+                {collectionReadingSummary.in_progress_sources} in progress
+              </span>
+              <span className="status-chip reader-meta-chip" role="listitem">
+                {collectionReadingSummary.completed_sources} completed
+              </span>
+            </div>
+            {collectionResumeSource ? (
+              <button
+                className="recall-source-memory-primary-stage900"
+                type="button"
+                onClick={handleOpenCollectionResume}
+              >
+                <span className="recall-source-memory-copy-stage900">
+                  <strong>{collectionResumeSource.title}</strong>
+                  <span>{collectionResumeSource.progress_percent}% read</span>
+                </span>
+                <span className="recall-source-memory-meta-stage900">
+                  <span>{collectionResumeSource.membership === 'direct' ? 'Direct source' : 'Nested source'}</span>
+                  <span>Sentence {collectionResumeSource.sentence_index + 1}</span>
+                </span>
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+        {collectionHighlightItems.length > 0 ? (
+          <section
+            className="recall-detail-panel recall-source-summary-card"
+            role="region"
+            aria-label="Collection highlight review"
+          >
+            <div className="recall-source-memory-heading-stage900">
+              <strong>Review highlights</strong>
+              <span>{formatCountLabel(collectionHighlightItems.length, 'recent note', 'recent notes')}</span>
+            </div>
+            <div className="recall-source-memory-list-stage900" role="list" aria-label="Collection highlight inbox">
+              {collectionHighlightItems.map((item) => (
+                <div key={item.note_id} className="recall-source-memory-item-stage900" role="listitem">
+                  <button
+                    className="recall-source-memory-primary-stage900"
+                    type="button"
+                    onClick={() => handleOpenCollectionHighlight(item)}
+                    aria-label={
+                      item.note_kind === 'sentence'
+                        ? `Open highlight from ${item.source_title}`
+                        : `Open source note from ${item.source_title}`
+                    }
+                  >
+                    <span className="recall-source-memory-copy-stage900">
+                      <strong>{item.body_preview ?? item.excerpt_preview ?? item.anchor_text}</strong>
+                      <span>{item.source_title}</span>
+                    </span>
+                    <span className="recall-source-memory-meta-stage900">
+                      <span>{item.note_kind === 'sentence' ? 'Highlighted passage' : 'Source note'}</span>
+                      <span>{item.membership === 'direct' ? 'Direct' : 'Nested'}</span>
+                    </span>
+                  </button>
+                  <div className="recall-actions recall-actions-inline">
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => handleOpenCollectionHighlight(item)}
+                    >
+                      Open in Reader
+                    </button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => handleOpenCollectionHighlightNotebook(item)}
+                    >
+                      Open in Notebook
+                    </button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => handleCreateCollectionHighlightStudyCard(item)}
+                      aria-label={`Create Study card from ${item.source_title}`}
+                    >
+                      Create Study card
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        <div className="recall-actions recall-actions-inline">
+          <button
+            className="ghost-button"
+            type="button"
+            ref={(button) => {
+              if (!button || detachedHomeCollectionReviewHandlers.has(button)) {
+                return
+              }
+              detachedHomeCollectionReviewHandlers.add(button)
+              button.addEventListener('click', (event) => {
+                if (button.isConnected) {
+                  return
+                }
+                event.preventDefault()
+                void handleReviewHomeCustomCollection(homeSelectedCustomCollection.id)
+              })
+            }}
+            onClick={() => void handleReviewHomeCustomCollection(homeSelectedCustomCollection.id)}
+          >
+            Review collection
+          </button>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => focusHomeCustomCollectionQuestions(homeSelectedCustomCollection.id)}
+          >
+            Study questions
+          </button>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => focusHomeCustomCollectionGraph(homeSelectedCustomCollection.id)}
+          >
+            Graph collection
+          </button>
+          <a
+            className="secondary-button"
+            href={buildLibraryCollectionLearningPackExportUrl(homeSelectedCustomCollection.id)}
+          >
+            Export collection pack
+          </a>
+          {collectionResumeSource || firstCollectionDocument ? (
+            <button className="ghost-button" type="button" onClick={handleOpenCollectionResume}>
+              Continue reading
+            </button>
+          ) : null}
+        </div>
+      </section>
+    )
+  }
+
+  const renderHomeReadingQueue = () => {
+    if (libraryFilterActive) {
+      return null
+    }
+
+    const queue = homeReadingQueue
+    const selectedQueueSectionKey = homeSelectedSectionKey ? homeSelectedBrowseSection?.key ?? null : null
+    const collectionId = queue?.collection_id ?? (homeSelectedCustomCollection && selectedQueueSectionKey ? homeSelectedCustomCollection.id : null)
+    const queueScope = queue?.scope ?? (collectionId ? 'all' : getReadingQueueScopeForHomeSection(selectedQueueSectionKey))
+    const contextLabel = collectionId
+      ? formatHomeCustomCollectionPathLabel(collectionId, homeCustomCollections)
+      : queueScope === 'all'
+        ? 'All sources'
+        : queueScope.charAt(0).toUpperCase() + queueScope.slice(1)
+    const rows = queue?.rows ?? []
+    const stateOptions: Array<{ label: string; state: RecallReaderQueueState; ariaLabel: string }> = [
+      { label: 'All', state: 'all', ariaLabel: 'Show all reading queue' },
+      { label: 'Unread', state: 'unread', ariaLabel: 'Show unread reading queue' },
+      { label: 'In progress', state: 'in_progress', ariaLabel: 'Show in-progress reading queue' },
+      { label: 'Completed', state: 'completed', ariaLabel: 'Show completed reading queue' },
+    ]
+    const openQueueRow = (row: LibraryReadingQueueRow) => {
+      handleOpenDocumentInReader(row.id, {
+        queueCollectionId: collectionId,
+        queueScope,
+        queueState: homeReadingQueueState,
+        readerIntent: row.state === 'unread' ? 'resume' : 'resume',
+        sentenceEnd: row.state === 'unread' ? null : row.sentence_index,
+        sentenceStart: row.state === 'unread' ? null : row.sentence_index,
+      })
+    }
+    const markQueueRowComplete = async (row: LibraryReadingQueueRow) => {
+      setHomeReadingQueueBusyDocumentId(row.id)
+      setHomeReadingQueueError(null)
+      try {
+        await completeRecallDocumentReading(row.id, row.mode)
+        setReloadToken((current) => current + 1)
+      } catch (completeError) {
+        setHomeReadingQueueError(getErrorMessage(completeError, 'Could not mark that source complete.'))
+      } finally {
+        setHomeReadingQueueBusyDocumentId(null)
+      }
+    }
+
+    return (
+      <section
+        className="recall-detail-panel recall-source-summary-card recall-home-reading-queue-stage974"
+        role="region"
+        aria-label="Reading queue"
+        data-home-reading-queue-stage974="true"
+      >
+        <div className="recall-source-memory-heading-stage900">
+          <strong>Reading queue</strong>
+          <span>{contextLabel}</span>
+        </div>
+        <div className="reader-meta-row" role="list" aria-label="Reading queue summary">
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {queue?.summary.unread_sources ?? 0} unread
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {queue?.summary.in_progress_sources ?? 0} in progress
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {queue?.summary.completed_sources ?? 0} completed
+          </span>
+        </div>
+        <div className="recall-actions recall-actions-inline" role="group" aria-label="Reading queue filters">
+          {stateOptions.map((option) => (
+            <button
+              key={option.state}
+              aria-label={option.ariaLabel}
+              className={homeReadingQueueState === option.state ? 'primary-button' : 'ghost-button'}
+              type="button"
+              onClick={() => setHomeReadingQueueState(option.state)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {homeReadingQueueStatus === 'error' && homeReadingQueueError ? (
+          <p className="small-note">{homeReadingQueueError}</p>
+        ) : null}
+        {homeReadingQueueStatus === 'loading' && !queue ? <p className="small-note">Loading reading queue…</p> : null}
+        {rows.length > 0 ? (
+          <div className="recall-source-memory-list-stage900" role="list" aria-label="Reading queue rows">
+            {rows.map((row) => (
+              <div key={row.id} className="recall-source-memory-item-stage900" role="listitem">
+                <button
+                  className="recall-source-memory-primary-stage900"
+                  type="button"
+                  onClick={() => openQueueRow(row)}
+                  aria-label={`Continue reading ${row.title}`}
+                >
+                  <span className="recall-source-memory-copy-stage900">
+                    <strong>{row.title}</strong>
+                    <span>{row.progress_percent}% read</span>
+                  </span>
+                  <span className="recall-source-memory-meta-stage900">
+                    <span>{row.state === 'in_progress' ? 'In progress' : row.state === 'completed' ? 'Completed' : 'Unread'}</span>
+                    <span>
+                      {formatCountLabel(row.highlight_count, 'highlight', 'highlights')} · {formatCountLabel(row.study_counts.due + row.study_counts.new, 'Study prompt', 'Study prompts')}
+                    </span>
+                  </span>
+                </button>
+                {row.state !== 'completed' ? (
+                  <button
+                    className="ghost-button"
+                    disabled={homeReadingQueueBusyDocumentId === row.id}
+                    type="button"
+                    onClick={() => void markQueueRowComplete(row)}
+                    aria-label={`Mark ${row.title} complete`}
+                  >
+                    Mark complete
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="small-note">No sources match this queue state.</p>
+        )}
+      </section>
+    )
+  }
+
+  const renderHomeWorkspaceExportPanel = () => {
+    const sourceCount = workspaceExportManifest?.entity_counts.source_document ?? documents.length
+    const noteCount = workspaceExportManifest?.entity_counts.recall_note ?? 0
+    const studyCardCount = workspaceExportManifest?.entity_counts.review_card ?? 0
+    const attemptCount = workspaceExportManifest?.entity_counts.study_answer_attempt ?? 0
+    const sessionCount = workspaceExportManifest?.entity_counts.study_review_session ?? 0
+    const attachmentCount = workspaceExportManifest?.attachments.length ?? 0
+    const warningCount = workspaceExportManifest?.warnings.length ?? 0
+    const exportCountLabel =
+      workspaceExportStatus === 'loading'
+        ? 'Preparing export preview...'
+        : `${formatCountLabel(sourceCount, 'source', 'sources')} · ${formatCountLabel(noteCount, 'note', 'notes')} · ${formatCountLabel(
+            studyCardCount,
+            'study card',
+            'study cards',
+          )} · ${formatCountLabel(attemptCount, 'attempt', 'attempts')} · ${formatCountLabel(sessionCount, 'session', 'sessions')}`
+    const exportMetaLabel =
+      workspaceExportStatus === 'error'
+        ? workspaceExportError ?? 'Export preview unavailable.'
+        : `${formatCountLabel(attachmentCount, 'attachment', 'attachments')} · ${
+            warningCount === 0 ? 'No warnings' : formatCountLabel(warningCount, 'warning', 'warnings')
+          }`
+    const backupPreviewSourceCount = workspaceImportPreview?.backup.entity_counts.source_document ?? 0
+    const backupPreviewNoteCount = workspaceImportPreview?.backup.entity_counts.recall_note ?? 0
+    const backupPreviewAttemptCount = workspaceImportPreview?.backup.entity_counts.study_answer_attempt ?? 0
+    const backupPreviewSessionCount = workspaceImportPreview?.backup.entity_counts.study_review_session ?? 0
+    const backupPreviewWarningCount = workspaceImportPreview?.backup.warnings.length ?? 0
+    const backupPreviewSummaryLabel =
+      workspaceImportPreviewStatus === 'loading'
+        ? 'Previewing backup...'
+        : workspaceImportPreviewStatus === 'error'
+          ? workspaceImportPreviewError ?? 'Backup preview unavailable.'
+          : workspaceImportPreview
+            ? `${workspaceImportPreview.backup.source_kind === 'zip' ? 'ZIP' : 'Manifest'} · ${formatCountLabel(
+                backupPreviewSourceCount,
+                'source',
+                'sources',
+              )} · ${formatCountLabel(backupPreviewNoteCount, 'note', 'notes')} · ${formatCountLabel(
+                backupPreviewAttemptCount,
+                'attempt',
+                'attempts',
+              )} · ${formatCountLabel(backupPreviewSessionCount, 'session', 'sessions')}`
+            : 'Preview a workspace ZIP or manifest before restore work exists.'
+    const backupPreviewCoverageLabel = workspaceImportPreview
+      ? workspaceImportPreview.backup.bundle_coverage_available
+        ? `${workspaceImportPreview.backup.bundled_attachment_count}/${workspaceImportPreview.backup.attachment_count} attachments · ${formatCountLabel(
+            workspaceImportPreview.backup.learning_pack_count,
+            'learning pack',
+            'learning packs',
+          )} · ${backupPreviewWarningCount === 0 ? 'No warnings' : formatCountLabel(backupPreviewWarningCount, 'warning', 'warnings')} · Dry run only`
+        : `Manifest only · ${formatCountLabel(
+            workspaceImportPreview.backup.attachment_count,
+            'attachment ref',
+            'attachment refs',
+          )} · ${backupPreviewWarningCount === 0 ? 'No warnings' : formatCountLabel(backupPreviewWarningCount, 'warning', 'warnings')} · Dry run only`
+      : 'Dry run only · no data applied'
+    const backupPreviewOperationCount = workspaceImportPreview
+      ? Object.values(workspaceImportPreview.merge_preview.summary).reduce((total, count) => total + count, 0)
+      : 0
+    const backupPreviewRestorableCount = workspaceImportPreview
+      ? Object.values(workspaceImportPreview.restorable_entity_counts).reduce((total, count) => total + count, 0)
+      : 0
+    const backupPreviewRestoreAvailable = Boolean(workspaceImportPreview?.can_apply && backupPreviewRestorableCount > 0)
+    const backupPreviewReadinessLabel = workspaceImportPreview
+      ? workspaceImportPreview.can_apply
+        ? backupPreviewRestorableCount > 0
+          ? `${formatCountLabel(backupPreviewRestorableCount, 'missing item', 'missing items')} ready to restore`
+          : 'No missing items to restore'
+        : workspaceImportPreview.apply_blockers[0] ?? 'Preview only'
+      : 'Restore becomes available after a restorable ZIP preview'
+    const backupRestoreImportedCount = workspaceImportApplyResult
+      ? Object.values(workspaceImportApplyResult.imported_counts).reduce((total, count) => total + count, 0)
+      : 0
+    const backupRestoreSkippedCount = workspaceImportApplyResult
+      ? Object.values(workspaceImportApplyResult.skipped_counts).reduce((total, count) => total + count, 0)
+      : 0
+    const backupRestoreConflictCount = workspaceImportApplyResult
+      ? Object.values(workspaceImportApplyResult.conflict_counts).reduce((total, count) => total + count, 0)
+      : 0
+    const backupRestoreResultLabel =
+      workspaceImportApplyStatus === 'loading'
+        ? 'Restoring missing items...'
+        : workspaceImportApplyStatus === 'error'
+          ? workspaceImportApplyError ?? 'Restore failed.'
+          : workspaceImportApplyResult
+            ? `${formatCountLabel(backupRestoreImportedCount, 'item', 'items')} imported · ${formatCountLabel(
+                backupRestoreSkippedCount,
+                'item',
+                'items',
+              )} skipped · ${formatCountLabel(backupRestoreConflictCount, 'conflict', 'conflicts')}`
+            : null
+
+    return (
+      <div
+        className="recall-home-workspace-export-stage958"
+        data-home-workspace-export-stage958="true"
+        role="group"
+        aria-label="Export workspace"
+      >
+        <div className="recall-home-workspace-export-copy-stage958">
+          <strong>Export workspace</strong>
+          <span data-home-workspace-export-counts-stage958="true">{exportCountLabel}</span>
+          <span>{exportMetaLabel}</span>
+        </div>
+        <div className="recall-home-workspace-export-actions-stage958">
+          <a className="secondary-button" data-home-workspace-export-zip-stage958="true" href={buildWorkspaceExportUrl()}>
+            Download ZIP
+          </a>
+          <label
+            className="ghost-button recall-home-workspace-export-upload-label-stage960"
+            data-home-workspace-backup-preview-stage960="true"
+            htmlFor="recall-home-workspace-backup-preview-file"
+          >
+            Preview backup
+          </label>
+          <input
+            accept=".zip,.json,application/zip,application/json"
+            aria-label="Preview backup file"
+            className="recall-home-workspace-export-file-input-stage960"
+            data-home-workspace-backup-preview-input-stage960="true"
+            disabled={workspaceImportPreviewStatus === 'loading'}
+            id="recall-home-workspace-backup-preview-file"
+            type="file"
+            onChange={handleWorkspaceBackupPreviewUpload}
+          />
+          <button className="ghost-button" type="button" onClick={() => void loadWorkspaceExportManifest()}>
+            Refresh
+          </button>
+          {backupPreviewRestoreAvailable ? (
+            <button
+              className="secondary-button"
+              data-home-workspace-backup-restore-stage962="true"
+              disabled={workspaceImportApplyStatus === 'loading'}
+              type="button"
+              onClick={() => void handleWorkspaceBackupRestore()}
+            >
+              Restore missing items
+            </button>
+          ) : null}
+        </div>
+        <div
+          className="recall-home-workspace-export-preview-stage960"
+          data-home-workspace-backup-preview-summary-stage960="true"
+        >
+          <span>{backupPreviewSummaryLabel}</span>
+          <span data-home-workspace-backup-preview-coverage-stage960="true">
+            {backupPreviewCoverageLabel}
+            {workspaceImportPreview ? ` · ${formatCountLabel(backupPreviewOperationCount, 'merge decision', 'merge decisions')}` : ''}
+          </span>
+          {workspaceImportPreview?.dry_run && !workspaceImportPreview.applied ? (
+            <span data-home-workspace-backup-preview-dry-run-stage960="true">Verified as preview only</span>
+          ) : null}
+          <span data-home-workspace-backup-restore-readiness-stage962="true">{backupPreviewReadinessLabel}</span>
+          {backupRestoreResultLabel ? (
+            <span data-home-workspace-backup-restore-result-stage962="true">{backupRestoreResultLabel}</span>
+          ) : null}
+        </div>
+      </div>
     )
   }
 
@@ -9472,10 +11534,40 @@ export function RecallWorkspace({
               >
                 Rename collection
               </button>
+              {homeSelectedCustomCollectionCanCreateChild ? (
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() =>
+                    openHomeCollectionDraft('create', {
+                      parentId: homeSelectedCustomCollection.id,
+                    })
+                  }
+                >
+                  New child
+                </button>
+              ) : null}
               <button className="ghost-button" type="button" onClick={handleDeleteSelectedHomeCustomCollection}>
                 Delete collection
               </button>
             </div>
+            <label className="field recall-inline-field recall-home-collection-parent-field-stage968">
+              <span>Parent</span>
+              <select
+                aria-label="Parent collection"
+                value={homeSelectedCustomCollection.parentId ?? ''}
+                onChange={(event) => handleMoveSelectedHomeCustomCollection(event.target.value || null)}
+              >
+                {homeCollectionParentOptions.map((option) => (
+                  <option
+                    key={option.collection?.id ?? 'root'}
+                    value={option.collection?.id ?? ''}
+                  >
+                    {option.collection ? `${'· '.repeat(option.depth)}${option.label}` : option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         ) : null}
         {homeCollectionDraftState ? (
@@ -9529,11 +11621,12 @@ export function RecallWorkspace({
                         ? 'ghost-button recall-home-collection-assignment-button-stage495-reset recall-home-collection-assignment-button-active-stage495-reset'
                         : 'ghost-button recall-home-collection-assignment-button-stage495-reset'
                     }
+                    style={{ '--home-collection-depth': entry.depth } as CSSProperties}
                     type="button"
                     onClick={() => handleToggleHomeCollectionAssignment(entry.collection.id)}
                   >
                     {entry.collectionOwnsAllSelectedDocuments ? 'Remove ' : 'Add '}
-                    {entry.collection.name}
+                    {formatHomeCustomCollectionPathLabel(entry.collection.id, homeCustomCollections)}
                   </button>
                 ))}
               </div>
@@ -10372,6 +12465,12 @@ export function RecallWorkspace({
           >
             {homeBrowseSectionEntries.map((section) => {
             const active = section.key === homeSelectedBrowseSection?.key
+            const browseGroupCustomCollectionId = getHomeCustomCollectionIdFromSectionKey(section.key)
+            const browseGroupIsCustomCollection = Boolean(browseGroupCustomCollectionId)
+            const browseGroupDepth = browseGroupIsCustomCollection ? section.collectionDepth ?? 0 : 0
+            const browseGroupStyle = browseGroupIsCustomCollection
+              ? ({ '--home-collection-depth': browseGroupDepth } as CSSProperties)
+              : undefined
             let supportText = section.previewLeadDocument?.title ?? section.description
             if (active) {
               if (isHomePersonalNotesSection(section.key)) {
@@ -10411,7 +12510,14 @@ export function RecallWorkspace({
                 data-home-organizer-active-item-stage838={
                   active && homeOpenOrganizerUsesListRhythmConvergenceStage838 ? 'true' : undefined
                 }
+                data-home-collection-tree-row-stage968={
+                  browseGroupIsCustomCollection ? 'true' : undefined
+                }
+                data-home-collection-tree-depth-stage968={
+                  browseGroupIsCustomCollection ? String(browseGroupDepth) : undefined
+                }
                 role="listitem"
+                style={browseGroupStyle}
               >
                 <button
                   aria-pressed={active}
@@ -10872,6 +12978,8 @@ export function RecallWorkspace({
         {showStandaloneCanvasToolbarStage840 ? renderHomeParityToolbar() : null}
 
         {!homeOrganizerVisible && showHomeReopenCluster ? renderHomeReopenCluster() : null}
+        {renderHomeCollectionWorkspaceActions()}
+        {renderHomeReadingQueue()}
 
         {homePersonalNotesBoardSelected ? (
           renderHomePersonalNotesBoard(embedToolbarInOpenTopBandStage830)
@@ -11192,8 +13300,11 @@ export function RecallWorkspace({
     [homeManualModeActive, homeOrganizerDragSession, rawLibraryBrowseSections],
   )
 
-  const focusSourceNotes = useCallback((documentId: string, noteId?: string | null, options?: { focused?: boolean }) => {
+  const focusSourceNotes = useCallback((documentId: string, noteId?: string | null, options?: { focused?: boolean; promotionMode?: 'graph' | 'study' | null }) => {
     const shouldUseFocusedSource = options?.focused ?? true
+    const nextPromotionMode = options?.promotionMode ?? null
+    pendingNotePromotionModeRef.current = nextPromotionMode
+    setNotePromotionMode(nextPromotionMode)
     handleSelectLibraryDocument(documentId)
     updateLibraryState((current) => ({
       ...current,
@@ -11245,35 +13356,49 @@ export function RecallWorkspace({
     updateSourceWorkspaceState,
   ])
 
-  const focusSourceStudy = useCallback((documentId: string, cardId?: string | null) => {
+  const focusSourceStudy = useCallback((
+    documentId: string,
+    cardId?: string | null,
+    options?: {
+      intent?: RecallStudyLaunchIntent | null
+      scheduleDrilldown?: RecallStudyScheduleDrilldown
+    },
+  ) => {
     handleSelectLibraryDocument(documentId)
     const sourceCards = studyCards.filter((card) => card.source_document_id === documentId)
     const matchingCardId = cardId ?? getNextStudyCardForQueue(sourceCards)?.id ?? null
+    const launchIntent = options?.intent ?? 'review'
+    const opensStudyBrowse = launchIntent === 'questions' || launchIntent === 'generate'
     updateSourceWorkspaceState((current) => ({
       ...current,
       activeDocumentId: documentId,
       activeTab: 'study',
-      mode: 'focused',
+      mode: opensStudyBrowse ? 'browse' : 'focused',
       readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
     }))
     updateStudyState((current) => ({
-      ...current,
-      collectionFilter: 'all',
-      filter: 'all',
-      activeCardId: matchingCardId,
-      knowledgeStageFilter: 'all',
+	      ...current,
+	      collectionFilter: 'all',
+	      difficultyFilter: launchIntent === 'start-session' ? studySettings.default_difficulty_filter : 'all',
+	      filter: 'all',
+	      activeCardId: matchingCardId,
+	      knowledgeStageFilter: 'all',
       questionSearchQuery: '',
       reviewHistoryFilter: 'all',
-      scheduleDrilldown: 'all',
+      scheduleDrilldown: options?.scheduleDrilldown ?? 'all',
       sourceScopeDocumentId: documentId,
     }))
-    setBrowseDrawerOpen('study', false)
+    setBrowseDrawerOpen('study', opensStudyBrowse)
     onSectionChange('study')
+    if (launchIntent === 'start-session') {
+      void handleStartSourceStudyLaunchSession(documentId)
+    }
   }, [
     handleSelectLibraryDocument,
     onSectionChange,
     setBrowseDrawerOpen,
     studyCards,
+    studySettings.default_difficulty_filter,
     updateSourceWorkspaceState,
     updateStudyState,
   ])
@@ -11302,11 +13427,12 @@ export function RecallWorkspace({
       readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
     }))
     updateStudyState((current) => ({
-      ...current,
-      collectionFilter: 'all',
-      filter: 'all',
-      activeCardId: matchingCardId,
-      knowledgeStageFilter: 'all',
+	      ...current,
+	      collectionFilter: 'all',
+	      difficultyFilter: 'all',
+	      filter: 'all',
+	      activeCardId: matchingCardId,
+	      knowledgeStageFilter: 'all',
       questionSearchQuery: '',
       reviewHistoryFilter: 'all',
       scheduleDrilldown,
@@ -11330,8 +13456,9 @@ export function RecallWorkspace({
       const scheduleMatches = drilldown === 'all' || studyCardMatchesScheduleDrilldown(card, drilldown)
       const stageMatches = studyKnowledgeStageFilter === 'all' || card.knowledge_stage === studyKnowledgeStageFilter
       const reviewHistoryMatches = studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter)
+      const difficultyMatches = studyDifficultyFilter === 'all' || getStudyCardDifficulty(card) === studyDifficultyFilter
       const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
-      return collectionMatches && scheduleMatches && stageMatches && reviewHistoryMatches && searchMatches
+      return collectionMatches && scheduleMatches && stageMatches && reviewHistoryMatches && difficultyMatches && searchMatches
     })
     const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
     updateStudyState((current) => ({
@@ -11349,6 +13476,7 @@ export function RecallWorkspace({
     scopedStudyCards,
     setBrowseDrawerOpen,
     studyCollectionFilter,
+    studyDifficultyFilter,
     studyKnowledgeStageFilter,
     studyQuestionSearchQuery,
     studyReviewHistoryFilter,
@@ -11363,8 +13491,9 @@ export function RecallWorkspace({
         studyScheduleDrilldown === 'all' || studyCardMatchesScheduleDrilldown(card, studyScheduleDrilldown)
       const statusMatches = studyScheduleDrilldown !== 'all' || studyFilter === 'all' || card.status === studyFilter
       const reviewHistoryMatches = studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter)
+      const difficultyMatches = studyDifficultyFilter === 'all' || getStudyCardDifficulty(card) === studyDifficultyFilter
       const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
-      return collectionMatches && scheduleMatches && statusMatches && reviewHistoryMatches && searchMatches && card.knowledge_stage === stage
+      return collectionMatches && scheduleMatches && statusMatches && reviewHistoryMatches && difficultyMatches && searchMatches && card.knowledge_stage === stage
     })
     const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
     updateStudyState((current) => ({
@@ -11381,6 +13510,7 @@ export function RecallWorkspace({
     scopedStudyCards,
     setBrowseDrawerOpen,
     studyCollectionFilter,
+    studyDifficultyFilter,
     studyFilter,
     studyQuestionSearchQuery,
     studyReviewHistoryFilter,
@@ -11396,12 +13526,14 @@ export function RecallWorkspace({
         studyScheduleDrilldown === 'all' || studyCardMatchesScheduleDrilldown(card, studyScheduleDrilldown)
       const statusMatches = studyScheduleDrilldown !== 'all' || studyFilter === 'all' || card.status === studyFilter
       const stageMatches = studyKnowledgeStageFilter === 'all' || card.knowledge_stage === studyKnowledgeStageFilter
+      const difficultyMatches = studyDifficultyFilter === 'all' || getStudyCardDifficulty(card) === studyDifficultyFilter
       const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
       return (
         collectionMatches &&
         scheduleMatches &&
         statusMatches &&
         stageMatches &&
+        difficultyMatches &&
         searchMatches &&
         studyCardMatchesReviewHistoryFilter(card, filter)
       )
@@ -11421,6 +13553,7 @@ export function RecallWorkspace({
     scopedStudyCards,
     setBrowseDrawerOpen,
     studyCollectionFilter,
+    studyDifficultyFilter,
     studyFilter,
     studyKnowledgeStageFilter,
     studyQuestionSearchQuery,
@@ -11437,8 +13570,9 @@ export function RecallWorkspace({
       const statusMatches = studyScheduleDrilldown !== 'all' || studyFilter === 'all' || card.status === studyFilter
       const stageMatches = studyKnowledgeStageFilter === 'all' || card.knowledge_stage === studyKnowledgeStageFilter
       const reviewHistoryMatches = studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter)
+      const difficultyMatches = studyDifficultyFilter === 'all' || getStudyCardDifficulty(card) === studyDifficultyFilter
       const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
-      return collectionMatches && scheduleMatches && statusMatches && stageMatches && reviewHistoryMatches && searchMatches
+      return collectionMatches && scheduleMatches && statusMatches && stageMatches && reviewHistoryMatches && difficultyMatches && searchMatches
     })
     const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
     updateStudyState((current) => ({
@@ -11454,6 +13588,7 @@ export function RecallWorkspace({
     onSectionChange,
     scopedStudyCards,
     setBrowseDrawerOpen,
+    studyDifficultyFilter,
     studyFilter,
     studyKnowledgeStageFilter,
     studyQuestionSearchQuery,
@@ -11462,13 +13597,29 @@ export function RecallWorkspace({
     updateStudyState,
   ])
 
-  const handleSelectStudyProgressReview = useCallback((review: StudyReviewProgressRecentReview) => {
+  const handleSelectStudyProgressReview = useCallback(async (review: StudyReviewProgressRecentReview) => {
     const matchingCard = studyCards.find((card) => card.id === review.review_card_id)
     if (matchingCard) {
       handleSelectStudyCard(matchingCard)
       setBrowseDrawerOpen('study', false)
       onSectionChange('study')
       return
+    }
+    try {
+      const sourceCards = await fetchRecallStudyCards('all', 100, review.source_document_id)
+      setStudyCards((current) => [
+        ...sourceCards,
+        ...current.filter((card) => card.source_document_id !== review.source_document_id),
+      ])
+      const fetchedMatchingCard = sourceCards.find((card) => card.id === review.review_card_id)
+      if (fetchedMatchingCard) {
+        handleSelectStudyCard(fetchedMatchingCard)
+        setBrowseDrawerOpen('study', false)
+        onSectionChange('study')
+        return
+      }
+    } catch {
+      // Fall through to the source-scoped Questions handoff.
     }
     focusSourceStudyQuestions(review.source_document_id)
   }, [focusSourceStudyQuestions, onSectionChange, setBrowseDrawerOpen, studyCards])
@@ -11572,6 +13723,22 @@ export function RecallWorkspace({
     const sourceOverviewSourceNoteCount = sourceWorkspaceNotes.filter(isSourceAttachedNote).length
     const sourceOverviewReviewOverview = buildStudyScopeOverview(activeSourceStudyCards)
     const sourceOverviewReviewPrimaryCard = getNextStudyCardForQueue(activeSourceStudyCards) ?? activeSourceStudyCards[0] ?? null
+    const sourceOverviewEligibleStudyCount = getReviewEligibleStudyCards(activeSourceStudyCards).length
+    const sourceOverviewStudyLaunch =
+      activeSourceStudyCards.length === 0
+        ? {
+            intent: 'generate' as RecallStudyLaunchIntent,
+            label: 'Generate questions',
+          }
+        : sourceOverviewEligibleStudyCount > 0
+          ? {
+              intent: 'start-session' as RecallStudyLaunchIntent,
+              label: 'Start source quiz',
+            }
+          : {
+              intent: 'questions' as RecallStudyLaunchIntent,
+              label: 'Study questions',
+            }
     const sourceOverviewReviewNextDueLabel = sourceOverviewReviewOverview.next_due_at
       ? dateFormatter.format(new Date(sourceOverviewReviewOverview.next_due_at))
       : 'No due date'
@@ -11602,6 +13769,53 @@ export function RecallWorkspace({
       sourceMemorySearchViewStatus !== 'loading' &&
       sourceOverviewMemoryItemCount === 0
     const handleClearSourceMemorySearch = () => setSourceMemorySearchQuery('')
+    const sourceOverviewReaderDocument = sourceOverviewDocument
+      ? readerDocumentById.get(sourceOverviewDocument.id) ?? null
+      : null
+    const sourceOverviewLastReaderSession = sourceOverviewReaderDocument?.last_reader_session ?? null
+    const sourceOverviewResumeMode =
+      sourceOverviewLastReaderSession?.mode ??
+      (sourceOverviewReaderDocument?.progress_by_mode.reflowed !== undefined ? 'reflowed' : null)
+    const sourceOverviewResumeSentenceIndex =
+      sourceOverviewLastReaderSession?.sentence_index ??
+      (sourceOverviewResumeMode ? sourceOverviewReaderDocument?.progress_by_mode[sourceOverviewResumeMode] : null) ??
+      null
+    const sourceOverviewReviewNotes = sortedSourceOverviewMemoryNotes.slice(0, 4)
+    const sourceOverviewDirectCollections = sourceOverviewDocument
+      ? getHomeCustomCollectionsForDocument(sourceOverviewDocument.id, homeCustomCollections)
+      : []
+    const sourceOverviewAncestorCollections = sourceOverviewDirectCollections.flatMap((collection) =>
+      getHomeCustomCollectionAncestorIds(collection.id, homeCustomCollections)
+        .map((collectionId) => homeCustomCollections.find((candidate) => candidate.id === collectionId) ?? null)
+        .filter((collection): collection is HomeCustomCollection => Boolean(collection)),
+    )
+    const sourceOverviewCollectionPathLabels = sourceOverviewDirectCollections.map((collection) =>
+      formatHomeCustomCollectionPathLabel(collection.id, homeCustomCollections),
+    )
+    const sourceOverviewCollectionAssignmentRows = flattenHomeCustomCollectionTree(homeCustomCollections)
+    const sourceOverviewCollectionParentOptions = [
+      { collection: null, depth: 0, label: 'Root collection' },
+      ...sourceOverviewCollectionAssignmentRows.map(({ collection, depth }) => ({
+        collection,
+        depth,
+        label: formatHomeCustomCollectionPathLabel(collection.id, homeCustomCollections),
+      })),
+    ]
+    const handleMarkSourceOverviewComplete = async () => {
+      if (!sourceOverviewDocument) {
+        return
+      }
+      setSourceReadingCompleteBusy(true)
+      setError(null)
+      try {
+        await completeRecallDocumentReading(sourceOverviewDocument.id, sourceOverviewResumeMode ?? 'reflowed')
+        setReloadToken((current) => current + 1)
+      } catch (completeError) {
+        setError(getErrorMessage(completeError, 'Could not mark that source complete.'))
+      } finally {
+        setSourceReadingCompleteBusy(false)
+      }
+    }
     return (
       <section
         className={
@@ -11621,7 +13835,14 @@ export function RecallWorkspace({
                 Open in Reader
               </button>
               <a className="secondary-button" href={buildRecallExportUrl(sourceOverviewDocument.id)}>
-                Export Markdown
+                Export source
+              </a>
+              <a
+                className="secondary-button"
+                data-source-overview-learning-pack-export-stage958="true"
+                href={buildRecallLearningPackExportUrl(sourceOverviewDocument.id)}
+              >
+                Export learning pack
               </a>
             </div>
           ) : null}
@@ -11673,6 +13894,241 @@ export function RecallWorkspace({
                 <span>Open this source directly in Reader without losing your Recall context.</span>
               </div>
             </div>
+            {sourceOverviewResumeSentenceIndex !== null || sourceOverviewReviewNotes.length > 0 ? (
+              <section
+                className="recall-detail-panel recall-source-summary-card"
+                role="region"
+                aria-label="Source reading context"
+              >
+                <div className="recall-source-memory-heading-stage900">
+                  <strong>Reading context</strong>
+                  <span>
+                    {sourceOverviewResumeSentenceIndex !== null
+                      ? 'Last read'
+                      : 'No saved resume point yet'}
+                  </span>
+                </div>
+                {sourceOverviewResumeSentenceIndex !== null ? (
+                  <>
+                    <div className="reader-meta-row" role="list" aria-label="Source resume point">
+                      <span className="status-chip reader-meta-chip" role="listitem">
+                        Sentence {sourceOverviewResumeSentenceIndex + 1}
+                      </span>
+                      {sourceOverviewResumeMode ? (
+                        <span className="status-chip reader-meta-chip" role="listitem">
+                          {formatModeLabel(sourceOverviewResumeMode)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="recall-actions recall-actions-inline">
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() =>
+                          handleOpenDocumentInReader(sourceOverviewDocument.id, {
+                            readerIntent: 'resume',
+                            sentenceEnd: sourceOverviewResumeSentenceIndex,
+                            sentenceStart: sourceOverviewResumeSentenceIndex,
+                          })
+                        }
+                      >
+                        Resume in Reader
+                      </button>
+                      <button
+                        className="ghost-button"
+                        disabled={sourceReadingCompleteBusy}
+                        type="button"
+                        onClick={() => void handleMarkSourceOverviewComplete()}
+                      >
+                        Mark complete
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+                {sourceOverviewReviewNotes.length > 0 ? (
+                  <div className="recall-source-memory-list-stage900" role="list" aria-label="Source highlight review">
+                    {sourceOverviewReviewNotes.map((note) => {
+                      const noteIsSource = isSourceAttachedNote(note)
+                      const notePreview = noteIsSource ? getSourceNoteBodyPreview(note) : getNoteRowPreview(note)
+                      return (
+                        <div key={note.id} className="recall-source-memory-item-stage900" role="listitem">
+                          <button
+                            className="recall-source-memory-primary-stage900"
+                            type="button"
+                            onClick={() =>
+                              noteIsSource
+                                ? focusSourceNotes(sourceOverviewDocument.id, note.id)
+                                : handleOpenDocumentInReader(sourceOverviewDocument.id, {
+                                    ...buildReaderAnchorOptions(note),
+                                    readerIntent: 'highlight',
+                                  })
+                            }
+                            aria-label={
+                              noteIsSource
+                                ? `Open source note from ${sourceOverviewDocument.title}`
+                                : `Open highlighted passage from ${sourceOverviewDocument.title}`
+                            }
+                          >
+                            <span className="recall-source-memory-copy-stage900">
+                              <strong>{notePreview}</strong>
+                              <span>{noteIsSource ? 'Source note' : 'Highlighted passage'}</span>
+                            </span>
+                            <span className="recall-source-memory-meta-stage900">
+                              <span>Updated {dateFormatter.format(new Date(note.updated_at))}</span>
+                            </span>
+                          </button>
+                          <div className="recall-actions recall-actions-inline">
+                            <button
+                              className="ghost-button"
+                              type="button"
+                              onClick={() =>
+                                noteIsSource
+                                  ? focusSourceNotes(sourceOverviewDocument.id, note.id)
+                                  : handleOpenDocumentInReader(sourceOverviewDocument.id, {
+                                      ...buildReaderAnchorOptions(note),
+                                      readerIntent: 'highlight',
+                                    })
+                              }
+                            >
+                              Open in Reader
+                            </button>
+                            <button
+                              className="ghost-button"
+                              type="button"
+                              onClick={() => focusSourceNotes(sourceOverviewDocument.id, note.id)}
+                            >
+                              Open in Notebook
+                            </button>
+                            <button
+                              className="ghost-button"
+                              type="button"
+                              onClick={() => focusSourceNotes(sourceOverviewDocument.id, note.id, { promotionMode: 'study' })}
+                              aria-label={`Create Study card from ${sourceOverviewDocument.title}`}
+                            >
+                              Create Study card
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+            <section
+              className="recall-detail-panel recall-source-summary-card recall-source-collections-stage970"
+              role="region"
+              aria-label="Source collections"
+              data-source-collections-stage970="true"
+            >
+              <div className="recall-source-memory-heading-stage900">
+                <strong>Collections</strong>
+                <span>
+                  {sourceOverviewDirectCollections.length > 0
+                    ? formatCountLabel(sourceOverviewDirectCollections.length, 'direct collection', 'direct collections')
+                    : '0 direct collections'}
+                </span>
+              </div>
+              {sourceOverviewDirectCollections.length > 0 ? (
+                <div className="reader-meta-row" role="list" aria-label="Direct source collections">
+                  {sourceOverviewCollectionPathLabels.map((label) => (
+                    <span key={label} className="status-chip reader-meta-chip" role="listitem">
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="small-note">No direct collections yet</p>
+              )}
+              {sourceOverviewAncestorCollections.length > 0 ? (
+                <p className="small-note">
+                  Ancestor path:{' '}
+                  {Array.from(new Set(sourceOverviewAncestorCollections.map((collection) => collection.name.trim())))
+                    .filter(Boolean)
+                    .join(' / ')}
+                </p>
+              ) : null}
+              <div className="recall-actions recall-actions-inline">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => setSourceCollectionOrganizerOpen((current) => !current)}
+                >
+                  Organize source
+                </button>
+              </div>
+              {sourceCollectionOrganizerOpen ? (
+                <div
+                  className="recall-home-collection-assignment-panel-stage495-reset"
+                  role="group"
+                  aria-label="Organize source collections"
+                >
+                  <div className="recall-home-collection-assignment-copy-stage495-reset">
+                    <strong>Organize source collections</strong>
+                    <span>Assign this source to existing collections or create a local child collection.</span>
+                  </div>
+                  {sourceOverviewCollectionAssignmentRows.length > 0 ? (
+                    <div className="recall-home-collection-assignment-actions-stage495-reset">
+                      {sourceOverviewCollectionAssignmentRows.map(({ collection, depth }) => {
+                        const collectionOwnsSource = collection.documentIds.includes(sourceOverviewDocument.id)
+                        const collectionLabel = formatHomeCustomCollectionPathLabel(collection.id, homeCustomCollections)
+                        return (
+                          <button
+                            key={collection.id}
+                            className={
+                              collectionOwnsSource
+                                ? 'ghost-button recall-home-collection-assignment-button-stage495-reset recall-home-collection-assignment-button-active-stage495-reset'
+                                : 'ghost-button recall-home-collection-assignment-button-stage495-reset'
+                            }
+                            style={{ '--home-collection-depth': depth } as CSSProperties}
+                            type="button"
+                            onClick={() => handleToggleSourceCollectionAssignment(sourceOverviewDocument.id, collection.id)}
+                          >
+                            {collectionOwnsSource ? 'Remove ' : 'Add '}
+                            {collectionLabel}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="small-note">Create a collection below to start organizing this source.</p>
+                  )}
+                  <div className="recall-home-collection-draft-stage495-reset">
+                    <label className="field recall-inline-field recall-home-collection-draft-field-stage495-reset">
+                      <span>New collection name</span>
+                      <input
+                        aria-label="New collection name"
+                        type="text"
+                        value={sourceCollectionDraftName}
+                        onChange={(event) => setSourceCollectionDraftName(event.target.value)}
+                      />
+                    </label>
+                    <label className="field recall-inline-field recall-home-collection-parent-field-stage968">
+                      <span>Parent collection</span>
+                      <select
+                        aria-label="Parent collection"
+                        value={sourceCollectionDraftParentId}
+                        onChange={(event) => setSourceCollectionDraftParentId(event.target.value)}
+                      >
+                        {sourceOverviewCollectionParentOptions.map((option) => (
+                          <option key={option.collection?.id ?? 'root'} value={option.collection?.id ?? ''}>
+                            {option.collection ? `${'· '.repeat(option.depth)}Parent: ${option.label}` : option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="ghost-button"
+                      disabled={sourceCollectionDraftName.trim().length === 0}
+                      type="button"
+                      onClick={() => handleCreateSourceCollection(sourceOverviewDocument.id)}
+                    >
+                      Create collection for source
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </section>
             <div className="recall-source-overview-grid">
               <div
                 className="recall-detail-panel recall-source-summary-card recall-source-memory-card-stage900"
@@ -12004,19 +14460,40 @@ export function RecallWorkspace({
                   <button
                     className="ghost-button"
                     data-source-overview-review-due-handoff-stage914="true"
+                    data-source-overview-source-quiz-launch-stage956={sourceOverviewStudyLaunch.intent}
                     type="button"
-                    onClick={() => focusSourceStudy(sourceOverviewDocument.id, sourceOverviewReviewPrimaryCard?.id)}
+                    onClick={() =>
+                      focusSourceStudy(sourceOverviewDocument.id, sourceOverviewReviewPrimaryCard?.id, {
+                        intent: sourceOverviewStudyLaunch.intent,
+                      })
+                    }
                   >
-                    Review source
+                    {sourceOverviewStudyLaunch.label}
                   </button>
-                  <button
-                    className="ghost-button"
-                    data-source-overview-review-questions-handoff-stage914="true"
-                    type="button"
-                    onClick={() => focusSourceStudyQuestions(sourceOverviewDocument.id)}
-                  >
-                    Questions
-                  </button>
+                  {activeSourceStudyCards.length > 0 && sourceOverviewStudyLaunch.intent !== 'questions' ? (
+                    <button
+                      className="ghost-button"
+                      data-source-overview-review-questions-handoff-stage914="true"
+                      type="button"
+                      onClick={() => focusSourceStudyQuestions(sourceOverviewDocument.id)}
+                    >
+                      Questions
+                    </button>
+                  ) : null}
+                  {activeSourceStudyCards.length > 0 ? (
+                    <button
+                      className="ghost-button"
+                      data-source-overview-generate-questions-stage946="true"
+                      type="button"
+                      onClick={() =>
+                        focusSourceStudy(sourceOverviewDocument.id, sourceOverviewReviewPrimaryCard?.id, {
+                          intent: 'generate',
+                        })
+                      }
+                    >
+                      Generate questions
+                    </button>
+                  ) : null}
                   {activeSourceStudyCards.length === 0 ? (
                     <button className="ghost-button" type="button" onClick={() => focusSourceNotes(sourceOverviewDocument.id)}>
                       Create from note
@@ -15385,6 +17862,10 @@ export function RecallWorkspace({
       const stageLabel = studyKnowledgeStageFilterActive ? `${studyKnowledgeStageFilterLabel.toLowerCase()} ` : ''
       return `No ${scopeLabel}${scheduleLabel}${stageLabel}${studyReviewHistoryFilterLabel.toLowerCase()} questions match${studyQuestionSearchActive ? ' that search' : ' this filter'}.`
     }
+    if (studyDifficultyFilterActive) {
+      const scopeLabel = studySourceScopeDocumentId ? 'source-scoped ' : ''
+      return `No ${scopeLabel}${studyDifficultyFilterLabel.toLowerCase()} questions match${studyQuestionSearchActive ? ' that search' : ' this filter'}.`
+    }
     if (studyKnowledgeStageFilterActive) {
       const scopeLabel = studySourceScopeDocumentId ? 'source-scoped ' : ''
       const scheduleLabel = studyScheduleDrilldownActive ? `${studyScheduleDrilldownLabel.toLowerCase()} ` : ''
@@ -15524,6 +18005,37 @@ export function RecallWorkspace({
     )
   }
 
+  function renderStudyDifficultyFilterChip(surface: 'desktop' | 'focused') {
+    if (!studyDifficultyFilterActive) {
+      return null
+    }
+
+    return (
+      <div
+        className={`reader-meta-row recall-study-difficulty-filter-chip-stage952 recall-study-difficulty-filter-chip-${surface}-stage952`}
+        data-study-difficulty-filter-chip-stage952="true"
+        data-study-difficulty-filter-value-stage952={studyDifficultyFilter}
+        role="list"
+        aria-label="Active study difficulty filter"
+      >
+        <span className="status-chip reader-meta-chip" role="listitem">
+          Difficulty: {studyDifficultyFilterLabel}
+        </span>
+        <span className="status-chip reader-meta-chip" role="listitem">
+          {difficultyFilteredStudyQuestionCount} {difficultyFilteredStudyQuestionCount === 1 ? 'question' : 'questions'}
+        </span>
+        <button
+          className="ghost-button"
+          data-study-difficulty-filter-clear-stage952="true"
+          type="button"
+          onClick={() => updateStudyState((current) => ({ ...current, difficultyFilter: 'all' }))}
+        >
+          Clear difficulty
+        </button>
+      </div>
+    )
+  }
+
   function renderStudyQuestionActiveFilters(surface: 'desktop' | 'focused') {
     if (!studyQuestionFilterStackActive) {
       return null
@@ -15585,6 +18097,16 @@ export function RecallWorkspace({
             onClick={() => updateStudyState((current) => ({ ...current, reviewHistoryFilter: 'all' }))}
           >
             History: {studyReviewHistoryFilterLabel} x
+          </button>
+        ) : null}
+        {studyDifficultyFilterActive ? (
+          <button
+            className="status-chip reader-meta-chip"
+            data-study-difficulty-filter-inline-clear-stage952="true"
+            type="button"
+            onClick={() => updateStudyState((current) => ({ ...current, difficultyFilter: 'all' }))}
+          >
+            Difficulty: {studyDifficultyFilterLabel} x
           </button>
         ) : null}
         {studyQuestionSearchActive ? (
@@ -16032,6 +18554,281 @@ export function RecallWorkspace({
     )
   }
 
+  function renderStudyHintSupport(card: StudyCardRecord, surface: 'desktop' | 'focused') {
+    const supportPayload = getStudyCardSupportPayload(card)
+    const hint = supportPayload?.hint?.trim()
+    if (!hint || showAnswer) {
+      return null
+    }
+    const visible = studyHintVisibleCardIds.has(card.id)
+    return (
+      <div
+        className={`recall-study-hint-stage950 recall-study-hint-${surface}-stage950`}
+        data-study-review-hint-stage950={visible ? 'visible' : 'available'}
+      >
+        {visible ? (
+          <p>{hint}</p>
+        ) : (
+          <button
+            className="ghost-button"
+            data-study-review-hint-action-stage950="true"
+            type="button"
+            onClick={() => handleShowStudyHint(card)}
+          >
+            Hint
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  function renderStudyExplanationSupport(card: StudyCardRecord, surface: 'desktop' | 'focused') {
+    const supportPayload = getStudyCardSupportPayload(card)
+    const explanation = supportPayload?.explanation?.trim()
+    const sourceExcerpt = supportPayload?.source_excerpt?.trim()
+    if ((!explanation && !sourceExcerpt) || (!showAnswer && !studyPersistedAttempts[card.id])) {
+      return null
+    }
+    return (
+      <div
+        className={`recall-study-explanation-stage950 recall-study-explanation-${surface}-stage950`}
+        data-study-review-explanation-stage950="true"
+      >
+        <strong>Explanation</strong>
+        {explanation ? <p>{explanation}</p> : null}
+        {sourceExcerpt ? <span className="small-note">{sourceExcerpt}</span> : null}
+      </div>
+    )
+  }
+
+  function renderStudyReviewTimerControls(surface: 'desktop' | 'focused') {
+    const activeSessionTimeLimit = studyReviewSession?.timeLimitSeconds ?? studyReviewTimerSeconds
+    return (
+      <div
+        className={`recall-study-timer-controls-stage950 recall-study-timer-controls-${surface}-stage950`}
+        data-study-timed-review-controls-stage950="true"
+        role="group"
+        aria-label="Review timer"
+      >
+        {STUDY_REVIEW_TIMER_OPTIONS.map((option) => (
+          <button
+            key={`study-review-timer:${surface}:${option.value}`}
+            aria-pressed={studyReviewTimerSeconds === option.value}
+            className={
+              studyReviewTimerSeconds === option.value
+                ? 'recall-study-review-history-filter-button-stage928 recall-study-review-history-filter-button-active-stage928'
+                : 'recall-study-review-history-filter-button-stage928'
+            }
+            disabled={Boolean(studyReviewSession)}
+            data-study-timer-option-stage950={option.value}
+            type="button"
+            onClick={() =>
+              void handleUpdateStudySettings({
+                ...studySettings,
+                default_timer_seconds: option.value as StudySettings['default_timer_seconds'],
+              })
+            }
+          >
+            {option.label}
+          </button>
+        ))}
+        {studyReviewSession && activeSessionTimeLimit > 0 && studyReviewTimerRemainingSeconds !== null ? (
+          <span
+            className="status-chip status-muted"
+            data-study-timer-remaining-stage950={studyReviewTimerRemainingSeconds}
+          >
+            {studyReviewTimerRemainingSeconds}s
+          </span>
+        ) : null}
+      </div>
+    )
+  }
+
+  function renderStudyQuizSettingsControls(surface: 'dashboard' | 'focused') {
+    return (
+      <div
+        className={`recall-study-quiz-settings-stage952 recall-study-quiz-settings-${surface}-stage952`}
+        data-study-quiz-settings-stage952="true"
+        data-study-quiz-settings-status-stage952={studySettingsStatus}
+        aria-label="Study quiz settings"
+      >
+        <div className="recall-study-generation-head-stage946">
+          <span className="recall-study-dashboard-current-kicker">Quiz settings</span>
+	          <strong>
+	            {studySettings.default_session_limit === null
+	              ? 'All eligible cards'
+	              : `${studySettings.default_session_limit} cards`}
+	          </strong>
+	          <span>
+	            {studySettings.default_timer_seconds > 0
+	              ? `${studySettings.default_timer_seconds}s timer`
+	              : 'Timer off'}
+	          </span>
+	        </div>
+	        <div
+	          className="recall-study-generation-support-options-stage950"
+	          data-study-default-timer-options-stage952="true"
+	          role="group"
+	          aria-label="Default review timer"
+	        >
+	          {STUDY_REVIEW_TIMER_OPTIONS.map((option) => (
+	            <button
+	              aria-pressed={studySettings.default_timer_seconds === option.value}
+	              className={
+	                studySettings.default_timer_seconds === option.value
+	                  ? 'recall-study-generation-type-chip-stage946 recall-study-generation-type-chip-active-stage946'
+	                  : 'recall-study-generation-type-chip-stage946'
+	              }
+	              data-study-default-timer-option-stage952={option.value}
+	              key={`study-default-timer:${surface}:${option.value}`}
+	              type="button"
+	              onClick={() =>
+	                void handleUpdateStudySettings({
+	                  ...studySettings,
+	                  default_timer_seconds: option.value as StudySettings['default_timer_seconds'],
+	                })
+	              }
+	            >
+	              {option.label}
+	            </button>
+	          ))}
+	        </div>
+	        <div
+	          className="recall-study-generation-support-options-stage950"
+	          data-study-session-limit-options-stage952="true"
+          role="group"
+          aria-label="Default session size"
+        >
+          {STUDY_SESSION_LIMIT_OPTIONS.map((option) => (
+            <button
+              aria-pressed={studySettings.default_session_limit === option.value}
+              className={
+                studySettings.default_session_limit === option.value
+                  ? 'recall-study-generation-type-chip-stage946 recall-study-generation-type-chip-active-stage946'
+                  : 'recall-study-generation-type-chip-stage946'
+              }
+              data-study-session-limit-option-stage952={option.value ?? 'all'}
+              key={`study-session-limit:${surface}:${option.label}`}
+              type="button"
+              onClick={() =>
+                void handleUpdateStudySettings({
+                  ...studySettings,
+                  default_session_limit: option.value,
+                })
+              }
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div
+          className="recall-study-generation-support-options-stage950"
+          data-study-default-difficulty-options-stage952="true"
+          role="group"
+          aria-label="Default difficulty"
+        >
+	          {(['all', ...STUDY_QUESTION_DIFFICULTIES] as StudyQuestionDifficultyFilter[]).map((difficulty) => (
+	            <button
+	              aria-label={
+	                difficulty === 'all'
+	                  ? 'Default difficulty All'
+	                  : `Default difficulty ${formatStudyDifficultyLabel(difficulty)}`
+	              }
+	              aria-pressed={studySettings.default_difficulty_filter === difficulty}
+              className={
+                studySettings.default_difficulty_filter === difficulty
+                  ? 'recall-study-generation-type-chip-stage946 recall-study-generation-type-chip-active-stage946'
+                  : 'recall-study-generation-type-chip-stage946'
+              }
+              data-study-default-difficulty-option-stage952={difficulty}
+              key={`study-default-difficulty:${surface}:${difficulty}`}
+              type="button"
+              onClick={() =>
+                void handleUpdateStudySettings({
+                  ...studySettings,
+                  default_difficulty_filter: difficulty,
+                })
+              }
+            >
+              {difficulty === 'all' ? 'All' : formatStudyDifficultyLabel(difficulty)}
+            </button>
+          ))}
+        </div>
+        <div
+          className="recall-study-generation-support-options-stage950 recall-study-habit-goal-controls-stage954"
+          data-study-habit-goal-mode-options-stage954="true"
+          role="group"
+          aria-label="Habit goal mode"
+        >
+          {(['daily', 'weekly'] as const).map((mode) => (
+            <button
+              aria-pressed={studySettings.streak_goal_mode === mode}
+              className={
+                studySettings.streak_goal_mode === mode
+                  ? 'recall-study-generation-type-chip-stage946 recall-study-generation-type-chip-active-stage946'
+                  : 'recall-study-generation-type-chip-stage946'
+              }
+              data-study-habit-goal-mode-stage954={mode}
+              key={`study-habit-goal-mode:${surface}:${mode}`}
+              type="button"
+              onClick={() =>
+                void handleUpdateStudySettings({
+                  ...studySettings,
+                  streak_goal_mode: mode,
+                })
+              }
+            >
+              {mode === 'daily' ? 'Daily goal' : 'Weekly goal'}
+            </button>
+          ))}
+        </div>
+        <div
+          className="recall-study-generation-support-options-stage950 recall-study-habit-goal-controls-stage954"
+          data-study-habit-goal-target-options-stage954="true"
+          role="group"
+          aria-label={studySettings.streak_goal_mode === 'weekly' ? 'Weekly goal target' : 'Daily goal target'}
+        >
+          {(studySettings.streak_goal_mode === 'weekly' ? STUDY_WEEKLY_GOAL_OPTIONS : STUDY_DAILY_GOAL_OPTIONS).map(
+            (option) => {
+              const active =
+                studySettings.streak_goal_mode === 'weekly'
+                  ? studySettings.weekly_goal_days === option.value
+                  : studySettings.daily_goal_reviews === option.value
+              return (
+                <button
+                  aria-pressed={active}
+                  className={
+                    active
+                      ? 'recall-study-generation-type-chip-stage946 recall-study-generation-type-chip-active-stage946'
+                      : 'recall-study-generation-type-chip-stage946'
+                  }
+                  data-study-habit-goal-target-stage954={option.value}
+                  key={`study-habit-goal-target:${surface}:${option.value}`}
+                  type="button"
+                  onClick={() =>
+                    void handleUpdateStudySettings(
+                      studySettings.streak_goal_mode === 'weekly'
+                        ? {
+                            ...studySettings,
+                            weekly_goal_days: option.value as StudySettings['weekly_goal_days'],
+                          }
+                        : {
+                            ...studySettings,
+                            daily_goal_reviews: option.value as StudySettings['daily_goal_reviews'],
+                          },
+                    )
+                  }
+                >
+                  {option.label}
+                </button>
+              )
+            },
+          )}
+        </div>
+      </div>
+    )
+  }
+
   function renderStudyChoiceReviewControls(card: StudyCardRecord, surface: 'desktop' | 'focused') {
     if (!isStudyChoiceCardType(card.card_type)) {
       return null
@@ -16308,6 +19105,100 @@ export function RecallWorkspace({
     )
   }
 
+  function renderStudyAttemptFeedback(card: StudyCardRecord) {
+    const attempt = studyPersistedAttempts[card.id] ?? null
+    const busy = studyAttemptBusyCardId === card.id
+    if (!attempt && !busy) {
+      return null
+    }
+    const resultLabel = busy
+      ? 'Checking'
+      : attempt?.is_correct === true
+        ? 'Correct'
+        : attempt?.is_correct === false
+          ? 'Not quite'
+          : 'Recorded'
+    const resultState = busy
+      ? 'checking'
+      : attempt?.is_correct === true
+        ? 'correct'
+        : attempt?.is_correct === false
+          ? 'incorrect'
+          : 'recorded'
+    return (
+      <div
+        className="recall-study-attempt-feedback-stage948"
+        data-study-attempt-feedback-stage948={resultState}
+      >
+        <span className="status-chip">{resultLabel}</span>
+        <div>
+          <strong>Grounded answer</strong>
+          <p>{attempt?.correct_answer ?? card.answer}</p>
+          <span className="small-note">{attempt?.document_title ?? card.document_title}</span>
+        </div>
+      </div>
+    )
+  }
+
+  function renderStudySessionRecap() {
+    if (!studyReviewSessionRecap) {
+      return null
+    }
+    return (
+      <div
+        className="recall-study-session-recap-stage948"
+        data-study-session-recap-stage948={studyReviewSessionRecap.sessionId}
+      >
+        <strong>Session recap</strong>
+        <span>{formatCountLabel(studyReviewSessionRecap.attempted, 'attempt', 'attempts')}</span>
+        <span>{formatCountLabel(studyReviewSessionRecap.correct, 'correct answer', 'correct answers')}</span>
+        <span>{formatCountLabel(studyReviewSessionRecap.skipped, 'unattempted rating', 'unattempted ratings')}</span>
+        <span>{formatCountLabel(studyReviewSessionRecap.sourcesTouched, 'source', 'sources')}</span>
+        <span>{formatCountLabel(studyReviewSessionRecap.timedOut, 'timed out', 'timed out')}</span>
+        <span>{formatCountLabel(studyReviewSessionRecap.hintUsed, 'hint used', 'hints used')}</span>
+        <span data-study-habit-goal-session-recap-stage954={studyReviewSessionRecap.rated}>
+          {formatCountLabel(studyReviewSessionRecap.rated, 'rated question', 'rated questions')} toward goal
+        </span>
+        <span>{studyReviewSessionRecap.durationSeconds}s</span>
+        <span>
+          {STUDY_QUESTION_DIFFICULTIES.map((difficulty) => {
+            const count = studyReviewSessionRecap.difficultyCounts[difficulty] ?? 0
+            return count > 0 ? `${formatStudyDifficultyLabel(difficulty)} ${count}` : null
+          })
+            .filter(Boolean)
+            .join(' / ') || 'All difficulty'}
+        </span>
+      </div>
+    )
+  }
+
+  function renderStudyReviewSessionProgress(card: StudyCardRecord | null, surface: 'desktop' | 'focused') {
+    if (!studyReviewSession || !card || !studyReviewSession.cardIds.includes(card.id)) {
+      return null
+    }
+    const currentIndex = studyReviewSession.cardIds.indexOf(card.id)
+    const completedCount = studyReviewSession.completedCardIds.length
+    const totalCount = studyReviewSession.cardIds.length
+    const progressPercent = totalCount > 0 ? Math.round(((currentIndex + 1) / totalCount) * 100) : 0
+    return (
+      <div
+        className={`recall-study-session-progress-stage952 recall-study-session-progress-${surface}-stage952`}
+        data-study-review-session-progress-stage952={`${currentIndex + 1}/${totalCount}`}
+        role="status"
+      >
+        <span>
+          Question {currentIndex + 1} / {totalCount}
+        </span>
+        <span>{completedCount} rated</span>
+        <span>{formatStudyDifficultyLabel(getStudyCardDifficulty(card))}</span>
+        <span>{formatCountLabel(new Set(studyReviewSession.sourceDocumentIds).size, 'source', 'sources')}</span>
+        <span className="recall-study-session-progress-track-stage952" aria-hidden="true">
+          <span style={{ width: `${progressPercent}%` }} />
+        </span>
+      </div>
+    )
+  }
+
   function renderStudyCardCreateAction(surface: StudyCardCreateDraft['surface']) {
     return (
       <button
@@ -16319,6 +19210,44 @@ export function RecallWorkspace({
       >
         New question
       </button>
+    )
+  }
+
+  function renderStudyDifficultySelector({
+    difficulty,
+    onChange,
+    surface,
+  }: {
+    difficulty: StudyQuestionDifficulty
+    onChange: (difficulty: StudyQuestionDifficulty) => void
+    surface: 'create' | 'edit'
+  }) {
+    return (
+      <div
+        className="recall-study-difficulty-selector-stage952"
+        data-study-manual-difficulty-selector-stage952={surface}
+        role="group"
+        aria-label="Question difficulty"
+      >
+        <span className="recall-study-choice-editor-label-stage940">Difficulty</span>
+        {STUDY_QUESTION_DIFFICULTIES.map((option) => (
+	            <button
+	              aria-label={`Manual question difficulty ${formatStudyDifficultyLabel(option)}`}
+	              aria-pressed={difficulty === option}
+            className={
+              difficulty === option
+                ? 'recall-study-review-history-filter-button-stage928 recall-study-review-history-filter-button-active-stage928'
+                : 'recall-study-review-history-filter-button-stage928'
+            }
+            data-study-manual-difficulty-option-stage952={option}
+            key={`${surface}:difficulty:${option}`}
+            type="button"
+            onClick={() => onChange(option)}
+          >
+            {formatStudyDifficultyLabel(option)}
+          </button>
+        ))}
+      </div>
     )
   }
 
@@ -16442,6 +19371,39 @@ export function RecallWorkspace({
                 }
               />
             </label>
+            {renderStudyDifficultySelector({
+              difficulty: studyCreateDraft.difficulty,
+              onChange: (difficulty) =>
+                setStudyCreateDraft((current) => (current ? { ...current, difficulty } : current)),
+              surface: 'create',
+            })}
+            <div
+              className="recall-study-support-editor-stage950"
+              data-study-support-editor-stage950="create"
+            >
+              <label className="field recall-study-card-create-field-stage938">
+                <span>Hint</span>
+                <textarea
+                  data-study-support-hint-stage950="create"
+                  value={studyCreateDraft.hint}
+                  onChange={(event) =>
+                    setStudyCreateDraft((current) => (current ? { ...current, hint: event.target.value } : current))
+                  }
+                />
+              </label>
+              <label className="field recall-study-card-create-field-stage938">
+                <span>Explanation</span>
+                <textarea
+                  data-study-support-explanation-stage950="create"
+                  value={studyCreateDraft.explanation}
+                  onChange={(event) =>
+                    setStudyCreateDraft((current) =>
+                      current ? { ...current, explanation: event.target.value } : current,
+                    )
+                  }
+                />
+              </label>
+            </div>
             {isStudyStructuredCardType(studyCreateDraft.cardType) ? (
               renderStudyQuestionPayloadEditor({
                 blankTemplate: studyCreateDraft.blankTemplate,
@@ -16637,6 +19599,36 @@ export function RecallWorkspace({
             }
           />
         </label>
+        {renderStudyDifficultySelector({
+          difficulty: studyEditDraft.difficulty,
+          onChange: (difficulty) => setStudyEditDraft((current) => (current ? { ...current, difficulty } : current)),
+          surface: 'edit',
+        })}
+        <div
+          className="recall-study-support-editor-stage950"
+          data-study-support-editor-stage950="edit"
+        >
+          <label className="field recall-study-card-edit-field-stage936">
+            <span>Hint</span>
+            <textarea
+              data-study-support-hint-stage950="edit"
+              value={studyEditDraft.hint}
+              onChange={(event) =>
+                setStudyEditDraft((current) => (current ? { ...current, hint: event.target.value } : current))
+              }
+            />
+          </label>
+          <label className="field recall-study-card-edit-field-stage936">
+            <span>Explanation</span>
+            <textarea
+              data-study-support-explanation-stage950="edit"
+              value={studyEditDraft.explanation}
+              onChange={(event) =>
+                setStudyEditDraft((current) => (current ? { ...current, explanation: event.target.value } : current))
+              }
+            />
+          </label>
+        </div>
         {isStudyStructuredCardType(studyEditDraft.cardType) ? (
           renderStudyQuestionPayloadEditor({
             blankTemplate: studyEditDraft.blankTemplate,
@@ -16867,6 +19859,116 @@ export function RecallWorkspace({
             {option.label}
           </button>
         ))}
+      </div>
+    )
+  }
+
+  function renderStudyDifficultyFilterControls(surface: 'desktop' | 'focused') {
+    const difficultyCounts = new Map<StudyQuestionDifficultyFilter, number>([['all', reviewHistoryFilteredStudyQuestionCount]])
+    for (const difficulty of STUDY_QUESTION_DIFFICULTIES) {
+      difficultyCounts.set(
+        difficulty,
+        reviewHistoryFilteredStudyQuestionCards.filter((card) => getStudyCardDifficulty(card) === difficulty).length,
+      )
+    }
+    return (
+      <div
+        className={`recall-study-difficulty-filter-options-stage952 recall-study-difficulty-filter-options-${surface}-stage952`}
+        data-study-difficulty-filter-options-stage952="true"
+        role="group"
+        aria-label="Question difficulty filters"
+      >
+        {(['all', ...STUDY_QUESTION_DIFFICULTIES] as StudyQuestionDifficultyFilter[]).map((difficulty) => (
+          <button
+            aria-pressed={studyDifficultyFilter === difficulty}
+            className={
+              studyDifficultyFilter === difficulty
+                ? 'recall-study-review-history-filter-button-stage928 recall-study-review-history-filter-button-active-stage928'
+                : 'recall-study-review-history-filter-button-stage928'
+            }
+            data-study-difficulty-filter-option-stage952={difficulty}
+            data-study-difficulty-filter-count-stage952={difficultyCounts.get(difficulty) ?? 0}
+            key={`study-difficulty-filter:${surface}:${difficulty}`}
+            type="button"
+            onClick={() =>
+              updateStudyState((current) =>
+                (current.difficultyFilter ?? 'all') === difficulty
+                  ? current
+                  : {
+                      ...current,
+                      difficultyFilter: difficulty,
+                    },
+              )
+            }
+          >
+            {difficulty === 'all' ? 'All levels' : formatStudyDifficultyLabel(difficulty)}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  function renderStudyHabitGoalCard(progress: StudyReviewProgress, surface: 'dashboard' | 'focused') {
+    const goal = progress.habit_goal
+    if (!goal) {
+      return null
+    }
+    const goalUnitSingular = goal.mode === 'weekly' ? 'active day' : 'review'
+    const goalUnitPlural = goal.mode === 'weekly' ? 'active days' : 'reviews'
+    const periodLabel = goal.mode === 'weekly' ? 'This week' : 'Today'
+    const resetLabel = dateFormatter.format(new Date(`${goal.next_reset_date}T00:00:00`))
+    return (
+      <div
+        className={`recall-study-habit-goal-card-stage954 recall-study-habit-goal-card-${surface}-stage954`}
+        data-study-habit-goal-progress-card-stage954="true"
+        data-study-habit-goal-mode-stage954={goal.mode}
+        data-study-habit-goal-met-stage954={goal.is_met ? 'true' : 'false'}
+        data-study-habit-goal-source-scoped-stage954={progress.scope_source_document_id ? 'true' : 'false'}
+        role="region"
+        aria-label="Study habit goal"
+      >
+        <div className="recall-study-habit-goal-head-stage954">
+          <span className="recall-study-dashboard-current-kicker">Habit goal</span>
+          <strong>
+            {periodLabel}: {goal.current_count}/{goal.target_count}
+          </strong>
+          <span>
+            {goal.is_met ? 'Goal met' : `${formatCountLabel(goal.remaining_count, goalUnitSingular, goalUnitPlural)} left`}
+          </span>
+        </div>
+        <div className="recall-study-habit-goal-meter-stage954" aria-hidden="true">
+          <span
+            style={{
+              width: `${Math.min(100, Math.round((goal.current_count / Math.max(goal.target_count, 1)) * 100))}%`,
+            }}
+          />
+        </div>
+        <div className="recall-study-habit-goal-meta-stage954">
+          <span>{goal.mode === 'weekly' ? 'Weekly target' : 'Daily target'}</span>
+          <span>Resets {resetLabel}</span>
+        </div>
+        <div
+          className="recall-study-habit-goal-history-stage954"
+          data-study-habit-goal-history-stage954={goal.recent_history.length}
+          role="list"
+          aria-label="Recent habit goal history"
+        >
+          {goal.recent_history.slice(-4).map((entry) => (
+            <span
+              className={
+                entry.is_met
+                  ? 'recall-study-habit-goal-history-cell-stage954 recall-study-habit-goal-history-cell-met-stage954'
+                  : 'recall-study-habit-goal-history-cell-stage954'
+              }
+              data-study-habit-goal-history-cell-stage954={entry.is_met ? 'met' : 'missed'}
+              key={`${surface}:habit-goal:${entry.period_start}:${entry.period_end}`}
+              role="listitem"
+              title={`${entry.period_start} · ${entry.count}/${entry.target_count}`}
+            >
+              {entry.count}
+            </span>
+          ))}
+        </div>
       </div>
     )
   }
@@ -17132,6 +20234,138 @@ export function RecallWorkspace({
       ['unscheduled', 'Unscheduled'],
     ] as const
 
+    function renderStudyGenerationControls(surface: 'dashboard' | 'focused') {
+      const selectedCount = studyGenerationQuestionTypes.length || STUDY_GENERATED_CARD_TYPES.length
+      const generationScopeLabel = studySourceScopeDocumentId
+        ? studySourceScopeDocument?.title ?? 'Selected source'
+        : 'All sources'
+      return (
+        <div
+          className={`recall-study-generation-controls-stage946 recall-study-generation-controls-${surface}-stage946`}
+          data-study-quiz-generation-controls-stage946="true"
+          data-study-quiz-generation-source-scoped-stage946={studySourceScopeDocumentId ? 'true' : 'false'}
+          aria-label="Study generation controls"
+        >
+          <div className="recall-study-generation-head-stage946">
+            <span className="recall-study-dashboard-current-kicker">Generate questions</span>
+            <strong>{generationScopeLabel}</strong>
+            <span>{selectedCount} types · up to {studyGenerationMaxPerSource} per source</span>
+          </div>
+          <div
+            className="recall-study-generation-type-grid-stage946"
+            data-study-quiz-generation-type-grid-stage946="true"
+            role="group"
+            aria-label="Generated question types"
+          >
+            {STUDY_GENERATED_CARD_TYPES.map((questionType) => {
+              const selected = studyGenerationQuestionTypes.includes(questionType)
+              return (
+                <button
+                  key={`study-generation-type:${surface}:${questionType}`}
+                  aria-pressed={selected}
+                  className={
+                    selected
+                      ? 'recall-study-generation-type-chip-stage946 recall-study-generation-type-chip-active-stage946'
+                      : 'recall-study-generation-type-chip-stage946'
+                  }
+                  data-study-quiz-generation-type-stage946={questionType}
+                  type="button"
+                  onClick={() => handleToggleStudyGenerationQuestionType(questionType)}
+                >
+                  {formatStudyCardTypeLabel(questionType)}
+                </button>
+              )
+            })}
+          </div>
+          <div
+            className="recall-study-generation-support-options-stage950"
+            data-study-generation-support-options-stage950="true"
+            role="group"
+            aria-label="Generated support options"
+          >
+            <button
+              aria-pressed={studyGenerationIncludeHints}
+              className={
+                studyGenerationIncludeHints
+                  ? 'recall-study-generation-type-chip-stage946 recall-study-generation-type-chip-active-stage946'
+                  : 'recall-study-generation-type-chip-stage946'
+              }
+              data-study-generation-include-hints-stage950={studyGenerationIncludeHints ? 'true' : 'false'}
+              type="button"
+              onClick={() => setStudyGenerationIncludeHints((current) => !current)}
+            >
+              Hints
+            </button>
+            <button
+              aria-pressed={studyGenerationIncludeExplanations}
+              className={
+                studyGenerationIncludeExplanations
+                  ? 'recall-study-generation-type-chip-stage946 recall-study-generation-type-chip-active-stage946'
+                  : 'recall-study-generation-type-chip-stage946'
+              }
+              data-study-generation-include-explanations-stage950={studyGenerationIncludeExplanations ? 'true' : 'false'}
+              type="button"
+              onClick={() => setStudyGenerationIncludeExplanations((current) => !current)}
+            >
+              Explanations
+            </button>
+          </div>
+          <div
+            className="recall-study-generation-support-options-stage950"
+            data-study-generation-difficulty-options-stage952="true"
+            role="group"
+            aria-label="Generated difficulty"
+          >
+	            {(['all', ...STUDY_QUESTION_DIFFICULTIES] as StudyQuestionDifficultyFilter[]).map((difficulty) => (
+	              <button
+	                aria-label={
+	                  difficulty === 'all'
+	                    ? 'Generated difficulty All'
+	                    : `Generated difficulty ${formatStudyDifficultyLabel(difficulty)}`
+	                }
+	                aria-pressed={studyGenerationDifficulty === difficulty}
+                className={
+                  studyGenerationDifficulty === difficulty
+                    ? 'recall-study-generation-type-chip-stage946 recall-study-generation-type-chip-active-stage946'
+                    : 'recall-study-generation-type-chip-stage946'
+                }
+                data-study-generation-difficulty-option-stage952={difficulty}
+                key={`study-generation-difficulty:${surface}:${difficulty}`}
+                type="button"
+                onClick={() => setStudyGenerationDifficulty(difficulty)}
+              >
+                {difficulty === 'all' ? 'All levels' : formatStudyDifficultyLabel(difficulty)}
+              </button>
+            ))}
+          </div>
+          <label className="field recall-study-generation-max-field-stage946">
+            <span>Max per source</span>
+            <input
+              aria-label="Max cards per source"
+              data-study-quiz-generation-max-stage946="true"
+              max={20}
+              min={1}
+              type="number"
+              value={studyGenerationMaxPerSource}
+              onChange={(event) => {
+                const value = Number.parseInt(event.target.value, 10)
+                setStudyGenerationMaxPerSource(Number.isFinite(value) ? Math.min(20, Math.max(1, value)) : 8)
+              }}
+            />
+          </label>
+          {studyGenerationResult ? (
+            <div
+              className="recall-study-generation-result-stage946"
+              data-study-quiz-generation-result-stage946={studyGenerationResult.total_count}
+              role="status"
+            >
+              {formatStudyGenerationResultSummary(studyGenerationResult)}
+            </div>
+          ) : null}
+        </div>
+      )
+    }
+
     function renderStudyQuestionFilterTabs() {
       return (
         <div className="recall-stage-tabs recall-study-questions-filter-tabs" aria-label="Study filters" role="tablist">
@@ -17157,6 +20391,7 @@ export function RecallWorkspace({
       const scheduleActionLabel = getStudyScheduleStateActionLabel(card)
       const scheduleBusy = studyBusyKey === `schedule-state:${card.id}:${scheduleAction}`
       const selected = studySelectedQuestionIds.has(card.id)
+      const questionDifficulty = getStudyCardDifficulty(card)
       return (
         <div
           key={card.id}
@@ -17175,6 +20410,7 @@ export function RecallWorkspace({
           data-study-review-history-question-result-stage928={
             studyReviewHistoryFilterActive ? studyReviewHistoryFilter : undefined
           }
+          data-study-question-difficulty-stage952={questionDifficulty}
           data-study-question-schedule-state-stage934={card.status}
           data-study-question-selected-stage936={selected ? 'true' : undefined}
           data-study-question-type-stage940={card.card_type}
@@ -17211,6 +20447,7 @@ export function RecallWorkspace({
             ) : null}
             <span className="recall-study-queue-item-meta">
               <span>{formatStudyCardTypeLabel(card.card_type)}</span>
+              <span>{formatStudyDifficultyLabel(questionDifficulty)}</span>
               <span>{STUDY_KNOWLEDGE_STAGE_LABELS[card.knowledge_stage]}</span>
               <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
               <span>{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
@@ -17632,7 +20869,10 @@ export function RecallWorkspace({
       const maxDailyReviewCount = Math.max(1, ...dailyActivity.map((day) => day.review_count))
       const ratingCounts = studyProgress?.rating_counts ?? []
       const recentReviews = studyProgress?.recent_reviews.slice(0, 3) ?? []
+      const recentAttempts = studyProgress?.recent_attempts?.slice(0, 3) ?? []
       const defaultSourceRows = studyProgress?.source_breakdown.slice(0, 3) ?? []
+      const totalAttempts = studyProgress?.total_attempts ?? 0
+      const attemptAccuracy = studyProgress?.accuracy ?? null
       const mostRecentSourceId = recentReviews[0]?.source_document_id ?? null
       const mostRecentSourceRow =
         mostRecentSourceId && !defaultSourceRows.some((source) => source.source_document_id === mostRecentSourceId)
@@ -17675,6 +20915,10 @@ export function RecallWorkspace({
         const lastReviewedLabel = source.last_reviewed_at
           ? dateFormatter.format(new Date(source.last_reviewed_at))
           : 'No reviews yet'
+        const sourceAttemptLabel =
+          source.attempt_count && source.accuracy !== null && source.accuracy !== undefined
+            ? ` · ${Math.round(source.accuracy * 100)}% attempts`
+            : ''
         return (
           <div
             className="recall-study-review-progress-source-row-stage922"
@@ -17686,7 +20930,7 @@ export function RecallWorkspace({
             <span className="recall-study-review-progress-source-copy-stage922">
               <strong>{sourceTitle}</strong>
               <span>
-                {formatCountLabel(source.review_count, 'review', 'reviews')} · {formatCountLabel(source.card_count, 'card', 'cards')} · last {lastReviewedLabel}
+                {formatCountLabel(source.review_count, 'review', 'reviews')} · {formatCountLabel(source.card_count, 'card', 'cards')} · last {lastReviewedLabel}{sourceAttemptLabel}
               </span>
             </span>
             <span className="recall-study-review-progress-source-actions-stage922">
@@ -17786,9 +21030,17 @@ export function RecallWorkspace({
               <strong>{studyProgress?.active_days ?? 0}</strong>
               Active days
             </span>
+            <span role="listitem" data-study-attempt-progress-stage948="true">
+              <strong data-study-attempt-progress-total-stage948={totalAttempts}>
+                {attemptAccuracy === null ? totalAttempts : `${Math.round(attemptAccuracy * 100)}%`}
+              </strong>
+              Attempts
+            </span>
           </div>
 
-          {totalReviews === 0 && !studyLoading ? (
+          {studyProgress ? renderStudyHabitGoalCard(studyProgress, 'dashboard') : null}
+
+          {totalReviews === 0 && totalAttempts === 0 && !studyLoading ? (
             <div
               className="recall-study-review-progress-empty-stage922"
               data-study-review-progress-empty-stage922="true"
@@ -17880,12 +21132,35 @@ export function RecallWorkspace({
                       data-study-review-progress-recent-row-stage922={review.review_card_id}
                       key={`study-progress-review:${review.id}`}
                       type="button"
-                      onClick={() => handleSelectStudyProgressReview(review)}
+                      onClick={() => {
+                        void handleSelectStudyProgressReview(review)
+                      }}
                     >
                       <span>
                         <strong>{review.prompt}</strong>
                         <span>
                           {review.document_title} · {STUDY_REVIEW_RATING_LABELS[review.rating]} · {dateFormatter.format(new Date(review.reviewed_at))}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                  {recentAttempts.map((attempt) => (
+                    <button
+                      className="recall-study-review-progress-review-row-stage922"
+                      data-study-attempt-progress-recent-stage948={attempt.review_card_id}
+                      key={`study-progress-attempt:${attempt.id}`}
+                      type="button"
+                      onClick={() => {
+                        const attemptedCard = studyCards.find((card) => card.id === attempt.review_card_id)
+                        if (attemptedCard) {
+                          handleSelectStudyCard(attemptedCard)
+                        }
+                      }}
+                    >
+                      <span>
+                        <strong>{attempt.prompt}</strong>
+                        <span>
+                          {attempt.document_title} · {attempt.is_correct === true ? 'Correct' : attempt.is_correct === false ? 'Not quite' : 'Recorded'} · {dateFormatter.format(new Date(attempt.attempted_at))}
                         </span>
                       </span>
                     </button>
@@ -17933,6 +21208,7 @@ export function RecallWorkspace({
               {renderStudyQuestionFilterTabs()}
               {renderStudyCollectionFilterControls('desktop')}
               {renderStudyReviewHistoryFilterControls('desktop')}
+              {renderStudyDifficultyFilterControls('desktop')}
               <div
                 className="recall-study-question-search-stage914"
                 data-study-source-scoped-queue-stage914={studySourceScopeDocumentId ? 'true' : undefined}
@@ -17970,6 +21246,7 @@ export function RecallWorkspace({
                 {renderStudyScheduleDrilldownChip('desktop')}
                 {renderStudyKnowledgeStageFilterChip('desktop')}
                 {renderStudyReviewHistoryFilterChip('desktop')}
+                {renderStudyDifficultyFilterChip('desktop')}
                 {renderStudyQuestionActiveFilters('desktop')}
                 <div className="recall-study-question-create-row-stage938">
                   {renderStudyCardCreateAction('desktop')}
@@ -18023,6 +21300,7 @@ export function RecallWorkspace({
                     data-study-schedule-empty-stage918={studyScheduleDrilldownActive ? 'true' : undefined}
                     data-study-knowledge-stage-empty-stage924={studyKnowledgeStageFilterActive ? 'true' : undefined}
                     data-study-review-history-empty-stage928={studyReviewHistoryFilterActive ? 'true' : undefined}
+                    data-study-difficulty-empty-stage952={studyDifficultyFilterActive ? studyDifficultyFilter : undefined}
                   >
                     <p>{getStudyQuestionsEmptyMessage()}</p>
                     {studyQuestionSearchActive ? (
@@ -18068,6 +21346,16 @@ export function RecallWorkspace({
                         onClick={() => updateStudyState((current) => ({ ...current, reviewHistoryFilter: 'all' }))}
                       >
                         Clear history
+                      </button>
+                    ) : null}
+                    {studyDifficultyFilterActive ? (
+                      <button
+                        className="ghost-button"
+                        data-study-difficulty-empty-clear-stage952="true"
+                        type="button"
+                        onClick={() => updateStudyState((current) => ({ ...current, difficultyFilter: 'all' }))}
+                      >
+                        Clear difficulty
                       </button>
                     ) : null}
                   </div>
@@ -18189,17 +21477,19 @@ export function RecallWorkspace({
               </div>
               {renderStudyCardCreateAction('dashboard')}
               <button
-                aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
+                aria-label={studyBusyKey === 'generate' ? 'Generating cards' : 'Generate cards'}
                 className="ghost-button recall-study-dashboard-refresh"
                 disabled={studyBusyKey === 'generate'}
                 type="button"
-                onClick={handleGenerateStudyCards}
+                onClick={() => handleGenerateStudyCards()}
               >
-                {studyBusyKey === 'generate' ? 'Refreshing…' : 'Refresh'}
+                {studyBusyKey === 'generate' ? 'Generating...' : 'Generate'}
               </button>
             </div>
           </div>
           {renderStudyCardCreateSurface('dashboard')}
+          {studyStatus !== 'error' ? renderStudyQuizSettingsControls('dashboard') : null}
+          {studyStatus !== 'error' ? renderStudyGenerationControls('dashboard') : null}
           {renderStudyKnowledgeStagePanel()}
           {renderStudyMemoryProgressPanel()}
           {renderStudyReviewProgressPanel()}
@@ -18238,6 +21528,9 @@ export function RecallWorkspace({
                   aria-label="Study card metadata"
                 >
                   <span className="status-chip" role="listitem">{formatStudyCardTypeLabel(activeStudyCard.card_type)}</span>
+                  <span className="status-chip status-muted" data-study-active-difficulty-stage952={getStudyCardDifficulty(activeStudyCard)} role="listitem">
+                    {formatStudyDifficultyLabel(getStudyCardDifficulty(activeStudyCard))}
+                  </span>
                   <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
                   <span className="status-chip status-muted" role="listitem">
                     Due {dateFormatter.format(new Date(activeStudyCard.due_at))}
@@ -18255,13 +21548,19 @@ export function RecallWorkspace({
               ) : null}
             </div>
 
+            {activeStudyCard && studyReviewSessionRecap ? renderStudySessionRecap() : null}
+
             {!activeStudyCard ? (
               <div className="recall-library-inline-state recall-study-review-empty">
-                <p>
-                  {studyStatus === 'error'
-                    ? 'Study cards are unavailable until the local service reconnects.'
-                    : 'No active study card yet. Open Questions to choose one or refresh the local card set.'}
-                </p>
+                {studyReviewSessionRecap ? (
+                  renderStudySessionRecap()
+                ) : (
+                  <p>
+                    {studyStatus === 'error'
+                      ? 'Study cards are unavailable until the local service reconnects.'
+                      : 'No active study card yet. Open Questions to choose one or generate local cards.'}
+                  </p>
+                )}
               </div>
             ) : (
               <div
@@ -18272,6 +21571,7 @@ export function RecallWorkspace({
                 }
               >
                 {renderStudyCardEditSurface('desktop')}
+                {renderStudyReviewSessionProgress(activeStudyCard, 'desktop')}
                 <div
                   className="recall-study-review-prompt-inline"
                   aria-label="Active review prompt"
@@ -18287,10 +21587,12 @@ export function RecallWorkspace({
                   </div>
                 </div>
 
+                {activeStudyCardReviewEligible ? renderStudyHintSupport(activeStudyCard, 'desktop') : null}
                 {activeStudyCardReviewEligible ? renderStudyChoiceReviewControls(activeStudyCard, 'desktop') : null}
                 {activeStudyCardReviewEligible ? renderStudyMatchingReviewControls(activeStudyCard, 'desktop') : null}
                 {activeStudyCardReviewEligible ? renderStudyOrderingReviewControls(activeStudyCard, 'desktop') : null}
                 {activeStudyCardReviewEligible ? renderStudyShortAnswerAttemptControls(activeStudyCard, 'desktop') : null}
+                {activeStudyCardReviewEligible ? renderStudyAttemptFeedback(activeStudyCard) : null}
 
                 {showAnswer && activeStudyCardReviewEligible ? (
                   <div
@@ -18337,7 +21639,7 @@ export function RecallWorkspace({
                         <button
                           key={rating}
                           className="recall-study-rating-button"
-                          disabled={studyBusyKey === `review:${activeStudyCard.id}:${rating}`}
+                          disabled={studyBusyKey === `review:${activeStudyCard.id}:${rating}` || studyAttemptBusyCardId === activeStudyCard.id}
                           type="button"
                           onClick={() => handleReviewCard(rating)}
                         >
@@ -18355,6 +21657,7 @@ export function RecallWorkspace({
                     Reveal the answer to rate recall.
                   </p>
                 ) : null}
+                {activeStudyCardReviewEligible ? renderStudyExplanationSupport(activeStudyCard, 'desktop') : null}
               </div>
             )}
           </section>
@@ -18417,15 +21720,17 @@ export function RecallWorkspace({
                       <h3>Review handoff</h3>
                     </div>
                     <div className="recall-study-dock-controls">
+                      {renderStudyReviewTimerControls('desktop')}
                       {studyQuestionFilterStackActive && studyReviewQueueCards.length > 0 ? (
                         <button
                           aria-label="Review filtered questions"
                           className="primary-button recall-study-review-filtered-button-stage928"
                           data-study-review-filtered-handoff-stage928="true"
+                          disabled={studyBusyKey === 'session-start'}
                           type="button"
-                          onClick={handleReviewFilteredStudyQuestions}
+                          onClick={() => void handleReviewFilteredStudyQuestions()}
                         >
-                          Review filtered
+                          {studyBusyKey === 'session-start' ? 'Starting...' : 'Review filtered'}
                         </button>
                       ) : null}
                       <button
@@ -20185,6 +23490,8 @@ export function RecallWorkspace({
                     </div>
                   ) : null}
 
+                  {renderHomeWorkspaceExportPanel()}
+
                   {documentsLoading ? (
                     <div className="recall-library-inline-state" role="status">
                       Loading saved sources…
@@ -20549,6 +23856,12 @@ export function RecallWorkspace({
                                 const browseGroupButtonDetail = browseGroupIntegratesDetailWithPreviews
                                   ? null
                                   : browseGroupDetail
+                                const browseGroupCustomCollectionId = getHomeCustomCollectionIdFromSectionKey(section.key)
+                                const browseGroupIsCustomCollection = Boolean(browseGroupCustomCollectionId)
+                                const browseGroupDepth = browseGroupIsCustomCollection ? section.collectionDepth ?? 0 : 0
+                                const browseGroupStyle = browseGroupIsCustomCollection
+                                  ? ({ '--home-collection-depth': browseGroupDepth } as CSSProperties)
+                                  : undefined
 
                                 return (
                                   <div
@@ -20571,7 +23884,14 @@ export function RecallWorkspace({
                                     data-home-personal-notes-organizer-selected-stage898={
                                       browseGroupActive && isHomePersonalNotesSection(section.key) ? 'true' : undefined
                                     }
+                                    data-home-collection-tree-row-stage968={
+                                      browseGroupIsCustomCollection ? 'true' : undefined
+                                    }
+                                    data-home-collection-tree-depth-stage968={
+                                      browseGroupIsCustomCollection ? String(browseGroupDepth) : undefined
+                                    }
                                     role="listitem"
+                                    style={browseGroupStyle}
                                     onDragOver={(event) => handleHomeOrganizerSectionDragOver(section.key, event)}
                                     onDrop={(event) => handleHomeOrganizerSectionDrop(section.key, event)}
                                   >
@@ -20885,6 +24205,7 @@ export function RecallWorkspace({
                                         </span>
                                       </div>
                                       {!homeOrganizerVisible && showHomeReopenCluster ? renderHomeReopenCluster() : null}
+                                      {renderHomeCollectionWorkspaceActions()}
                                       {visibleHomeSelectedSectionDocuments.length > 0 ? (
                                         <div
                                           className={
@@ -21204,7 +24525,7 @@ export function RecallWorkspace({
                     </button>
                     {renderStudyCardCreateAction('focused')}
                     <button
-                      aria-label={studyBusyKey === 'generate' ? 'Refreshing cards' : 'Refresh cards'}
+                      aria-label={studyBusyKey === 'generate' ? 'Generating cards' : 'Generate cards'}
                       className={
                         showFocusedStudySplitView
                           ? 'ghost-button recall-study-focus-rail-button recall-study-focus-rail-button-refresh'
@@ -21214,9 +24535,9 @@ export function RecallWorkspace({
                       }
                       disabled={studyBusyKey === 'generate'}
                       type="button"
-                      onClick={handleGenerateStudyCards}
+                      onClick={() => handleGenerateStudyCards()}
                     >
-                      {studyBusyKey === 'generate' ? 'Refreshing…' : 'Refresh'}
+                      {studyBusyKey === 'generate' ? 'Generating...' : 'Generate'}
                     </button>
                   </div>
                 </div>
@@ -21315,6 +24636,7 @@ export function RecallWorkspace({
                           Total
                         </span>
                       </div>
+                      {renderStudyHabitGoalCard(studyProgress, 'focused')}
                       {(() => {
                         const dailyActivity = studyProgress.daily_activity
                         const maxDailyReviewCount = Math.max(1, ...dailyActivity.map((day) => day.review_count))
@@ -21449,6 +24771,7 @@ export function RecallWorkspace({
                 </div>
                 {renderStudyCollectionFilterControls('focused')}
                 {renderStudyReviewHistoryFilterControls('focused')}
+                {renderStudyDifficultyFilterControls('focused')}
 
                   <div
                     className={
@@ -21468,10 +24791,13 @@ export function RecallWorkspace({
                       {renderStudyScheduleDrilldownChip('focused')}
                       {renderStudyKnowledgeStageFilterChip('focused')}
                       {renderStudyReviewHistoryFilterChip('focused')}
+                      {renderStudyDifficultyFilterChip('focused')}
                       {renderStudyQuestionActiveFilters('focused')}
                       <div className="recall-study-question-create-row-stage938">
                         {renderStudyCardCreateAction('focused')}
                       </div>
+                      {renderStudyQuizSettingsControls('focused')}
+                      {renderStudyReviewTimerControls('focused')}
                       {renderStudyCardCreateSurface('focused')}
                       {renderStudyQuestionManagementToolbar('focused')}
                       {renderStudyCardEditSurface('focused')}
@@ -21525,6 +24851,7 @@ export function RecallWorkspace({
                       data-study-schedule-empty-stage918={studyScheduleDrilldownActive ? 'true' : undefined}
                       data-study-knowledge-stage-empty-stage924={studyKnowledgeStageFilterActive ? 'true' : undefined}
                       data-study-review-history-empty-stage928={studyReviewHistoryFilterActive ? 'true' : undefined}
+                      data-study-difficulty-empty-stage952={studyDifficultyFilterActive ? studyDifficultyFilter : undefined}
                     >
                       <p>{getStudyQuestionsEmptyMessage()}</p>
                       {studyQuestionSearchActive ? (
@@ -21572,6 +24899,16 @@ export function RecallWorkspace({
                           Clear history
                         </button>
                       ) : null}
+                      {studyDifficultyFilterActive ? (
+                        <button
+                          className="ghost-button"
+                          data-study-difficulty-empty-clear-stage952="true"
+                          type="button"
+                          onClick={() => updateStudyState((current) => ({ ...current, difficultyFilter: 'all' }))}
+                        >
+                          Clear difficulty
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                   {(studyBrowseDrawerOpen ? visibleStudyQuestionCards : visibleStudyQueueCards).map((card) => {
@@ -21580,6 +24917,7 @@ export function RecallWorkspace({
                     const scheduleActionLabel = getStudyScheduleStateActionLabel(card)
                     const scheduleBusy = studyBusyKey === `schedule-state:${card.id}:${scheduleAction}`
                     const selected = studySelectedQuestionIds.has(card.id)
+                    const questionDifficulty = getStudyCardDifficulty(card)
                     return (
                       <div
                         key={card.id}
@@ -21603,6 +24941,7 @@ export function RecallWorkspace({
                         data-study-review-history-question-result-stage928={
                           studyBrowseDrawerOpen && studyReviewHistoryFilterActive ? studyReviewHistoryFilter : undefined
                         }
+                        data-study-question-difficulty-stage952={questionDifficulty}
                         data-study-question-schedule-state-stage934={card.status}
                         data-study-question-selected-stage936={selected ? 'true' : undefined}
                         data-study-question-type-stage940={card.card_type}
@@ -21641,6 +24980,7 @@ export function RecallWorkspace({
                           ) : null}
                           <span className="recall-study-queue-item-meta">
                             <span>{formatStudyCardTypeLabel(card.card_type)}</span>
+                            <span>{formatStudyDifficultyLabel(questionDifficulty)}</span>
                             <span>{STUDY_KNOWLEDGE_STAGE_LABELS[card.knowledge_stage]}</span>
                             <span>Due {dateFormatter.format(new Date(card.due_at))}</span>
                             <span>{formatCountLabel(card.review_count, 'review', 'reviews')}</span>
@@ -21759,6 +25099,9 @@ export function RecallWorkspace({
                       </div>
                       <div className="recall-hero-metrics recall-study-focused-meta" role="list" aria-label="Study card metadata">
                         <span className="status-chip" role="listitem">{formatStudyCardTypeLabel(activeStudyCard.card_type)}</span>
+                        <span className="status-chip status-muted" data-study-active-difficulty-stage952={getStudyCardDifficulty(activeStudyCard)} role="listitem">
+                          {formatStudyDifficultyLabel(getStudyCardDifficulty(activeStudyCard))}
+                        </span>
                         <span className="status-chip status-muted" role="listitem">{formatStudyStatus(activeStudyCard.status)}</span>
                         <span className="status-chip status-muted" role="listitem">
                           Due {dateFormatter.format(new Date(activeStudyCard.due_at))}
@@ -21789,15 +25132,18 @@ export function RecallWorkspace({
                         }
                       >
                         {renderStudyCardEditSurface('focused')}
+                        {renderStudyReviewSessionProgress(activeStudyCard, 'focused')}
                         <div className="recall-study-focused-review-section recall-study-focused-review-section-prompt">
                           <strong>Prompt</strong>
                           <p>{activeStudyCard.prompt}</p>
                         </div>
 
+                        {activeStudyCardReviewEligible ? renderStudyHintSupport(activeStudyCard, 'focused') : null}
                         {activeStudyCardReviewEligible ? renderStudyChoiceReviewControls(activeStudyCard, 'focused') : null}
                         {activeStudyCardReviewEligible ? renderStudyMatchingReviewControls(activeStudyCard, 'focused') : null}
                         {activeStudyCardReviewEligible ? renderStudyOrderingReviewControls(activeStudyCard, 'focused') : null}
                         {activeStudyCardReviewEligible ? renderStudyShortAnswerAttemptControls(activeStudyCard, 'focused') : null}
+                        {activeStudyCardReviewEligible ? renderStudyAttemptFeedback(activeStudyCard) : null}
 
                         {showAnswer && activeStudyCardReviewEligible ? (
                           <div className="recall-study-focused-review-section recall-study-focused-review-section-answer">
@@ -21835,7 +25181,7 @@ export function RecallWorkspace({
                             ] as const).map(([rating, label]) => (
                               <button
                                 key={rating}
-                                disabled={studyBusyKey === `review:${activeStudyCard.id}:${rating}`}
+                                disabled={studyBusyKey === `review:${activeStudyCard.id}:${rating}` || studyAttemptBusyCardId === activeStudyCard.id}
                                 type="button"
                                 onClick={() => handleReviewCard(rating)}
                               >
@@ -21844,6 +25190,7 @@ export function RecallWorkspace({
                             ))}
                           </div>
                         ) : null}
+                        {activeStudyCardReviewEligible ? renderStudyExplanationSupport(activeStudyCard, 'focused') : null}
                       </div>
                     </div>
                   ) : null}
@@ -21851,15 +25198,18 @@ export function RecallWorkspace({
                   {!showFocusedStudySplitView ? (
                     <>
                       {renderStudyCardEditSurface('focused')}
+                      {renderStudyReviewSessionProgress(activeStudyCard, 'focused')}
                       <div className="study-card-face">
                         <strong>Prompt</strong>
                         <p>{activeStudyCard.prompt}</p>
                       </div>
 
+                      {activeStudyCardReviewEligible ? renderStudyHintSupport(activeStudyCard, 'focused') : null}
                       {activeStudyCardReviewEligible ? renderStudyChoiceReviewControls(activeStudyCard, 'focused') : null}
                       {activeStudyCardReviewEligible ? renderStudyMatchingReviewControls(activeStudyCard, 'focused') : null}
                       {activeStudyCardReviewEligible ? renderStudyOrderingReviewControls(activeStudyCard, 'focused') : null}
                       {activeStudyCardReviewEligible ? renderStudyShortAnswerAttemptControls(activeStudyCard, 'focused') : null}
+                      {activeStudyCardReviewEligible ? renderStudyAttemptFeedback(activeStudyCard) : null}
 
                       {showAnswer && activeStudyCardReviewEligible ? (
                         <div className="study-card-answer">
@@ -21883,6 +25233,7 @@ export function RecallWorkspace({
                           {renderStudyCardScheduleButton(activeStudyCard, 'focused')}
                         </div>
                       )}
+                      {activeStudyCardReviewEligible ? renderStudyExplanationSupport(activeStudyCard, 'focused') : null}
                     </>
                   ) : null}
 
@@ -22131,7 +25482,7 @@ export function RecallWorkspace({
                           <button
                             key={rating}
                             className="recall-study-rating-button"
-                            disabled={studyBusyKey === `review:${activeStudyCard.id}:${rating}`}
+                            disabled={studyBusyKey === `review:${activeStudyCard.id}:${rating}` || studyAttemptBusyCardId === activeStudyCard.id}
                             type="button"
                             onClick={() => handleReviewCard(rating)}
                           >

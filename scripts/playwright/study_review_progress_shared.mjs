@@ -488,7 +488,9 @@ async function createStudyReviewProgressHarness({ baseUrl, stagePrefix }) {
     method: 'POST',
   })
   await fetchJson(`${baseUrl}/api/recall/study/cards/generate`, { method: 'POST' })
-  const cards = await fetchJson(`${baseUrl}/api/recall/study/cards?status=all&limit=${studyCardHarnessLimit}`)
+  const cards = await fetchJson(
+    `${baseUrl}/api/recall/study/cards?status=all&limit=${studyCardHarnessLimit}&source_document_id=${encodeURIComponent(document.id)}`,
+  )
   const card = cards.find((candidate) => candidate.source_document_id === document.id)
   if (!card?.id) {
     throw new Error(`Study progress harness could not find a generated Study card for ${document.id}.`)

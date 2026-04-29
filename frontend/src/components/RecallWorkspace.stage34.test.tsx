@@ -5,9 +5,11 @@ import { useState, type ReactElement } from 'react'
 import { RecallWorkspace } from './RecallWorkspace'
 import { defaultRecallWorkspaceContinuityState, type RecallSection, type RecallWorkspaceContinuityState } from '../lib/appRoute'
 import type {
+  DocumentRecord,
   DocumentView,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
+  LibraryReadingQueueResponse,
   RecallDocumentPreview,
   RecallDocumentRecord,
   RecallNoteRecord,
@@ -203,6 +205,9 @@ const {
   decideRecallGraphNodeMock,
   deleteRecallNoteMock,
   fetchDocumentViewMock,
+  fetchDocumentsMock,
+  fetchLibrarySettingsMock,
+  fetchLibraryReadingQueueMock,
   fetchRecallDocumentMock,
   fetchRecallDocumentPreviewMock,
   fetchRecallDocumentsMock,
@@ -212,6 +217,8 @@ const {
   fetchRecallStudyCardsMock,
   fetchRecallStudyOverviewMock,
   fetchRecallStudyProgressMock,
+  createRecallStudyAnswerAttemptMock,
+  completeRecallDocumentReadingMock,
   generateRecallStudyCardsMock,
   bulkDeleteRecallStudyCardsMock,
   deleteRecallStudyCardMock,
@@ -227,6 +234,9 @@ const {
   decideRecallGraphNodeMock: vi.fn(),
   deleteRecallNoteMock: vi.fn(),
   fetchDocumentViewMock: vi.fn<(documentId: string, mode: string) => Promise<DocumentView>>(),
+  fetchDocumentsMock: vi.fn<() => Promise<DocumentRecord[]>>(),
+  fetchLibrarySettingsMock: vi.fn(),
+  fetchLibraryReadingQueueMock: vi.fn<() => Promise<LibraryReadingQueueResponse>>(),
   fetchRecallDocumentMock: vi.fn(),
   fetchRecallDocumentPreviewMock: vi.fn<(documentId: string) => Promise<RecallDocumentPreview>>(),
   fetchRecallDocumentsMock: vi.fn(),
@@ -236,6 +246,8 @@ const {
   fetchRecallStudyCardsMock: vi.fn(),
   fetchRecallStudyOverviewMock: vi.fn(),
   fetchRecallStudyProgressMock: vi.fn(),
+  createRecallStudyAnswerAttemptMock: vi.fn(),
+  completeRecallDocumentReadingMock: vi.fn(),
   generateRecallStudyCardsMock: vi.fn(),
   bulkDeleteRecallStudyCardsMock: vi.fn(),
   deleteRecallStudyCardMock: vi.fn(),
@@ -250,12 +262,20 @@ const {
 
 vi.mock('../api', () => ({
   buildRecallExportUrl: vi.fn((documentId: string) => `/api/recall/documents/${documentId}/export.md`),
+  buildRecallLearningPackExportUrl: vi.fn(
+    (documentId: string) => `/api/recall/documents/${documentId}/learning-export.md`,
+  ),
+  buildWorkspaceExportUrl: vi.fn(() => '/api/workspace/export.zip'),
   bulkDeleteRecallStudyCards: bulkDeleteRecallStudyCardsMock,
   deleteRecallStudyCard: deleteRecallStudyCardMock,
   deleteRecallNote: deleteRecallNoteMock,
   decideRecallGraphEdge: decideRecallGraphEdgeMock,
   decideRecallGraphNode: decideRecallGraphNodeMock,
+  completeRecallDocumentReading: completeRecallDocumentReadingMock,
   fetchDocumentView: fetchDocumentViewMock,
+  fetchDocuments: fetchDocumentsMock,
+  fetchLibrarySettings: fetchLibrarySettingsMock,
+  fetchLibraryReadingQueue: fetchLibraryReadingQueueMock,
   fetchRecallDocument: fetchRecallDocumentMock,
   fetchRecallDocumentPreview: fetchRecallDocumentPreviewMock,
   fetchRecallDocuments: fetchRecallDocumentsMock,
@@ -265,7 +285,49 @@ vi.mock('../api', () => ({
   fetchRecallStudyCards: fetchRecallStudyCardsMock,
   fetchRecallStudyOverview: fetchRecallStudyOverviewMock,
   fetchRecallStudyProgress: fetchRecallStudyProgressMock,
+  fetchRecallStudySettings: vi.fn(async () => ({
+    default_difficulty_filter: 'all',
+    default_session_limit: 10,
+    default_timer_seconds: 0,
+    daily_goal_reviews: 1,
+    streak_goal_mode: 'daily',
+    weekly_goal_days: 3,
+  })),
+  fetchWorkspaceExportManifest: vi.fn(async () => ({
+    format_version: '1',
+    schema_version: 'stage34-test',
+    device_id: 'desktop-local',
+    exported_at: '2026-04-28T12:00:00Z',
+    latest_change_id: null,
+    change_event_count: 0,
+    entity_counts: {},
+    entities: [],
+    attachments: [],
+    warnings: [],
+  })),
+  createRecallStudyAnswerAttempt: createRecallStudyAnswerAttemptMock,
   generateRecallStudyCards: generateRecallStudyCardsMock,
+  saveRecallStudySettings: vi.fn(async (settings) => settings),
+  startRecallStudyReviewSession: vi.fn(async (payload) => ({
+    id: 'stage34-study-session',
+    source_document_id: payload.source_document_id ?? null,
+    filter_snapshot: payload.filter_snapshot ?? {},
+    settings_snapshot: payload.settings_snapshot ?? {},
+    card_ids: payload.card_ids ?? [],
+    started_at: '2026-03-13T00:50:00Z',
+    completed_at: null,
+    summary: {},
+  })),
+  completeRecallStudyReviewSession: vi.fn(async (sessionId, payload) => ({
+    id: sessionId,
+    source_document_id: null,
+    filter_snapshot: {},
+    settings_snapshot: {},
+    card_ids: [],
+    started_at: '2026-03-13T00:50:00Z',
+    completed_at: '2026-03-13T00:55:00Z',
+    summary: payload.summary ?? {},
+  })),
   promoteRecallNoteToGraphNode: promoteRecallNoteToGraphNodeMock,
   promoteRecallNoteToStudyCard: promoteRecallNoteToStudyCardMock,
   reviewRecallStudyCard: reviewRecallStudyCardMock,
@@ -285,6 +347,9 @@ beforeEach(() => {
     value: vi.fn(),
   })
   fetchDocumentViewMock.mockReset()
+  fetchDocumentsMock.mockReset()
+  fetchLibrarySettingsMock.mockReset()
+  fetchLibraryReadingQueueMock.mockReset()
   fetchRecallDocumentMock.mockReset()
   fetchRecallDocumentPreviewMock.mockReset()
   fetchRecallDocumentsMock.mockReset()
@@ -294,6 +359,8 @@ beforeEach(() => {
   fetchRecallStudyCardsMock.mockReset()
   fetchRecallStudyOverviewMock.mockReset()
   fetchRecallStudyProgressMock.mockReset()
+  createRecallStudyAnswerAttemptMock.mockReset()
+  completeRecallDocumentReadingMock.mockReset()
   searchRecallNotesMock.mockReset()
   bulkDeleteRecallStudyCardsMock.mockReset()
   deleteRecallStudyCardMock.mockReset()
@@ -308,6 +375,55 @@ beforeEach(() => {
   decideRecallGraphEdgeMock.mockReset()
   decideRecallGraphNodeMock.mockReset()
 
+  fetchDocumentsMock.mockImplementation(async () =>
+    recallDocuments.map((document) => ({
+      id: document.id,
+      title: document.title,
+      source_type: document.source_type,
+      file_name: document.file_name ?? null,
+      created_at: document.created_at,
+      updated_at: document.updated_at,
+      available_modes: document.available_modes,
+      progress_by_mode: {},
+    })),
+  )
+  fetchLibrarySettingsMock.mockImplementation(async () => ({ custom_collections: [] }))
+  fetchLibraryReadingQueueMock.mockImplementation(async () => ({
+    dry_run: true,
+    scope: 'all',
+    state: 'all',
+    collection_id: null,
+    summary: {
+      total_sources: recallDocuments.length,
+      unread_sources: recallDocuments.length,
+      in_progress_sources: 0,
+      completed_sources: 0,
+    },
+    rows: recallDocuments.map((document) => ({
+      id: document.id,
+      title: document.title,
+      source_type: document.source_type,
+      state: 'unread',
+      mode: document.available_modes.includes('reflowed') ? 'reflowed' : document.available_modes[0],
+      sentence_index: 0,
+      sentence_count: 0,
+      progress_percent: 0,
+      last_read_at: null,
+      updated_at: document.updated_at,
+      membership: null,
+      collection_paths: [],
+      note_count: 0,
+      highlight_count: 0,
+      study_counts: { due: 0, new: 0, total: 0 },
+    })),
+  }))
+  completeRecallDocumentReadingMock.mockImplementation(async (documentId: string, mode = 'reflowed') => ({
+    document_id: documentId,
+    mode,
+    sentence_index: 0,
+    sentence_count: 0,
+    completed_at: '2026-03-13T00:45:00Z',
+  }))
   fetchRecallDocumentsMock.mockImplementation(async () => recallDocuments)
   fetchRecallDocumentMock.mockImplementation(async () => recallDocuments[0])
   fetchRecallDocumentPreviewMock.mockImplementation(async (documentId: string) => ({

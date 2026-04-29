@@ -4,9 +4,11 @@ import {
   fetchDocuments,
   fetchHealth,
   fetchSettings,
+  importBatchDocuments,
   importFileDocument,
   importTextDocument,
   importUrlDocument,
+  previewBatchImport,
   retrieveRecall,
   saveSettings,
   searchRecallNotes,
@@ -26,6 +28,8 @@ import {
   type AppRoute,
   type AppSection,
   type RecallLibrarySurface,
+  type RecallReaderQueueScope,
+  type RecallReaderQueueState,
   type SourceWorkspaceTab,
   type WorkspaceDockContext,
   type WorkspaceDockTarget,
@@ -33,6 +37,8 @@ import {
   type RecallWorkspaceContinuityState,
   type RecallWorkspaceFocusRequest,
   type RecallSection,
+  type RecallStudyLaunchIntent,
+  type RecallStudyScheduleDrilldown,
   type WorkspaceSection,
 } from './lib/appRoute'
 import { defaultReaderSettings, fontPresetToStack } from './lib/readerTheme'
@@ -41,13 +47,16 @@ import {
   getWorkspaceSearchResultKeys,
   type WorkspaceSearchSessionState,
 } from './lib/workspaceSearch'
-import type { HealthResponse, ReaderSettings } from './types'
+import type { BatchImportFormat, HealthResponse, ReaderSettings } from './types'
 import type { WorkspaceHeroProps } from './components/WorkspaceHero'
 
 
 function syncRouteFromLocation(setRoute: (route: AppRoute) => void) {
   const nextRoute = parseAppRoute(window.location)
   const expectedHref = buildAppHref(nextRoute.path, nextRoute.documentId, {
+    queueCollectionId: nextRoute.queueCollectionId,
+    queueScope: nextRoute.queueScope,
+    queueState: nextRoute.queueState,
     recallSection: nextRoute.recallSection,
     sentenceEnd: nextRoute.sentenceEnd,
     sentenceStart: nextRoute.sentenceStart,
@@ -113,6 +122,7 @@ export default function App() {
   const [addSourceOpen, setAddSourceOpen] = useState(false)
   const [addSourceBusy, setAddSourceBusy] = useState(false)
   const [addSourceError, setAddSourceError] = useState<string | null>(null)
+  const [recallDataReloadToken, setRecallDataReloadToken] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
   const [workspaceSearchSession, setWorkspaceSearchSession] = useState<WorkspaceSearchSessionState>(
     defaultWorkspaceSearchSessionState,
@@ -247,6 +257,9 @@ export default function App() {
     path: AppSection,
     documentId?: string | null,
     options?: {
+      queueCollectionId?: string | null
+      queueScope?: RecallReaderQueueScope | null
+      queueState?: RecallReaderQueueState | null
       recallSection?: RecallSection | null
       sentenceEnd?: number | null
       sentenceStart?: number | null
@@ -293,6 +306,9 @@ export default function App() {
 
   const openRecallSection = useCallback((section: RecallSection, options?: Omit<RecallWorkspaceFocusRequest, 'section' | 'token'>) => {
     const resolvedSection = resolveVisibleRecallSection(section)
+    const studyIntent = options?.studyIntent ?? null
+    const studyScheduleDrilldown = options?.scheduleDrilldown ?? 'all'
+    const studyLaunchShowsQuestions = resolvedSection === 'study' && (studyIntent === 'questions' || studyIntent === 'generate')
     const resolvedLibrarySurface: RecallLibrarySurface | null =
       options?.librarySurface ??
       (section === 'notes' || options?.noteId ? 'notebook' : resolvedSection === 'library' ? 'home' : null)
@@ -306,17 +322,23 @@ export default function App() {
     const resolvedBrowseDrawerSection =
       resolvedSection === 'library' && resolvedLibrarySurface === 'notebook' ? 'notes' : resolvedSection
     const hasFocusedTarget = Boolean(
-      !options?.newNote && (options?.documentId || options?.noteId || options?.nodeId || options?.cardId),
+      !studyLaunchShowsQuestions &&
+        !options?.newNote &&
+        (options?.documentId || options?.noteId || options?.nodeId || options?.cardId),
     )
     handleRecallSectionChange(resolvedSection)
     updateRecallContinuityState((current) => ({
       ...current,
       browseDrawers: {
         ...current.browseDrawers,
-        [resolvedBrowseDrawerSection]: shouldOpenRecallBrowseDrawerByDefault(
-          resolvedBrowseDrawerSection,
-          hasFocusedTarget,
-        ),
+        [resolvedBrowseDrawerSection]: studyLaunchShowsQuestions
+          ? true
+          : resolvedSection === 'study' && studyIntent === 'start-session'
+            ? false
+            : shouldOpenRecallBrowseDrawerByDefault(
+                resolvedBrowseDrawerSection,
+                hasFocusedTarget,
+              ),
       },
       library:
         resolvedSection === 'library' && resolvedLibrarySurface
@@ -347,7 +369,7 @@ export default function App() {
                 options?.documentId && options.documentId === current.study.sourceScopeDocumentId
                   ? current.study.questionSearchQuery
                   : '',
-              scheduleDrilldown: 'all',
+              scheduleDrilldown: studyScheduleDrilldown,
               sourceScopeDocumentId: options?.documentId ?? null,
             }
           : current.study,
@@ -368,13 +390,17 @@ export default function App() {
     (
       documentId: string,
       options?: {
+        queueCollectionId?: string | null
+        queueScope?: RecallReaderQueueScope | null
+        queueState?: RecallReaderQueueState | null
         returnNoteId?: string | null
         returnToNotebook?: boolean | null
         sentenceEnd?: number | null
         sentenceStart?: number | null
       },
     ) => {
-      const { returnNoteId, returnToNotebook, sentenceEnd, sentenceStart } = options ?? {}
+      const { queueCollectionId, queueScope, queueState, returnNoteId, returnToNotebook, sentenceEnd, sentenceStart } =
+        options ?? {}
       if (route.path === 'recall') {
         const continuitySnapshot =
           returnToNotebook === true
@@ -402,7 +428,7 @@ export default function App() {
           section: activeRecallSection,
         }
       }
-      navigate('reader', documentId, { sentenceEnd, sentenceStart })
+      navigate('reader', documentId, { queueCollectionId, queueScope, queueState, sentenceEnd, sentenceStart })
     },
     [activeRecallSection, navigate, route.path],
   )
@@ -460,8 +486,18 @@ export default function App() {
   )
 
   const handleOpenRecallStudy = useCallback(
-    (documentId: string) => {
-      openRecallSection('study', { documentId })
+    (
+      documentId: string,
+      options?: {
+        intent?: RecallStudyLaunchIntent | null
+        scheduleDrilldown?: RecallStudyScheduleDrilldown | null
+      },
+    ) => {
+      openRecallSection('study', {
+        documentId,
+        scheduleDrilldown: options?.scheduleDrilldown ?? null,
+        studyIntent: options?.intent ?? null,
+      })
     },
     [openRecallSection],
   )
@@ -544,6 +580,47 @@ export default function App() {
       navigate('reader', importedDocument.id)
     } catch (error) {
       setAddSourceError(error instanceof Error ? error.message : 'Could not import that webpage.')
+    } finally {
+      setAddSourceBusy(false)
+    }
+  }
+
+  async function handlePreviewBatchImport(file: File, sourceFormat: BatchImportFormat, maxItems: number) {
+    setAddSourceBusy(true)
+    setAddSourceError(null)
+    try {
+      return await previewBatchImport(file, sourceFormat, maxItems)
+    } catch (error) {
+      setAddSourceError(error instanceof Error ? error.message : 'Could not preview that import file.')
+      throw error
+    } finally {
+      setAddSourceBusy(false)
+    }
+  }
+
+  async function handleImportBatch(
+    file: File,
+    sourceFormat: BatchImportFormat,
+    maxItems: number,
+    selectedItemIds: string[],
+    createCollections: boolean,
+  ) {
+    setAddSourceBusy(true)
+    setAddSourceError(null)
+    try {
+      const result = await importBatchDocuments(file, sourceFormat, maxItems, selectedItemIds, createCollections)
+      if (
+        result.summary.imported_count > 0 ||
+        result.summary.reused_count > 0 ||
+        result.summary.collection_created_count > 0 ||
+        result.summary.collection_updated_count > 0
+      ) {
+        setRecallDataReloadToken((current) => current + 1)
+      }
+      return result
+    } catch (error) {
+      setAddSourceError(error instanceof Error ? error.message : 'Could not import selected links.')
+      throw error
     } finally {
       setAddSourceBusy(false)
     }
@@ -822,6 +899,7 @@ export default function App() {
             onShellHeroChange={setShellHero}
             onOpenSearch={handleOpenSearch}
             onRequestNewSource={handleRequestNewSource}
+            reloadToken={recallDataReloadToken}
             onShellSourceWorkspaceChange={setShellSourceWorkspace}
             onOpenReader={handleOpenReader}
             settings={settings}
@@ -840,6 +918,9 @@ export default function App() {
             onOpenRecallStudy={handleOpenRecallStudy}
             onRequestNewSource={handleRequestNewSource}
             routeDocumentId={route.documentId}
+            routeQueueCollectionId={route.queueCollectionId}
+            routeQueueScope={route.queueScope}
+            routeQueueState={route.queueState}
             routeSentenceEnd={route.sentenceEnd}
             routeSentenceStart={route.sentenceStart}
             settings={settings}
@@ -869,8 +950,10 @@ export default function App() {
           busy={addSourceBusy}
           helperText="TXT, Markdown, HTML, DOCX, text-based PDF, and public article links."
           onImportFile={handleImportFile}
+          onImportBatch={handleImportBatch}
           onImportText={handleImportText}
           onImportUrl={handleImportUrl}
+          onPreviewBatchImport={handlePreviewBatchImport}
           showHeader={false}
         />
       </WorkspaceDialogFrame>
