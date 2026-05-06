@@ -139,6 +139,13 @@ def read_frontend_type_source() -> str:
     return "\n\n".join(read_text(path) for path in paths)
 
 
+def read_frontend_type_module_sources() -> dict[str, str]:
+    paths = [TYPES_TS_PATH]
+    if TYPES_MODULES_DIR.exists():
+        paths.extend(sorted(TYPES_MODULES_DIR.glob("*.ts")))
+    return {str(path.relative_to(REPO_ROOT)): read_text(path) for path in paths}
+
+
 def load_openapi() -> dict[str, Any]:
     sys.path.insert(0, str(BACKEND_DIR))
     try:
@@ -489,32 +496,41 @@ def parse_generated_schema_aliases(source: str) -> dict[str, str]:
     return {alias: schema for alias, schema in pattern.findall(source)}
 
 
-def parse_generated_type_import_aliases(source: str, import_path: str = "../generated/openapi") -> dict[str, str]:
+def parse_type_import_alias_body(body: str) -> dict[str, str]:
     aliases: dict[str, str] = {}
+    for raw_part in body.split(","):
+        part = " ".join(raw_part.strip().split())
+        if not part:
+            continue
+        alias_match = re.fullmatch(r"([A-Za-z_$][A-Za-z0-9_$]*)\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)", part)
+        if alias_match:
+            source_name, local_name = alias_match.groups()
+            aliases[local_name] = source_name
+        elif re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*", part):
+            aliases[part] = part
+    return aliases
+
+
+def parse_generated_type_imports_by_path(source: str) -> dict[str, dict[str, str]]:
+    imports: dict[str, dict[str, str]] = {}
     pattern = re.compile(
         r"import\s+type\s+\{(?P<body>[^}]*)\}\s+from\s+['\"]"
-        + re.escape(import_path)
-        + r"['\"]",
+        r"(?P<import_path>\.\.?/generated/openapi)['\"]",
         re.M | re.S,
     )
     for match in pattern.finditer(source):
-        body = match.group("body")
-        for raw_part in body.split(","):
-            part = " ".join(raw_part.strip().split())
-            if not part:
-                continue
-            alias_match = re.fullmatch(r"([A-Za-z_$][A-Za-z0-9_$]*)\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)", part)
-            if alias_match:
-                source_name, local_name = alias_match.groups()
-                aliases[local_name] = source_name
-            elif re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*", part):
-                aliases[part] = part
-    return aliases
+        imports[match.group("import_path")] = parse_type_import_alias_body(match.group("body"))
+    return imports
+
+
+def parse_generated_type_import_aliases(source: str, import_path: str = "../generated/openapi") -> dict[str, str]:
+    return parse_generated_type_imports_by_path(source).get(import_path, {})
 
 
 def parse_frontend_type_alias_targets(source: str) -> dict[str, str]:
     pattern = re.compile(
-        r"^export\s+type\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*;?",
+        r"^export\s+type\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*"
+        r"([A-Za-z_$][A-Za-z0-9_$]*)\s*;?\s*$",
         re.M,
     )
     return {name: target for name, target in pattern.findall(source)}
@@ -777,28 +793,15 @@ def collect_generated_type_adoptions() -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise SystemExit(f"Could not parse {EXPECTED_GENERATED_TYPE_ADOPTIONS_PATH}: {exc}") from exc
 
-    adoptions = []
-    for item in expected.get("adoptions", []):
-        module_path = REPO_ROOT / item["module"]
-        source = read_text(module_path)
-        import_aliases = parse_generated_type_import_aliases(source, item["import_path"])
-        type_alias_targets = parse_frontend_type_alias_targets(source)
-        frontend = item["frontend"]
-        imported_alias = item["imported_alias"]
-        schema = item["schema"]
-        adoptions.append(
-            {
-                "frontend": frontend,
-                "schema": schema,
-                "module": item["module"],
-                "import_path": item["import_path"],
-                "imported_alias": imported_alias,
-                "generated_root_alias_schema": generated_aliases.get(frontend),
-                "imported_alias_schema": import_aliases.get(imported_alias),
-                "exported_type_alias_target": type_alias_targets.get(frontend),
-                "has_frontend_interface": extract_frontend_interface_body(source, frontend) is not None,
-                "reason": item.get("reason", "-"),
-            }
+    expected_reasons = {
+        (item["frontend"], item["schema"]): item.get("reason", "-")
+        for item in expected.get("adoptions", [])
+    }
+    adoptions = collect_generated_type_alias_adoptions(generated_aliases)
+    for item in adoptions:
+        item["reason"] = expected_reasons.get(
+            (item["frontend"], item["schema"]),
+            "unreviewed generated type alias adoption",
         )
 
     return {
@@ -806,6 +809,41 @@ def collect_generated_type_adoptions() -> dict[str, Any]:
         "adoptions": adoptions,
         "deferred_adoptions": expected.get("deferred_adoptions", []),
     }
+
+
+def collect_generated_type_alias_adoptions(
+    generated_aliases: dict[str, str],
+    module_sources: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    sources = module_sources if module_sources is not None else read_frontend_type_module_sources()
+    adoptions: list[dict[str, Any]] = []
+    for module, source in sources.items():
+        import_paths = parse_generated_type_imports_by_path(source)
+        if not import_paths:
+            continue
+        type_alias_targets = parse_frontend_type_alias_targets(source)
+        for frontend, imported_alias in type_alias_targets.items():
+            for import_path, import_aliases in import_paths.items():
+                generated_alias = import_aliases.get(imported_alias)
+                if generated_alias is None:
+                    continue
+                schema = generated_aliases.get(generated_alias)
+                if schema is None:
+                    continue
+                adoptions.append(
+                    {
+                        "frontend": frontend,
+                        "schema": schema,
+                        "module": module,
+                        "import_path": import_path,
+                        "imported_alias": imported_alias,
+                        "generated_root_alias_schema": generated_aliases.get(frontend),
+                        "imported_alias_schema": schema,
+                        "exported_type_alias_target": imported_alias,
+                        "has_frontend_interface": extract_frontend_interface_body(source, frontend) is not None,
+                    }
+                )
+    return sorted(adoptions, key=lambda item: (item["frontend"], item["schema"], item["module"]))
 
 
 def generate_openapi_reference_source() -> str:
@@ -1335,15 +1373,48 @@ def run_generated_type_adoptions_check(
     failures: list[str] = []
     expected_items = expected.get("adoptions", [])
     current_items = adoptions.get("adoptions", [])
-    expected_keys = [(item.get("frontend"), item.get("schema")) for item in expected_items]
-    current_keys = [(item.get("frontend"), item.get("schema")) for item in current_items]
-    if current_keys != expected_keys:
-        failures.append(f"Generated type adoption set changed: expected {expected_keys}, got {current_keys}")
+    expected_by_key = {
+        (item.get("frontend"), item.get("schema")): item for item in expected_items
+    }
+    current_by_key = {
+        (item.get("frontend"), item.get("schema")): item for item in current_items
+    }
+    expected_keys = set(expected_by_key)
+    current_keys = set(current_by_key)
+    added_keys = sorted(current_keys - expected_keys)
+    missing_keys = sorted(expected_keys - current_keys)
+    if added_keys:
+        failures.append(
+            "Unreviewed generated type adoptions: "
+            + ", ".join(f"{frontend} -> {schema}" for frontend, schema in added_keys)
+        )
+    if missing_keys:
+        failures.append(
+            "Missing expected generated type adoptions: "
+            + ", ".join(f"{frontend} -> {schema}" for frontend, schema in missing_keys)
+        )
 
     for item in current_items:
         frontend = item["frontend"]
         schema = item["schema"]
         imported_alias = item["imported_alias"]
+        expected_item = expected_by_key.get((frontend, schema))
+        if expected_item is not None:
+            if item["module"] != expected_item["module"]:
+                failures.append(
+                    f"Module changed for {frontend}: expected {expected_item['module']}, "
+                    f"got {item['module']}"
+                )
+            if item["import_path"] != expected_item["import_path"]:
+                failures.append(
+                    f"Import path changed for {frontend}: expected {expected_item['import_path']}, "
+                    f"got {item['import_path']}"
+                )
+            if imported_alias != expected_item["imported_alias"]:
+                failures.append(
+                    f"Imported alias changed for {frontend}: expected {expected_item['imported_alias']}, "
+                    f"got {imported_alias}"
+                )
         if item["generated_root_alias_schema"] != schema:
             failures.append(
                 f"Generated root alias mismatch for {frontend}: expected schema {schema}, "

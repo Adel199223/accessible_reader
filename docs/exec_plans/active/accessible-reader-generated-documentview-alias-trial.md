@@ -9,6 +9,7 @@ Implementation checkpoint:
 - The first generated-type alias adoption is intentionally limited to `DocumentView`.
 - `frontend/src/types/reader.ts` keeps `DocumentView` as the public export name and points it at the private generated OpenAPI reference with a type-only alias.
 - `scripts/contracts/expected_generated_type_adoptions.json` records the one allowed adoption and the deferred follow-ups.
+- The adoption guard scans frontend type modules for generated OpenAPI aliases, enforces pure alias syntax, and fails on unreviewed generated alias adoption.
 - `backend/tests/test_contract_inventory.py` now runs the generated type adoption guard with the other contract checks.
 - Assistant verification docs and manifest commands now include the adoption check.
 
@@ -59,3 +60,4 @@ Trial one selective generated-type alias while preserving the public frontend ty
 
 - Keep broader generated-type adoption paused until this single-alias trial is reviewed.
 - Do not adopt `DocumentRecord` next without resolving optional/default-backed generated fields such as `available_modes` and `progress_by_mode`.
+- Review hardening closed the scanner gap: unreviewed generated aliases are now discovered rather than inferred only from the fixture.

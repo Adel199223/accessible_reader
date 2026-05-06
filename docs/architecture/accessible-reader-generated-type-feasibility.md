@@ -130,7 +130,7 @@ Behavior:
 - `frontend/src/types/reader.ts` preserves the public `DocumentView` export name as a type-only alias to the generated `DocumentView` schema.
 - `frontend/src/types.ts` remains the public type barrel, so existing callers keep importing `DocumentView` from the same place.
 - `scripts/contracts/expected_generated_type_adoptions.json` allows exactly this adoption and records deferred types that should not be adopted in the same slice.
-- `--check-generated-type-adoptions` fails if the alias import disappears, if `DocumentView` becomes a hand-authored interface again, or if an unreviewed generated alias adoption appears.
+- `--check-generated-type-adoptions` scans the frontend type barrel and domain modules, then fails if the alias import disappears, if `DocumentView` becomes a hand-authored interface again, if the alias stops being a pure generated-type alias, or if an unreviewed generated alias adoption appears.
 - The generated type mapping check treats fixture-approved generated aliases as generated-shape-backed, keeping the earlier mapping lane useful after the first adoption.
 - The check is wired into `backend/tests/test_contract_inventory.py` beside the contract drift, OpenAPI snapshot, generated-reference, and generated-mapping checks.
 
