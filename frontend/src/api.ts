@@ -1,8 +1,132 @@
-export { ApiRequestError } from './api/core'
-export type { ApiRequestErrorKind } from './api/core'
-export * from './api/graph'
-export * from './api/library'
-export * from './api/reader'
-export * from './api/recall'
-export * from './api/study'
-export * from './api/workspace'
+import { ApiRequestError } from './api/core'
+import {
+  decideRecallGraphEdge,
+  decideRecallGraphNode,
+  fetchRecallGraph,
+  fetchRecallGraphNode,
+} from './api/graph'
+import {
+  buildLibraryCollectionLearningPackExportUrl,
+  fetchLibraryCollectionOverview,
+  fetchLibraryReadingQueue,
+  fetchLibrarySettings,
+  saveLibrarySettings,
+} from './api/library'
+import {
+  deleteDocumentRecord,
+  fetchDocumentView,
+  fetchDocuments,
+  fetchHealth,
+  fetchSettings,
+  generateDocumentView,
+  importBatchDocuments,
+  importFileDocument,
+  importTextDocument,
+  importUrlDocument,
+  previewBatchImport,
+  saveProgress,
+  saveSettings,
+} from './api/reader'
+import {
+  buildRecallExportUrl,
+  buildRecallLearningPackExportUrl,
+  completeRecallDocumentReading,
+  createRecallNote,
+  deleteRecallNote,
+  fetchRecallDocument,
+  fetchRecallDocumentPreview,
+  fetchRecallDocuments,
+  fetchRecallNotes,
+  promoteRecallNoteToGraphNode,
+  promoteRecallNoteToStudyCard,
+  retrieveRecall,
+  searchRecall,
+  searchRecallNotes,
+  updateRecallNote,
+} from './api/recall'
+import {
+  bulkDeleteRecallStudyCards,
+  completeRecallStudyReviewSession,
+  createRecallStudyAnswerAttempt,
+  createRecallStudyCard,
+  deleteRecallStudyCard,
+  fetchRecallStudyCards,
+  fetchRecallStudyOverview,
+  fetchRecallStudyProgress,
+  fetchRecallStudySettings,
+  generateRecallStudyCards,
+  reviewRecallStudyCard,
+  saveRecallStudySettings,
+  setRecallStudyCardScheduleState,
+  startRecallStudyReviewSession,
+  updateRecallStudyCard,
+} from './api/study'
+import {
+  applyWorkspaceImport,
+  buildWorkspaceExportUrl,
+  fetchWorkspaceExportManifest,
+  previewWorkspaceImport,
+} from './api/workspace'
+import type { ApiRequestErrorKind } from './api/core'
+
+export type { ApiRequestErrorKind }
+
+export {
+  ApiRequestError,
+  applyWorkspaceImport,
+  buildLibraryCollectionLearningPackExportUrl,
+  buildRecallExportUrl,
+  buildRecallLearningPackExportUrl,
+  buildWorkspaceExportUrl,
+  bulkDeleteRecallStudyCards,
+  completeRecallDocumentReading,
+  completeRecallStudyReviewSession,
+  createRecallNote,
+  createRecallStudyAnswerAttempt,
+  createRecallStudyCard,
+  decideRecallGraphEdge,
+  decideRecallGraphNode,
+  deleteDocumentRecord,
+  deleteRecallNote,
+  deleteRecallStudyCard,
+  fetchDocumentView,
+  fetchDocuments,
+  fetchHealth,
+  fetchLibraryCollectionOverview,
+  fetchLibraryReadingQueue,
+  fetchLibrarySettings,
+  fetchRecallDocument,
+  fetchRecallDocumentPreview,
+  fetchRecallDocuments,
+  fetchRecallGraph,
+  fetchRecallGraphNode,
+  fetchRecallNotes,
+  fetchRecallStudyCards,
+  fetchRecallStudyOverview,
+  fetchRecallStudyProgress,
+  fetchRecallStudySettings,
+  fetchSettings,
+  fetchWorkspaceExportManifest,
+  generateDocumentView,
+  generateRecallStudyCards,
+  importBatchDocuments,
+  importFileDocument,
+  importTextDocument,
+  importUrlDocument,
+  previewBatchImport,
+  previewWorkspaceImport,
+  promoteRecallNoteToGraphNode,
+  promoteRecallNoteToStudyCard,
+  retrieveRecall,
+  reviewRecallStudyCard,
+  saveLibrarySettings,
+  saveProgress,
+  saveRecallStudySettings,
+  saveSettings,
+  searchRecall,
+  searchRecallNotes,
+  setRecallStudyCardScheduleState,
+  startRecallStudyReviewSession,
+  updateRecallNote,
+  updateRecallStudyCard,
+}
