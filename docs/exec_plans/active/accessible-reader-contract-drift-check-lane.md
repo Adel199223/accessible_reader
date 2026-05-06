@@ -2,7 +2,7 @@
 
 ## Status
 
-Behavior-preserving contract drift hardening branch in progress on May 6, 2026.
+Behavior-preserving contract drift hardening branch in progress on May 6, 2026. The follow-up verification lane wires the drift check into local pytest and assistant verification docs without changing runtime behavior.
 
 ## Intent
 
@@ -33,6 +33,15 @@ Turn the API/types contract audit into a lightweight local and CI-friendly drift
 - `docs/exec_plans/active/accessible-reader-contract-drift-check-lane.md`
 - `/home/fa507/Downloads/accessible-reader-contract-drift-check-lane/`
 - `/home/fa507/Downloads/accessible-reader-contract-drift-check-lane-share.zip`
+
+Verification lane follow-up:
+
+- `backend/tests/test_contract_inventory.py`
+- `docs/assistant/QA_CHECKS.md`
+- `docs/assistant/SAFE_COMMANDS.md`
+- `docs/assistant/manifest.json`
+- `/home/fa507/Downloads/accessible-reader-contract-drift-verification-lane/`
+- `/home/fa507/Downloads/accessible-reader-contract-drift-verification-lane-share.zip`
 
 ## Fixture Invariants
 

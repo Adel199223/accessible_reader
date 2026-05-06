@@ -22,6 +22,7 @@ wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/frontend && npm test -- -
 ## Backend
 
 ```powershell
+wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader && backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check'
 wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -m pytest'
 wsl.exe bash -lc 'cd /home/fa507/dev/accessible_reader/backend && .venv/bin/python -c "from app.main import app; print(app.title)"'
 ```

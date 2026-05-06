@@ -1,0 +1,25 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+
+def test_api_types_contract_inventory_matches_expected_fixture() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    script_path = repo_root / "scripts" / "contracts" / "audit_api_types_contract.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script_path), "--check"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, (
+        "API/types contract inventory drifted.\n\n"
+        f"stdout:\n{result.stdout}\n\n"
+        f"stderr:\n{result.stderr}"
+    )

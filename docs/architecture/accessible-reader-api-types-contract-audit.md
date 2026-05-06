@@ -47,6 +47,8 @@ Behavior:
 - The expected fixture intentionally records only high-signal invariants: summary counts, zero unmatched frontend wrappers, and the accepted backend routes without `api.ts` wrappers or URL builders.
 - The fixture is not generated TypeScript, not a schema migration, and not a runtime product contract.
 
+The check is now wired into local verification through `backend/tests/test_contract_inventory.py`, so `cd backend && .venv/bin/python -m pytest tests/test_contract_inventory.py -q` runs the same fixture-backed drift guard. The repo assistant docs also expose the command as a safe backend check and as the `contract_drift_check` manifest command for future API/schema/frontend contract work.
+
 ## Backend Route Inventory
 
 The OpenAPI surface is broad but coherent. Most routes are JSON. The non-JSON cases are intentional import/export/browser behaviors.
@@ -217,14 +219,13 @@ Human-review cases:
 
 ## Recommendation
 
-Primary next slice: add a contract drift CI/check lane around `scripts/contracts/audit_api_types_contract.py` and harden it into an expected-inventory check before splitting files.
+Primary next slice: keep the fixture-backed contract drift check in regular local verification before splitting files.
 
 Suggested next steps:
 
-1. Keep the script report-only for one more iteration, but add committed expected summary fixtures for route count, wrapper count, no unmatched wrappers, and explicitly accepted backend-only routes.
-2. Add a cheap pytest or npm script that runs the audit and fails only on new unmatched wrappers, OpenAPI generation failure, or unreviewed route-count/schema-count deltas.
-3. After drift coverage is in place, split `frontend/src/api.ts` by domain. This should happen before splitting `types.ts`, because wrappers have a cleaner route-domain boundary and lower semantic risk.
-4. Defer generated TypeScript types from OpenAPI until naming-only drift is documented and the team decides whether to keep frontend-friendly aliases like `ViewMode`, `SummaryDetail`, and `StudyReviewRating`.
+1. Run `contract_drift_check` for any API/schema/frontend contract slice and keep the pytest wrapper green.
+2. After drift coverage is stable, split `frontend/src/api.ts` by domain. This should happen before splitting `types.ts`, because wrappers have a cleaner route-domain boundary and lower semantic risk.
+3. Defer generated TypeScript types from OpenAPI until naming-only drift is documented and the team decides whether to keep frontend-friendly aliases like `ViewMode`, `SummaryDetail`, and `StudyReviewRating`.
 
 Fallback: if the CI/check lane proves too noisy, keep the script as a manually run audit artifact and do a minimal domain split of `api.ts` with focused wrapper tests, still avoiding route/schema/UI changes.
 
