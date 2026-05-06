@@ -27,6 +27,26 @@ Current script snapshot:
 
 Conclusion: the stack does not need modernization, but contract drift coverage should be added before splitting `api.ts` or `types.ts`.
 
+## Contract Drift Check Lane
+
+The follow-up check lane keeps the audit behavior-preserving while making drift visible in a local/CI-friendly command.
+
+Commands:
+
+```bash
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --format json
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check
+```
+
+Behavior:
+
+- Default output remains Markdown inventory printed to stdout.
+- `--format json` prints the same inventory as structured JSON to stdout.
+- `--check` reads `scripts/contracts/expected_api_types_contract.json` and fails only when OpenAPI/source reads fail, summary counts drift, a frontend wrapper loses its backend route match, or the accepted backend-only route list changes without review.
+- The expected fixture intentionally records only high-signal invariants: summary counts, zero unmatched frontend wrappers, and the accepted backend routes without `api.ts` wrappers or URL builders.
+- The fixture is not generated TypeScript, not a schema migration, and not a runtime product contract.
+
 ## Backend Route Inventory
 
 The OpenAPI surface is broad but coherent. Most routes are JSON. The non-JSON cases are intentional import/export/browser behaviors.

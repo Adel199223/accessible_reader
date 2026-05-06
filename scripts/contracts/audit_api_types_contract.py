@@ -8,8 +8,10 @@ then emits Markdown to stdout. Drift findings are report-only in this slice.
 
 from __future__ import annotations
 
+import argparse
 import ast
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
 import re
 import sys
@@ -22,6 +24,7 @@ MAIN_PATH = REPO_ROOT / "backend" / "app" / "main.py"
 MODELS_PATH = REPO_ROOT / "backend" / "app" / "models.py"
 API_TS_PATH = REPO_ROOT / "frontend" / "src" / "api.ts"
 TYPES_TS_PATH = REPO_ROOT / "frontend" / "src" / "types.ts"
+EXPECTED_CONTRACT_PATH = REPO_ROOT / "scripts" / "contracts" / "expected_api_types_contract.json"
 
 IGNORED_OPENAPI_SCHEMAS = {"HTTPValidationError", "ValidationError"}
 
@@ -504,7 +507,7 @@ def markdown_table(headers: list[str], rows: list[list[str]]) -> None:
         print("| " + " | ".join(cell.replace("\n", " ").replace("|", "\\|") for cell in row) + " |")
 
 
-def main() -> int:
+def collect_inventory() -> dict[str, Any]:
     openapi = load_openapi()
     models_source = read_text(MODELS_PATH)
     api_source = read_text(API_TS_PATH)
@@ -533,27 +536,85 @@ def main() -> int:
         route for route in routes if f"{route.method} {route.path}" not in wrapped_routes
     ]
 
+    return {
+        "summary": {
+            "openapi_paths": len(openapi.get("paths", {})),
+            "openapi_route_operations": len(routes),
+            "openapi_schemas": len(schemas),
+            "backend_pydantic_classes": len(backend_models),
+            "backend_literal_aliases": len(literal_aliases),
+            "frontend_api_exports": len(wrappers),
+            "frontend_type_exports": len(frontend_types),
+            "exact_frontend_backend_contract_name_matches": len(exact_matches),
+            "api_wrappers_without_matched_route": len(wrapper_no_match),
+            "backend_routes_without_api_ts_wrapper_or_url_builder": len(route_no_wrapper),
+        },
+        "routes": [asdict(route) for route in routes],
+        "frontend_api_wrappers": [asdict(wrapper) for wrapper in wrappers],
+        "backend_models": [asdict(model) for model in backend_models],
+        "backend_literal_aliases": [
+            {"alias": name, "domain": domain_for_name(name), "definition": value}
+            for name, value in sorted(literal_aliases.items())
+        ],
+        "frontend_types": [asdict(item) for item in frontend_types],
+        "drift": {
+            "exact_matches": exact_matches,
+            "naming_only_or_inline_matches": [
+                {"backend": backend, "frontend_or_api_ts": frontend}
+                for backend, frontend in sorted(NAMING_ONLY_MATCHES.items())
+            ],
+            "backend_route_schemas_missing_frontend_type_names": backend_only,
+            "frontend_types_without_backend_names": frontend_only,
+            "api_wrappers_without_backend_route": [asdict(wrapper) for wrapper in wrapper_no_match],
+            "backend_routes_without_api_ts_wrapper_or_url_builder": [
+                asdict(route) for route in route_no_wrapper
+            ],
+            "intentional_browser_form_download_cases": [
+                asdict(route) for route in routes if route.behavior != "json"
+            ],
+        },
+    }
+
+
+def render_markdown(inventory: dict[str, Any]) -> None:
+    summary = inventory["summary"]
+    routes = inventory["routes"]
+    wrappers = inventory["frontend_api_wrappers"]
+    backend_models = inventory["backend_models"]
+    literal_aliases = inventory["backend_literal_aliases"]
+    frontend_types = inventory["frontend_types"]
+    drift = inventory["drift"]
+
     print("# Accessible Reader API/Types Contract Inventory")
     print()
     print("## Summary")
     print()
-    print(f"- OpenAPI paths: {len(openapi.get('paths', {}))}")
-    print(f"- OpenAPI route operations: {len(routes)}")
-    print(f"- OpenAPI schemas: {len(schemas)}")
-    print(f"- Backend Pydantic classes: {len(backend_models)}")
-    print(f"- Backend Literal aliases: {len(literal_aliases)}")
-    print(f"- Frontend API exports: {len(wrappers)}")
-    print(f"- Frontend type exports: {len(frontend_types)}")
-    print(f"- Exact frontend/backend contract-name matches: {len(exact_matches)}")
-    print(f"- API wrappers without matched route: {len(wrapper_no_match)}")
-    print(f"- Backend routes without api.ts wrapper/url builder: {len(route_no_wrapper)}")
+    print(f"- OpenAPI paths: {summary['openapi_paths']}")
+    print(f"- OpenAPI route operations: {summary['openapi_route_operations']}")
+    print(f"- OpenAPI schemas: {summary['openapi_schemas']}")
+    print(f"- Backend Pydantic classes: {summary['backend_pydantic_classes']}")
+    print(f"- Backend Literal aliases: {summary['backend_literal_aliases']}")
+    print(f"- Frontend API exports: {summary['frontend_api_exports']}")
+    print(f"- Frontend type exports: {summary['frontend_type_exports']}")
+    print(
+        "- Exact frontend/backend contract-name matches: "
+        f"{summary['exact_frontend_backend_contract_name_matches']}"
+    )
+    print(f"- API wrappers without matched route: {summary['api_wrappers_without_matched_route']}")
+    print(
+        "- Backend routes without api.ts wrapper/url builder: "
+        f"{summary['backend_routes_without_api_ts_wrapper_or_url_builder']}"
+    )
     print()
 
     print("## Backend Route Inventory")
     print()
     markdown_table(
         ["Method", "Path", "Domain", "Behavior", "Request", "Response"],
-        [[r.method, r.path, r.domain, r.behavior, r.request, r.response] for r in routes],
+        [
+            [route["method"], route["path"], route["domain"], route["behavior"], route["request"], route["response"]]
+            for route in routes
+        ],
     )
     print()
 
@@ -561,7 +622,19 @@ def main() -> int:
     print()
     markdown_table(
         ["Function", "Method", "Path", "Domain", "Behavior", "Request", "Response", "Backend match"],
-        [[w.name, w.method, w.path, w.domain, w.behavior, w.request, w.response, w.match] for w in wrappers],
+        [
+            [
+                wrapper["name"],
+                wrapper["method"],
+                wrapper["path"],
+                wrapper["domain"],
+                wrapper["behavior"],
+                wrapper["request"],
+                wrapper["response"],
+                wrapper["match"],
+            ]
+            for wrapper in wrappers
+        ],
     )
     print()
 
@@ -571,15 +644,15 @@ def main() -> int:
         ["Model", "Domain", "Fields", "Required", "Optional", "Defaulted", "Notes"],
         [
             [
-                m.name,
-                m.domain,
-                str(m.field_count),
-                str(m.required_count),
-                str(m.optional_count),
-                str(m.defaulted_count),
-                m.notes,
+                model["name"],
+                model["domain"],
+                str(model["field_count"]),
+                str(model["required_count"]),
+                str(model["optional_count"]),
+                str(model["defaulted_count"]),
+                model["notes"],
             ]
-            for m in backend_models
+            for model in backend_models
         ],
     )
     print()
@@ -588,7 +661,7 @@ def main() -> int:
     print()
     markdown_table(
         ["Alias", "Domain", "Definition"],
-        [[name, domain_for_name(name), value] for name, value in sorted(literal_aliases.items())],
+        [[item["alias"], item["domain"], item["definition"]] for item in literal_aliases],
     )
     print()
 
@@ -596,7 +669,7 @@ def main() -> int:
     print()
     markdown_table(
         ["Type", "Kind", "Domain", "Backend match"],
-        [[item.name, item.kind, item.domain, item.match] for item in frontend_types],
+        [[item["name"], item["kind"], item["domain"], item["match"]] for item in frontend_types],
     )
     print()
 
@@ -604,47 +677,149 @@ def main() -> int:
     print()
     print("### Exact Matches")
     print()
-    print(", ".join(exact_matches) if exact_matches else "- None")
+    print(", ".join(drift["exact_matches"]) if drift["exact_matches"] else "- None")
     print()
     print("### Naming-Only Or Inline Matches")
     print()
     markdown_table(
         ["Backend", "Frontend / api.ts representation"],
-        [[backend, frontend] for backend, frontend in sorted(NAMING_ONLY_MATCHES.items())],
+        [
+            [item["backend"], item["frontend_or_api_ts"]]
+            for item in drift["naming_only_or_inline_matches"]
+        ],
     )
     print()
     print("### Backend Route Schemas Missing Frontend Type Names")
     print()
+    backend_only = drift["backend_route_schemas_missing_frontend_type_names"]
     print(", ".join(backend_only) if backend_only else "- None")
     print()
     print("### Frontend Types Without Backend Names")
     print()
+    frontend_only = drift["frontend_types_without_backend_names"]
     print(", ".join(frontend_only) if frontend_only else "- None")
     print()
     print("### api.ts Wrappers Without Backend Route")
     print()
+    wrapper_no_match = drift["api_wrappers_without_backend_route"]
     if wrapper_no_match:
         markdown_table(
             ["Function", "Method", "Path"],
-            [[wrapper.name, wrapper.method, wrapper.path] for wrapper in wrapper_no_match],
+            [[wrapper["name"], wrapper["method"], wrapper["path"]] for wrapper in wrapper_no_match],
         )
     else:
         print("- None")
     print()
     print("### Backend Routes Without api.ts Wrapper Or URL Builder")
     print()
+    route_no_wrapper = drift["backend_routes_without_api_ts_wrapper_or_url_builder"]
     markdown_table(
         ["Method", "Path", "Domain", "Behavior"],
-        [[route.method, route.path, route.domain, route.behavior] for route in route_no_wrapper],
+        [[route["method"], route["path"], route["domain"], route["behavior"]] for route in route_no_wrapper],
     )
     print()
     print("### Intentional Browser/Form/Download Cases")
     print()
-    special_routes = [route for route in routes if route.behavior != "json"]
+    special_routes = drift["intentional_browser_form_download_cases"]
     markdown_table(
         ["Method", "Path", "Behavior"],
-        [[route.method, route.path, route.behavior] for route in special_routes],
+        [[route["method"], route["path"], route["behavior"]] for route in special_routes],
     )
+
+
+def route_key(route: dict[str, Any]) -> str:
+    return f"{route['method']} {route['path']}"
+
+
+def run_contract_check(inventory: dict[str, Any], expected_path: Path = EXPECTED_CONTRACT_PATH) -> int:
+    try:
+        expected = json.loads(read_text(expected_path))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Could not parse {expected_path}: {exc}") from exc
+
+    failures: list[str] = []
+    expected_summary = expected.get("summary", {})
+    current_summary = inventory["summary"]
+    for key, expected_value in sorted(expected_summary.items()):
+        current_value = current_summary.get(key)
+        if current_value != expected_value:
+            failures.append(f"Summary count changed for {key}: expected {expected_value}, got {current_value}")
+
+    wrapper_no_match = inventory["drift"]["api_wrappers_without_backend_route"]
+    if wrapper_no_match:
+        rendered = ", ".join(
+            f"{wrapper['name']} ({wrapper['method']} {wrapper['path'] or '-'})"
+            for wrapper in wrapper_no_match
+        )
+        failures.append(f"api.ts wrappers without backend route: {rendered}")
+
+    expected_wrappers = expected.get("frontend_wrappers_without_backend_route", [])
+    if expected_wrappers:
+        failures.append("Expected fixture must keep frontend_wrappers_without_backend_route empty")
+
+    expected_routes = expected.get("accepted_backend_routes_without_wrapper", [])
+    missing_reasons = [
+        f"{route.get('method', '-')} {route.get('path', '-')}"
+        for route in expected_routes
+        if not route.get("reason")
+    ]
+    if missing_reasons:
+        failures.append("Accepted backend-only routes missing reason: " + ", ".join(missing_reasons))
+
+    current_route_keys = {
+        route_key(route)
+        for route in inventory["drift"]["backend_routes_without_api_ts_wrapper_or_url_builder"]
+    }
+    expected_route_keys = {route_key(route) for route in expected_routes}
+    added_routes = sorted(current_route_keys - expected_route_keys)
+    removed_routes = sorted(expected_route_keys - current_route_keys)
+    if added_routes:
+        failures.append("Unreviewed backend-only routes added: " + ", ".join(added_routes))
+    if removed_routes:
+        failures.append("Accepted backend-only routes no longer present: " + ", ".join(removed_routes))
+
+    if failures:
+        print("Contract drift check failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        print(
+            f"Update {expected_path.relative_to(REPO_ROOT)} only after reviewing intentional contract changes.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("Contract drift check passed.")
+    print(
+        "- Summary counts match, api.ts has no unmatched wrappers, and backend-only routes match the accepted fixture."
+    )
+    return 0
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--format",
+        choices=("markdown", "json"),
+        default="markdown",
+        help="Output inventory format. Default: markdown.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate the current inventory against the expected check-only fixture.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    inventory = collect_inventory()
+    if args.check:
+        return run_contract_check(inventory)
+    if args.format == "json":
+        print(json.dumps(inventory, indent=2, sort_keys=True))
+    else:
+        render_markdown(inventory)
     return 0
 
 

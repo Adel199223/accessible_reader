@@ -1,0 +1,67 @@
+{
+  "summary": {
+    "openapi_paths": 58,
+    "openapi_route_operations": 66,
+    "openapi_schemas": 108,
+    "backend_pydantic_classes": 115,
+    "backend_literal_aliases": 19,
+    "frontend_api_exports": 56,
+    "frontend_type_exports": 100,
+    "exact_frontend_backend_contract_name_matches": 95,
+    "api_wrappers_without_matched_route": 0,
+    "backend_routes_without_api_ts_wrapper_or_url_builder": 10
+  },
+  "accepted_backend_routes_without_wrapper": [
+    {
+      "method": "GET",
+      "path": "/api/documents/{document_id}",
+      "reason": "Legacy single-document support route; the browser app primarily uses recall document and reader-view wrappers."
+    },
+    {
+      "method": "POST",
+      "path": "/api/recall/browser/context",
+      "reason": "Browser extension/context-only route, intentionally outside the main browser app wrapper surface."
+    },
+    {
+      "method": "POST",
+      "path": "/api/recall/browser/notes",
+      "reason": "Browser extension/context-only note capture route, intentionally outside the main browser app wrapper surface."
+    },
+    {
+      "method": "GET",
+      "path": "/api/recall/documents/{document_id}/preview/asset",
+      "reason": "Preview asset file route reached through normalized backend-provided asset URLs, not a direct api.ts wrapper."
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/attachments",
+      "reason": "Workspace admin/export support route not currently used by the browser app wrapper surface."
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/attachments/{attachment_id}",
+      "reason": "Workspace attachment file-download support route not currently exposed as an api.ts wrapper."
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/change-events",
+      "reason": "Workspace diagnostic/change-log support route not currently used by the browser app wrapper surface."
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/integrity",
+      "reason": "Workspace diagnostic support route not currently used by the browser app wrapper surface."
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/merge-preview",
+      "reason": "Workspace admin/import planning support route not currently exposed as an api.ts wrapper."
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/repair",
+      "reason": "Workspace repair support route not currently used by the browser app wrapper surface."
+    }
+  ],
+  "frontend_wrappers_without_backend_route": []
+}
