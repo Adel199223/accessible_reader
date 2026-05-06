@@ -23,6 +23,7 @@ BACKEND_DIR = REPO_ROOT / "backend"
 MAIN_PATH = REPO_ROOT / "backend" / "app" / "main.py"
 MODELS_PATH = REPO_ROOT / "backend" / "app" / "models.py"
 API_TS_PATH = REPO_ROOT / "frontend" / "src" / "api.ts"
+API_MODULES_DIR = REPO_ROOT / "frontend" / "src" / "api"
 TYPES_TS_PATH = REPO_ROOT / "frontend" / "src" / "types.ts"
 EXPECTED_CONTRACT_PATH = REPO_ROOT / "scripts" / "contracts" / "expected_api_types_contract.json"
 
@@ -108,6 +109,13 @@ def read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except OSError as exc:
         raise SystemExit(f"Could not read {path}: {exc}") from exc
+
+
+def read_frontend_api_source() -> str:
+    paths = [API_TS_PATH]
+    if API_MODULES_DIR.exists():
+        paths.extend(sorted(API_MODULES_DIR.glob("*.ts")))
+    return "\n\n".join(read_text(path) for path in paths)
 
 
 def load_openapi() -> dict[str, Any]:
@@ -510,7 +518,7 @@ def markdown_table(headers: list[str], rows: list[list[str]]) -> None:
 def collect_inventory() -> dict[str, Any]:
     openapi = load_openapi()
     models_source = read_text(MODELS_PATH)
-    api_source = read_text(API_TS_PATH)
+    api_source = read_frontend_api_source()
     types_source = read_text(TYPES_TS_PATH)
 
     routes = collect_routes(openapi)

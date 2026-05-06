@@ -49,6 +49,8 @@ Behavior:
 
 The check is now wired into local verification through `backend/tests/test_contract_inventory.py`, so `cd backend && .venv/bin/python -m pytest tests/test_contract_inventory.py -q` runs the same fixture-backed drift guard. The repo assistant docs also expose the command as a safe backend check and as the `contract_drift_check` manifest command for future API/schema/frontend contract work.
 
+The frontend API client is now split by route/domain under `frontend/src/api/`, while `frontend/src/api.ts` remains the stable public barrel for existing imports. The audit script follows both the barrel and the domain modules, so `--check` continues to guard the same wrapper inventory after the split.
+
 ## Backend Route Inventory
 
 The OpenAPI surface is broad but coherent. Most routes are JSON. The non-JSON cases are intentional import/export/browser behaviors.
@@ -219,12 +221,12 @@ Human-review cases:
 
 ## Recommendation
 
-Primary next slice: keep the fixture-backed contract drift check in regular local verification before splitting files.
+Primary next slice: use the fixture-backed contract drift check while splitting frontend API wrappers by domain before any generated-type or `types.ts` work.
 
 Suggested next steps:
 
-1. Run `contract_drift_check` for any API/schema/frontend contract slice and keep the pytest wrapper green.
-2. After drift coverage is stable, split `frontend/src/api.ts` by domain. This should happen before splitting `types.ts`, because wrappers have a cleaner route-domain boundary and lower semantic risk.
+1. Keep `frontend/src/api.ts` as the compatibility barrel while domain modules carry the implementation.
+2. Keep `contract_drift_check` green for any future API/schema/frontend contract slice.
 3. Defer generated TypeScript types from OpenAPI until naming-only drift is documented and the team decides whether to keep frontend-friendly aliases like `ViewMode`, `SummaryDetail`, and `StudyReviewRating`.
 
 Fallback: if the CI/check lane proves too noisy, keep the script as a manually run audit artifact and do a minimal domain split of `api.ts` with focused wrapper tests, still avoiding route/schema/UI changes.
