@@ -10,7 +10,7 @@ Base: `28cc838a1bbee34b36e7669be86f311a1437d3d0`
 
 This audit compares the FastAPI/OpenAPI/Pydantic contract with the frontend API and TypeScript contract layer. It is behavior-preserving: no backend schema, route behavior, UI, runtime API client shape, or generated TypeScript type output changed in this slice.
 
-The new check-only script is `scripts/contracts/audit_api_types_contract.py`. It imports the local FastAPI app, reads `app.openapi()`, parses `backend/app/models.py`, `frontend/src/api.ts`, and `frontend/src/types.ts` with stdlib-only AST/regex helpers, and prints Markdown to stdout. It does not write files unless the caller redirects stdout. It exits nonzero only when OpenAPI cannot be generated or required source files cannot be read; drift findings are report-only for now.
+The new check-only script is `scripts/contracts/audit_api_types_contract.py`. It imports the local FastAPI app, reads `app.openapi()`, parses `backend/app/models.py`, the `frontend/src/api.ts` API barrel plus `frontend/src/api/*.ts`, and the `frontend/src/types.ts` type barrel plus `frontend/src/types/*.ts` with stdlib-only AST/regex helpers, and prints Markdown to stdout. It does not write files unless the caller redirects stdout. It exits nonzero only when OpenAPI cannot be generated or required source files cannot be read; drift findings are report-only for now.
 
 Current script snapshot:
 
@@ -25,7 +25,7 @@ Current script snapshot:
 - API wrappers without matched backend route: 0
 - Backend routes without an `api.ts` wrapper or URL builder: 10
 
-Conclusion: the stack does not need modernization, but contract drift coverage should be added before splitting `api.ts` or `types.ts`.
+Conclusion: the stack does not need modernization, but contract drift coverage should stay green while the frontend API and type barrels move domain implementation details into smaller modules.
 
 ## Contract Drift Check Lane
 
@@ -50,6 +50,8 @@ Behavior:
 The check is now wired into local verification through `backend/tests/test_contract_inventory.py`, so `cd backend && .venv/bin/python -m pytest tests/test_contract_inventory.py -q` runs the same fixture-backed drift guard. The repo assistant docs also expose the command as a safe backend check and as the `contract_drift_check` manifest command for future API/schema/frontend contract work.
 
 The frontend API client is now split by route/domain under `frontend/src/api/`, while `frontend/src/api.ts` remains the stable public barrel for existing imports. The audit script follows both the barrel and the domain modules, so `--check` continues to guard the same wrapper inventory after the split.
+
+The frontend type contract is now split by domain under `frontend/src/types/`, while `frontend/src/types.ts` remains the stable public barrel for existing imports. The audit script follows both the barrel and the domain modules, so `--check` continues to guard the same 100 exported type/interface inventory after the split.
 
 ## Backend Route Inventory
 
@@ -221,15 +223,15 @@ Human-review cases:
 
 ## Recommendation
 
-Primary next slice: use the fixture-backed contract drift check while splitting frontend API wrappers by domain before any generated-type or `types.ts` work.
+Primary next slice: review the now-split API and type barrels under routine product work before introducing generated TypeScript types.
 
 Suggested next steps:
 
-1. Keep `frontend/src/api.ts` as the compatibility barrel while domain modules carry the implementation.
+1. Keep `frontend/src/api.ts` and `frontend/src/types.ts` as compatibility barrels while domain modules carry the implementation.
 2. Keep `contract_drift_check` green for any future API/schema/frontend contract slice.
-3. Defer generated TypeScript types from OpenAPI until naming-only drift is documented and the team decides whether to keep frontend-friendly aliases like `ViewMode`, `SummaryDetail`, and `StudyReviewRating`.
+3. Defer generated TypeScript types from OpenAPI until naming-only drift and inline request payloads have explicit decisions.
 
-Fallback: if the CI/check lane proves too noisy, keep the script as a manually run audit artifact and do a minimal domain split of `api.ts` with focused wrapper tests, still avoiding route/schema/UI changes.
+Fallback: if generated-type exploration proves too noisy, keep the current split barrels plus fixture-backed audit check and return to product work.
 
 Do not start with `storage.py`, `models.py`, backend routers, `RecallWorkspace.tsx`, or CSS splitting from this slice. Those remain valuable maintainability work, but they need stronger regression gates than the current contract audit provides.
 
@@ -246,24 +248,20 @@ Start from the completed local branch/commit that added:
 - scripts/contracts/audit_api_types_contract.py
 
 Goal:
-Add a behavior-preserving contract drift check lane around scripts/contracts/audit_api_types_contract.py.
+Explore generated TypeScript type feasibility without changing runtime behavior.
 
 Constraints:
 - Do not change backend schema, route behavior, UI, storage, generated Reader output, or Neuro Map Studio.
-- Do not split api.ts or types.ts yet.
+- Keep `frontend/src/api.ts` and `frontend/src/types.ts` as compatibility barrels.
 - Do not introduce heavy dependencies.
 - Keep the script/check developer-only and report/fixture based.
 
 Tasks:
 1. Inspect the current audit script output.
-2. Add a small expected-inventory fixture or test that validates:
-   - OpenAPI generation succeeds.
-   - OpenAPI path/operation/schema counts are unchanged unless intentionally updated.
-   - api.ts wrappers with backend route matches remain at zero unmatched wrappers.
-   - accepted backend-only routes are explicitly listed.
-3. Make drift failures actionable, with clear output naming the added/removed routes or wrappers.
+2. Compare OpenAPI schema names and frontend type names for generated-type readiness.
+3. Document decisions needed for `DocumentMode`/`ViewMode`, `DetailLevel`/`SummaryDetail`, `StudyReviewRatingLabel`/`StudyReviewRating`, multipart body schemas, and inline request payloads.
 4. Run backend pytest, frontend typecheck, focused api tests, full frontend tests, frontend build, the contract audit check, and git diff --check.
-5. Update docs only as needed to describe the check lane.
+5. Update docs only as needed to describe the feasibility result.
 
 Deliverables:
 - A tiny check-only fixture/test/script update.

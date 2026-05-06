@@ -25,6 +25,7 @@ MODELS_PATH = REPO_ROOT / "backend" / "app" / "models.py"
 API_TS_PATH = REPO_ROOT / "frontend" / "src" / "api.ts"
 API_MODULES_DIR = REPO_ROOT / "frontend" / "src" / "api"
 TYPES_TS_PATH = REPO_ROOT / "frontend" / "src" / "types.ts"
+TYPES_MODULES_DIR = REPO_ROOT / "frontend" / "src" / "types"
 EXPECTED_CONTRACT_PATH = REPO_ROOT / "scripts" / "contracts" / "expected_api_types_contract.json"
 
 IGNORED_OPENAPI_SCHEMAS = {"HTTPValidationError", "ValidationError"}
@@ -115,6 +116,13 @@ def read_frontend_api_source() -> str:
     paths = [API_TS_PATH]
     if API_MODULES_DIR.exists():
         paths.extend(sorted(API_MODULES_DIR.glob("*.ts")))
+    return "\n\n".join(read_text(path) for path in paths)
+
+
+def read_frontend_type_source() -> str:
+    paths = [TYPES_TS_PATH]
+    if TYPES_MODULES_DIR.exists():
+        paths.extend(sorted(TYPES_MODULES_DIR.glob("*.ts")))
     return "\n\n".join(read_text(path) for path in paths)
 
 
@@ -519,7 +527,7 @@ def collect_inventory() -> dict[str, Any]:
     openapi = load_openapi()
     models_source = read_text(MODELS_PATH)
     api_source = read_frontend_api_source()
-    types_source = read_text(TYPES_TS_PATH)
+    types_source = read_frontend_type_source()
 
     routes = collect_routes(openapi)
     schemas = {
