@@ -27,7 +27,7 @@ The current API/types contract is already unusually close:
 
 The strongest finding is that 84 OpenAPI component schemas and frontend interfaces share the same name and the same top-level property names. That makes generated types strategically attractive. The limiting factor is not broad contract mismatch; it is the set of intentional frontend aliases, inline request bodies, multipart/download routes, browser-extension routes, and refined frontend convenience unions that would be obscured by direct generation.
 
-Recommendation: do not introduce generated TypeScript files yet. Add a normalized OpenAPI schema snapshot/check lane next, record the compatibility alias map explicitly, and only then try generated TypeScript as a private reference module. Keep `frontend/src/types.ts` and `frontend/src/api.ts` as compatibility barrels.
+Recommendation: keep the generated TypeScript file private and reference-only. The normalized OpenAPI snapshot and generated-reference checks now make drift visible, but `frontend/src/types.ts` and `frontend/src/api.ts` should remain compatibility barrels until a separate adoption slice proves selective aliases are safe.
 
 ## Current Contract Shape
 
@@ -65,6 +65,35 @@ Behavior:
 - The fixture records OpenAPI version, 108 schema names excluding FastAPI validation schemas, 66 route operation keys, 11 multipart/download route exceptions, 23 OpenAPI schema names without frontend type names, 15 frontend type names without OpenAPI schema names, 19 backend Literal aliases not emitted as OpenAPI schemas, and the intentional compatibility alias map.
 - The check is wired into `backend/tests/test_contract_inventory.py`, so `cd backend && .venv/bin/python -m pytest tests/test_contract_inventory.py -q` now runs both the API/types drift fixture and the OpenAPI snapshot fixture.
 - This is still not generated TypeScript, not a backend schema change, and not a runtime API client change.
+
+## Generated OpenAPI Reference Lane
+
+The follow-up reference lane now proves generated TypeScript can be deterministic without replacing hand-authored frontend types or API wrappers.
+
+Commands:
+
+```bash
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --write-generated-openapi-reference
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check-generated-openapi-reference
+```
+
+Behavior:
+
+- `--write-generated-openapi-reference` writes `frontend/src/generated/openapi.ts` from the local FastAPI `app.openapi()` output.
+- `--check-generated-openapi-reference` regenerates the file in a temporary directory, compares it byte-for-byte with the committed reference, and fails if the generated reference is stale or expected anchors disappear.
+- Generation uses the frontend dev dependency `openapi-typescript` with `--root-types`, `--root-types-no-schema-prefix`, and `--alphabetize`.
+- The generated file is private and reference-only. It is not exported from `frontend/src/types.ts`, not imported by product code, and not used by the runtime API client.
+- The check is wired into `backend/tests/test_contract_inventory.py`, so the focused pytest now covers the API/types fixture, normalized OpenAPI snapshot fixture, and generated OpenAPI reference currentness.
+
+The generated reference intentionally includes awkward but important OpenAPI shapes: FastAPI multipart body aliases, validation schemas, operations, and inline request models such as graph decisions, study review/schedule requests, progress updates, and transforms. Those anchors make drift visible while preserving the current frontend ergonomics.
+
+Generated output caveats remain:
+
+- FastAPI/Pydantic OpenAPI 3.1 nullable fields become `T | null`; optional-versus-null semantics still need human review before adoption.
+- Defaulted response/settings fields may appear required in generated types.
+- Multipart upload bodies are reference artifacts, not replacements for the app's `FormData` wrappers.
+- Download and stream routes should stay behind URL builders or browser download helpers.
+- `StudyCardQuestionPayload` remains a better hand-authored frontend discriminated-union candidate than the broad generated shape.
 
 ## Generation-Ready Surface
 
@@ -124,8 +153,8 @@ These are not bugs. They are the reason generated TypeScript should start as a r
 
 | Option | Value | Risk | Dependency impact | Recommendation |
 | --- | --- | --- | --- | --- |
-| Normalized OpenAPI snapshot/check lane | Makes schema drift reviewable before type generation | Low | None | Do next |
-| `openapi-typescript` private generated reference | Generates runtime-free `paths` and `components` types from OpenAPI 3.x; can be checked without replacing wrappers | Medium | One frontend dev dependency if adopted | Try after snapshot lane |
+| Normalized OpenAPI snapshot/check lane | Makes schema drift reviewable before type generation | Low | None | Keep as a prerequisite guard |
+| `openapi-typescript` private generated reference | Generates runtime-free `paths` and `components` types from OpenAPI 3.x; can be checked without replacing wrappers | Medium | One frontend dev dependency | Keep private and reference-only |
 | Narrow in-repo generator | No npm dependency and can preserve names exactly | Medium-high because edge cases accumulate quickly | None | Defer unless third-party output proves unsuitable |
 | Orval | Generates models plus clients and can target Fetch/React Query/SWR | Medium-high because current wrappers already encode important behavior | New generator dependency and config | Do not lead with it |
 | OpenAPI Generator `typescript-fetch` | Broad client generator with many options | High for this repo because it generates a client/runtime surface and has documented union/`anyOf` support limits | Heavier toolchain/runtime surface | Not recommended now |
@@ -154,14 +183,7 @@ This should extend the current contract script or add a tiny companion script us
 
 ### Stage 2: Generated Reference Experiment
 
-After Stage 1 is reviewed, generate a private reference file such as `frontend/src/generated/openapi.ts` from a local OpenAPI JSON file. Do not import it from product code initially.
-
-The experiment should prove:
-
-- The generated file is deterministic.
-- The generated `components["schemas"]` names can be mapped to current public frontend names.
-- TypeScript can typecheck the generated file.
-- The generated file does not force a generated client or runtime code.
+This stage now exists as `frontend/src/generated/openapi.ts` plus the `--check-generated-openapi-reference` command. Keep it private until it has been reviewed across a few contract-changing slices.
 
 ### Stage 3: Selective Alias Adoption
 
@@ -179,9 +201,9 @@ Keep these hand-authored until explicit follow-up work:
 
 ## Recommendation
 
-Primary recommendation: review the normalized OpenAPI schema snapshot/check lane, then try generated TypeScript as a private reference file only. Do not replace public frontend type exports in the next slice.
+Primary recommendation: keep the generated OpenAPI reference lane private and add a small mapping/compatibility assertion before replacing any hand-authored public frontend types.
 
-Fallback recommendation: keep the current contract drift check and split barrels as-is, and return to product work if the snapshot lane proves noisy.
+Fallback recommendation: keep the current contract drift, OpenAPI snapshot, and generated-reference checks as review-only guards, and return to product work if selective alias adoption looks noisy.
 
 Do not replace `frontend/src/types.ts` or `frontend/src/api.ts`. Treat generated types as a private reference until the alias map and inline request-body decisions are fully explicit.
 

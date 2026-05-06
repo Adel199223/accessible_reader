@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import argparse
 import ast
+import subprocess
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 import re
 import sys
+import tempfile
 from typing import Any
 
 
@@ -26,6 +28,8 @@ API_TS_PATH = REPO_ROOT / "frontend" / "src" / "api.ts"
 API_MODULES_DIR = REPO_ROOT / "frontend" / "src" / "api"
 TYPES_TS_PATH = REPO_ROOT / "frontend" / "src" / "types.ts"
 TYPES_MODULES_DIR = REPO_ROOT / "frontend" / "src" / "types"
+GENERATED_OPENAPI_REFERENCE_PATH = REPO_ROOT / "frontend" / "src" / "generated" / "openapi.ts"
+OPENAPI_TYPESCRIPT_BIN = REPO_ROOT / "frontend" / "node_modules" / ".bin" / "openapi-typescript"
 EXPECTED_CONTRACT_PATH = REPO_ROOT / "scripts" / "contracts" / "expected_api_types_contract.json"
 EXPECTED_OPENAPI_SNAPSHOT_PATH = (
     REPO_ROOT / "scripts" / "contracts" / "expected_openapi_snapshot.json"
@@ -638,6 +642,50 @@ def collect_openapi_snapshot(inventory: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def generate_openapi_reference_source() -> str:
+    if not OPENAPI_TYPESCRIPT_BIN.exists():
+        raise SystemExit(
+            "Could not find frontend/node_modules/.bin/openapi-typescript. "
+            "Run `cd frontend && npm install` before checking the generated OpenAPI reference."
+        )
+
+    openapi = load_openapi()
+    with tempfile.TemporaryDirectory(prefix="accessible-reader-openapi-") as temp_dir:
+        temp_path = Path(temp_dir)
+        openapi_path = temp_path / "openapi.json"
+        output_path = temp_path / "openapi.ts"
+        openapi_path.write_text(json.dumps(openapi, indent=2, sort_keys=True), encoding="utf-8")
+        result = subprocess.run(
+            [
+                str(OPENAPI_TYPESCRIPT_BIN),
+                str(openapi_path),
+                "--output",
+                str(output_path),
+                "--root-types",
+                "--root-types-no-schema-prefix",
+                "--alphabetize",
+            ],
+            cwd=REPO_ROOT / "frontend",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise SystemExit(
+                "openapi-typescript generation failed.\n\n"
+                f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+            )
+        return output_path.read_text(encoding="utf-8")
+
+
+def write_generated_openapi_reference() -> int:
+    GENERATED_OPENAPI_REFERENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    source = generate_openapi_reference_source()
+    GENERATED_OPENAPI_REFERENCE_PATH.write_text(source, encoding="utf-8")
+    print(f"Wrote {GENERATED_OPENAPI_REFERENCE_PATH.relative_to(REPO_ROOT)}")
+    return 0
+
+
 def render_markdown(inventory: dict[str, Any]) -> None:
     summary = inventory["summary"]
     routes = inventory["routes"]
@@ -968,6 +1016,74 @@ def run_openapi_snapshot_check(
     return 0
 
 
+def run_generated_openapi_reference_check() -> int:
+    if not GENERATED_OPENAPI_REFERENCE_PATH.exists():
+        print(
+            f"Generated OpenAPI reference is missing: "
+            f"{GENERATED_OPENAPI_REFERENCE_PATH.relative_to(REPO_ROOT)}",
+            file=sys.stderr,
+        )
+        print(
+            "Run `backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py "
+            "--write-generated-openapi-reference` after reviewing the OpenAPI snapshot.",
+            file=sys.stderr,
+        )
+        return 1
+
+    expected_source = GENERATED_OPENAPI_REFERENCE_PATH.read_text(encoding="utf-8")
+    current_source = generate_openapi_reference_source()
+    if current_source != expected_source:
+        print("Generated OpenAPI reference is stale.", file=sys.stderr)
+        print(
+            "Regenerate with `backend/.venv/bin/python "
+            "scripts/contracts/audit_api_types_contract.py --write-generated-openapi-reference` "
+            "and review the diff.",
+            file=sys.stderr,
+        )
+        return 1
+
+    required_tokens = (
+        "export interface paths",
+        "export interface components",
+        "export interface operations",
+        "export type webhooks",
+        "export type $defs",
+        "export type DocumentRecord",
+        "export type DocumentView",
+        "export type RecallDocumentRecord",
+        "export type RecallNoteRecord",
+        "export type LibraryReadingQueueRow",
+        "export type KnowledgeGraphSnapshot",
+        "export type StudyCardRecord",
+        "export type GraphDecisionRequest",
+        "export type ProgressUpdate",
+        "export type StudyCardBulkDeleteRequest",
+        "export type StudyReviewRequest",
+        "export type StudyScheduleStateRequest",
+        "export type TransformRequest",
+        "export type BodyImportFileApiDocumentsImportFilePost",
+        "export type BodyPreviewWorkspaceImportApiWorkspaceImportPreviewPost",
+        "export type HttpValidationError",
+        "export type ValidationError",
+        "export type WorkspaceExportManifest",
+    )
+    missing_tokens = [token for token in required_tokens if token not in current_source]
+    if missing_tokens:
+        print(
+            "Generated OpenAPI reference is missing expected type anchors: "
+            + ", ".join(missing_tokens),
+            file=sys.stderr,
+        )
+        return 1
+
+    print("Generated OpenAPI reference check passed.")
+    print(
+        "- frontend/src/generated/openapi.ts matches the current FastAPI OpenAPI schema "
+        "and exposes the expected private reference type anchors."
+    )
+    return 0
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -991,6 +1107,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Validate the normalized OpenAPI snapshot against the expected fixture.",
     )
+    parser.add_argument(
+        "--write-generated-openapi-reference",
+        action="store_true",
+        help="Regenerate the private TypeScript OpenAPI reference file.",
+    )
+    parser.add_argument(
+        "--check-generated-openapi-reference",
+        action="store_true",
+        help="Validate the private TypeScript OpenAPI reference file is current.",
+    )
     return parser.parse_args(argv)
 
 
@@ -1002,6 +1128,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.check_openapi_snapshot:
         return run_openapi_snapshot_check(collect_openapi_snapshot(inventory))
+    if args.write_generated_openapi_reference:
+        return write_generated_openapi_reference()
+    if args.check_generated_openapi_reference:
+        return run_generated_openapi_reference_check()
     if args.check:
         return run_contract_check(inventory)
     if args.format == "json":

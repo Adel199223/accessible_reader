@@ -62,6 +62,15 @@ backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check-o
 
 The snapshot fixture records OpenAPI version, schema names, route operation keys, multipart/download exceptions, frontend/backend name gaps, backend Literal aliases not emitted as OpenAPI schemas, and the compatibility alias map. It is wired into `backend/tests/test_contract_inventory.py` beside the original contract drift check.
 
+The follow-up generated-reference lane adds one private TypeScript reference file without changing runtime imports:
+
+```bash
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --write-generated-openapi-reference
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check-generated-openapi-reference
+```
+
+The command uses local FastAPI OpenAPI output and `openapi-typescript` to maintain `frontend/src/generated/openapi.ts` as a deterministic reference artifact. The file is not exported from the public frontend type barrel and is not imported by product code. The check is wired into `backend/tests/test_contract_inventory.py` and guards expected anchors for `paths`, `components`, `operations`, core records, awkward request/body shapes, multipart body aliases, and validation schemas.
+
 ## Backend Route Inventory
 
 The OpenAPI surface is broad but coherent. Most routes are JSON. The non-JSON cases are intentional import/export/browser behaviors.

@@ -12,6 +12,7 @@
 - frontend: `npm run lint`, `npm run build`, `npm test -- --run`
 - contract drift: `backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check`
 - OpenAPI snapshot: `backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check-openapi-snapshot`
+- generated OpenAPI reference: `backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check-generated-openapi-reference`
 - backend: `.venv/bin/python -m pytest`
 - backend smoke: `.venv/bin/python -c "from app.main import app; print(app.title)"`
 - extension: `npm test -- --run`, `npm run build`

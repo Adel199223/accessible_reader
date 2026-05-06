@@ -43,3 +43,23 @@ def test_openapi_snapshot_matches_expected_fixture() -> None:
         f"stdout:\n{result.stdout}\n\n"
         f"stderr:\n{result.stderr}"
     )
+
+
+def test_generated_openapi_reference_is_current() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    script_path = repo_root / "scripts" / "contracts" / "audit_api_types_contract.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script_path), "--check-generated-openapi-reference"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, (
+        "Generated OpenAPI TypeScript reference drifted.\n\n"
+        f"stdout:\n{result.stdout}\n\n"
+        f"stderr:\n{result.stderr}"
+    )
