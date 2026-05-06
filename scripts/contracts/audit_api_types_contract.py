@@ -37,6 +37,9 @@ EXPECTED_OPENAPI_SNAPSHOT_PATH = (
 EXPECTED_GENERATED_TYPE_MAPPING_PATH = (
     REPO_ROOT / "scripts" / "contracts" / "expected_generated_type_mapping.json"
 )
+EXPECTED_GENERATED_TYPE_ADOPTIONS_PATH = (
+    REPO_ROOT / "scripts" / "contracts" / "expected_generated_type_adoptions.json"
+)
 
 IGNORED_OPENAPI_SCHEMAS = {"HTTPValidationError", "ValidationError"}
 
@@ -486,6 +489,37 @@ def parse_generated_schema_aliases(source: str) -> dict[str, str]:
     return {alias: schema for alias, schema in pattern.findall(source)}
 
 
+def parse_generated_type_import_aliases(source: str, import_path: str = "../generated/openapi") -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    pattern = re.compile(
+        r"import\s+type\s+\{(?P<body>[^}]*)\}\s+from\s+['\"]"
+        + re.escape(import_path)
+        + r"['\"]",
+        re.M | re.S,
+    )
+    for match in pattern.finditer(source):
+        body = match.group("body")
+        for raw_part in body.split(","):
+            part = " ".join(raw_part.strip().split())
+            if not part:
+                continue
+            alias_match = re.fullmatch(r"([A-Za-z_$][A-Za-z0-9_$]*)\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)", part)
+            if alias_match:
+                source_name, local_name = alias_match.groups()
+                aliases[local_name] = source_name
+            elif re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*", part):
+                aliases[part] = part
+    return aliases
+
+
+def parse_frontend_type_alias_targets(source: str) -> dict[str, str]:
+    pattern = re.compile(
+        r"^export\s+type\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*;?",
+        re.M,
+    )
+    return {name: target for name, target in pattern.findall(source)}
+
+
 def parse_backend_models(source: str, openapi_schemas: set[str]) -> list[ModelInfo]:
     try:
         tree = ast.parse(source)
@@ -705,6 +739,13 @@ def collect_generated_type_mapping() -> dict[str, Any]:
         frontend = item["frontend"]
         openapi_fields = sorted((schema_map.get(schema, {}).get("properties") or {}).keys())
         frontend_fields = parse_frontend_interface_fields(type_source, frontend)
+        alias_target = parse_frontend_type_alias_targets(type_source).get(frontend)
+        import_aliases = parse_generated_type_import_aliases(type_source)
+        adopted_schema = import_aliases.get(alias_target or "")
+        frontend_shape_source = "frontend interface"
+        if frontend_fields is None and adopted_schema == schema:
+            frontend_fields = openapi_fields
+            frontend_shape_source = "generated alias"
         mappings.append(
             {
                 "schema": schema,
@@ -712,6 +753,7 @@ def collect_generated_type_mapping() -> dict[str, Any]:
                 "expected_fields": item.get("fields", []),
                 "openapi_fields": openapi_fields,
                 "frontend_fields": frontend_fields if frontend_fields is not None else [],
+                "frontend_shape_source": frontend_shape_source,
                 "generated_alias_schema": generated_aliases.get(frontend),
                 "frontend_type_exported": frontend in frontend_type_names,
                 "reason": item.get("reason", "-"),
@@ -724,6 +766,45 @@ def collect_generated_type_mapping() -> dict[str, Any]:
         "exact_interface_property_mappings": mappings,
         "intentional_alias_decisions": expected.get("intentional_alias_decisions", []),
         "deferred_public_type_decisions": expected.get("deferred_public_type_decisions", []),
+    }
+
+
+def collect_generated_type_adoptions() -> dict[str, Any]:
+    generated_source = read_text(GENERATED_OPENAPI_REFERENCE_PATH)
+    generated_aliases = parse_generated_schema_aliases(generated_source)
+    try:
+        expected = json.loads(read_text(EXPECTED_GENERATED_TYPE_ADOPTIONS_PATH))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Could not parse {EXPECTED_GENERATED_TYPE_ADOPTIONS_PATH}: {exc}") from exc
+
+    adoptions = []
+    for item in expected.get("adoptions", []):
+        module_path = REPO_ROOT / item["module"]
+        source = read_text(module_path)
+        import_aliases = parse_generated_type_import_aliases(source, item["import_path"])
+        type_alias_targets = parse_frontend_type_alias_targets(source)
+        frontend = item["frontend"]
+        imported_alias = item["imported_alias"]
+        schema = item["schema"]
+        adoptions.append(
+            {
+                "frontend": frontend,
+                "schema": schema,
+                "module": item["module"],
+                "import_path": item["import_path"],
+                "imported_alias": imported_alias,
+                "generated_root_alias_schema": generated_aliases.get(frontend),
+                "imported_alias_schema": import_aliases.get(imported_alias),
+                "exported_type_alias_target": type_alias_targets.get(frontend),
+                "has_frontend_interface": extract_frontend_interface_body(source, frontend) is not None,
+                "reason": item.get("reason", "-"),
+            }
+        )
+
+    return {
+        "version": expected.get("version", 1),
+        "adoptions": adoptions,
+        "deferred_adoptions": expected.get("deferred_adoptions", []),
     }
 
 
@@ -1242,6 +1323,62 @@ def run_generated_type_mapping_check(
     return 0
 
 
+def run_generated_type_adoptions_check(
+    adoptions: dict[str, Any],
+    expected_path: Path = EXPECTED_GENERATED_TYPE_ADOPTIONS_PATH,
+) -> int:
+    try:
+        expected = json.loads(read_text(expected_path))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Could not parse {expected_path}: {exc}") from exc
+
+    failures: list[str] = []
+    expected_items = expected.get("adoptions", [])
+    current_items = adoptions.get("adoptions", [])
+    expected_keys = [(item.get("frontend"), item.get("schema")) for item in expected_items]
+    current_keys = [(item.get("frontend"), item.get("schema")) for item in current_items]
+    if current_keys != expected_keys:
+        failures.append(f"Generated type adoption set changed: expected {expected_keys}, got {current_keys}")
+
+    for item in current_items:
+        frontend = item["frontend"]
+        schema = item["schema"]
+        imported_alias = item["imported_alias"]
+        if item["generated_root_alias_schema"] != schema:
+            failures.append(
+                f"Generated root alias mismatch for {frontend}: expected schema {schema}, "
+                f"got {item['generated_root_alias_schema']}"
+            )
+        if item["imported_alias_schema"] != schema:
+            failures.append(
+                f"{item['module']} does not import {schema} as {imported_alias} "
+                f"from {item['import_path']}"
+            )
+        if item["exported_type_alias_target"] != imported_alias:
+            failures.append(
+                f"{item['module']} does not export {frontend} as a type alias to {imported_alias}"
+            )
+        if item["has_frontend_interface"]:
+            failures.append(f"{item['module']} still declares an interface for adopted type {frontend}")
+
+    if adoptions.get("deferred_adoptions") != expected.get("deferred_adoptions", []):
+        failures.append("Deferred generated type adoption decisions changed without fixture review")
+
+    if failures:
+        print("Generated type adoption check failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        print(
+            "Keep generated adoption type-only and fixture-reviewed before expanding aliases.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("Generated type adoption check passed.")
+    print("- Expected generated type aliases are adopted through type-only public frontend exports.")
+    return 0
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1285,6 +1422,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Validate the generated OpenAPI to public frontend type mapping fixture.",
     )
+    parser.add_argument(
+        "--generated-type-adoptions",
+        action="store_true",
+        help="Print intentionally adopted generated OpenAPI type aliases as JSON.",
+    )
+    parser.add_argument(
+        "--check-generated-type-adoptions",
+        action="store_true",
+        help="Validate intentionally adopted generated OpenAPI type aliases.",
+    )
     return parser.parse_args(argv)
 
 
@@ -1305,6 +1452,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.check_generated_type_mapping:
         return run_generated_type_mapping_check(collect_generated_type_mapping())
+    if args.generated_type_adoptions:
+        print(json.dumps(collect_generated_type_adoptions(), indent=2, sort_keys=True))
+        return 0
+    if args.check_generated_type_adoptions:
+        return run_generated_type_adoptions_check(collect_generated_type_adoptions())
     if args.check:
         return run_contract_check(inventory)
     if args.format == "json":

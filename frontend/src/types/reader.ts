@@ -1,3 +1,4 @@
+import type { DocumentView as GeneratedDocumentView } from '../generated/openapi'
 import type { SummaryDetail, ViewMode } from './base'
 
 export interface ViewBlock {
@@ -8,18 +9,7 @@ export interface ViewBlock {
   metadata?: Record<string, unknown>
 }
 
-export interface DocumentView {
-  mode: ViewMode
-  detail_level: 'default' | SummaryDetail
-  title: string
-  blocks: ViewBlock[]
-  variant_metadata?: Record<string, unknown>
-  generated_by: 'local' | 'openai'
-  cached: boolean
-  source_hash: string
-  model?: string | null
-  updated_at: string
-}
+export type DocumentView = GeneratedDocumentView
 
 export interface ReadingCompleteResult {
   document_id: string

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "adoptions": [
+    {
+      "frontend": "DocumentView",
+      "schema": "DocumentView",
+      "module": "frontend/src/types/reader.ts",
+      "import_path": "../generated/openapi",
+      "imported_alias": "GeneratedDocumentView",
+      "reason": "First low-risk generated alias trial. DocumentView has stable required response fields and preserves the public frontend export name."
+    }
+  ],
+  "deferred_adoptions": [
+    {
+      "frontend": "DocumentRecord",
+      "reason": "Generated OpenAPI marks default-backed fields such as available_modes and progress_by_mode optional, while frontend code treats them as present."
+    },
+    {
+      "frontend": "StudyCardQuestionPayload",
+      "reason": "Keep the hand-authored frontend discriminated union until generated output can model the same ergonomics."
+    },
+    {
+      "frontend": "LibraryReadingQueueRow",
+      "reason": "Keep hand-authored until the first alias trial has been reviewed."
+    }
+  ]
+}

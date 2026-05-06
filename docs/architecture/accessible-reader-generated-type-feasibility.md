@@ -116,6 +116,28 @@ Behavior:
 
 This is a mapping assertion, not type adoption. It proves that a few selected generated schema aliases still line up with existing public frontend interface names and top-level fields. It does not replace hand-authored types, assert deep assignability, import generated files from product code, or change runtime behavior.
 
+## Generated DocumentView Alias Trial
+
+The first selective adoption slice now uses the private generated OpenAPI reference for one public frontend type:
+
+```bash
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --generated-type-adoptions
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check-generated-type-adoptions
+```
+
+Behavior:
+
+- `frontend/src/types/reader.ts` preserves the public `DocumentView` export name as a type-only alias to the generated `DocumentView` schema.
+- `frontend/src/types.ts` remains the public type barrel, so existing callers keep importing `DocumentView` from the same place.
+- `scripts/contracts/expected_generated_type_adoptions.json` allows exactly this adoption and records deferred types that should not be adopted in the same slice.
+- `--check-generated-type-adoptions` fails if the alias import disappears, if `DocumentView` becomes a hand-authored interface again, or if an unreviewed generated alias adoption appears.
+- The generated type mapping check treats fixture-approved generated aliases as generated-shape-backed, keeping the earlier mapping lane useful after the first adoption.
+- The check is wired into `backend/tests/test_contract_inventory.py` beside the contract drift, OpenAPI snapshot, generated-reference, and generated-mapping checks.
+
+This remains a type-only frontend contract change. It does not import generated OpenAPI types from runtime API code, generate a client, change backend schema, alter route behavior, or update UI.
+
+`DocumentRecord` stays deferred even though it is a small record. The generated OpenAPI schema marks default-backed fields such as `available_modes` and `progress_by_mode` optional, while frontend Reader paths treat them as present. That makes it a poor first adoption unless a later slice adds a stricter compatibility overlay.
+
 ## Generation-Ready Surface
 
 These areas are good candidates for generated-reference checks because their frontend names already align with OpenAPI component schema names:
@@ -208,7 +230,7 @@ This stage now exists as `frontend/src/generated/openapi.ts` plus the `--check-g
 
 ### Stage 3: Selective Alias Adoption
 
-Only after the generated reference is stable, consider replacing a small set of hand-authored domain module definitions with compatibility aliases. Start with low-risk response records where names and fields already align, such as documents, reader/settings, graph snapshots, library reading queue, and batch import responses.
+This stage has started with a single `DocumentView` alias trial. Treat that as a review gate before adopting additional generated aliases. Later candidates should still be low-risk response records where names and fields already align, such as reader/settings records, graph snapshots, library reading queue, and batch import responses.
 
 Keep these hand-authored until explicit follow-up work:
 
@@ -222,9 +244,9 @@ Keep these hand-authored until explicit follow-up work:
 
 ## Recommendation
 
-Primary recommendation: keep the generated OpenAPI reference and generated type mapping lanes private while reviewing selective alias adoption. The next adoption slice, if any, should start with one low-risk response record and preserve the public barrel name.
+Primary recommendation: review the single `DocumentView` generated-alias trial before expanding generated type adoption. The next slice should be a review/merge decision for this trial, not a second alias in the same branch.
 
-Fallback recommendation: keep the current contract drift, OpenAPI snapshot, generated-reference, and generated-mapping checks as review-only guards, and return to product work if selective alias adoption looks noisy.
+Fallback recommendation: keep `DocumentView` hand-authored, retain the contract drift, OpenAPI snapshot, generated-reference, generated-mapping, and generated-adoption checks as review-only guards, and return to product work if selective alias adoption looks noisy.
 
 Do not replace `frontend/src/types.ts` or `frontend/src/api.ts`. Treat generated types as a private reference until the alias map and inline request-body decisions are fully explicit.
 
