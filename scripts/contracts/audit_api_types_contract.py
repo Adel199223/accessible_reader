@@ -34,6 +34,9 @@ EXPECTED_CONTRACT_PATH = REPO_ROOT / "scripts" / "contracts" / "expected_api_typ
 EXPECTED_OPENAPI_SNAPSHOT_PATH = (
     REPO_ROOT / "scripts" / "contracts" / "expected_openapi_snapshot.json"
 )
+EXPECTED_GENERATED_TYPE_MAPPING_PATH = (
+    REPO_ROOT / "scripts" / "contracts" / "expected_generated_type_mapping.json"
+)
 
 IGNORED_OPENAPI_SCHEMAS = {"HTTPValidationError", "ValidationError"}
 
@@ -442,6 +445,47 @@ def parse_frontend_types(source: str, backend_names: set[str]) -> list[TypeInfo]
     return items
 
 
+def parse_frontend_exported_type_names(source: str) -> set[str]:
+    pattern = re.compile(r"^export\s+(?:interface|type|enum|class)\s+([A-Za-z0-9_]+)", re.M)
+    return set(pattern.findall(source))
+
+
+def extract_frontend_interface_body(source: str, name: str) -> str | None:
+    match = re.search(rf"^export\s+interface\s+{re.escape(name)}\b", source, re.M)
+    if not match:
+        return None
+    opening = source.find("{", match.end())
+    if opening == -1:
+        return None
+    depth = 0
+    for index in range(opening, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening + 1 : index]
+    return None
+
+
+def parse_frontend_interface_fields(source: str, name: str) -> list[str] | None:
+    body = extract_frontend_interface_body(source, name)
+    if body is None:
+        return None
+    fields = re.findall(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\??\s*:", body, re.M)
+    return sorted(set(fields))
+
+
+def parse_generated_schema_aliases(source: str) -> dict[str, str]:
+    pattern = re.compile(
+        r"^export\s+type\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*"
+        r"components\[['\"]schemas['\"]\]\[['\"]([^'\"]+)['\"]\];",
+        re.M,
+    )
+    return {alias: schema for alias, schema in pattern.findall(source)}
+
+
 def parse_backend_models(source: str, openapi_schemas: set[str]) -> list[ModelInfo]:
     try:
         tree = ast.parse(source)
@@ -639,6 +683,47 @@ def collect_openapi_snapshot(inventory: dict[str, Any]) -> dict[str, Any]:
             backend_literal_aliases - schema_name_set
         ),
         "compatibility_aliases": dict(sorted(NAMING_ONLY_MATCHES.items())),
+    }
+
+
+def collect_generated_type_mapping() -> dict[str, Any]:
+    openapi = load_openapi()
+    type_source = read_frontend_type_source()
+    generated_source = read_text(GENERATED_OPENAPI_REFERENCE_PATH)
+    schema_map = openapi.get("components", {}).get("schemas", {}) or {}
+    frontend_type_names = parse_frontend_exported_type_names(type_source)
+    generated_aliases = parse_generated_schema_aliases(generated_source)
+
+    try:
+        expected = json.loads(read_text(EXPECTED_GENERATED_TYPE_MAPPING_PATH))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Could not parse {EXPECTED_GENERATED_TYPE_MAPPING_PATH}: {exc}") from exc
+
+    mappings = []
+    for item in expected.get("exact_interface_property_mappings", []):
+        schema = item["schema"]
+        frontend = item["frontend"]
+        openapi_fields = sorted((schema_map.get(schema, {}).get("properties") or {}).keys())
+        frontend_fields = parse_frontend_interface_fields(type_source, frontend)
+        mappings.append(
+            {
+                "schema": schema,
+                "frontend": frontend,
+                "expected_fields": item.get("fields", []),
+                "openapi_fields": openapi_fields,
+                "frontend_fields": frontend_fields if frontend_fields is not None else [],
+                "generated_alias_schema": generated_aliases.get(frontend),
+                "frontend_type_exported": frontend in frontend_type_names,
+                "reason": item.get("reason", "-"),
+            }
+        )
+
+    return {
+        "version": expected.get("version", 1),
+        "generated_reference": str(GENERATED_OPENAPI_REFERENCE_PATH.relative_to(REPO_ROOT)),
+        "exact_interface_property_mappings": mappings,
+        "intentional_alias_decisions": expected.get("intentional_alias_decisions", []),
+        "deferred_public_type_decisions": expected.get("deferred_public_type_decisions", []),
     }
 
 
@@ -1084,6 +1169,79 @@ def run_generated_openapi_reference_check() -> int:
     return 0
 
 
+def run_generated_type_mapping_check(
+    mapping: dict[str, Any],
+    expected_path: Path = EXPECTED_GENERATED_TYPE_MAPPING_PATH,
+) -> int:
+    try:
+        expected = json.loads(read_text(expected_path))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Could not parse {expected_path}: {exc}") from exc
+
+    failures: list[str] = []
+    if mapping.get("generated_reference") != expected.get("generated_reference"):
+        failures.append(
+            "Generated reference path changed: "
+            f"expected {expected.get('generated_reference')}, got {mapping.get('generated_reference')}"
+        )
+
+    expected_items = expected.get("exact_interface_property_mappings", [])
+    current_items = mapping.get("exact_interface_property_mappings", [])
+    expected_keys = [(item.get("schema"), item.get("frontend")) for item in expected_items]
+    current_keys = [(item.get("schema"), item.get("frontend")) for item in current_items]
+    if current_keys != expected_keys:
+        failures.append(f"Generated type mapping set changed: expected {expected_keys}, got {current_keys}")
+
+    for item in current_items:
+        schema = item["schema"]
+        frontend = item["frontend"]
+        expected_fields = item["expected_fields"]
+        openapi_fields = item["openapi_fields"]
+        frontend_fields = item["frontend_fields"]
+        if not item["frontend_type_exported"]:
+            failures.append(f"{frontend} is not exported from the public frontend type surface")
+        if item["generated_alias_schema"] != schema:
+            failures.append(
+                f"Generated alias mismatch for {frontend}: expected schema {schema}, "
+                f"got {item['generated_alias_schema']}"
+            )
+        if openapi_fields != expected_fields:
+            failures.append(
+                f"OpenAPI fields drifted for {schema}: expected {expected_fields}, got {openapi_fields}"
+            )
+        if frontend_fields != expected_fields:
+            failures.append(
+                f"Frontend fields drifted for {frontend}: expected {expected_fields}, got {frontend_fields}"
+            )
+        if openapi_fields != frontend_fields:
+            failures.append(
+                f"OpenAPI/frontend fields differ for {schema} -> {frontend}: "
+                f"OpenAPI {openapi_fields}, frontend {frontend_fields}"
+            )
+
+    if mapping.get("intentional_alias_decisions") != expected.get("intentional_alias_decisions", []):
+        failures.append("Intentional alias decisions changed without fixture review")
+    if mapping.get("deferred_public_type_decisions") != expected.get("deferred_public_type_decisions", []):
+        failures.append("Deferred public type decisions changed without fixture review")
+
+    if failures:
+        print("Generated type mapping check failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        print(
+            "Review OpenAPI/frontend type drift before adopting generated aliases.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("Generated type mapping check passed.")
+    print(
+        "- Selected generated schema aliases, OpenAPI properties, and public frontend "
+        "interface fields match the expected mapping fixture."
+    )
+    return 0
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1117,6 +1275,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Validate the private TypeScript OpenAPI reference file is current.",
     )
+    parser.add_argument(
+        "--generated-type-mapping",
+        action="store_true",
+        help="Print the generated OpenAPI to public frontend type mapping as JSON.",
+    )
+    parser.add_argument(
+        "--check-generated-type-mapping",
+        action="store_true",
+        help="Validate the generated OpenAPI to public frontend type mapping fixture.",
+    )
     return parser.parse_args(argv)
 
 
@@ -1132,6 +1300,11 @@ def main(argv: list[str] | None = None) -> int:
         return write_generated_openapi_reference()
     if args.check_generated_openapi_reference:
         return run_generated_openapi_reference_check()
+    if args.generated_type_mapping:
+        print(json.dumps(collect_generated_type_mapping(), indent=2, sort_keys=True))
+        return 0
+    if args.check_generated_type_mapping:
+        return run_generated_type_mapping_check(collect_generated_type_mapping())
     if args.check:
         return run_contract_check(inventory)
     if args.format == "json":

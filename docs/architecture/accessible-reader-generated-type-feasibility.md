@@ -95,6 +95,27 @@ Generated output caveats remain:
 - Download and stream routes should stay behind URL builders or browser download helpers.
 - `StudyCardQuestionPayload` remains a better hand-authored frontend discriminated-union candidate than the broad generated shape.
 
+## Generated Type Mapping Check Lane
+
+The follow-up mapping lane adds a fixture-backed assertion before any selective generated-type adoption.
+
+Commands:
+
+```bash
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --generated-type-mapping
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check-generated-type-mapping
+```
+
+Behavior:
+
+- `--generated-type-mapping` prints reviewable JSON for the selected mapping set.
+- `--check-generated-type-mapping` reads `scripts/contracts/expected_generated_type_mapping.json` and fails if selected generated aliases, OpenAPI top-level fields, or public frontend interface fields drift.
+- The first mapping set is intentionally tiny: `DocumentRecord`, `DocumentView`, `RecallDocumentRecord`, `KnowledgeGraphSnapshot`, `StudyCardRecord`, `LibraryReadingQueueRow`, and `WorkspaceExportManifest`.
+- The fixture also records intentional alias decisions for `DocumentMode -> ViewMode`, `DetailLevel -> SummaryDetail`, and `StudyReviewRatingLabel -> StudyReviewRating`, plus deferred public type decisions for `StudyCardQuestionPayload`, `RetrievalHitType`, and `StudyGeneratedCardType`.
+- The check is wired into `backend/tests/test_contract_inventory.py` beside the contract drift, OpenAPI snapshot, and generated-reference checks.
+
+This is a mapping assertion, not type adoption. It proves that a few selected generated schema aliases still line up with existing public frontend interface names and top-level fields. It does not replace hand-authored types, assert deep assignability, import generated files from product code, or change runtime behavior.
+
 ## Generation-Ready Surface
 
 These areas are good candidates for generated-reference checks because their frontend names already align with OpenAPI component schema names:
@@ -201,9 +222,9 @@ Keep these hand-authored until explicit follow-up work:
 
 ## Recommendation
 
-Primary recommendation: keep the generated OpenAPI reference lane private and add a small mapping/compatibility assertion before replacing any hand-authored public frontend types.
+Primary recommendation: keep the generated OpenAPI reference and generated type mapping lanes private while reviewing selective alias adoption. The next adoption slice, if any, should start with one low-risk response record and preserve the public barrel name.
 
-Fallback recommendation: keep the current contract drift, OpenAPI snapshot, and generated-reference checks as review-only guards, and return to product work if selective alias adoption looks noisy.
+Fallback recommendation: keep the current contract drift, OpenAPI snapshot, generated-reference, and generated-mapping checks as review-only guards, and return to product work if selective alias adoption looks noisy.
 
 Do not replace `frontend/src/types.ts` or `frontend/src/api.ts`. Treat generated types as a private reference until the alias map and inline request-body decisions are fully explicit.
 

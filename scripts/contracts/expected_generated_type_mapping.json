@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "generated_reference": "frontend/src/generated/openapi.ts",
+  "exact_interface_property_mappings": [
+    {
+      "schema": "DocumentRecord",
+      "frontend": "DocumentRecord",
+      "fields": [
+        "available_modes",
+        "created_at",
+        "file_name",
+        "id",
+        "last_reader_session",
+        "progress_by_mode",
+        "source_type",
+        "title",
+        "updated_at"
+      ],
+      "reason": "Exact public frontend interface and OpenAPI schema top-level fields match today."
+    },
+    {
+      "schema": "DocumentView",
+      "frontend": "DocumentView",
+      "fields": [
+        "blocks",
+        "cached",
+        "detail_level",
+        "generated_by",
+        "mode",
+        "model",
+        "source_hash",
+        "title",
+        "updated_at",
+        "variant_metadata"
+      ],
+      "reason": "Exact public frontend interface and OpenAPI schema top-level fields match today."
+    },
+    {
+      "schema": "RecallDocumentRecord",
+      "frontend": "RecallDocumentRecord",
+      "fields": [
+        "available_modes",
+        "chunk_count",
+        "created_at",
+        "file_name",
+        "id",
+        "source_locator",
+        "source_type",
+        "title",
+        "updated_at"
+      ],
+      "reason": "Exact public frontend interface and OpenAPI schema top-level fields match today."
+    },
+    {
+      "schema": "KnowledgeGraphSnapshot",
+      "frontend": "KnowledgeGraphSnapshot",
+      "fields": [
+        "confirmed_edges",
+        "confirmed_nodes",
+        "document_count",
+        "edges",
+        "nodes",
+        "pending_edges",
+        "pending_nodes"
+      ],
+      "reason": "Exact public frontend interface and OpenAPI schema top-level fields match today."
+    },
+    {
+      "schema": "StudyCardRecord",
+      "frontend": "StudyCardRecord",
+      "fields": [
+        "answer",
+        "card_type",
+        "document_title",
+        "due_at",
+        "id",
+        "knowledge_stage",
+        "last_rating",
+        "prompt",
+        "question_difficulty",
+        "question_payload",
+        "question_support_payload",
+        "review_count",
+        "scheduling_state",
+        "source_document_id",
+        "source_spans",
+        "status"
+      ],
+      "reason": "Exact public frontend interface and OpenAPI schema top-level fields match today."
+    },
+    {
+      "schema": "LibraryReadingQueueRow",
+      "frontend": "LibraryReadingQueueRow",
+      "fields": [
+        "collection_paths",
+        "highlight_count",
+        "id",
+        "last_read_at",
+        "membership",
+        "mode",
+        "note_count",
+        "progress_percent",
+        "sentence_count",
+        "sentence_index",
+        "source_type",
+        "state",
+        "study_counts",
+        "title",
+        "updated_at"
+      ],
+      "reason": "Exact public frontend interface and OpenAPI schema top-level fields match today."
+    },
+    {
+      "schema": "WorkspaceExportManifest",
+      "frontend": "WorkspaceExportManifest",
+      "fields": [
+        "attachments",
+        "change_event_count",
+        "device_id",
+        "entities",
+        "entity_counts",
+        "exported_at",
+        "format_version",
+        "latest_change_id",
+        "schema_version",
+        "warnings"
+      ],
+      "reason": "Exact public frontend interface and OpenAPI schema top-level fields match today."
+    }
+  ],
+  "intentional_alias_decisions": [
+    {
+      "backend": "DocumentMode",
+      "frontend": "ViewMode",
+      "decision": "Keep the public frontend name because it is a UX-facing view vocabulary."
+    },
+    {
+      "backend": "DetailLevel",
+      "frontend": "SummaryDetail",
+      "decision": "Keep the frontend distinction between summary detail and full document view detail."
+    },
+    {
+      "backend": "StudyReviewRatingLabel",
+      "frontend": "StudyReviewRating",
+      "decision": "Keep the shorter frontend rating vocabulary name."
+    }
+  ],
+  "deferred_public_type_decisions": [
+    {
+      "frontend": "StudyCardQuestionPayload",
+      "generated": "StudyCardQuestionPayload",
+      "decision": "Keep the hand-authored frontend discriminated union until generated output can model the same ergonomics."
+    },
+    {
+      "frontend": "RetrievalHitType",
+      "generated": null,
+      "decision": "Keep the frontend readability alias for retrieval hit handling."
+    },
+    {
+      "frontend": "StudyGeneratedCardType",
+      "generated": null,
+      "decision": "Keep the frontend alias over manual/generated Study payload presentation."
+    }
+  ]
+}
