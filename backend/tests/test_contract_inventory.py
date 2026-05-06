@@ -23,3 +23,23 @@ def test_api_types_contract_inventory_matches_expected_fixture() -> None:
         f"stdout:\n{result.stdout}\n\n"
         f"stderr:\n{result.stderr}"
     )
+
+
+def test_openapi_snapshot_matches_expected_fixture() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    script_path = repo_root / "scripts" / "contracts" / "audit_api_types_contract.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script_path), "--check-openapi-snapshot"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, (
+        "OpenAPI snapshot drifted.\n\n"
+        f"stdout:\n{result.stdout}\n\n"
+        f"stderr:\n{result.stderr}"
+    )

@@ -27,6 +27,9 @@ API_MODULES_DIR = REPO_ROOT / "frontend" / "src" / "api"
 TYPES_TS_PATH = REPO_ROOT / "frontend" / "src" / "types.ts"
 TYPES_MODULES_DIR = REPO_ROOT / "frontend" / "src" / "types"
 EXPECTED_CONTRACT_PATH = REPO_ROOT / "scripts" / "contracts" / "expected_api_types_contract.json"
+EXPECTED_OPENAPI_SNAPSHOT_PATH = (
+    REPO_ROOT / "scripts" / "contracts" / "expected_openapi_snapshot.json"
+)
 
 IGNORED_OPENAPI_SCHEMAS = {"HTTPValidationError", "ValidationError"}
 
@@ -592,6 +595,49 @@ def collect_inventory() -> dict[str, Any]:
     }
 
 
+def collect_openapi_snapshot(inventory: dict[str, Any]) -> dict[str, Any]:
+    openapi = load_openapi()
+    schema_names = sorted(
+        name
+        for name in (openapi.get("components", {}).get("schemas", {}) or {})
+        if name not in IGNORED_OPENAPI_SCHEMAS
+    )
+    schema_name_set = set(schema_names)
+    frontend_type_names = {item["name"] for item in inventory["frontend_types"]}
+    backend_literal_aliases = {item["alias"] for item in inventory["backend_literal_aliases"]}
+    route_operation_keys = sorted(route_key(route) for route in inventory["routes"])
+    multipart_or_download_route_keys = sorted(
+        route_key(route) for route in inventory["routes"] if route["behavior"] != "json"
+    )
+
+    return {
+        "openapi_version": openapi.get("openapi", "-"),
+        "summary": {
+            "schema_count_excluding_validation": len(schema_names),
+            "route_operation_count": len(route_operation_keys),
+            "multipart_or_download_route_count": len(multipart_or_download_route_keys),
+            "openapi_schema_names_without_frontend_type_count": len(schema_name_set - frontend_type_names),
+            "frontend_type_names_without_openapi_schema_count": len(frontend_type_names - schema_name_set),
+            "backend_literal_aliases_not_emitted_as_schema_count": len(
+                backend_literal_aliases - schema_name_set
+            ),
+        },
+        "schema_names": schema_names,
+        "route_operation_keys": route_operation_keys,
+        "multipart_or_download_route_keys": multipart_or_download_route_keys,
+        "openapi_schema_names_without_frontend_type_names": sorted(
+            schema_name_set - frontend_type_names
+        ),
+        "frontend_type_names_without_openapi_schema_names": sorted(
+            frontend_type_names - schema_name_set
+        ),
+        "backend_literal_aliases_not_emitted_as_openapi_schemas": sorted(
+            backend_literal_aliases - schema_name_set
+        ),
+        "compatibility_aliases": dict(sorted(NAMING_ONLY_MATCHES.items())),
+    }
+
+
 def render_markdown(inventory: dict[str, Any]) -> None:
     summary = inventory["summary"]
     routes = inventory["routes"]
@@ -811,6 +857,117 @@ def run_contract_check(inventory: dict[str, Any], expected_path: Path = EXPECTED
     return 0
 
 
+def _compare_scalar(
+    failures: list[str],
+    label: str,
+    current: Any,
+    expected: Any,
+) -> None:
+    if current != expected:
+        failures.append(f"{label} changed: expected {expected!r}, got {current!r}")
+
+
+def _compare_list(
+    failures: list[str],
+    label: str,
+    current: list[str],
+    expected: list[str],
+) -> None:
+    current_set = set(current)
+    expected_set = set(expected)
+    added = sorted(current_set - expected_set)
+    removed = sorted(expected_set - current_set)
+    if added:
+        failures.append(f"{label} added: " + ", ".join(added))
+    if removed:
+        failures.append(f"{label} removed: " + ", ".join(removed))
+
+
+def _compare_mapping(
+    failures: list[str],
+    label: str,
+    current: dict[str, str],
+    expected: dict[str, str],
+) -> None:
+    current_keys = set(current)
+    expected_keys = set(expected)
+    added = sorted(current_keys - expected_keys)
+    removed = sorted(expected_keys - current_keys)
+    changed = sorted(
+        key for key in current_keys & expected_keys if current.get(key) != expected.get(key)
+    )
+    if added:
+        failures.append(f"{label} added: " + ", ".join(added))
+    if removed:
+        failures.append(f"{label} removed: " + ", ".join(removed))
+    for key in changed:
+        failures.append(
+            f"{label} changed for {key}: expected {expected[key]!r}, got {current[key]!r}"
+        )
+
+
+def run_openapi_snapshot_check(
+    snapshot: dict[str, Any],
+    expected_path: Path = EXPECTED_OPENAPI_SNAPSHOT_PATH,
+) -> int:
+    try:
+        expected = json.loads(read_text(expected_path))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Could not parse {expected_path}: {exc}") from exc
+
+    failures: list[str] = []
+    _compare_scalar(
+        failures,
+        "OpenAPI version",
+        snapshot.get("openapi_version"),
+        expected.get("openapi_version"),
+    )
+
+    current_summary = snapshot.get("summary", {})
+    expected_summary = expected.get("summary", {})
+    for key in sorted(set(current_summary) | set(expected_summary)):
+        _compare_scalar(
+            failures,
+            f"summary.{key}",
+            current_summary.get(key),
+            expected_summary.get(key),
+        )
+
+    for key in (
+        "schema_names",
+        "route_operation_keys",
+        "multipart_or_download_route_keys",
+        "openapi_schema_names_without_frontend_type_names",
+        "frontend_type_names_without_openapi_schema_names",
+        "backend_literal_aliases_not_emitted_as_openapi_schemas",
+    ):
+        _compare_list(failures, key, snapshot.get(key, []), expected.get(key, []))
+
+    _compare_mapping(
+        failures,
+        "compatibility_aliases",
+        snapshot.get("compatibility_aliases", {}),
+        expected.get("compatibility_aliases", {}),
+    )
+
+    if failures:
+        print("OpenAPI snapshot check failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        print(
+            f"Update {expected_path.relative_to(REPO_ROOT)} only after reviewing intentional schema changes.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("OpenAPI snapshot check passed.")
+    print(
+        "- OpenAPI version, schema names, route operations, exceptions, aliases, and "
+        "frontend/backend name gaps match the expected fixture."
+    )
+    return 0
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -824,12 +981,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Validate the current inventory against the expected check-only fixture.",
     )
+    parser.add_argument(
+        "--openapi-snapshot",
+        action="store_true",
+        help="Print a normalized OpenAPI snapshot as JSON.",
+    )
+    parser.add_argument(
+        "--check-openapi-snapshot",
+        action="store_true",
+        help="Validate the normalized OpenAPI snapshot against the expected fixture.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     inventory = collect_inventory()
+    if args.openapi_snapshot:
+        print(json.dumps(collect_openapi_snapshot(inventory), indent=2, sort_keys=True))
+        return 0
+    if args.check_openapi_snapshot:
+        return run_openapi_snapshot_check(collect_openapi_snapshot(inventory))
     if args.check:
         return run_contract_check(inventory)
     if args.format == "json":

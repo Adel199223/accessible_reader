@@ -53,6 +53,15 @@ The frontend API client is now split by route/domain under `frontend/src/api/`, 
 
 The frontend type contract is now split by domain under `frontend/src/types/`, while `frontend/src/types.ts` remains the stable public barrel for existing imports. The audit script follows both the barrel and the domain modules, so `--check` continues to guard the same 100 exported type/interface inventory after the split.
 
+The generated-type feasibility follow-up added a normalized OpenAPI snapshot lane before generated TypeScript adoption:
+
+```bash
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --openapi-snapshot
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check-openapi-snapshot
+```
+
+The snapshot fixture records OpenAPI version, schema names, route operation keys, multipart/download exceptions, frontend/backend name gaps, backend Literal aliases not emitted as OpenAPI schemas, and the compatibility alias map. It is wired into `backend/tests/test_contract_inventory.py` beside the original contract drift check.
+
 ## Backend Route Inventory
 
 The OpenAPI surface is broad but coherent. Most routes are JSON. The non-JSON cases are intentional import/export/browser behaviors.

@@ -47,6 +47,25 @@ The frontend type split completed the right prerequisite for feasibility work:
 - `frontend/src/types/*.ts` holds domain modules for base aliases, documents, reader/settings, recall/search, graph, study, import, library, and workspace portability.
 - Existing callers can keep importing from `frontend/src/types.ts`.
 
+## OpenAPI Snapshot Check Lane
+
+The follow-up snapshot lane now exists as a developer-only guard before generated TypeScript adoption.
+
+Commands:
+
+```bash
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --openapi-snapshot
+backend/.venv/bin/python scripts/contracts/audit_api_types_contract.py --check-openapi-snapshot
+```
+
+Behavior:
+
+- `--openapi-snapshot` prints normalized JSON to stdout.
+- `--check-openapi-snapshot` compares the normalized snapshot against `scripts/contracts/expected_openapi_snapshot.json`.
+- The fixture records OpenAPI version, 108 schema names excluding FastAPI validation schemas, 66 route operation keys, 11 multipart/download route exceptions, 23 OpenAPI schema names without frontend type names, 15 frontend type names without OpenAPI schema names, 19 backend Literal aliases not emitted as OpenAPI schemas, and the intentional compatibility alias map.
+- The check is wired into `backend/tests/test_contract_inventory.py`, so `cd backend && .venv/bin/python -m pytest tests/test_contract_inventory.py -q` now runs both the API/types drift fixture and the OpenAPI snapshot fixture.
+- This is still not generated TypeScript, not a backend schema change, and not a runtime API client change.
+
 ## Generation-Ready Surface
 
 These areas are good candidates for generated-reference checks because their frontend names already align with OpenAPI component schema names:
@@ -160,7 +179,7 @@ Keep these hand-authored until explicit follow-up work:
 
 ## Recommendation
 
-Primary recommendation: add a normalized OpenAPI schema snapshot/check lane next. Do not add generated TypeScript in the next slice.
+Primary recommendation: review the normalized OpenAPI schema snapshot/check lane, then try generated TypeScript as a private reference file only. Do not replace public frontend type exports in the next slice.
 
 Fallback recommendation: keep the current contract drift check and split barrels as-is, and return to product work if the snapshot lane proves noisy.
 
