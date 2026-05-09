@@ -94,6 +94,7 @@
       "fields": [
         "collection_paths",
         "highlight_count",
+        "highlight_review_counts",
         "id",
         "last_read_at",
         "membership",

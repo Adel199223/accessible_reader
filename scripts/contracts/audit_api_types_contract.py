@@ -62,6 +62,7 @@ KNOWN_WRAPPER_PATHS = {
     # These wrappers build optional query strings through nested template
     # literals, which intentionally exceeds the simple regex parser below.
     "fetchDocuments": "/api/documents",
+    "fetchHighlightReviewInbox": "/api/recall/library/highlight-review-inbox",
     "fetchLibraryReadingQueue": "/api/recall/library/reading-queue",
     "fetchRecallStudyProgress": "/api/recall/study/progress",
 }

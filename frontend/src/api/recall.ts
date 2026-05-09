@@ -5,6 +5,7 @@ import type {
   RecallNoteCreateRequest,
   RecallNoteGraphPromotionRequest,
   RecallNoteRecord,
+  RecallNoteReviewStateUpdateRequest,
   RecallNoteSearchHit,
   RecallNoteStudyPromotionRequest,
   RecallNoteUpdateRequest,
@@ -46,6 +47,14 @@ export function createRecallNote(documentId: string, payload: RecallNoteCreateRe
 
 export function updateRecallNote(noteId: string, payload: RecallNoteUpdateRequest) {
   return request<RecallNoteRecord>(`/api/recall/notes/${noteId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateRecallNoteReviewState(noteId: string, payload: RecallNoteReviewStateUpdateRequest) {
+  return request<RecallNoteRecord>(`/api/recall/notes/${noteId}/review-state`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

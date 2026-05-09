@@ -1036,12 +1036,10 @@ def test_library_reading_queue_scopes_state_and_collection_membership(tmp_path, 
     assert highlight_response.status_code == 200
     assert source_note_response.status_code == 200
     study_response = client.post(
-        "/api/recall/study/cards",
+        f"/api/recall/notes/{highlight_response.json()['id']}/promote/study-card",
         json={
-            "source_document_id": web_document["id"],
             "prompt": "What does the queue surface?",
             "answer": "Reading progress and highlights.",
-            "card_type": "short_answer",
         },
     )
     assert study_response.status_code == 200
@@ -1052,11 +1050,19 @@ def test_library_reading_queue_scopes_state_and_collection_membership(tmp_path, 
     assert queue["dry_run"] is True
     assert queue["scope"] == "all"
     assert queue["collection_id"] == "collection:queue"
+    assert queue["learning_filter"] == "all"
     assert queue["summary"] == {
         "total_sources": 2,
         "unread_sources": 1,
         "in_progress_sources": 1,
         "completed_sources": 0,
+    }
+    assert queue["learning_summary"] == {
+        "needs_review_sources": 1,
+        "uncovered_sources": 1,
+        "covered_sources": 1,
+        "study_prompt_sources": 2,
+        "graph_gap_sources": 1,
     }
     web_row = next(row for row in queue["rows"] if row["id"] == web_document["id"])
     capture_row = next(row for row in queue["rows"] if row["id"] == capture_document["id"])
@@ -1068,11 +1074,29 @@ def test_library_reading_queue_scopes_state_and_collection_membership(tmp_path, 
     assert web_row["membership"] == "descendant"
     assert web_row["note_count"] == 2
     assert web_row["highlight_count"] == 1
+    assert web_row["highlight_review_counts"] == {
+        "total": 2,
+        "needs_review": 1,
+        "covered": 1,
+        "reviewed": 1,
+        "dismissed": 0,
+        "graph_covered": 0,
+        "ungraphed": 2,
+    }
     assert web_row["study_counts"]["new"] >= 1
     assert web_row["study_counts"]["total"] >= 1
     assert [item["name"] for item in web_row["collection_paths"][0]] == ["Queue", "Web"]
     assert capture_row["state"] == "unread"
     assert capture_row["membership"] == "direct"
+    assert capture_row["highlight_review_counts"] == {
+        "total": 0,
+        "needs_review": 0,
+        "covered": 0,
+        "reviewed": 0,
+        "dismissed": 0,
+        "graph_covered": 0,
+        "ungraphed": 0,
+    }
 
     in_progress_response = client.get(
         "/api/recall/library/reading-queue",
@@ -1080,6 +1104,45 @@ def test_library_reading_queue_scopes_state_and_collection_membership(tmp_path, 
     )
     assert in_progress_response.status_code == 200
     assert [row["id"] for row in in_progress_response.json()["rows"]] == [web_document["id"]]
+
+    needs_review_response = client.get(
+        "/api/recall/library/reading-queue",
+        params={"collection_id": "collection:queue", "learning_filter": "needs_review", "limit": 1},
+    )
+    assert needs_review_response.status_code == 200
+    assert needs_review_response.json()["learning_filter"] == "needs_review"
+    assert [row["id"] for row in needs_review_response.json()["rows"]] == [web_document["id"]]
+
+    uncovered_response = client.get(
+        "/api/recall/library/reading-queue",
+        params={"collection_id": "collection:queue", "learning_filter": "uncovered"},
+    )
+    assert uncovered_response.status_code == 200
+    assert [row["id"] for row in uncovered_response.json()["rows"]] == [web_document["id"]]
+
+    covered_response = client.get(
+        "/api/recall/library/reading-queue",
+        params={"collection_id": "collection:queue", "learning_filter": "covered"},
+    )
+    assert covered_response.status_code == 200
+    assert [row["id"] for row in covered_response.json()["rows"]] == [web_document["id"]]
+
+    study_prompts_response = client.get(
+        "/api/recall/library/reading-queue",
+        params={"collection_id": "collection:queue", "learning_filter": "study_prompts"},
+    )
+    assert study_prompts_response.status_code == 200
+    assert {row["id"] for row in study_prompts_response.json()["rows"]} == {
+        web_document["id"],
+        capture_document["id"],
+    }
+
+    completed_learning_response = client.get(
+        "/api/recall/library/reading-queue",
+        params={"collection_id": "collection:queue", "state": "completed", "learning_filter": "needs_review"},
+    )
+    assert completed_learning_response.status_code == 200
+    assert completed_learning_response.json()["rows"] == []
 
     web_scope_response = client.get("/api/recall/library/reading-queue", params={"scope": "web"})
     assert web_scope_response.status_code == 200
@@ -1098,6 +1161,843 @@ def test_library_reading_queue_scopes_state_and_collection_membership(tmp_path, 
         params={"collection_id": "collection:missing"},
     )
     assert missing_collection_response.status_code == 404
+
+    late_capture_note_response = client.post(
+        f"/api/recall/documents/{capture_document['id']}/notes",
+        json={
+            "anchor": build_source_note_anchor(capture_document["id"], title=capture_document["title"]),
+            "body_text": "Late capture note should be excluded by the in-progress queue filter.",
+        },
+    )
+    assert late_capture_note_response.status_code == 200
+
+    queue_scoped_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={
+            "collection_id": "collection:queue",
+            "reading_state": "in_progress",
+            "learning_filter": "needs_review",
+            "limit": 1,
+        },
+    )
+    assert queue_scoped_inbox_response.status_code == 200
+    queue_scoped_inbox = queue_scoped_inbox_response.json()
+    assert queue_scoped_inbox["reading_state"] == "in_progress"
+    assert queue_scoped_inbox["learning_filter"] == "needs_review"
+    assert queue_scoped_inbox["summary"]["total_items"] == 2
+    assert [row["note_id"] for row in queue_scoped_inbox["rows"]] == [source_note_response.json()["id"]]
+
+    covered_queue_scoped_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={
+            "collection_id": "collection:queue",
+            "state": "covered",
+            "reading_state": "in_progress",
+            "learning_filter": "covered",
+            "limit": 1,
+        },
+    )
+    assert covered_queue_scoped_inbox_response.status_code == 200
+    covered_queue_scoped_inbox = covered_queue_scoped_inbox_response.json()
+    assert covered_queue_scoped_inbox["reading_state"] == "in_progress"
+    assert covered_queue_scoped_inbox["learning_filter"] == "covered"
+    assert covered_queue_scoped_inbox["summary"]["reviewable_covered_items"] == 1
+    assert covered_queue_scoped_inbox["reviewable_study_card_ids"] == [study_response.json()["id"]]
+    assert [row["note_id"] for row in covered_queue_scoped_inbox["rows"]] == [highlight_response.json()["id"]]
+
+    completed_queue_scoped_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={
+            "collection_id": "collection:queue",
+            "reading_state": "completed",
+            "learning_filter": "needs_review",
+        },
+    )
+    assert completed_queue_scoped_inbox_response.status_code == 200
+    assert completed_queue_scoped_inbox_response.json()["rows"] == []
+
+
+def test_library_reading_queue_filters_graph_gap_sources(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    documents = {}
+    for key, title in {
+        "gap": "Graph gap queue source",
+        "dismissed": "Dismissed graph gap source",
+        "rejected": "Rejected graph coverage source",
+        "connected": "Connected graph coverage source",
+    }.items():
+        response = client.post(
+            "/api/documents/import-text",
+            json={
+                "title": title,
+                "text": f"{title} sentence one. {title} sentence two.",
+            },
+        )
+        assert response.status_code == 200
+        documents[key] = response.json()
+        view_response = client.get(
+            f"/api/documents/{documents[key]['id']}/view",
+            params={"mode": "reflowed", "detail_level": "default"},
+        )
+        assert view_response.status_code == 200
+        assert client.put(
+            f"/api/documents/{documents[key]['id']}/progress",
+            json={"mode": "reflowed", "sentence_index": 0},
+        ).status_code == 200
+
+    settings_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": "collection:graph-gap-queue",
+                    "name": "Graph gap queue",
+                    "document_ids": [document["id"] for document in documents.values()],
+                    "origin": "manual",
+                    "sort_index": 0,
+                }
+            ]
+        },
+    )
+    assert settings_response.status_code == 200
+
+    notes = {}
+    for key, document in documents.items():
+        note_response = client.post(
+            f"/api/recall/documents/{document['id']}/notes",
+            json={
+                "anchor": build_source_note_anchor(document["id"], title=document["title"]),
+                "body_text": f"{document['title']} local note.",
+            },
+        )
+        assert note_response.status_code == 200
+        notes[key] = note_response.json()
+
+    assert client.patch(
+        f"/api/recall/notes/{notes['dismissed']['id']}/review-state",
+        json={"review_state": "dismissed"},
+    ).status_code == 200
+
+    rejected_promotion = client.post(
+        f"/api/recall/notes/{notes['rejected']['id']}/promote/graph-node",
+        json={"label": "Rejected graph queue note", "description": "Should not count as connected."},
+    )
+    assert rejected_promotion.status_code == 200
+    rejected_node = rejected_promotion.json()["node"]
+    assert client.post(
+        f"/api/recall/graph/nodes/{rejected_node['id']}/decision",
+        json={"decision": "rejected"},
+    ).status_code == 200
+
+    connected_promotion = client.post(
+        f"/api/recall/notes/{notes['connected']['id']}/promote/graph-node",
+        json={"label": "Connected graph queue note", "description": "Should count as connected."},
+    )
+    assert connected_promotion.status_code == 200
+
+    queue_response = client.get(
+        "/api/recall/library/reading-queue",
+        params={"collection_id": "collection:graph-gap-queue", "state": "in_progress"},
+    )
+    assert queue_response.status_code == 200
+    queue = queue_response.json()
+    assert queue["learning_summary"]["graph_gap_sources"] == 2
+    counts_by_title = {row["title"]: row["highlight_review_counts"] for row in queue["rows"]}
+    assert counts_by_title["Graph gap queue source"]["ungraphed"] == 1
+    assert counts_by_title["Dismissed graph gap source"]["ungraphed"] == 0
+    assert counts_by_title["Rejected graph coverage source"]["ungraphed"] == 1
+    assert counts_by_title["Connected graph coverage source"]["graph_covered"] == 1
+    assert counts_by_title["Connected graph coverage source"]["ungraphed"] == 0
+
+    graph_gap_response = client.get(
+        "/api/recall/library/reading-queue",
+        params={
+            "collection_id": "collection:graph-gap-queue",
+            "state": "in_progress",
+            "learning_filter": "graph_gaps",
+        },
+    )
+    assert graph_gap_response.status_code == 200
+    graph_gap_payload = graph_gap_response.json()
+    assert graph_gap_payload["learning_filter"] == "graph_gaps"
+    assert {row["id"] for row in graph_gap_payload["rows"]} == {
+        documents["gap"]["id"],
+        documents["rejected"]["id"],
+    }
+
+    graph_gap_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={
+            "collection_id": "collection:graph-gap-queue",
+            "reading_state": "in_progress",
+            "learning_filter": "graph_gaps",
+            "state": "unconnected",
+        },
+    )
+    assert graph_gap_inbox_response.status_code == 200
+    graph_gap_inbox = graph_gap_inbox_response.json()
+    assert graph_gap_inbox["learning_filter"] == "graph_gaps"
+    assert {row["note_id"] for row in graph_gap_inbox["rows"]} == {
+        notes["gap"]["id"],
+        notes["rejected"]["id"],
+    }
+
+
+def test_highlight_review_inbox_tracks_review_state_and_scope(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    root_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Highlight parent source",
+            "text": "Parent sentence one. Parent sentence two.",
+        },
+    )
+    child_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Highlight child source",
+            "text": "Child sentence one. Child sentence two. Child sentence three.",
+        },
+    )
+    assert root_response.status_code == 200
+    assert child_response.status_code == 200
+    root_document = root_response.json()
+    child_document = child_response.json()
+    settings_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": "collection:review-root",
+                    "name": "Review root",
+                    "document_ids": [root_document["id"]],
+                    "origin": "manual",
+                    "sort_index": 0,
+                },
+                {
+                    "id": "collection:review-child",
+                    "name": "Review child",
+                    "document_ids": [child_document["id"]],
+                    "origin": "manual",
+                    "parent_id": "collection:review-root",
+                    "sort_index": 1,
+                },
+            ]
+        },
+    )
+    assert settings_response.status_code == 200
+    child_view_response = client.get(
+        f"/api/documents/{child_document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert child_view_response.status_code == 200
+    highlight_response = client.post(
+        f"/api/recall/documents/{child_document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(child_document["id"], child_view_response.json(), sentence_start=1, sentence_end=1),
+            "body_text": "Review this highlighted sentence.",
+        },
+    )
+    source_note_response = client.post(
+        f"/api/recall/documents/{child_document['id']}/notes",
+        json={
+            "anchor": build_source_note_anchor(child_document["id"], title=child_document["title"]),
+            "body_text": "Review this source-level note.",
+        },
+    )
+    assert highlight_response.status_code == 200
+    assert source_note_response.status_code == 200
+    highlight = highlight_response.json()
+    source_note = source_note_response.json()
+    assert highlight["review_state"] == "unreviewed"
+    assert highlight["reviewed_at"] is None
+    assert highlight["dismissed_at"] is None
+    assert highlight["study_covered"] is False
+
+    root_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"collection_id": "collection:review-root"},
+    )
+    assert root_inbox_response.status_code == 200
+    root_inbox = root_inbox_response.json()
+    assert root_inbox["state"] == "needs_review"
+    assert root_inbox["summary"]["total_items"] == 2
+    assert root_inbox["summary"]["needs_review_items"] == 2
+    assert [row["note_id"] for row in root_inbox["rows"]] == [source_note["id"], highlight["id"]]
+    assert all(row["membership"] == "descendant" for row in root_inbox["rows"])
+    assert [item["name"] for item in root_inbox["rows"][0]["collection_paths"][0]] == ["Review root", "Review child"]
+
+    reviewed_response = client.patch(
+        f"/api/recall/notes/{highlight['id']}/review-state",
+        json={"review_state": "reviewed"},
+    )
+    assert reviewed_response.status_code == 200
+    reviewed_note = reviewed_response.json()
+    assert reviewed_note["review_state"] == "reviewed"
+    assert reviewed_note["reviewed_at"]
+    assert reviewed_note["dismissed_at"] is None
+
+    dismissed_response = client.patch(
+        f"/api/recall/notes/{source_note['id']}/review-state",
+        json={"review_state": "dismissed"},
+    )
+    assert dismissed_response.status_code == 200
+    dismissed_note = dismissed_response.json()
+    assert dismissed_note["review_state"] == "dismissed"
+    assert dismissed_note["dismissed_at"]
+
+    needs_review_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"collection_id": "collection:review-root"},
+    )
+    assert needs_review_response.status_code == 200
+    assert needs_review_response.json()["rows"] == []
+
+    reviewed_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"collection_id": "collection:review-root", "state": "reviewed"},
+    )
+    assert reviewed_inbox_response.status_code == 200
+    assert [row["note_id"] for row in reviewed_inbox_response.json()["rows"]] == [highlight["id"]]
+
+    uncovered_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"collection_id": "collection:review-root", "state": "uncovered"},
+    )
+    assert uncovered_inbox_response.status_code == 200
+    uncovered_inbox = uncovered_inbox_response.json()
+    assert uncovered_inbox["summary"]["uncovered_items"] == 1
+    assert [row["note_id"] for row in uncovered_inbox["rows"]] == [highlight["id"]]
+
+    dismissed_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": child_document["id"], "state": "dismissed"},
+    )
+    assert dismissed_inbox_response.status_code == 200
+    assert [row["note_id"] for row in dismissed_inbox_response.json()["rows"]] == [source_note["id"]]
+
+    restored_response = client.patch(
+        f"/api/recall/notes/{source_note['id']}/review-state",
+        json={"review_state": "unreviewed"},
+    )
+    assert restored_response.status_code == 200
+    assert restored_response.json()["review_state"] == "unreviewed"
+    restored_needs_review = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": child_document["id"]},
+    )
+    assert [row["note_id"] for row in restored_needs_review.json()["rows"]] == [source_note["id"]]
+
+    invalid_state_response = client.patch(
+        f"/api/recall/notes/{source_note['id']}/review-state",
+        json={"review_state": "archived"},
+    )
+    assert invalid_state_response.status_code == 422
+    missing_note_response = client.patch(
+        "/api/recall/notes/missing-note/review-state",
+        json={"review_state": "reviewed"},
+    )
+    assert missing_note_response.status_code == 404
+
+
+def test_highlight_review_inbox_derives_study_coverage_from_note_promotions(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Covered highlight source",
+            "text": "Coverage sentence one. Coverage sentence two.",
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(document["id"], view_response.json(), sentence_start=0, sentence_end=0),
+            "body_text": "Promote this highlight into Study coverage.",
+        },
+    )
+    assert note_response.status_code == 200
+    note = note_response.json()
+
+    initial_inbox = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"]},
+    ).json()
+    assert initial_inbox["summary"]["needs_review_items"] == 1
+    assert initial_inbox["summary"]["covered_items"] == 0
+    assert initial_inbox["rows"][0]["study_covered"] is False
+
+    promotion_response = client.post(
+        f"/api/recall/notes/{note['id']}/promote/study-card",
+        json={"prompt": "What should be covered?", "answer": "The highlighted note."},
+    )
+    assert promotion_response.status_code == 200
+    promoted_card = promotion_response.json()
+
+    covered_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "covered"},
+    )
+    assert covered_response.status_code == 200
+    covered_inbox = covered_response.json()
+    assert covered_inbox["summary"]["needs_review_items"] == 0
+    assert covered_inbox["summary"]["covered_items"] == 1
+    assert covered_inbox["summary"]["reviewable_covered_items"] == 1
+    assert covered_inbox["reviewable_study_card_ids"] == [promoted_card["id"]]
+    assert covered_inbox["summary"]["reviewed_items"] == 1
+    assert covered_inbox["rows"][0]["note_id"] == note["id"]
+    assert covered_inbox["rows"][0]["review_state"] == "reviewed"
+    assert covered_inbox["rows"][0]["study_covered"] is True
+    assert covered_inbox["rows"][0]["study_card_id"] == promoted_card["id"]
+
+    unschedule_response = client.post(
+        f"/api/recall/study/cards/{promoted_card['id']}/schedule-state",
+        json={"action": "unschedule"},
+    )
+    assert unschedule_response.status_code == 200
+    assert unschedule_response.json()["status"] == "unscheduled"
+    unscheduled_covered_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "covered"},
+    )
+    assert unscheduled_covered_response.status_code == 200
+    unscheduled_covered_inbox = unscheduled_covered_response.json()
+    assert unscheduled_covered_inbox["summary"]["covered_items"] == 1
+    assert unscheduled_covered_inbox["summary"]["reviewable_covered_items"] == 0
+    assert unscheduled_covered_inbox["reviewable_study_card_ids"] == []
+
+
+def test_highlight_review_inbox_derives_graph_coverage_from_note_promotions(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Graph connected highlight source",
+            "text": "Graph sentence one. Graph sentence two.",
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+    settings_response = client.put(
+        "/api/recall/library/settings",
+        json={
+            "custom_collections": [
+                {
+                    "id": "collection:graph-coverage",
+                    "name": "Graph coverage",
+                    "document_ids": [document["id"]],
+                    "origin": "manual",
+                    "sort_index": 0,
+                }
+            ]
+        },
+    )
+    assert settings_response.status_code == 200
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(document["id"], view_response.json(), sentence_start=0, sentence_end=0),
+            "body_text": "Promote this highlight into Graph coverage.",
+        },
+    )
+    assert note_response.status_code == 200
+    note = note_response.json()
+
+    initial_inbox = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "all"},
+    )
+    assert initial_inbox.status_code == 200
+    initial_payload = initial_inbox.json()
+    assert initial_payload["summary"]["graph_covered_items"] == 0
+    assert initial_payload["summary"]["ungraphed_items"] == 1
+    assert initial_payload["rows"][0]["graph_covered"] is False
+    assert initial_payload["rows"][0]["graph_node_id"] is None
+    initial_unconnected_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "unconnected"},
+    )
+    assert initial_unconnected_response.status_code == 200
+    assert initial_unconnected_response.json()["state"] == "unconnected"
+    assert [row["note_id"] for row in initial_unconnected_response.json()["rows"]] == [note["id"]]
+    initial_connected_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "connected"},
+    )
+    assert initial_connected_response.status_code == 200
+    assert initial_connected_response.json()["rows"] == []
+
+    dismissed_response = client.patch(
+        f"/api/recall/notes/{note['id']}/review-state",
+        json={"review_state": "dismissed"},
+    )
+    assert dismissed_response.status_code == 200
+    assert dismissed_response.json()["review_state"] == "dismissed"
+
+    promotion_response = client.post(
+        f"/api/recall/notes/{note['id']}/promote/graph-node",
+        json={"label": "Graph Connected Highlight", "description": "A graph-covered highlighted note."},
+    )
+    assert promotion_response.status_code == 200
+    promoted_node = promotion_response.json()["node"]
+
+    notes_response = client.get(f"/api/recall/documents/{document['id']}/notes")
+    assert notes_response.status_code == 200
+    promoted_note = next(row for row in notes_response.json() if row["id"] == note["id"])
+    assert promoted_note["review_state"] == "reviewed"
+    assert promoted_note["dismissed_at"] is None
+    assert promoted_note["graph_covered"] is True
+    assert promoted_note["graph_node_id"] == promoted_node["id"]
+
+    source_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "reviewed"},
+    )
+    assert source_inbox_response.status_code == 200
+    source_inbox = source_inbox_response.json()
+    assert source_inbox["summary"]["graph_covered_items"] == 1
+    assert source_inbox["summary"]["ungraphed_items"] == 0
+    assert source_inbox["rows"][0]["note_id"] == note["id"]
+    assert source_inbox["rows"][0]["graph_covered"] is True
+    assert source_inbox["rows"][0]["graph_node_id"] == promoted_node["id"]
+    connected_source_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "connected"},
+    )
+    assert connected_source_response.status_code == 200
+    connected_source = connected_source_response.json()
+    assert connected_source["state"] == "connected"
+    assert [row["note_id"] for row in connected_source["rows"]] == [note["id"]]
+    unconnected_after_promotion_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "unconnected"},
+    )
+    assert unconnected_after_promotion_response.status_code == 200
+    assert unconnected_after_promotion_response.json()["rows"] == []
+
+    collection_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"collection_id": "collection:graph-coverage", "state": "reviewed"},
+    )
+    assert collection_inbox_response.status_code == 200
+    collection_inbox = collection_inbox_response.json()
+    assert collection_inbox["summary"]["graph_covered_items"] == 1
+    assert collection_inbox["rows"][0]["graph_node_id"] == promoted_node["id"]
+
+    all_scope_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"state": "all"},
+    )
+    assert all_scope_response.status_code == 200
+    assert all_scope_response.json()["summary"]["graph_covered_items"] >= 1
+
+    reject_response = client.post(
+        f"/api/recall/graph/nodes/{promoted_node['id']}/decision",
+        json={"decision": "rejected"},
+    )
+    assert reject_response.status_code == 200
+    rejected_inbox_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "all"},
+    )
+    assert rejected_inbox_response.status_code == 200
+    rejected_inbox = rejected_inbox_response.json()
+    assert rejected_inbox["summary"]["graph_covered_items"] == 0
+    assert rejected_inbox["summary"]["ungraphed_items"] == 1
+    assert rejected_inbox["rows"][0]["graph_covered"] is False
+    assert rejected_inbox["rows"][0]["graph_node_id"] is None
+    rejected_connected_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "connected"},
+    )
+    assert rejected_connected_response.status_code == 200
+    assert rejected_connected_response.json()["rows"] == []
+    rejected_unconnected_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "unconnected"},
+    )
+    assert rejected_unconnected_response.status_code == 200
+    assert [row["note_id"] for row in rejected_unconnected_response.json()["rows"]] == [note["id"]]
+
+
+def test_highlight_review_inbox_prefers_reviewable_card_when_note_has_multiple_study_cards(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Multi-card covered highlight source",
+            "text": "One highlight can be covered by several local Study cards. The ready card should stay visible.",
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(document["id"], view_response.json(), sentence_start=0, sentence_end=0),
+            "body_text": "This note should prefer the ready linked Study card.",
+        },
+    )
+    assert note_response.status_code == 200
+    note = note_response.json()
+
+    ready_card_response = client.post(
+        f"/api/recall/notes/{note['id']}/promote/study-card",
+        json={"prompt": "Which linked card is ready?", "answer": "The promoted note card."},
+    )
+    assert ready_card_response.status_code == 200
+    ready_card = ready_card_response.json()
+    later_card_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "Which newer linked card is not ready?",
+            "answer": "The unscheduled duplicate.",
+            "card_type": "short_answer",
+        },
+    )
+    assert later_card_response.status_code == 200
+    later_card = later_card_response.json()
+
+    with sqlite3.connect(tmp_path / ".data" / "workspace.db") as connection:
+        connection.execute(
+            """
+            UPDATE review_cards
+            SET source_spans_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                json.dumps(ready_card["source_spans"], sort_keys=True),
+                datetime.now(UTC).isoformat(),
+                later_card["id"],
+            ),
+        )
+    unschedule_response = client.post(
+        f"/api/recall/study/cards/{later_card['id']}/schedule-state",
+        json={"action": "unschedule"},
+    )
+    assert unschedule_response.status_code == 200
+    assert unschedule_response.json()["status"] == "unscheduled"
+
+    covered_response = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "covered"},
+    )
+    assert covered_response.status_code == 200
+    covered = covered_response.json()
+    assert covered["summary"]["covered_items"] == 1
+    assert covered["summary"]["reviewable_covered_items"] == 1
+    assert covered["reviewable_study_card_ids"] == [ready_card["id"]]
+    assert [row["note_id"] for row in covered["rows"]] == [note["id"]]
+    assert covered["rows"][0]["study_card_id"] == ready_card["id"]
+
+
+def test_study_card_review_marks_unreviewed_linked_highlights_reviewed(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    import_response = client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Study reviewed highlight source",
+            "text": (
+                "Practice should review this first highlight. "
+                "Practice should preserve a dismissed highlight. "
+                "Unlinked practice should leave this highlight alone."
+            ),
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+    view_response = client.get(
+        f"/api/documents/{document['id']}/view",
+        params={"mode": "reflowed", "detail_level": "default"},
+    )
+    assert view_response.status_code == 200
+    view = view_response.json()
+
+    linked_note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(document["id"], view, sentence_start=0, sentence_end=0),
+            "body_text": "Linked Study practice should mark this reviewed.",
+        },
+    )
+    dismissed_note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_note_anchor(document["id"], view, sentence_start=1, sentence_end=1),
+            "body_text": "Dismissed linked Study practice should stay dismissed.",
+        },
+    )
+    unlinked_note_response = client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_source_note_anchor(document["id"], title=document["title"]),
+            "body_text": "Unlinked Study practice should not touch this note.",
+        },
+    )
+    assert linked_note_response.status_code == 200
+    assert dismissed_note_response.status_code == 200
+    assert unlinked_note_response.status_code == 200
+    linked_note = linked_note_response.json()
+    dismissed_note = dismissed_note_response.json()
+    unlinked_note = unlinked_note_response.json()
+
+    linked_card_response = client.post(
+        f"/api/recall/notes/{linked_note['id']}/promote/study-card",
+        json={"prompt": "What should practice mark?", "answer": "The linked highlight."},
+    )
+    dismissed_card_response = client.post(
+        f"/api/recall/notes/{dismissed_note['id']}/promote/study-card",
+        json={"prompt": "What should dismissed practice preserve?", "answer": "The dismissal."},
+    )
+    unlinked_card_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "What should unlinked practice avoid touching?",
+            "answer": "Unlinked notes.",
+            "card_type": "short_answer",
+        },
+    )
+    assert linked_card_response.status_code == 200
+    assert dismissed_card_response.status_code == 200
+    assert unlinked_card_response.status_code == 200
+    linked_card = linked_card_response.json()
+    dismissed_card = dismissed_card_response.json()
+    unlinked_card = unlinked_card_response.json()
+
+    assert client.patch(
+        f"/api/recall/notes/{linked_note['id']}/review-state",
+        json={"review_state": "unreviewed"},
+    ).status_code == 200
+    assert client.patch(
+        f"/api/recall/notes/{dismissed_note['id']}/review-state",
+        json={"review_state": "dismissed"},
+    ).status_code == 200
+
+    covered_before = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "covered"},
+    )
+    assert covered_before.status_code == 200
+    covered_before_rows = {row["note_id"]: row for row in covered_before.json()["rows"]}
+    assert covered_before_rows[linked_note["id"]]["review_state"] == "unreviewed"
+    assert covered_before_rows[dismissed_note["id"]]["review_state"] == "dismissed"
+
+    linked_review_response = client.post(
+        f"/api/recall/study/cards/{linked_card['id']}/review",
+        json={"rating": "good"},
+    )
+    assert linked_review_response.status_code == 200
+
+    notes_after_linked_review = {
+        note["id"]: note
+        for note in client.get(f"/api/recall/documents/{document['id']}/notes").json()
+    }
+    assert notes_after_linked_review[linked_note["id"]]["review_state"] == "reviewed"
+    assert notes_after_linked_review[linked_note["id"]]["reviewed_at"]
+    assert notes_after_linked_review[linked_note["id"]]["dismissed_at"] is None
+    assert notes_after_linked_review[dismissed_note["id"]]["review_state"] == "dismissed"
+    assert notes_after_linked_review[unlinked_note["id"]]["review_state"] == "unreviewed"
+
+    covered_after_linked_review = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "covered"},
+    )
+    assert covered_after_linked_review.status_code == 200
+    covered_after_rows = {row["note_id"]: row for row in covered_after_linked_review.json()["rows"]}
+    assert covered_after_rows[linked_note["id"]]["review_state"] == "reviewed"
+    assert covered_after_linked_review.json()["summary"]["reviewed_items"] == 1
+
+    dismissed_review_response = client.post(
+        f"/api/recall/study/cards/{dismissed_card['id']}/review",
+        json={"rating": "easy"},
+    )
+    unlinked_review_response = client.post(
+        f"/api/recall/study/cards/{unlinked_card['id']}/review",
+        json={"rating": "hard"},
+    )
+    assert dismissed_review_response.status_code == 200
+    assert unlinked_review_response.status_code == 200
+
+    final_notes = {
+        note["id"]: note
+        for note in client.get(f"/api/recall/documents/{document['id']}/notes").json()
+    }
+    assert final_notes[linked_note["id"]]["review_state"] == "reviewed"
+    assert final_notes[dismissed_note["id"]]["review_state"] == "dismissed"
+    assert final_notes[unlinked_note["id"]]["review_state"] == "unreviewed"
+
+    reviewed_inbox = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "reviewed"},
+    )
+    dismissed_inbox = client.get(
+        "/api/recall/library/highlight-review-inbox",
+        params={"source_document_id": document["id"], "state": "dismissed"},
+    )
+    assert [row["note_id"] for row in reviewed_inbox.json()["rows"]] == [linked_note["id"]]
+    assert [row["note_id"] for row in dismissed_inbox.json()["rows"]] == [dismissed_note["id"]]
+
+
+def test_workspace_restore_preserves_highlight_review_state(tmp_path, monkeypatch) -> None:
+    source_client = create_client(tmp_path / "source", monkeypatch)
+    import_response = source_client.post(
+        "/api/documents/import-text",
+        json={
+            "title": "Portable highlight state",
+            "text": "Portable sentence one. Portable sentence two.",
+        },
+    )
+    assert import_response.status_code == 200
+    document = import_response.json()
+    note_response = source_client.post(
+        f"/api/recall/documents/{document['id']}/notes",
+        json={
+            "anchor": build_source_note_anchor(document["id"], title=document["title"]),
+            "body_text": "Dismissed note state should restore.",
+        },
+    )
+    assert note_response.status_code == 200
+    note = note_response.json()
+    assert source_client.patch(
+        f"/api/recall/notes/{note['id']}/review-state",
+        json={"review_state": "dismissed"},
+    ).status_code == 200
+    bundle_response = source_client.get("/api/workspace/export.zip")
+    assert bundle_response.status_code == 200
+
+    restore_client = create_client(tmp_path / "restore", monkeypatch)
+    apply_response = restore_client.post(
+        "/api/workspace/import-apply",
+        data={"restore_confirmation": "restore-missing-items"},
+        files={"file": ("highlight-state-workspace.zip", bundle_response.content, "application/zip")},
+    )
+    assert apply_response.status_code == 200
+    restored_notes_response = restore_client.get(f"/api/recall/documents/{document['id']}/notes")
+    assert restored_notes_response.status_code == 200
+    restored_note = restored_notes_response.json()[0]
+    assert restored_note["id"] == note["id"]
+    assert restored_note["review_state"] == "dismissed"
+    assert restored_note["reviewed_at"] is None
+    assert restored_note["dismissed_at"]
 
 
 def test_recall_document_reading_complete_updates_only_reader_progress(tmp_path, monkeypatch) -> None:
@@ -3142,6 +4042,16 @@ def test_recall_graph_summary_and_manual_decision_flow(tmp_path, monkeypatch) ->
         and edge["source_label"] == "Recall Workspace"
         and edge["target_label"] == "Knowledge Graphs"
     )
+    limited_graph_response = client.get(
+        "/api/recall/graph",
+        params={"limit_nodes": 1, "limit_edges": 5},
+    )
+    assert limited_graph_response.status_code == 200
+    limited_graph = limited_graph_response.json()
+    limited_node_ids = {node["id"] for node in limited_graph["nodes"]}
+    assert limited_graph["edges"]
+    assert all(edge["source_id"] in limited_node_ids for edge in limited_graph["edges"])
+    assert all(edge["target_id"] in limited_node_ids for edge in limited_graph["edges"])
 
     detail_response = client.get(f"/api/recall/graph/nodes/{knowledge_node['id']}")
     assert detail_response.status_code == 200
@@ -3593,6 +4503,37 @@ def test_recall_study_manual_question_creation_preserves_source_owned_cards(tmp_
     )
     assert default_type_response.status_code == 200
     assert default_type_response.json()["card_type"] == "short_answer"
+
+    relation_span_response = client.post(
+        "/api/recall/study/cards",
+        json={
+            "source_document_id": document["id"],
+            "prompt": "How does Knowledge Graphs explain Reader Memory?",
+            "answer": "Knowledge Graphs keep Reader memory attached to source context.",
+            "source_spans": [
+                {
+                    "edge_id": "edge-graph-related-reader",
+                    "excerpt": " Knowledge Graphs explain why Reader memory stays attached. ",
+                    "relation_type": "explains",
+                    "source_id": "node-knowledge-graphs",
+                    "source_label": "Knowledge Graphs",
+                    "target_id": "node-reader-memory",
+                    "target_label": "Reader Memory",
+                    "unexpected": "drop-me",
+                }
+            ],
+        },
+    )
+    assert relation_span_response.status_code == 200
+    relation_span_card = relation_span_response.json()
+    assert relation_span_card["source_spans"][0]["edge_id"] == "edge-graph-related-reader"
+    assert relation_span_card["source_spans"][0]["manual_source"] == "study_relation_manual"
+    assert relation_span_card["source_spans"][0]["source_document_id"] == document["id"]
+    assert relation_span_card["source_spans"][0]["source_title"] == "Manual card source"
+    assert relation_span_card["source_spans"][0]["excerpt"] == "Knowledge Graphs explain why Reader memory stays attached."
+    assert relation_span_card["source_spans"][0]["relation_type"] == "explains"
+    assert relation_span_card["source_spans"][0]["card_type"] == "short_answer"
+    assert "unexpected" not in relation_span_card["source_spans"][0]
 
     other_import_response = client.post(
         "/api/documents/import-text",

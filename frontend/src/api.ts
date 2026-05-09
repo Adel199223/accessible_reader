@@ -7,6 +7,7 @@ import {
 } from './api/graph'
 import {
   buildLibraryCollectionLearningPackExportUrl,
+  fetchHighlightReviewInbox,
   fetchLibraryCollectionOverview,
   fetchLibraryReadingQueue,
   fetchLibrarySettings,
@@ -43,6 +44,7 @@ import {
   searchRecall,
   searchRecallNotes,
   updateRecallNote,
+  updateRecallNoteReviewState,
 } from './api/recall'
 import {
   bulkDeleteRecallStudyCards,
@@ -91,6 +93,7 @@ export {
   deleteRecallStudyCard,
   fetchDocumentView,
   fetchDocuments,
+  fetchHighlightReviewInbox,
   fetchHealth,
   fetchLibraryCollectionOverview,
   fetchLibraryReadingQueue,
@@ -128,5 +131,6 @@ export {
   setRecallStudyCardScheduleState,
   startRecallStudyReviewSession,
   updateRecallNote,
+  updateRecallNoteReviewState,
   updateRecallStudyCard,
 }

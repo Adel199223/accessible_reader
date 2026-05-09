@@ -8,6 +8,17 @@ from pydantic import BaseModel, Field, field_validator
 DocumentMode = Literal["original", "reflowed", "simplified", "summary"]
 DetailLevel = Literal["default", "short", "balanced", "detailed"]
 BlockKind = Literal["heading", "paragraph", "list_item", "quote"]
+RecallNoteReviewState = Literal["unreviewed", "reviewed", "dismissed"]
+HighlightReviewInboxState = Literal[
+    "needs_review",
+    "uncovered",
+    "covered",
+    "connected",
+    "unconnected",
+    "reviewed",
+    "dismissed",
+    "all",
+]
 
 
 class ViewBlock(BaseModel):
@@ -385,6 +396,13 @@ class RecallNoteRecord(BaseModel):
     id: str
     anchor: RecallNoteAnchor
     body_text: str | None = None
+    review_state: RecallNoteReviewState = "unreviewed"
+    reviewed_at: str | None = None
+    dismissed_at: str | None = None
+    study_covered: bool = False
+    study_card_id: str | None = None
+    graph_covered: bool = False
+    graph_node_id: str | None = None
     created_at: str
     updated_at: str
 
@@ -398,12 +416,23 @@ class RecallNoteUpdateRequest(BaseModel):
     body_text: str | None = None
 
 
+class RecallNoteReviewStateUpdateRequest(BaseModel):
+    review_state: RecallNoteReviewState
+
+
 class RecallNoteSearchHit(BaseModel):
     id: str
     anchor: RecallNoteAnchor
     document_title: str
     score: float
     body_text: str | None = None
+    review_state: RecallNoteReviewState = "unreviewed"
+    reviewed_at: str | None = None
+    dismissed_at: str | None = None
+    study_covered: bool = False
+    study_card_id: str | None = None
+    graph_covered: bool = False
+    graph_node_id: str | None = None
     created_at: str
     updated_at: str
 
@@ -905,6 +934,7 @@ class StudyCardCreateRequest(BaseModel):
     card_type: StudyManualCardType = "short_answer"
     question_difficulty: StudyQuestionDifficulty | None = None
     question_payload: StudyCardQuestionPayload | None = None
+    source_spans: list[dict[str, Any]] | None = None
     support_payload: StudyCardSupportPayload | None = None
 
     @field_validator("source_document_id", "prompt", "answer")
@@ -1072,6 +1102,13 @@ class LibraryCollectionHighlightReviewItem(BaseModel):
     global_sentence_start: int | None = Field(default=None, ge=0)
     global_sentence_end: int | None = Field(default=None, ge=0)
     membership: Literal["direct", "descendant"]
+    review_state: RecallNoteReviewState = "unreviewed"
+    reviewed_at: str | None = None
+    dismissed_at: str | None = None
+    study_covered: bool = False
+    study_card_id: str | None = None
+    graph_covered: bool = False
+    graph_node_id: str | None = None
     updated_at: str
 
 
@@ -1096,6 +1133,14 @@ class LibraryCollectionOverview(BaseModel):
 
 LibraryReadingQueueScope = Literal["all", "web", "documents", "captures", "untagged"]
 LibraryReadingQueueState = Literal["all", "unread", "in_progress", "completed"]
+LibraryReadingQueueLearningFilter = Literal[
+    "all",
+    "needs_review",
+    "uncovered",
+    "covered",
+    "study_prompts",
+    "graph_gaps",
+]
 
 
 class LibraryReadingQueueSummary(BaseModel):
@@ -1109,6 +1154,24 @@ class LibraryReadingQueueStudyCounts(BaseModel):
     new: int = Field(default=0, ge=0)
     due: int = Field(default=0, ge=0)
     total: int = Field(default=0, ge=0)
+
+
+class LibraryReadingQueueHighlightReviewCounts(BaseModel):
+    total: int = Field(default=0, ge=0)
+    needs_review: int = Field(default=0, ge=0)
+    covered: int = Field(default=0, ge=0)
+    reviewed: int = Field(default=0, ge=0)
+    dismissed: int = Field(default=0, ge=0)
+    graph_covered: int = Field(default=0, ge=0)
+    ungraphed: int = Field(default=0, ge=0)
+
+
+class LibraryReadingQueueLearningSummary(BaseModel):
+    needs_review_sources: int = Field(default=0, ge=0)
+    uncovered_sources: int = Field(default=0, ge=0)
+    covered_sources: int = Field(default=0, ge=0)
+    study_prompt_sources: int = Field(default=0, ge=0)
+    graph_gap_sources: int = Field(default=0, ge=0)
 
 
 class LibraryReadingQueueRow(BaseModel):
@@ -1126,6 +1189,9 @@ class LibraryReadingQueueRow(BaseModel):
     collection_paths: list[list[LibraryCollectionPathItem]] = Field(default_factory=list)
     note_count: int = Field(default=0, ge=0)
     highlight_count: int = Field(default=0, ge=0)
+    highlight_review_counts: LibraryReadingQueueHighlightReviewCounts = Field(
+        default_factory=LibraryReadingQueueHighlightReviewCounts
+    )
     study_counts: LibraryReadingQueueStudyCounts = Field(default_factory=LibraryReadingQueueStudyCounts)
 
 
@@ -1133,9 +1199,57 @@ class LibraryReadingQueueResponse(BaseModel):
     dry_run: bool = True
     scope: LibraryReadingQueueScope = "all"
     state: LibraryReadingQueueState = "all"
+    learning_filter: LibraryReadingQueueLearningFilter = "all"
     collection_id: str | None = None
     summary: LibraryReadingQueueSummary = Field(default_factory=LibraryReadingQueueSummary)
+    learning_summary: LibraryReadingQueueLearningSummary = Field(default_factory=LibraryReadingQueueLearningSummary)
     rows: list[LibraryReadingQueueRow] = Field(default_factory=list)
+
+
+class HighlightReviewInboxSummary(BaseModel):
+    total_items: int = Field(default=0, ge=0)
+    needs_review_items: int = Field(default=0, ge=0)
+    uncovered_items: int = Field(default=0, ge=0)
+    covered_items: int = Field(default=0, ge=0)
+    reviewable_covered_items: int = Field(default=0, ge=0)
+    reviewed_items: int = Field(default=0, ge=0)
+    dismissed_items: int = Field(default=0, ge=0)
+    graph_covered_items: int = Field(default=0, ge=0)
+    ungraphed_items: int = Field(default=0, ge=0)
+
+
+class HighlightReviewInboxRow(BaseModel):
+    note_id: str
+    note_kind: Literal["sentence", "source"]
+    source_document_id: str
+    source_title: str
+    anchor_text: str
+    excerpt_preview: str
+    body_preview: str | None = None
+    global_sentence_start: int | None = Field(default=None, ge=0)
+    global_sentence_end: int | None = Field(default=None, ge=0)
+    membership: Literal["direct", "descendant"] | None = None
+    collection_paths: list[list[LibraryCollectionPathItem]] = Field(default_factory=list)
+    review_state: RecallNoteReviewState = "unreviewed"
+    reviewed_at: str | None = None
+    dismissed_at: str | None = None
+    study_covered: bool = False
+    study_card_id: str | None = None
+    graph_covered: bool = False
+    graph_node_id: str | None = None
+    updated_at: str
+
+
+class HighlightReviewInboxResponse(BaseModel):
+    scope: LibraryReadingQueueScope = "all"
+    state: HighlightReviewInboxState = "needs_review"
+    reading_state: LibraryReadingQueueState = "all"
+    learning_filter: LibraryReadingQueueLearningFilter = "all"
+    collection_id: str | None = None
+    source_document_id: str | None = None
+    summary: HighlightReviewInboxSummary = Field(default_factory=HighlightReviewInboxSummary)
+    reviewable_study_card_ids: list[str] = Field(default_factory=list)
+    rows: list[HighlightReviewInboxRow] = Field(default_factory=list)
 
 
 class ReadingCompleteRequest(BaseModel):

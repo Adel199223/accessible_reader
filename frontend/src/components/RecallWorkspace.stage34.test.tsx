@@ -7,6 +7,7 @@ import { defaultRecallWorkspaceContinuityState, type RecallSection, type RecallW
 import type {
   DocumentRecord,
   DocumentView,
+  HighlightReviewInboxResponse,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
   LibraryReadingQueueResponse,
@@ -206,6 +207,7 @@ const {
   deleteRecallNoteMock,
   fetchDocumentViewMock,
   fetchDocumentsMock,
+  fetchHighlightReviewInboxMock,
   fetchLibrarySettingsMock,
   fetchLibraryReadingQueueMock,
   fetchRecallDocumentMock,
@@ -229,12 +231,14 @@ const {
   setRecallStudyCardScheduleStateMock,
   updateRecallStudyCardMock,
   updateRecallNoteMock,
+  updateRecallNoteReviewStateMock,
 } = vi.hoisted(() => ({
   decideRecallGraphEdgeMock: vi.fn(),
   decideRecallGraphNodeMock: vi.fn(),
   deleteRecallNoteMock: vi.fn(),
   fetchDocumentViewMock: vi.fn<(documentId: string, mode: string) => Promise<DocumentView>>(),
   fetchDocumentsMock: vi.fn<() => Promise<DocumentRecord[]>>(),
+  fetchHighlightReviewInboxMock: vi.fn<() => Promise<HighlightReviewInboxResponse>>(),
   fetchLibrarySettingsMock: vi.fn(),
   fetchLibraryReadingQueueMock: vi.fn<() => Promise<LibraryReadingQueueResponse>>(),
   fetchRecallDocumentMock: vi.fn(),
@@ -258,6 +262,7 @@ const {
   setRecallStudyCardScheduleStateMock: vi.fn(),
   updateRecallStudyCardMock: vi.fn(),
   updateRecallNoteMock: vi.fn(),
+  updateRecallNoteReviewStateMock: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -274,6 +279,7 @@ vi.mock('../api', () => ({
   completeRecallDocumentReading: completeRecallDocumentReadingMock,
   fetchDocumentView: fetchDocumentViewMock,
   fetchDocuments: fetchDocumentsMock,
+  fetchHighlightReviewInbox: fetchHighlightReviewInboxMock,
   fetchLibrarySettings: fetchLibrarySettingsMock,
   fetchLibraryReadingQueue: fetchLibraryReadingQueueMock,
   fetchRecallDocument: fetchRecallDocumentMock,
@@ -335,6 +341,7 @@ vi.mock('../api', () => ({
   setRecallStudyCardScheduleState: setRecallStudyCardScheduleStateMock,
   updateRecallStudyCard: updateRecallStudyCardMock,
   updateRecallNote: updateRecallNoteMock,
+  updateRecallNoteReviewState: updateRecallNoteReviewStateMock,
 }))
 
 afterEach(() => {
@@ -348,6 +355,7 @@ beforeEach(() => {
   })
   fetchDocumentViewMock.mockReset()
   fetchDocumentsMock.mockReset()
+  fetchHighlightReviewInboxMock.mockReset()
   fetchLibrarySettingsMock.mockReset()
   fetchLibraryReadingQueueMock.mockReset()
   fetchRecallDocumentMock.mockReset()
@@ -367,6 +375,7 @@ beforeEach(() => {
   setRecallStudyCardScheduleStateMock.mockReset()
   updateRecallStudyCardMock.mockReset()
   updateRecallNoteMock.mockReset()
+  updateRecallNoteReviewStateMock.mockReset()
   deleteRecallNoteMock.mockReset()
   promoteRecallNoteToGraphNodeMock.mockReset()
   promoteRecallNoteToStudyCardMock.mockReset()
@@ -374,6 +383,28 @@ beforeEach(() => {
   reviewRecallStudyCardMock.mockReset()
   decideRecallGraphEdgeMock.mockReset()
   decideRecallGraphNodeMock.mockReset()
+
+  fetchHighlightReviewInboxMock.mockImplementation(async () => ({
+    collection_id: null,
+    rows: [],
+    scope: 'all',
+    source_document_id: null,
+    state: 'needs_review',
+    reading_state: 'all',
+    learning_filter: 'all',
+    summary: {
+      covered_items: 0,
+      dismissed_items: 0,
+      graph_covered_items: 0,
+      needs_review_items: 0,
+      reviewable_covered_items: 0,
+      reviewed_items: 0,
+      total_items: 0,
+      uncovered_items: 0,
+      ungraphed_items: 0,
+    },
+    reviewable_study_card_ids: [],
+  }))
 
   fetchDocumentsMock.mockImplementation(async () =>
     recallDocuments.map((document) => ({
@@ -392,12 +423,20 @@ beforeEach(() => {
     dry_run: true,
     scope: 'all',
     state: 'all',
+    learning_filter: 'all',
     collection_id: null,
     summary: {
       total_sources: recallDocuments.length,
       unread_sources: recallDocuments.length,
       in_progress_sources: 0,
       completed_sources: 0,
+    },
+    learning_summary: {
+      needs_review_sources: 0,
+      uncovered_sources: 0,
+      covered_sources: 0,
+      study_prompt_sources: 0,
+      graph_gap_sources: 0,
     },
     rows: recallDocuments.map((document) => ({
       id: document.id,
@@ -414,6 +453,15 @@ beforeEach(() => {
       collection_paths: [],
       note_count: 0,
       highlight_count: 0,
+      highlight_review_counts: {
+        total: 0,
+        needs_review: 0,
+        covered: 0,
+        reviewed: 0,
+        dismissed: 0,
+        graph_covered: 0,
+        ungraphed: 0,
+      },
       study_counts: { due: 0, new: 0, total: 0 },
     })),
   }))

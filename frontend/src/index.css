@@ -9423,6 +9423,55 @@ textarea:focus-visible {
   gap: 0.58rem;
 }
 
+.recall-highlight-review-next-actions-stage992 {
+  border-bottom: 1px solid var(--theme-border);
+  border-top: 1px solid var(--theme-border);
+  display: grid;
+  gap: 0.48rem;
+  padding: 0.68rem 0;
+}
+
+.recall-highlight-review-next-actions-stage992 .reader-meta-row {
+  gap: 0.34rem;
+}
+
+.recall-highlight-review-bulk-actions-stage994 {
+  border-bottom: 1px solid var(--theme-border);
+  display: grid;
+  gap: 0.46rem;
+  padding: 0.58rem 0;
+}
+
+.recall-highlight-review-bulk-actions-stage994 .reader-meta-chip {
+  align-self: center;
+}
+
+.recall-highlight-review-session-stage996 {
+  border-bottom: 1px solid var(--theme-border);
+  display: grid;
+  gap: 0.46rem;
+  padding: 0.62rem 0;
+}
+
+.recall-highlight-review-session-stage996 .reader-meta-chip {
+  align-self: center;
+}
+
+.recall-highlight-review-session-active-stage996 {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.48rem;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0.62rem;
+}
+
+.recall-highlight-review-session-active-stage996 .recall-actions {
+  align-content: start;
+  justify-content: flex-start;
+}
+
 .recall-source-memory-heading-stage900 {
   align-items: center;
   display: flex;
@@ -9495,6 +9544,32 @@ textarea:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   padding-top: 0.48rem;
+}
+
+.recall-highlight-review-row-stage976 {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.recall-highlight-review-select-stage994 {
+  align-self: start;
+  cursor: pointer;
+  display: grid;
+  height: 30px;
+  place-items: center;
+  width: 30px;
+}
+
+.recall-highlight-review-select-stage994 input {
+  accent-color: var(--theme-accent);
+  cursor: pointer;
+  height: 16px;
+  margin: 0;
+  width: 16px;
+}
+
+.recall-highlight-review-select-stage994 input:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .recall-source-memory-stack-item-stage906 {

@@ -1,15 +1,15 @@
 {
   "summary": {
-    "openapi_paths": 58,
-    "openapi_route_operations": 66,
-    "openapi_schemas": 108,
-    "backend_pydantic_classes": 115,
-    "backend_literal_aliases": 19,
-    "frontend_api_exports": 56,
-    "frontend_type_exports": 100,
-    "exact_frontend_backend_contract_name_matches": 95,
     "api_wrappers_without_matched_route": 0,
-    "backend_routes_without_api_ts_wrapper_or_url_builder": 10
+    "backend_literal_aliases": 22,
+    "backend_pydantic_classes": 121,
+    "backend_routes_without_api_ts_wrapper_or_url_builder": 10,
+    "exact_frontend_backend_contract_name_matches": 104,
+    "frontend_api_exports": 58,
+    "frontend_type_exports": 109,
+    "openapi_paths": 60,
+    "openapi_route_operations": 68,
+    "openapi_schemas": 114
   },
   "accepted_backend_routes_without_wrapper": [
     {

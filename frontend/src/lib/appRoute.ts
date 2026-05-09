@@ -124,8 +124,11 @@ export interface RecallWorkspaceContinuityState {
     difficultyFilter?: RecallStudyDifficultyFilter
     filter: RecallStudyFilter
     knowledgeStageFilter: RecallStudyKnowledgeStageFilter
+    pathRelationEdgeIds?: string[]
+    pathRelationLabel?: string | null
     progressPeriodDays: RecallStudyProgressPeriodDays
     questionSearchQuery: string
+    relationEdgeId?: string | null
     reviewHistoryFilter: RecallStudyReviewHistoryFilter
     scheduleDrilldown: RecallStudyScheduleDrilldown
     sourceScopeDocumentId: string | null
@@ -188,8 +191,11 @@ export const defaultRecallWorkspaceContinuityState: RecallWorkspaceContinuitySta
     difficultyFilter: 'all',
     filter: 'all',
     knowledgeStageFilter: 'all',
+    pathRelationEdgeIds: [],
+    pathRelationLabel: null,
     progressPeriodDays: 14,
     questionSearchQuery: '',
+    relationEdgeId: null,
     reviewHistoryFilter: 'all',
     scheduleDrilldown: 'all',
     sourceScopeDocumentId: null,

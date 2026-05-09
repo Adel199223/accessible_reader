@@ -89,6 +89,7 @@ export interface StudyCardCreateRequest {
   card_type?: StudyManualCardType
   question_difficulty?: StudyQuestionDifficulty | null
   question_payload?: StudyCardQuestionPayload | null
+  source_spans?: Array<Record<string, unknown>> | null
   support_payload?: StudyCardSupportPayload | null
 }
 

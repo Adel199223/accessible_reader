@@ -465,6 +465,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recall/library/highlight-review-inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Recall Library Highlight Review Inbox */
+        get: operations["get_recall_library_highlight_review_inbox_api_recall_library_highlight_review_inbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recall/library/reading-queue": {
         parameters: {
             query?: never;
@@ -550,6 +567,23 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/recall/notes/{note_id}/review-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Recall Note Review State */
+        patch: operations["update_recall_note_review_state_api_recall_notes__note_id__review_state_patch"];
         trace?: never;
     };
     "/api/recall/notes/search": {
@@ -1493,6 +1527,144 @@ export interface components {
             /** Openai Configured */
             openai_configured: boolean;
         };
+        /** HighlightReviewInboxResponse */
+        HighlightReviewInboxResponse: {
+            /** Collection Id */
+            collection_id?: string | null;
+            /**
+             * Learning Filter
+             * @default all
+             * @enum {string}
+             */
+            learning_filter: "all" | "needs_review" | "uncovered" | "covered" | "study_prompts" | "graph_gaps";
+            /**
+             * Reading State
+             * @default all
+             * @enum {string}
+             */
+            reading_state: "all" | "unread" | "in_progress" | "completed";
+            /** Reviewable Study Card Ids */
+            reviewable_study_card_ids?: string[];
+            /** Rows */
+            rows?: components["schemas"]["HighlightReviewInboxRow"][];
+            /**
+             * Scope
+             * @default all
+             * @enum {string}
+             */
+            scope: "all" | "web" | "documents" | "captures" | "untagged";
+            /** Source Document Id */
+            source_document_id?: string | null;
+            /**
+             * State
+             * @default needs_review
+             * @enum {string}
+             */
+            state: "needs_review" | "uncovered" | "covered" | "connected" | "unconnected" | "reviewed" | "dismissed" | "all";
+            summary?: components["schemas"]["HighlightReviewInboxSummary"];
+        };
+        /** HighlightReviewInboxRow */
+        HighlightReviewInboxRow: {
+            /** Anchor Text */
+            anchor_text: string;
+            /** Body Preview */
+            body_preview?: string | null;
+            /** Collection Paths */
+            collection_paths?: components["schemas"]["LibraryCollectionPathItem"][][];
+            /** Dismissed At */
+            dismissed_at?: string | null;
+            /** Excerpt Preview */
+            excerpt_preview: string;
+            /** Global Sentence End */
+            global_sentence_end?: number | null;
+            /** Global Sentence Start */
+            global_sentence_start?: number | null;
+            /**
+             * Graph Covered
+             * @default false
+             */
+            graph_covered: boolean;
+            /** Graph Node Id */
+            graph_node_id?: string | null;
+            /** Membership */
+            membership?: ("direct" | "descendant") | null;
+            /** Note Id */
+            note_id: string;
+            /**
+             * Note Kind
+             * @enum {string}
+             */
+            note_kind: "sentence" | "source";
+            /**
+             * Review State
+             * @default unreviewed
+             * @enum {string}
+             */
+            review_state: "unreviewed" | "reviewed" | "dismissed";
+            /** Reviewed At */
+            reviewed_at?: string | null;
+            /** Source Document Id */
+            source_document_id: string;
+            /** Source Title */
+            source_title: string;
+            /** Study Card Id */
+            study_card_id?: string | null;
+            /**
+             * Study Covered
+             * @default false
+             */
+            study_covered: boolean;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** HighlightReviewInboxSummary */
+        HighlightReviewInboxSummary: {
+            /**
+             * Covered Items
+             * @default 0
+             */
+            covered_items: number;
+            /**
+             * Dismissed Items
+             * @default 0
+             */
+            dismissed_items: number;
+            /**
+             * Graph Covered Items
+             * @default 0
+             */
+            graph_covered_items: number;
+            /**
+             * Needs Review Items
+             * @default 0
+             */
+            needs_review_items: number;
+            /**
+             * Reviewable Covered Items
+             * @default 0
+             */
+            reviewable_covered_items: number;
+            /**
+             * Reviewed Items
+             * @default 0
+             */
+            reviewed_items: number;
+            /**
+             * Total Items
+             * @default 0
+             */
+            total_items: number;
+            /**
+             * Uncovered Items
+             * @default 0
+             */
+            uncovered_items: number;
+            /**
+             * Ungraphed Items
+             * @default 0
+             */
+            ungraphed_items: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1694,12 +1866,21 @@ export interface components {
             anchor_text: string;
             /** Body Preview */
             body_preview?: string | null;
+            /** Dismissed At */
+            dismissed_at?: string | null;
             /** Excerpt Preview */
             excerpt_preview: string;
             /** Global Sentence End */
             global_sentence_end?: number | null;
             /** Global Sentence Start */
             global_sentence_start?: number | null;
+            /**
+             * Graph Covered
+             * @default false
+             */
+            graph_covered: boolean;
+            /** Graph Node Id */
+            graph_node_id?: string | null;
             /**
              * Membership
              * @enum {string}
@@ -1712,10 +1893,25 @@ export interface components {
              * @enum {string}
              */
             note_kind: "sentence" | "source";
+            /**
+             * Review State
+             * @default unreviewed
+             * @enum {string}
+             */
+            review_state: "unreviewed" | "reviewed" | "dismissed";
+            /** Reviewed At */
+            reviewed_at?: string | null;
             /** Source Document Id */
             source_document_id: string;
             /** Source Title */
             source_title: string;
+            /** Study Card Id */
+            study_card_id?: string | null;
+            /**
+             * Study Covered
+             * @default false
+             */
+            study_covered: boolean;
             /** Updated At */
             updated_at: string;
         };
@@ -1909,6 +2105,72 @@ export interface components {
              */
             unscheduled: number;
         };
+        /** LibraryReadingQueueHighlightReviewCounts */
+        LibraryReadingQueueHighlightReviewCounts: {
+            /**
+             * Covered
+             * @default 0
+             */
+            covered: number;
+            /**
+             * Dismissed
+             * @default 0
+             */
+            dismissed: number;
+            /**
+             * Graph Covered
+             * @default 0
+             */
+            graph_covered: number;
+            /**
+             * Needs Review
+             * @default 0
+             */
+            needs_review: number;
+            /**
+             * Reviewed
+             * @default 0
+             */
+            reviewed: number;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Ungraphed
+             * @default 0
+             */
+            ungraphed: number;
+        };
+        /** LibraryReadingQueueLearningSummary */
+        LibraryReadingQueueLearningSummary: {
+            /**
+             * Covered Sources
+             * @default 0
+             */
+            covered_sources: number;
+            /**
+             * Graph Gap Sources
+             * @default 0
+             */
+            graph_gap_sources: number;
+            /**
+             * Needs Review Sources
+             * @default 0
+             */
+            needs_review_sources: number;
+            /**
+             * Study Prompt Sources
+             * @default 0
+             */
+            study_prompt_sources: number;
+            /**
+             * Uncovered Sources
+             * @default 0
+             */
+            uncovered_sources: number;
+        };
         /** LibraryReadingQueueResponse */
         LibraryReadingQueueResponse: {
             /** Collection Id */
@@ -1918,6 +2180,13 @@ export interface components {
              * @default true
              */
             dry_run: boolean;
+            /**
+             * Learning Filter
+             * @default all
+             * @enum {string}
+             */
+            learning_filter: "all" | "needs_review" | "uncovered" | "covered" | "study_prompts" | "graph_gaps";
+            learning_summary?: components["schemas"]["LibraryReadingQueueLearningSummary"];
             /** Rows */
             rows?: components["schemas"]["LibraryReadingQueueRow"][];
             /**
@@ -1943,6 +2212,7 @@ export interface components {
              * @default 0
              */
             highlight_count: number;
+            highlight_review_counts?: components["schemas"]["LibraryReadingQueueHighlightReviewCounts"];
             /** Id */
             id: string;
             /** Last Read At */
@@ -2254,10 +2524,42 @@ export interface components {
             body_text?: string | null;
             /** Created At */
             created_at: string;
+            /** Dismissed At */
+            dismissed_at?: string | null;
+            /**
+             * Graph Covered
+             * @default false
+             */
+            graph_covered: boolean;
+            /** Graph Node Id */
+            graph_node_id?: string | null;
             /** Id */
             id: string;
+            /**
+             * Review State
+             * @default unreviewed
+             * @enum {string}
+             */
+            review_state: "unreviewed" | "reviewed" | "dismissed";
+            /** Reviewed At */
+            reviewed_at?: string | null;
+            /** Study Card Id */
+            study_card_id?: string | null;
+            /**
+             * Study Covered
+             * @default false
+             */
+            study_covered: boolean;
             /** Updated At */
             updated_at: string;
+        };
+        /** RecallNoteReviewStateUpdateRequest */
+        RecallNoteReviewStateUpdateRequest: {
+            /**
+             * Review State
+             * @enum {string}
+             */
+            review_state: "unreviewed" | "reviewed" | "dismissed";
         };
         /** RecallNoteSearchHit */
         RecallNoteSearchHit: {
@@ -2266,12 +2568,36 @@ export interface components {
             body_text?: string | null;
             /** Created At */
             created_at: string;
+            /** Dismissed At */
+            dismissed_at?: string | null;
             /** Document Title */
             document_title: string;
+            /**
+             * Graph Covered
+             * @default false
+             */
+            graph_covered: boolean;
+            /** Graph Node Id */
+            graph_node_id?: string | null;
             /** Id */
             id: string;
+            /**
+             * Review State
+             * @default unreviewed
+             * @enum {string}
+             */
+            review_state: "unreviewed" | "reviewed" | "dismissed";
+            /** Reviewed At */
+            reviewed_at?: string | null;
             /** Score */
             score: number;
+            /** Study Card Id */
+            study_card_id?: string | null;
+            /**
+             * Study Covered
+             * @default false
+             */
+            study_covered: boolean;
             /** Updated At */
             updated_at: string;
         };
@@ -2414,6 +2740,10 @@ export interface components {
             question_payload?: components["schemas"]["StudyCardQuestionPayload"] | null;
             /** Source Document Id */
             source_document_id: string;
+            /** Source Spans */
+            source_spans?: {
+                [key: string]: unknown;
+            }[] | null;
             support_payload?: components["schemas"]["StudyCardSupportPayload"] | null;
         };
         /** StudyCardDeleteResult */
@@ -3324,6 +3654,9 @@ export type DocumentRecord = components['schemas']['DocumentRecord'];
 export type DocumentView = components['schemas']['DocumentView'];
 export type GraphDecisionRequest = components['schemas']['GraphDecisionRequest'];
 export type HealthResponse = components['schemas']['HealthResponse'];
+export type HighlightReviewInboxResponse = components['schemas']['HighlightReviewInboxResponse'];
+export type HighlightReviewInboxRow = components['schemas']['HighlightReviewInboxRow'];
+export type HighlightReviewInboxSummary = components['schemas']['HighlightReviewInboxSummary'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type ImportTextRequest = components['schemas']['ImportTextRequest'];
 export type ImportUrlRequest = components['schemas']['ImportUrlRequest'];
@@ -3342,6 +3675,8 @@ export type LibraryCollectionRecentActivity = components['schemas']['LibraryColl
 export type LibraryCollectionRecentSource = components['schemas']['LibraryCollectionRecentSource'];
 export type LibraryCollectionResumeSource = components['schemas']['LibraryCollectionResumeSource'];
 export type LibraryCollectionStudyCounts = components['schemas']['LibraryCollectionStudyCounts'];
+export type LibraryReadingQueueHighlightReviewCounts = components['schemas']['LibraryReadingQueueHighlightReviewCounts'];
+export type LibraryReadingQueueLearningSummary = components['schemas']['LibraryReadingQueueLearningSummary'];
 export type LibraryReadingQueueResponse = components['schemas']['LibraryReadingQueueResponse'];
 export type LibraryReadingQueueRow = components['schemas']['LibraryReadingQueueRow'];
 export type LibraryReadingQueueStudyCounts = components['schemas']['LibraryReadingQueueStudyCounts'];
@@ -3359,6 +3694,7 @@ export type RecallNoteAnchor = components['schemas']['RecallNoteAnchor'];
 export type RecallNoteCreateRequest = components['schemas']['RecallNoteCreateRequest'];
 export type RecallNoteGraphPromotionRequest = components['schemas']['RecallNoteGraphPromotionRequest'];
 export type RecallNoteRecord = components['schemas']['RecallNoteRecord'];
+export type RecallNoteReviewStateUpdateRequest = components['schemas']['RecallNoteReviewStateUpdateRequest'];
 export type RecallNoteSearchHit = components['schemas']['RecallNoteSearchHit'];
 export type RecallNoteStudyPromotionRequest = components['schemas']['RecallNoteStudyPromotionRequest'];
 export type RecallNoteUpdateRequest = components['schemas']['RecallNoteUpdateRequest'];
@@ -4331,10 +4667,48 @@ export interface operations {
             };
         };
     };
+    get_recall_library_highlight_review_inbox_api_recall_library_highlight_review_inbox_get: {
+        parameters: {
+            query?: {
+                collection_id?: string | null;
+                learning_filter?: "all" | "needs_review" | "uncovered" | "covered" | "study_prompts" | "graph_gaps";
+                limit?: number;
+                reading_state?: "all" | "unread" | "in_progress" | "completed";
+                scope?: "all" | "web" | "documents" | "captures" | "untagged";
+                source_document_id?: string | null;
+                state?: "needs_review" | "uncovered" | "covered" | "connected" | "unconnected" | "reviewed" | "dismissed" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HighlightReviewInboxResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_recall_library_reading_queue_api_recall_library_reading_queue_get: {
         parameters: {
             query?: {
                 collection_id?: string | null;
+                learning_filter?: "all" | "needs_review" | "uncovered" | "covered" | "study_prompts" | "graph_gaps";
                 limit?: number;
                 scope?: "all" | "web" | "documents" | "captures" | "untagged";
                 state?: "all" | "unread" | "in_progress" | "completed";
@@ -4539,6 +4913,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StudyCardRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_recall_note_review_state_api_recall_notes__note_id__review_state_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecallNoteReviewStateUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecallNoteRecord"];
                 };
             };
             /** @description Validation Error */

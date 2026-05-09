@@ -46,6 +46,10 @@ from .models import (
     KnowledgeNode,
     KnowledgeNodeDetail,
     KnowledgeNodeRecord,
+    HighlightReviewInboxResponse,
+    HighlightReviewInboxRow,
+    HighlightReviewInboxState,
+    HighlightReviewInboxSummary,
     LibraryCollection,
     LibraryCollectionMemoryCounts,
     LibraryCollectionHighlightReviewItem,
@@ -56,6 +60,9 @@ from .models import (
     LibraryCollectionReadingSummary,
     LibraryCollectionResumeSource,
     LibraryReadingQueueResponse,
+    LibraryReadingQueueHighlightReviewCounts,
+    LibraryReadingQueueLearningFilter,
+    LibraryReadingQueueLearningSummary,
     LibraryReadingQueueRow,
     LibraryReadingQueueScope,
     LibraryReadingQueueState,
@@ -73,6 +80,7 @@ from .models import (
     RecallNoteCreateRequest,
     RecallNoteGraphPromotionRequest,
     RecallNoteRecord,
+    RecallNoteReviewStateUpdateRequest,
     RecallNoteSearchHit,
     RecallNoteStudyPromotionRequest,
     RecallNoteUpdateRequest,
@@ -244,6 +252,84 @@ def _normalize_study_support_payload(payload: Any) -> dict[str, str] | None:
         if value:
             normalized[key] = value
     return normalized or None
+
+
+def _normalize_manual_study_source_spans(
+    spans: Any,
+    *,
+    card_type: str,
+    chunk_row: sqlite3.Row | None,
+    source_row: sqlite3.Row,
+) -> list[dict[str, Any]]:
+    if spans is None:
+        return []
+    if hasattr(spans, "model_dump"):
+        dumped = spans.model_dump(mode="json")
+        raw_spans = dumped if isinstance(dumped, list) else []
+    else:
+        raw_spans = spans if isinstance(spans, list) else []
+
+    normalized_spans: list[dict[str, Any]] = []
+    text_keys = (
+        "anchor_kind",
+        "edge_id",
+        "generated_card_type",
+        "note_id",
+        "relation_type",
+        "source_id",
+        "source_label",
+        "target_id",
+        "target_label",
+    )
+    integer_keys = (
+        "global_sentence_end",
+        "global_sentence_start",
+        "sentence_end",
+        "sentence_start",
+    )
+    for raw_span in raw_spans[:3]:
+        if hasattr(raw_span, "model_dump"):
+            dumped_span = raw_span.model_dump(mode="json")
+            span_dict = dumped_span if isinstance(dumped_span, dict) else {}
+        else:
+            span_dict = raw_span if isinstance(raw_span, dict) else {}
+        if not span_dict:
+            continue
+
+        normalized: dict[str, Any] = {
+            "card_type": card_type,
+            "manual_source": "study_relation_manual" if normalize_whitespace(str(span_dict.get("edge_id") or "")) else "study_manual",
+            "source_document_id": source_row["id"],
+            "source_title": source_row["title"],
+        }
+        for key in text_keys:
+            value = normalize_whitespace(str(span_dict.get(key) or ""))
+            if value:
+                normalized[key] = value
+        for key in ("block_id", "chunk_id"):
+            value = normalize_whitespace(str(span_dict.get(key) or ""))
+            if value:
+                normalized[key] = value
+        for key in integer_keys:
+            value = span_dict.get(key)
+            if isinstance(value, int) and value >= 0:
+                normalized[key] = value
+
+        excerpt = normalize_whitespace(str(span_dict.get("excerpt") or ""))
+        if not excerpt and chunk_row:
+            excerpt = normalize_whitespace(str(chunk_row["text"] or ""))
+        if excerpt:
+            normalized["excerpt"] = excerpt[:240]
+        elif source_row["title"]:
+            normalized["excerpt"] = source_row["title"]
+
+        if "chunk_id" not in normalized and chunk_row:
+            normalized["chunk_id"] = chunk_row["id"]
+        if "block_id" not in normalized and chunk_row:
+            normalized["block_id"] = chunk_row["block_id"]
+
+        normalized_spans.append(normalized)
+    return normalized_spans
 
 
 def _filter_study_support_payload(
@@ -870,7 +956,22 @@ class Repository:
                 """,
                 (document_id,),
             ).fetchall()
-            return [self._row_to_recall_note_record(row) for row in rows]
+            study_coverage = self._study_coverage_by_note_id_with_connection(
+                connection,
+                {str(row["id"]) for row in rows},
+            )
+            graph_coverage = self._graph_coverage_by_note_id_with_connection(
+                connection,
+                {str(row["id"]) for row in rows},
+            )
+            return [
+                self._row_to_recall_note_record(
+                    row,
+                    graph_coverage_by_note_id=graph_coverage,
+                    study_coverage_by_note_id=study_coverage,
+                )
+                for row in rows
+            ]
 
     def create_recall_note(
         self,
@@ -1021,7 +1122,69 @@ class Repository:
                 (note_id,),
             ).fetchone()
             assert updated_row is not None
-            return self._row_to_recall_note_record(updated_row)
+            study_coverage = self._study_coverage_by_note_id_with_connection(connection, {note_id})
+            graph_coverage = self._graph_coverage_by_note_id_with_connection(connection, {note_id})
+            return self._row_to_recall_note_record(
+                updated_row,
+                graph_coverage_by_note_id=graph_coverage,
+                study_coverage_by_note_id=study_coverage,
+            )
+
+    def update_recall_note_review_state(
+        self,
+        note_id: str,
+        payload: RecallNoteReviewStateUpdateRequest,
+    ) -> RecallNoteRecord | None:
+        review_state = payload.review_state
+        if review_state not in {"unreviewed", "reviewed", "dismissed"}:
+            raise ValueError("Unsupported note review state.")
+
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM recall_notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            if not row:
+                return None
+
+            timestamp = now_iso()
+            reviewed_at = timestamp if review_state == "reviewed" else None
+            dismissed_at = timestamp if review_state == "dismissed" else None
+            connection.execute(
+                """
+                UPDATE recall_notes
+                SET review_state = ?,
+                    reviewed_at = ?,
+                    dismissed_at = ?,
+                    review_state_updated_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (review_state, reviewed_at, dismissed_at, timestamp, timestamp, note_id),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="recall_note",
+                entity_id=note_id,
+                event_type="review_state_updated",
+                payload={
+                    "source_document_id": row["source_document_id"],
+                    "review_state": review_state,
+                },
+                created_at=timestamp,
+            )
+            updated_row = connection.execute(
+                "SELECT * FROM recall_notes WHERE id = ?",
+                (note_id,),
+            ).fetchone()
+            assert updated_row is not None
+            study_coverage = self._study_coverage_by_note_id_with_connection(connection, {note_id})
+            graph_coverage = self._graph_coverage_by_note_id_with_connection(connection, {note_id})
+            return self._row_to_recall_note_record(
+                updated_row,
+                graph_coverage_by_note_id=graph_coverage,
+                study_coverage_by_note_id=study_coverage,
+            )
 
     def delete_recall_note(self, note_id: str) -> bool:
         with self.connect() as connection:
@@ -1093,6 +1256,30 @@ class Repository:
                     "note_id": note_id,
                     "source_document_id": note_row["source_document_id"],
                     "canonical_key": canonical_key,
+                },
+                created_at=timestamp,
+            )
+            connection.execute(
+                """
+                UPDATE recall_notes
+                SET review_state = 'reviewed',
+                    reviewed_at = ?,
+                    dismissed_at = NULL,
+                    review_state_updated_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (timestamp, timestamp, timestamp, note_id),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="recall_note",
+                entity_id=note_id,
+                event_type="review_state_updated",
+                payload={
+                    "source_document_id": note_row["source_document_id"],
+                    "knowledge_node_id": node_id,
+                    "review_state": "reviewed",
                 },
                 created_at=timestamp,
             )
@@ -1194,6 +1381,18 @@ class Repository:
                     timestamp,
                 ),
             )
+            connection.execute(
+                """
+                UPDATE recall_notes
+                SET review_state = 'reviewed',
+                    reviewed_at = ?,
+                    dismissed_at = NULL,
+                    review_state_updated_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (timestamp, timestamp, timestamp, note_id),
+            )
             self._append_change_event_with_connection(
                 connection,
                 entity_type="review_card",
@@ -1266,7 +1465,22 @@ class Repository:
                     """,
                     (fts_query, limit),
                 ).fetchall()
-            return [self._row_to_recall_note_search_hit(row) for row in rows]
+            study_coverage = self._study_coverage_by_note_id_with_connection(
+                connection,
+                {str(row["id"]) for row in rows},
+            )
+            graph_coverage = self._graph_coverage_by_note_id_with_connection(
+                connection,
+                {str(row["id"]) for row in rows},
+            )
+            return [
+                self._row_to_recall_note_search_hit(
+                    row,
+                    graph_coverage_by_note_id=graph_coverage,
+                    study_coverage_by_note_id=study_coverage,
+                )
+                for row in rows
+            ]
 
     def search_recall(self, query: str, *, limit: int = 20) -> list[RecallSearchHit]:
         terms = safe_query_terms(query)
@@ -1436,8 +1650,18 @@ class Repository:
                 """,
                 (document_id,),
             ).fetchall()
+            note_ids = {str(row["id"]) for row in note_rows}
+            study_coverage_by_note_id = self._study_coverage_by_note_id_with_connection(connection, note_ids)
+            graph_coverage_by_note_id = self._graph_coverage_by_note_id_with_connection(connection, note_ids)
 
-        notes = [self._row_to_recall_note_record(row) for row in note_rows]
+        notes = [
+            self._row_to_recall_note_record(
+                row,
+                graph_coverage_by_note_id=graph_coverage_by_note_id,
+                study_coverage_by_note_id=study_coverage_by_note_id,
+            )
+            for row in note_rows
+        ]
         graph_nodes = [
             self._row_to_knowledge_node_record(row)
             for row in node_rows
@@ -1523,6 +1747,9 @@ class Repository:
                         rn.body_text,
                         rn.global_sentence_start,
                         rn.global_sentence_end,
+                        rn.review_state,
+                        rn.reviewed_at,
+                        rn.dismissed_at,
                         rn.updated_at,
                         sd.title AS document_title
                     FROM recall_notes rn
@@ -1664,6 +1891,27 @@ class Repository:
                 completed_sources=completed_sources,
                 last_read_at=last_read_at,
             )
+            study_coverage_by_note_id = self._study_coverage_by_note_id_with_connection(
+                connection,
+                {str(row["id"]) for row in note_rows},
+            )
+            graph_coverage_by_note_id = self._graph_coverage_by_note_id_with_connection(
+                connection,
+                {str(row["id"]) for row in note_rows},
+            )
+
+            def highlight_review_preview_priority(row: sqlite3.Row) -> int:
+                review_state = self._recall_note_review_state_from_row(row)
+                study_covered = bool(study_coverage_by_note_id.get(str(row["id"])))
+                if review_state == "unreviewed" and not study_covered:
+                    return 0
+                if review_state == "unreviewed":
+                    return 1
+                if review_state == "reviewed":
+                    return 2
+                return 3
+
+            highlight_review_rows = sorted(note_rows, key=highlight_review_preview_priority)[:12]
             highlight_review_items = [
                 LibraryCollectionHighlightReviewItem(
                     note_id=row["id"],
@@ -1680,9 +1928,16 @@ class Repository:
                     if str(row["anchor_kind"] or "sentence") == "source"
                     else row["global_sentence_end"],
                     membership="direct" if row["source_document_id"] in direct_document_id_set else "descendant",
+                    review_state=self._recall_note_review_state_from_row(row),  # type: ignore[arg-type]
+                    reviewed_at=self._optional_row_text(row, "reviewed_at"),
+                    dismissed_at=self._optional_row_text(row, "dismissed_at"),
+                    study_covered=bool(study_coverage_by_note_id.get(str(row["id"]))),
+                    study_card_id=study_coverage_by_note_id.get(str(row["id"])),
+                    graph_covered=bool(graph_coverage_by_note_id.get(str(row["id"]))),
+                    graph_node_id=graph_coverage_by_note_id.get(str(row["id"])),
                     updated_at=row["updated_at"],
                 )
-                for row in note_rows[:12]
+                for row in highlight_review_rows
             ]
             recent_sources = [
                 LibraryCollectionRecentSource(
@@ -1763,18 +2018,268 @@ class Repository:
             recent_activity=recent_activity[:12],
         )
 
+    def get_highlight_review_inbox(
+        self,
+        *,
+        scope: LibraryReadingQueueScope = "all",
+        collection_id: str | None = None,
+        source_document_id: str | None = None,
+        state: HighlightReviewInboxState = "needs_review",
+        reading_state: LibraryReadingQueueState = "all",
+        learning_filter: LibraryReadingQueueLearningFilter = "all",
+        limit: int = 20,
+    ) -> HighlightReviewInboxResponse | None:
+        if scope not in {"all", "web", "documents", "captures", "untagged"}:
+            raise ValueError("Unsupported highlight review scope.")
+        if state not in {
+            "needs_review",
+            "uncovered",
+            "covered",
+            "connected",
+            "unconnected",
+            "reviewed",
+            "dismissed",
+            "all",
+        }:
+            raise ValueError("Unsupported highlight review state.")
+        if reading_state not in {"all", "unread", "in_progress", "completed"}:
+            raise ValueError("Unsupported highlight review reading state.")
+        if learning_filter not in {"all", "needs_review", "uncovered", "covered", "study_prompts", "graph_gaps"}:
+            raise ValueError("Unsupported highlight review learning filter.")
+
+        capped_limit = min(max(limit, 1), 50)
+        with self.connect() as connection:
+            settings = self.get_library_settings()
+            collection_by_id = {collection.id: collection for collection in settings.custom_collections}
+            collection_direct_document_ids: set[str] = set()
+            collection_document_ids: set[str] | None = None
+            if collection_id:
+                collection = collection_by_id.get(collection_id)
+                if not collection:
+                    return None
+                collection_direct_document_ids = set(
+                    self._valid_library_document_ids_with_connection(connection, collection.document_ids)
+                )
+                collection_document_ids = set(
+                    self._library_collection_document_ids_with_connection(connection, settings, collection_id)
+                )
+
+            if source_document_id:
+                source_exists = connection.execute(
+                    "SELECT 1 FROM source_documents WHERE id = ?",
+                    (source_document_id,),
+                ).fetchone()
+                if not source_exists:
+                    return None
+
+            source_rows = connection.execute(
+                """
+                SELECT id, title, source_type, updated_at
+                FROM source_documents
+                ORDER BY updated_at DESC, title COLLATE NOCASE ASC
+                """
+            ).fetchall()
+            all_document_ids = [str(row["id"]) for row in source_rows]
+            tagged_document_ids = {
+                document_id
+                for collection in settings.custom_collections
+                for document_id in self._valid_library_document_ids_with_connection(connection, collection.document_ids)
+            }
+
+            def row_matches_scope(row: sqlite3.Row) -> bool:
+                document_id = str(row["id"])
+                if source_document_id and document_id != source_document_id:
+                    return False
+                if collection_document_ids is not None and document_id not in collection_document_ids:
+                    return False
+                if collection_document_ids is not None:
+                    return True
+                source_type = str(row["source_type"] or "").lower()
+                if scope == "web":
+                    return source_type == "web"
+                if scope == "captures":
+                    return source_type == "paste"
+                if scope == "documents":
+                    return source_type not in {"web", "paste"}
+                if scope == "untagged":
+                    return document_id not in tagged_document_ids
+                return True
+
+            scoped_source_rows = [row for row in source_rows if row_matches_scope(row)]
+            scoped_document_ids = [str(row["id"]) for row in scoped_source_rows]
+            if scoped_document_ids and (reading_state != "all" or learning_filter != "all"):
+                queue_filtered_document_ids = self._library_queue_filtered_document_ids_with_connection(
+                    connection,
+                    scoped_source_rows=scoped_source_rows,
+                    reading_state=reading_state,
+                    learning_filter=learning_filter,
+                )
+                scoped_document_ids = [
+                    document_id for document_id in scoped_document_ids if document_id in queue_filtered_document_ids
+                ]
+            collection_paths_by_document: dict[str, list[list[LibraryCollectionPathItem]]] = {
+                document_id: [] for document_id in all_document_ids
+            }
+            for collection in settings.custom_collections:
+                path = [
+                    LibraryCollectionPathItem(id=path_collection.id, name=path_collection.name)
+                    for path_collection in self._library_collection_path(settings, collection.id)
+                ]
+                for document_id in self._valid_library_document_ids_with_connection(connection, collection.document_ids):
+                    collection_paths_by_document.setdefault(document_id, []).append(path)
+
+            if not scoped_document_ids:
+                return HighlightReviewInboxResponse(
+                    scope=scope,
+                    state=state,
+                    reading_state=reading_state,
+                    learning_filter=learning_filter,
+                    collection_id=collection_id,
+                    source_document_id=source_document_id,
+                    summary=HighlightReviewInboxSummary(),
+                    rows=[],
+                )
+
+            placeholders = ", ".join("?" for _ in scoped_document_ids)
+            note_rows = connection.execute(
+                f"""
+                SELECT rn.*, sd.title AS document_title
+                FROM recall_notes rn
+                INNER JOIN source_documents sd ON sd.id = rn.source_document_id
+                WHERE rn.source_document_id IN ({placeholders})
+                ORDER BY rn.updated_at DESC, rn.id DESC
+                """,
+                tuple(scoped_document_ids),
+            ).fetchall()
+            study_coverage = self._study_coverage_entries_by_note_id_with_connection(
+                connection,
+                {str(row["id"]) for row in note_rows},
+            )
+            graph_coverage = self._graph_coverage_by_note_id_with_connection(
+                connection,
+                {str(row["id"]) for row in note_rows},
+            )
+
+            rows: list[HighlightReviewInboxRow] = []
+            for row in note_rows:
+                review_state = self._recall_note_review_state_from_row(row)
+                coverage_entries = study_coverage.get(str(row["id"]), [])
+                study_card_id = coverage_entries[0]["card_id"] if coverage_entries else None
+                graph_node_id = graph_coverage.get(str(row["id"]))
+                source_note = str(row["anchor_kind"] or "sentence") == "source"
+                document_id = str(row["source_document_id"])
+                rows.append(
+                    HighlightReviewInboxRow(
+                        note_id=row["id"],
+                        note_kind="source" if source_note else "sentence",
+                        source_document_id=document_id,
+                        source_title=row["document_title"],
+                        anchor_text=row["anchor_text"],
+                        excerpt_preview=self._truncate_text(row["excerpt_text"], 180) or row["anchor_text"],
+                        body_preview=self._truncate_text(row["body_text"], 180) if row["body_text"] else None,
+                        global_sentence_start=None if source_note else row["global_sentence_start"],
+                        global_sentence_end=None if source_note else row["global_sentence_end"],
+                        membership=(
+                            "direct"
+                            if collection_id and document_id in collection_direct_document_ids
+                            else "descendant"
+                            if collection_id
+                            else None
+                        ),
+                        collection_paths=collection_paths_by_document.get(document_id, []),
+                        review_state=review_state,
+                        reviewed_at=self._optional_row_text(row, "reviewed_at"),
+                        dismissed_at=self._optional_row_text(row, "dismissed_at"),
+                        study_covered=bool(study_card_id),
+                        study_card_id=study_card_id,
+                        graph_covered=bool(graph_node_id),
+                        graph_node_id=graph_node_id,
+                        updated_at=row["updated_at"],
+                    )
+                )
+
+        def row_needs_review(row: HighlightReviewInboxRow) -> bool:
+            return row.review_state == "unreviewed" and not row.study_covered
+
+        def row_uncovered(row: HighlightReviewInboxRow) -> bool:
+            return row.review_state != "dismissed" and not row.study_covered
+
+        def row_ungraphed(row: HighlightReviewInboxRow) -> bool:
+            return row.review_state != "dismissed" and not row.graph_covered
+
+        def row_reviewable_covered(row: HighlightReviewInboxRow) -> bool:
+            return any(
+                entry.get("status") in {"due", "new"}
+                for entry in study_coverage.get(row.note_id, [])
+            )
+
+        reviewable_study_card_ids: list[str] = []
+        seen_reviewable_card_ids: set[str] = set()
+        for row in rows:
+            for entry in study_coverage.get(row.note_id, []):
+                if entry.get("status") not in {"due", "new"}:
+                    continue
+                card_id = entry.get("card_id") or ""
+                if not card_id or card_id in seen_reviewable_card_ids:
+                    continue
+                seen_reviewable_card_ids.add(card_id)
+                reviewable_study_card_ids.append(card_id)
+
+        summary = HighlightReviewInboxSummary(
+            total_items=len(rows),
+            needs_review_items=sum(1 for row in rows if row_needs_review(row)),
+            uncovered_items=sum(1 for row in rows if row_uncovered(row)),
+            covered_items=sum(1 for row in rows if row.study_covered),
+            reviewable_covered_items=sum(1 for row in rows if row_reviewable_covered(row)),
+            reviewed_items=sum(1 for row in rows if row.review_state == "reviewed"),
+            dismissed_items=sum(1 for row in rows if row.review_state == "dismissed"),
+            graph_covered_items=sum(1 for row in rows if row.graph_covered),
+            ungraphed_items=sum(1 for row in rows if row_ungraphed(row)),
+        )
+        if state == "needs_review":
+            filtered_rows = [row for row in rows if row_needs_review(row)]
+        elif state == "uncovered":
+            filtered_rows = [row for row in rows if row_uncovered(row)]
+        elif state == "covered":
+            filtered_rows = [row for row in rows if row.study_covered]
+        elif state == "connected":
+            filtered_rows = [row for row in rows if row.graph_covered]
+        elif state == "unconnected":
+            filtered_rows = [row for row in rows if row_ungraphed(row)]
+        elif state == "reviewed":
+            filtered_rows = [row for row in rows if row.review_state == "reviewed"]
+        elif state == "dismissed":
+            filtered_rows = [row for row in rows if row.review_state == "dismissed"]
+        else:
+            filtered_rows = rows
+
+        return HighlightReviewInboxResponse(
+            scope=scope,
+            state=state,
+            reading_state=reading_state,
+            learning_filter=learning_filter,
+            collection_id=collection_id,
+            source_document_id=source_document_id,
+            summary=summary,
+            reviewable_study_card_ids=reviewable_study_card_ids,
+            rows=filtered_rows[:capped_limit],
+        )
+
     def get_library_reading_queue(
         self,
         *,
         scope: LibraryReadingQueueScope = "all",
         collection_id: str | None = None,
         state: LibraryReadingQueueState = "all",
+        learning_filter: LibraryReadingQueueLearningFilter = "all",
         limit: int = 20,
     ) -> LibraryReadingQueueResponse | None:
         if scope not in {"all", "web", "documents", "captures", "untagged"}:
             raise ValueError("Unsupported reading queue scope.")
         if state not in {"all", "unread", "in_progress", "completed"}:
             raise ValueError("Unsupported reading queue state.")
+        if learning_filter not in {"all", "needs_review", "uncovered", "covered", "study_prompts", "graph_gaps"}:
+            raise ValueError("Unsupported reading queue learning filter.")
 
         capped_limit = min(max(limit, 1), 50)
         with self.connect() as connection:
@@ -1827,8 +2332,10 @@ class Repository:
                 return LibraryReadingQueueResponse(
                     scope=scope,
                     state=state,
+                    learning_filter=learning_filter,
                     collection_id=collection_id,
                     summary=LibraryReadingQueueSummary(),
+                    learning_summary=LibraryReadingQueueLearningSummary(),
                     rows=[],
                 )
 
@@ -1900,6 +2407,10 @@ class Repository:
                 if _study_card_is_deleted_state(card.scheduling_state):
                     continue
                 study_counts_by_document.setdefault(card.source_document_id, Counter())[card.status] += 1
+            highlight_review_counts_by_document = self._highlight_review_counts_by_document_with_connection(
+                connection,
+                scoped_document_ids,
+            )
 
             collection_paths_by_document: dict[str, list[list[LibraryCollectionPathItem]]] = {document_id: [] for document_id in all_document_ids}
             for collection in settings.custom_collections:
@@ -1966,6 +2477,10 @@ class Repository:
                         collection_paths=collection_paths_by_document.get(document_id, []),
                         note_count=note_count,
                         highlight_count=highlight_count,
+                        highlight_review_counts=highlight_review_counts_by_document.get(
+                            document_id,
+                            LibraryReadingQueueHighlightReviewCounts(),
+                        ),
                         study_counts=LibraryReadingQueueStudyCounts(
                             new=study_counter.get("new", 0),
                             due=study_counter.get("due", 0),
@@ -1981,7 +2496,13 @@ class Repository:
             in_progress_sources=summary_counts.get("in_progress", 0),
             completed_sources=summary_counts.get("completed", 0),
         )
-        filtered_rows = [row for row in rows if state == "all" or row.state == state]
+        state_filtered_rows = [row for row in rows if state == "all" or row.state == state]
+        learning_summary = self._library_reading_queue_learning_summary(state_filtered_rows)
+        filtered_rows = [
+            row
+            for row in state_filtered_rows
+            if self._library_reading_queue_row_matches_learning_filter(row, learning_filter)
+        ]
         state_priority = {"in_progress": 0, "unread": 1, "completed": 2}
         filtered_rows.sort(
             key=lambda row: (
@@ -1994,10 +2515,191 @@ class Repository:
         return LibraryReadingQueueResponse(
             scope=scope,
             state=state,
+            learning_filter=learning_filter,
             collection_id=collection_id,
             summary=summary,
+            learning_summary=learning_summary,
             rows=filtered_rows[:capped_limit],
         )
+
+    def _library_queue_filtered_document_ids_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        scoped_source_rows: list[sqlite3.Row],
+        reading_state: LibraryReadingQueueState,
+        learning_filter: LibraryReadingQueueLearningFilter,
+    ) -> set[str]:
+        scoped_document_ids = [str(row["id"]) for row in scoped_source_rows]
+        if not scoped_document_ids:
+            return set()
+        if reading_state == "all" and learning_filter == "all":
+            return set(scoped_document_ids)
+
+        placeholders = ", ".join("?" for _ in scoped_document_ids)
+        parameters = tuple(scoped_document_ids)
+        variant_rows = connection.execute(
+            f"""
+            SELECT source_document_id, mode, view_json
+            FROM document_variants
+            WHERE source_document_id IN ({placeholders})
+                AND detail_level = 'default'
+            """,
+            parameters,
+        ).fetchall()
+        session_rows = connection.execute(
+            f"""
+            SELECT source_document_id, mode, sentence_index, updated_at
+            FROM reading_sessions
+            WHERE source_document_id IN ({placeholders})
+                AND session_kind = ?
+                AND device_id = ?
+            ORDER BY updated_at DESC, source_document_id ASC
+            """,
+            (*parameters, DEFAULT_SESSION_KIND, self.device_id),
+        ).fetchall()
+        card_rows = connection.execute(
+            f"""
+            SELECT rc.*, sd.title AS document_title
+            FROM review_cards rc
+            INNER JOIN source_documents sd ON sd.id = rc.source_document_id
+            WHERE rc.source_document_id IN ({placeholders})
+            ORDER BY rc.updated_at DESC, rc.id ASC
+            """,
+            parameters,
+        ).fetchall()
+
+        sentence_count_by_document_mode = {
+            (str(row["source_document_id"]), str(row["mode"])): self._sentence_count_from_view_json(row["view_json"])
+            for row in variant_rows
+        }
+        modes_by_document: dict[str, list[str]] = {}
+        for row in variant_rows:
+            modes_by_document.setdefault(str(row["source_document_id"]), []).append(str(row["mode"]))
+        latest_session_by_document: dict[str, sqlite3.Row] = {}
+        for row in session_rows:
+            latest_session_by_document.setdefault(str(row["source_document_id"]), row)
+
+        study_counts_by_document: dict[str, Counter[str]] = {}
+        for row in card_rows:
+            card = self._row_to_study_card_record(row)
+            if _study_card_is_deleted_state(card.scheduling_state):
+                continue
+            study_counts_by_document.setdefault(card.source_document_id, Counter())[card.status] += 1
+        highlight_review_counts_by_document = self._highlight_review_counts_by_document_with_connection(
+            connection,
+            scoped_document_ids,
+        )
+
+        matching_document_ids: set[str] = set()
+        for row in scoped_source_rows:
+            document_id = str(row["id"])
+            latest_session = latest_session_by_document.get(document_id)
+            available_modes = modes_by_document.get(document_id, [])
+            mode = (
+                latest_session["mode"]
+                if latest_session is not None and latest_session["mode"] in available_modes
+                else "reflowed"
+                if "reflowed" in available_modes
+                else "original"
+                if "original" in available_modes
+                else available_modes[0]
+                if available_modes
+                else "original"
+            )
+            sentence_count = sentence_count_by_document_mode.get((document_id, str(mode)), 0)
+            if sentence_count <= 0:
+                sentence_count = max(int(latest_session["sentence_index"]) + 1, 1) if latest_session else 1
+            sentence_index = int(latest_session["sentence_index"]) if latest_session else 0
+            progress_percent = (
+                min(100, max(0, round(((sentence_index + 1) / sentence_count) * 100)))
+                if latest_session
+                else 0
+            )
+            if latest_session is None:
+                row_state: LibraryReadingQueueState = "unread"
+            elif progress_percent >= 95 or sentence_index >= sentence_count - 1:
+                row_state = "completed"
+            else:
+                row_state = "in_progress"
+
+            study_counter = study_counts_by_document.get(document_id, Counter())
+            queue_row = LibraryReadingQueueRow(
+                id=document_id,
+                title=row["title"],
+                source_type=row["source_type"],
+                state=row_state,  # type: ignore[arg-type]
+                mode=mode,  # type: ignore[arg-type]
+                sentence_index=sentence_index,
+                sentence_count=sentence_count,
+                progress_percent=progress_percent,
+                last_read_at=latest_session["updated_at"] if latest_session else None,
+                updated_at=row["updated_at"],
+                highlight_review_counts=highlight_review_counts_by_document.get(
+                    document_id,
+                    LibraryReadingQueueHighlightReviewCounts(),
+                ),
+                study_counts=LibraryReadingQueueStudyCounts(
+                    new=study_counter.get("new", 0),
+                    due=study_counter.get("due", 0),
+                    total=sum(study_counter.values()),
+                ),
+            )
+            if reading_state != "all" and queue_row.state != reading_state:
+                continue
+            if not self._library_reading_queue_row_matches_learning_filter(queue_row, learning_filter):
+                continue
+            matching_document_ids.add(document_id)
+        return matching_document_ids
+
+    def _library_reading_queue_learning_summary(
+        self,
+        rows: list[LibraryReadingQueueRow],
+    ) -> LibraryReadingQueueLearningSummary:
+        needs_review_sources = 0
+        uncovered_sources = 0
+        covered_sources = 0
+        study_prompt_sources = 0
+        graph_gap_sources = 0
+        for row in rows:
+            review_counts = row.highlight_review_counts
+            if review_counts.needs_review > 0:
+                needs_review_sources += 1
+            if max(0, review_counts.total - review_counts.covered - review_counts.dismissed) > 0:
+                uncovered_sources += 1
+            if review_counts.covered > 0:
+                covered_sources += 1
+            if row.study_counts.due + row.study_counts.new > 0:
+                study_prompt_sources += 1
+            if review_counts.ungraphed > 0:
+                graph_gap_sources += 1
+        return LibraryReadingQueueLearningSummary(
+            needs_review_sources=needs_review_sources,
+            uncovered_sources=uncovered_sources,
+            covered_sources=covered_sources,
+            study_prompt_sources=study_prompt_sources,
+            graph_gap_sources=graph_gap_sources,
+        )
+
+    def _library_reading_queue_row_matches_learning_filter(
+        self,
+        row: LibraryReadingQueueRow,
+        learning_filter: LibraryReadingQueueLearningFilter,
+    ) -> bool:
+        if learning_filter == "all":
+            return True
+        review_counts = row.highlight_review_counts
+        if learning_filter == "needs_review":
+            return review_counts.needs_review > 0
+        if learning_filter == "uncovered":
+            return max(0, review_counts.total - review_counts.covered - review_counts.dismissed) > 0
+        if learning_filter == "covered":
+            return review_counts.covered > 0
+        if learning_filter == "study_prompts":
+            return row.study_counts.due + row.study_counts.new > 0
+        if learning_filter == "graph_gaps":
+            return review_counts.ungraphed > 0
+        return True
 
     def complete_document_reading(self, document_id: str, mode: str | None = None) -> ReadingCompleteResult | None:
         document = self.get_document(document_id)
@@ -2785,8 +3487,9 @@ class Repository:
                     INSERT INTO recall_notes (
                         id, anchor_kind, source_document_id, variant_id, block_id,
                         sentence_start, sentence_end, global_sentence_start, global_sentence_end,
-                        anchor_text, excerpt_text, body_text, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        anchor_text, excerpt_text, body_text, review_state, reviewed_at,
+                        dismissed_at, review_state_updated_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         local_id,
@@ -2801,6 +3504,12 @@ class Repository:
                         row_text(row, "anchor_text"),
                         row_text(row, "excerpt_text"),
                         row_optional_text(row, "body_text"),
+                        row_text(row, "review_state", "unreviewed")
+                        if row_text(row, "review_state", "unreviewed") in {"unreviewed", "reviewed", "dismissed"}
+                        else "unreviewed",
+                        row_optional_text(row, "reviewed_at"),
+                        row_optional_text(row, "dismissed_at"),
+                        row_optional_text(row, "review_state_updated_at"),
                         row_text(row, "created_at", now_iso()),
                         row_text(row, "updated_at", now_iso()),
                     ),
@@ -3486,6 +4195,8 @@ class Repository:
         all_nodes = [self._row_to_knowledge_node_record(row) for row in node_rows]
         all_edges = [self._row_to_knowledge_edge_record(row) for row in edge_rows]
         unrejected_nodes = [node for node in all_nodes if node.status != "rejected"]
+        unrejected_node_ids = {node.id for node in unrejected_nodes}
+        node_by_id = {node.id: node for node in all_nodes}
         manual_note_nodes = [node for node in unrejected_nodes if node.id in manual_note_node_ids]
         non_manual_nodes = [node for node in unrejected_nodes if node.id not in manual_note_node_ids]
         remaining_node_limit = max(0, limit_nodes - len(manual_note_nodes))
@@ -3493,7 +4204,23 @@ class Repository:
             *manual_note_nodes,
             *non_manual_nodes[:remaining_node_limit],
         ]
-        visible_edges = [edge for edge in all_edges if edge.status != "rejected"][:limit_edges]
+        visible_edges = [
+            edge
+            for edge in all_edges
+            if edge.status != "rejected"
+            and edge.source_id in unrejected_node_ids
+            and edge.target_id in unrejected_node_ids
+        ][:limit_edges]
+        visible_node_ids = {node.id for node in visible_nodes}
+        for edge in visible_edges:
+            for node_id in (edge.source_id, edge.target_id):
+                if node_id in visible_node_ids:
+                    continue
+                node = node_by_id.get(node_id)
+                if not node or node.status == "rejected":
+                    continue
+                visible_nodes.append(node)
+                visible_node_ids.add(node_id)
         return KnowledgeGraphSnapshot(
             nodes=visible_nodes,
             edges=visible_edges,
@@ -4566,18 +5293,25 @@ class Repository:
                 """,
                 (source_document_id,),
             ).fetchone()
-            source_spans = [
-                {
-                    "anchor_kind": "source",
-                    "block_id": chunk_row["block_id"] if chunk_row else None,
-                    "card_type": card_type,
-                    "chunk_id": chunk_row["id"] if chunk_row else None,
-                    "excerpt": self._truncate_text(chunk_row["text"], 240) if chunk_row else source_row["title"],
-                    "manual_source": "study_manual",
-                    "source_document_id": source_row["id"],
-                    "source_title": source_row["title"],
-                }
-            ]
+            source_spans = _normalize_manual_study_source_spans(
+                payload.source_spans,
+                card_type=card_type,
+                chunk_row=chunk_row,
+                source_row=source_row,
+            )
+            if not source_spans:
+                source_spans = [
+                    {
+                        "anchor_kind": "source",
+                        "block_id": chunk_row["block_id"] if chunk_row else None,
+                        "card_type": card_type,
+                        "chunk_id": chunk_row["id"] if chunk_row else None,
+                        "excerpt": self._truncate_text(chunk_row["text"], 240) if chunk_row else source_row["title"],
+                        "manual_source": "study_manual",
+                        "source_document_id": source_row["id"],
+                        "source_title": source_row["title"],
+                    }
+                ]
             connection.execute(
                 """
                 INSERT INTO review_cards (
@@ -4825,6 +5559,12 @@ class Repository:
                     """,
                     (review_event_id, linked_attempt_id, review_card_id),
                 )
+            self._mark_unreviewed_linked_notes_reviewed_for_study_card_with_connection(
+                connection,
+                review_card_id=review_card_id,
+                source_spans_json=row["source_spans_json"],
+                timestamp=timestamp,
+            )
             self._append_change_event_with_connection(
                 connection,
                 entity_type="review_card",
@@ -5630,6 +6370,10 @@ class Repository:
                 anchor_text TEXT NOT NULL,
                 excerpt_text TEXT NOT NULL,
                 body_text TEXT,
+                review_state TEXT NOT NULL DEFAULT 'unreviewed',
+                reviewed_at TEXT,
+                dismissed_at TEXT,
+                review_state_updated_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (source_document_id) REFERENCES source_documents(id) ON DELETE CASCADE,
@@ -5692,6 +6436,30 @@ class Repository:
             table_name="recall_notes",
             column_name="anchor_kind",
             column_sql="TEXT NOT NULL DEFAULT 'sentence'",
+        )
+        self._ensure_column_with_connection(
+            connection,
+            table_name="recall_notes",
+            column_name="review_state",
+            column_sql="TEXT NOT NULL DEFAULT 'unreviewed'",
+        )
+        self._ensure_column_with_connection(
+            connection,
+            table_name="recall_notes",
+            column_name="reviewed_at",
+            column_sql="TEXT",
+        )
+        self._ensure_column_with_connection(
+            connection,
+            table_name="recall_notes",
+            column_name="dismissed_at",
+            column_sql="TEXT",
+        )
+        self._ensure_column_with_connection(
+            connection,
+            table_name="recall_notes",
+            column_name="review_state_updated_at",
+            column_sql="TEXT",
         )
         self._ensure_column_with_connection(
             connection,
@@ -7416,23 +8184,304 @@ class Repository:
             excerpt_text=row["excerpt_text"],
         )
 
-    def _row_to_recall_note_record(self, row: sqlite3.Row) -> RecallNoteRecord:
+    @staticmethod
+    def _optional_row_text(row: sqlite3.Row, column_name: str) -> str | None:
+        if column_name not in row.keys():
+            return None
+        value = row[column_name]
+        return str(value) if value is not None else None
+
+    @staticmethod
+    def _recall_note_review_state_from_row(row: sqlite3.Row) -> str:
+        if "review_state" not in row.keys():
+            return "unreviewed"
+        value = str(row["review_state"] or "unreviewed")
+        return value if value in {"unreviewed", "reviewed", "dismissed"} else "unreviewed"
+
+    @staticmethod
+    def _study_coverage_entry_sort_key(entry: dict[str, str]) -> tuple[int, float, str]:
+        status_priority = {"due": 0, "new": 1, "scheduled": 2, "unscheduled": 3}
+        status = entry.get("status", "")
+        updated_at = entry.get("updated_at", "")
+        try:
+            updated_sort = -datetime.fromisoformat(updated_at).timestamp()
+        except ValueError:
+            updated_sort = 0.0
+        return (status_priority.get(status, 4), updated_sort, entry.get("card_id", ""))
+
+    def _study_coverage_entries_by_note_id_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        note_ids: set[str] | None = None,
+    ) -> dict[str, list[dict[str, str]]]:
+        requested_note_ids = {str(note_id) for note_id in note_ids or set() if str(note_id)}
+        if note_ids is not None and not requested_note_ids:
+            return {}
+
+        rows = connection.execute(
+            """
+            SELECT id, source_spans_json, scheduling_state_json, updated_at
+            FROM review_cards
+            ORDER BY updated_at DESC, id ASC
+            """
+        ).fetchall()
+        coverage: dict[str, list[dict[str, str]]] = {}
+        for row in rows:
+            scheduling_state = _study_scheduling_state_from_json(row["scheduling_state_json"])
+            if _study_card_is_deleted_state(scheduling_state):
+                continue
+            status = study_card_status(scheduling_state)
+            try:
+                source_spans = json.loads(row["source_spans_json"] or "[]")
+            except json.JSONDecodeError:
+                source_spans = []
+            if not isinstance(source_spans, list):
+                continue
+            linked_note_ids_for_card: set[str] = set()
+            for span in source_spans:
+                if not isinstance(span, dict):
+                    continue
+                note_id = str(span.get("note_id") or "")
+                if not note_id:
+                    continue
+                if requested_note_ids and note_id not in requested_note_ids:
+                    continue
+                if note_id in linked_note_ids_for_card:
+                    continue
+                linked_note_ids_for_card.add(note_id)
+                coverage.setdefault(note_id, []).append(
+                    {
+                        "card_id": str(row["id"]),
+                        "status": status,
+                        "updated_at": str(row["updated_at"] or ""),
+                    }
+                )
+        for entries in coverage.values():
+            entries.sort(key=self._study_coverage_entry_sort_key)
+        return coverage
+
+    def _study_coverage_by_note_id_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        note_ids: set[str] | None = None,
+    ) -> dict[str, str]:
+        coverage_entries = self._study_coverage_entries_by_note_id_with_connection(connection, note_ids)
+        return {
+            note_id: entries[0]["card_id"]
+            for note_id, entries in coverage_entries.items()
+            if entries
+        }
+
+    def _graph_coverage_by_note_id_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        note_ids: set[str] | None = None,
+    ) -> dict[str, str]:
+        requested_note_ids = {str(note_id) for note_id in note_ids or set() if str(note_id)}
+        if note_ids is not None and not requested_note_ids:
+            return {}
+
+        node_rows = connection.execute(
+            """
+            SELECT id, metadata_json, updated_at
+            FROM knowledge_nodes
+            ORDER BY updated_at DESC, id ASC
+            """
+        ).fetchall()
+        coverage: dict[str, str] = {}
+        for row in node_rows:
+            metadata = self._metadata_from_row(row)
+            if metadata.get("status", "suggested") == "rejected":
+                continue
+            promoted_note_ids = metadata.get("promoted_note_ids", [])
+            if not isinstance(promoted_note_ids, list):
+                continue
+            for promoted_note_id in promoted_note_ids:
+                note_id = str(promoted_note_id or "")
+                if not note_id:
+                    continue
+                if requested_note_ids and note_id not in requested_note_ids:
+                    continue
+                coverage.setdefault(note_id, str(row["id"]))
+        return coverage
+
+    def _mark_unreviewed_linked_notes_reviewed_for_study_card_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        review_card_id: str,
+        source_spans_json: str | None,
+        timestamp: str,
+    ) -> None:
+        try:
+            source_spans = json.loads(source_spans_json or "[]")
+        except json.JSONDecodeError:
+            return
+        if not isinstance(source_spans, list):
+            return
+
+        linked_note_ids: list[str] = []
+        seen_note_ids: set[str] = set()
+        for span in source_spans:
+            if not isinstance(span, dict):
+                continue
+            note_id = str(span.get("note_id") or "").strip()
+            if not note_id or note_id in seen_note_ids:
+                continue
+            seen_note_ids.add(note_id)
+            linked_note_ids.append(note_id)
+        if not linked_note_ids:
+            return
+
+        placeholders = ", ".join("?" for _ in linked_note_ids)
+        note_rows = connection.execute(
+            f"""
+            SELECT id, source_document_id
+            FROM recall_notes
+            WHERE id IN ({placeholders}) AND review_state = 'unreviewed'
+            """,
+            tuple(linked_note_ids),
+        ).fetchall()
+        if not note_rows:
+            return
+
+        for note_row in note_rows:
+            note_id = str(note_row["id"])
+            connection.execute(
+                """
+                UPDATE recall_notes
+                SET review_state = 'reviewed',
+                    reviewed_at = ?,
+                    dismissed_at = NULL,
+                    review_state_updated_at = ?,
+                    updated_at = ?
+                WHERE id = ? AND review_state = 'unreviewed'
+                """,
+                (timestamp, timestamp, timestamp, note_id),
+            )
+            self._append_change_event_with_connection(
+                connection,
+                entity_type="recall_note",
+                entity_id=note_id,
+                event_type="review_state_updated",
+                payload={
+                    "source_document_id": note_row["source_document_id"],
+                    "review_card_id": review_card_id,
+                    "review_state": "reviewed",
+                },
+                created_at=timestamp,
+            )
+
+    def _highlight_review_counts_by_document_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        document_ids: list[str] | set[str],
+    ) -> dict[str, LibraryReadingQueueHighlightReviewCounts]:
+        scoped_document_ids = [str(document_id) for document_id in document_ids if str(document_id)]
+        if not scoped_document_ids:
+            return {}
+
+        placeholders = ", ".join("?" for _ in scoped_document_ids)
+        note_rows = connection.execute(
+            f"""
+            SELECT id, source_document_id, review_state
+            FROM recall_notes
+            WHERE source_document_id IN ({placeholders})
+            """,
+            tuple(scoped_document_ids),
+        ).fetchall()
+        study_coverage = self._study_coverage_by_note_id_with_connection(
+            connection,
+            {str(row["id"]) for row in note_rows},
+        )
+        graph_coverage = self._graph_coverage_by_note_id_with_connection(
+            connection,
+            {str(row["id"]) for row in note_rows},
+        )
+        counters_by_document: dict[str, Counter[str]] = {
+            document_id: Counter() for document_id in scoped_document_ids
+        }
+        for row in note_rows:
+            document_id = str(row["source_document_id"])
+            note_id = str(row["id"])
+            review_state = self._recall_note_review_state_from_row(row)
+            study_covered = note_id in study_coverage
+            graph_covered = note_id in graph_coverage
+            counter = counters_by_document.setdefault(document_id, Counter())
+            counter["total"] += 1
+            if review_state == "unreviewed" and not study_covered:
+                counter["needs_review"] += 1
+            if study_covered:
+                counter["covered"] += 1
+            if review_state == "reviewed":
+                counter["reviewed"] += 1
+            if review_state == "dismissed":
+                counter["dismissed"] += 1
+            if graph_covered:
+                counter["graph_covered"] += 1
+            if review_state != "dismissed" and not graph_covered:
+                counter["ungraphed"] += 1
+
+        return {
+            document_id: LibraryReadingQueueHighlightReviewCounts(
+                total=counter.get("total", 0),
+                needs_review=counter.get("needs_review", 0),
+                covered=counter.get("covered", 0),
+                reviewed=counter.get("reviewed", 0),
+                dismissed=counter.get("dismissed", 0),
+                graph_covered=counter.get("graph_covered", 0),
+                ungraphed=counter.get("ungraphed", 0),
+            )
+            for document_id, counter in counters_by_document.items()
+        }
+
+    def _row_to_recall_note_record(
+        self,
+        row: sqlite3.Row,
+        *,
+        graph_coverage_by_note_id: dict[str, str] | None = None,
+        study_coverage_by_note_id: dict[str, str] | None = None,
+    ) -> RecallNoteRecord:
+        study_card_id = (study_coverage_by_note_id or {}).get(str(row["id"]))
+        graph_node_id = (graph_coverage_by_note_id or {}).get(str(row["id"]))
         return RecallNoteRecord(
             id=row["id"],
             anchor=self._row_to_recall_note_anchor(row),
             body_text=row["body_text"],
+            review_state=self._recall_note_review_state_from_row(row),  # type: ignore[arg-type]
+            reviewed_at=self._optional_row_text(row, "reviewed_at"),
+            dismissed_at=self._optional_row_text(row, "dismissed_at"),
+            study_covered=bool(study_card_id),
+            study_card_id=study_card_id,
+            graph_covered=bool(graph_node_id),
+            graph_node_id=graph_node_id,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
 
-    def _row_to_recall_note_search_hit(self, row: sqlite3.Row) -> RecallNoteSearchHit:
+    def _row_to_recall_note_search_hit(
+        self,
+        row: sqlite3.Row,
+        *,
+        graph_coverage_by_note_id: dict[str, str] | None = None,
+        study_coverage_by_note_id: dict[str, str] | None = None,
+    ) -> RecallNoteSearchHit:
         rank = float(row["rank"] if row["rank"] is not None else 0.0)
+        study_card_id = (study_coverage_by_note_id or {}).get(str(row["id"]))
+        graph_node_id = (graph_coverage_by_note_id or {}).get(str(row["id"]))
         return RecallNoteSearchHit(
             id=row["id"],
             anchor=self._row_to_recall_note_anchor(row),
             document_title=row["document_title"],
             score=1.0 / (1.0 + abs(rank)),
             body_text=row["body_text"],
+            review_state=self._recall_note_review_state_from_row(row),  # type: ignore[arg-type]
+            reviewed_at=self._optional_row_text(row, "reviewed_at"),
+            dismissed_at=self._optional_row_text(row, "dismissed_at"),
+            study_covered=bool(study_card_id),
+            study_card_id=study_card_id,
+            graph_covered=bool(graph_node_id),
+            graph_node_id=graph_node_id,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

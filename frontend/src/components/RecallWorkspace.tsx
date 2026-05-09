@@ -3,6 +3,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -41,6 +42,7 @@ import {
   fetchRecallDocuments,
   fetchRecallGraph,
   fetchRecallGraphNode,
+  fetchHighlightReviewInbox,
   fetchRecallStudyCards,
   fetchRecallStudyOverview,
   fetchRecallStudyProgress,
@@ -61,6 +63,7 @@ import {
   startRecallStudyReviewSession,
   updateRecallStudyCard,
   updateRecallNote,
+  updateRecallNoteReviewState,
 } from '../api'
 import type {
   ReaderAnchorRange,
@@ -106,16 +109,23 @@ import type {
   KnowledgeNodeDetail,
   KnowledgeNodeRecord,
   BatchResolvedImportFormat,
+  HighlightReviewInboxResponse,
+  HighlightReviewInboxRow,
+  HighlightReviewInboxState,
   LibraryCollection,
-  LibraryCollectionHighlightReviewItem,
   LibraryCollectionOverview,
+  LibraryReadingQueueHighlightReviewCounts,
+  LibraryReadingQueueLearningFilter,
   LibraryReadingQueueResponse,
   LibraryReadingQueueRow,
+  LibraryReadingQueueScope,
+  LibraryReadingQueueState,
   LibrarySettings,
   RecallDocumentPreview,
   RecallDocumentRecord,
   RecallNoteGraphPromotionRequest,
   RecallNoteRecord,
+  RecallNoteReviewState,
   RecallNoteSearchHit,
   ReaderSettings,
   StudyCardChoiceOption,
@@ -184,7 +194,53 @@ interface RecallWorkspaceProps {
   settings: ReaderSettings
   section: RecallSection
 }
+
+type HighlightReviewReturnOrigin = {
+  collectionId: string | null
+  learningFilter: LibraryReadingQueueLearningFilter | string | null
+  readingState: LibraryReadingQueueState | string | null
+  scope: LibraryReadingQueueScope | string | null
+  sourceDocumentId: string | null
+  sourceTitle?: string | null
+  surface: 'graph' | 'home' | 'source'
+}
 type LoadState = 'idle' | 'loading' | 'success' | 'error'
+
+const HIGHLIGHT_REVIEW_STATE_OPTIONS: Array<{
+  ariaLabel: string
+  label: string
+  state: HighlightReviewInboxState
+}> = [
+  { ariaLabel: 'Show highlights needing review', label: 'Needs review', state: 'needs_review' },
+  { ariaLabel: 'Show uncovered highlights', label: 'Uncovered', state: 'uncovered' },
+  { ariaLabel: 'Show Study-covered highlights', label: 'Covered', state: 'covered' },
+  { ariaLabel: 'Show reviewed highlights', label: 'Reviewed', state: 'reviewed' },
+  { ariaLabel: 'Show dismissed highlights', label: 'Dismissed', state: 'dismissed' },
+  { ariaLabel: 'Show all highlights', label: 'All', state: 'all' },
+]
+
+const HIGHLIGHT_REVIEW_GRAPH_STATE_OPTIONS: Array<{
+  ariaLabel: string
+  label: string
+  state: HighlightReviewInboxState
+}> = [
+  { ariaLabel: 'Show Graph-unconnected highlights', label: 'Not in Graph', state: 'unconnected' },
+  { ariaLabel: 'Show Graph-connected highlights', label: 'Connected', state: 'connected' },
+]
+
+const EMPTY_HIGHLIGHT_REVIEW_COUNTS: LibraryReadingQueueHighlightReviewCounts = {
+  total: 0,
+  needs_review: 0,
+  covered: 0,
+  reviewed: 0,
+  dismissed: 0,
+  graph_covered: 0,
+  ungraphed: 0,
+}
+
+function getReadingQueueHighlightReviewCounts(row: LibraryReadingQueueRow): LibraryReadingQueueHighlightReviewCounts {
+  return row.highlight_review_counts ?? EMPTY_HIGHLIGHT_REVIEW_COUNTS
+}
 
 type StudyCardEditDraft = {
   answer: string
@@ -242,6 +298,7 @@ type StudyReviewSessionState = {
   cardIds: string[]
   completedCardIds: string[]
   difficultyCounts: Record<StudyQuestionDifficulty, number>
+  filterSnapshot: Record<string, unknown>
   sourceDocumentIds: string[]
   startedAt: string
   timeLimitSeconds: number
@@ -253,6 +310,7 @@ type StudyReviewSessionRecap = {
   correct: number
   difficultyCounts: Record<StudyQuestionDifficulty, number>
   durationSeconds: number
+  filterSnapshot: Record<string, unknown>
   rated: number
   hintUsed: number
   skipped: number
@@ -288,6 +346,18 @@ function formatSourceWorkspaceTabLabel(tab: SourceWorkspaceTab) {
 
 function formatRelationLabel(relationType: string) {
   return relationType.replace(/_/g, ' ')
+}
+
+function formatGraphRelationLabel(edge: KnowledgeEdgeRecord) {
+  return `${edge.source_label} ${formatRelationLabel(edge.relation_type)} ${edge.target_label}`
+}
+
+function buildRelationPracticePrompt(edge: KnowledgeEdgeRecord) {
+  return `What is the Graph connection between ${edge.source_label} and ${edge.target_label}?`
+}
+
+function buildRelationPracticeAnswer(edge: KnowledgeEdgeRecord) {
+  return edge.excerpt?.trim() || formatGraphRelationLabel(edge)
 }
 
 function formatGraphNodeTypeLabel(nodeType: string) {
@@ -823,6 +893,14 @@ function toggleGraphPathSelection(currentPath: string[], nodeId: string, maxLeng
 
 function buildGraphPathSelectionKey(nodeIds: string[]) {
   return nodeIds.length === 2 ? nodeIds.join('::') : null
+}
+
+function buildGraphPathLabel(nodeIds: string[], nodeById: Map<string, KnowledgeNodeRecord>) {
+  const startNodeId = nodeIds[0] ?? null
+  const endNodeId = nodeIds[nodeIds.length - 1] ?? null
+  const startNode = startNodeId ? nodeById.get(startNodeId) ?? null : null
+  const endNode = endNodeId ? nodeById.get(endNodeId) ?? null : null
+  return startNode && endNode ? `${startNode.label} to ${endNode.label}` : 'Graph path'
 }
 
 function isGraphPathSelectionGesture(event: Pick<ReactMouseEvent<HTMLElement>, 'ctrlKey' | 'metaKey' | 'shiftKey'>) {
@@ -2090,7 +2168,53 @@ interface GraphCanvasLayout {
   nodes: GraphCanvasNodeLayout[]
 }
 
+interface SourceRelatedGraphConnectionRow {
+  anchorNode: KnowledgeNodeRecord | null
+  edge: KnowledgeEdgeRecord
+  relatedDocument: RecallDocumentRecord
+  relatedNode: KnowledgeNodeRecord | null
+}
+
+interface SourceRelatedGraphConnectionSummary {
+  confirmedRelationCount: number
+  firstPracticeQuestionRelationEdge: KnowledgeEdgeRecord | null
+  firstPracticeQuestionRelationEdgeId: string | null
+  firstPracticeGapRelationEdgeId: string | null
+  firstPracticeRelationEdge: KnowledgeEdgeRecord | null
+  firstPracticeRelationEdgeId: string | null
+  practiceGapRelationCount: number
+  practicePracticedRelationCount: number
+  practiceQuestionCount: number
+  practiceReadyDueCount: number
+  practiceReadyNewCount: number
+  practiceReadyRelationCount: number
+  practiceScheduledRelationCount: number
+  practiceUnscheduledRelationCount: number
+  relatedSourceCount: number
+}
+
+interface RelationPracticeCardSummary {
+  dueCount: number
+  eligibleCount: number
+  newCount: number
+  practicedCount: number
+  scheduledCount: number
+  totalCount: number
+  unscheduledCount: number
+}
+
+type RelationPracticeReturnSurface = 'graph' | 'source'
+
+interface GraphPathPracticeSummary extends RelationPracticeCardSummary {
+  cards: StudyCardRecord[]
+  edgeIds: string[]
+  edges: KnowledgeEdgeRecord[]
+  eligibleCards: StudyCardRecord[]
+  sourceDocumentIds: string[]
+}
+
 type GraphConnectionDepth = 1 | 2 | 3
+type GraphConnectionReviewScope = 'all' | 'source' | 'strong' | 'multi_evidence'
 type GraphColorGroupMode = 'source' | 'node'
 type GraphSpacingMode = 'balanced' | 'compact' | 'spread'
 type GraphDetailView = 'card' | 'reader' | 'connections'
@@ -2123,6 +2247,8 @@ type GraphPresetBaseline =
   | { kind: 'builtin'; key: GraphViewPresetKey }
   | { id: string; kind: 'saved' }
   | null
+
+const EMPTY_STUDY_PATH_RELATION_EDGE_IDS: string[] = []
 
 interface GraphNodeLocalMeta {
   firstSeenAt: number | null
@@ -2196,6 +2322,7 @@ const GRAPH_CANVAS_LOCKED_DRAG_MAX = 94
 const GRAPH_SETTINGS_DRAWER_DEFAULT_WIDTH = 244
 const GRAPH_SETTINGS_DRAWER_MIN_WIDTH = 228
 const GRAPH_SETTINGS_DRAWER_MAX_WIDTH = 388
+const GRAPH_STRONG_CONNECTION_CONFIDENCE = 0.8
 const GRAPH_TOUR_HELP_STEP = 3
 const HOME_ORGANIZER_RAIL_DEFAULT_WIDTH = 268
 const HOME_ORGANIZER_RAIL_MIN_WIDTH = 224
@@ -2635,6 +2762,270 @@ function getGraphEdgeCounterpartId(edge: KnowledgeEdgeRecord, nodeId: string) {
   return edge.source_id === nodeId ? edge.target_id : edge.source_id
 }
 
+function graphConnectionEdgeMatchesSourceDocument(
+  edge: KnowledgeEdgeRecord,
+  sourceDocumentId: string | null,
+  nodeById: Map<string, KnowledgeNodeRecord>,
+) {
+  if (!sourceDocumentId) {
+    return false
+  }
+  if (edge.source_document_ids.includes(sourceDocumentId)) {
+    return true
+  }
+  const sourceNode = nodeById.get(edge.source_id)
+  const targetNode = nodeById.get(edge.target_id)
+  return Boolean(
+    sourceNode?.source_document_ids.includes(sourceDocumentId) ||
+      targetNode?.source_document_ids.includes(sourceDocumentId),
+  )
+}
+
+function graphConnectionEdgeDocumentIds(
+  edge: KnowledgeEdgeRecord,
+  nodeById: Map<string, KnowledgeNodeRecord>,
+) {
+  const documentIds = new Set(edge.source_document_ids)
+  const sourceNode = nodeById.get(edge.source_id)
+  const targetNode = nodeById.get(edge.target_id)
+  sourceNode?.source_document_ids.forEach((documentId) => documentIds.add(documentId))
+  targetNode?.source_document_ids.forEach((documentId) => documentIds.add(documentId))
+  return Array.from(documentIds)
+}
+
+function getSourceRelatedGraphConnectionRows(
+  sourceDocumentId: string | null,
+  edges: KnowledgeEdgeRecord[],
+  nodeById: Map<string, KnowledgeNodeRecord>,
+  documentById: Map<string, RecallDocumentRecord>,
+): SourceRelatedGraphConnectionRow[] {
+  if (!sourceDocumentId) {
+    return []
+  }
+
+  const rows: SourceRelatedGraphConnectionRow[] = []
+  const seenRowKeys = new Set<string>()
+
+  for (const edge of edges) {
+    if (edge.status === 'rejected' || !graphConnectionEdgeMatchesSourceDocument(edge, sourceDocumentId, nodeById)) {
+      continue
+    }
+
+    const sourceNode = nodeById.get(edge.source_id) ?? null
+    const targetNode = nodeById.get(edge.target_id) ?? null
+    const endpointNodes = [sourceNode, targetNode].filter((node): node is KnowledgeNodeRecord => Boolean(node))
+    const activeSourceNodes = endpointNodes.filter((node) => node.source_document_ids.includes(sourceDocumentId))
+
+    for (const relatedDocumentId of graphConnectionEdgeDocumentIds(edge, nodeById)) {
+      if (relatedDocumentId === sourceDocumentId) {
+        continue
+      }
+
+      const relatedDocument = documentById.get(relatedDocumentId)
+      if (!relatedDocument) {
+        continue
+      }
+
+      const rowKey = `${edge.id}:${relatedDocument.id}`
+      if (seenRowKeys.has(rowKey)) {
+        continue
+      }
+      seenRowKeys.add(rowKey)
+
+      const relatedNodes = endpointNodes.filter((node) => node.source_document_ids.includes(relatedDocument.id))
+      const relatedNode =
+        relatedNodes.find((node) => !node.source_document_ids.includes(sourceDocumentId)) ?? relatedNodes[0] ?? null
+      const anchorNode =
+        activeSourceNodes.find((node) => node.id !== relatedNode?.id) ?? activeSourceNodes[0] ?? null
+
+      rows.push({
+        anchorNode,
+        edge,
+        relatedDocument,
+        relatedNode,
+      })
+    }
+  }
+
+  const sortedRows = rows.sort((left, right) => {
+    const leftConfirmed = left.edge.status === 'confirmed' ? 1 : 0
+    const rightConfirmed = right.edge.status === 'confirmed' ? 1 : 0
+    if (leftConfirmed !== rightConfirmed) {
+      return rightConfirmed - leftConfirmed
+    }
+    if (right.edge.evidence_count !== left.edge.evidence_count) {
+      return right.edge.evidence_count - left.edge.evidence_count
+    }
+    if (right.edge.confidence !== left.edge.confidence) {
+      return right.edge.confidence - left.edge.confidence
+    }
+    return left.relatedDocument.title.localeCompare(right.relatedDocument.title)
+  })
+
+  const relatedDocumentIds = new Set<string>()
+  return sortedRows.filter((row) => {
+    if (relatedDocumentIds.has(row.relatedDocument.id)) {
+      return false
+    }
+    relatedDocumentIds.add(row.relatedDocument.id)
+    return true
+  })
+}
+
+function isRelationPracticeCardPracticed(card: StudyCardRecord) {
+  return (
+    card.review_count > 0 ||
+    Boolean(card.last_rating) ||
+    card.knowledge_stage === 'practiced' ||
+    card.knowledge_stage === 'confident' ||
+    card.knowledge_stage === 'mastered'
+  )
+}
+
+function buildRelationPracticeCardSummary(cards: StudyCardRecord[], edgeId: string): RelationPracticeCardSummary {
+  const relationCards = cards.filter((card) => studyCardMatchesRelationEdge(card, edgeId))
+  return {
+    dueCount: relationCards.filter((card) => card.status === 'due').length,
+    eligibleCount: relationCards.filter(isStudyCardReviewEligible).length,
+    newCount: relationCards.filter((card) => card.status === 'new').length,
+    practicedCount: relationCards.filter(isRelationPracticeCardPracticed).length,
+    scheduledCount: relationCards.filter((card) => card.status === 'scheduled').length,
+    totalCount: relationCards.length,
+    unscheduledCount: relationCards.filter((card) => card.status === 'unscheduled').length,
+  }
+}
+
+function buildGraphPathPracticeSummary(
+  pathEdgeIds: string[],
+  edges: KnowledgeEdgeRecord[],
+  cards: StudyCardRecord[],
+): GraphPathPracticeSummary {
+  const edgeById = new Map(edges.map((edge) => [edge.id, edge]))
+  const pathEdges = pathEdgeIds
+    .map((edgeId) => edgeById.get(edgeId) ?? null)
+    .filter((edge): edge is KnowledgeEdgeRecord => edge !== null && edge.status !== 'rejected')
+  const activeEdgeIds = new Set(pathEdges.map((edge) => edge.id))
+  const pathCards = orderStudyCardsForReviewQueue(
+    cards.filter((card) =>
+      card.source_spans.some((sourceSpan) => {
+        const edgeId = getRecordStringValue(sourceSpan, 'edge_id')
+        return Boolean(edgeId && activeEdgeIds.has(edgeId))
+      }),
+    ),
+  )
+  const eligibleCards = getReviewEligibleStudyCards(pathCards)
+  const sourceDocumentIds = Array.from(
+    new Set([
+      ...pathCards.map((card) => card.source_document_id),
+      ...pathEdges.flatMap((edge) => edge.source_document_ids),
+    ]),
+  ).filter((documentId) => documentId.trim().length > 0)
+  return {
+    cards: pathCards,
+    dueCount: pathCards.filter((card) => card.status === 'due').length,
+    edgeIds: pathEdges.map((edge) => edge.id),
+    edges: pathEdges,
+    eligibleCards,
+    eligibleCount: eligibleCards.length,
+    newCount: pathCards.filter((card) => card.status === 'new').length,
+    practicedCount: pathCards.filter(isRelationPracticeCardPracticed).length,
+    scheduledCount: pathCards.filter((card) => card.status === 'scheduled').length,
+    sourceDocumentIds,
+    totalCount: pathCards.length,
+    unscheduledCount: pathCards.filter((card) => card.status === 'unscheduled').length,
+  }
+}
+
+function getGraphRelationPracticeSourceDocumentId(
+  edge: KnowledgeEdgeRecord,
+  cards: StudyCardRecord[],
+  nodeById: Map<string, KnowledgeNodeRecord>,
+  documentById: Map<string, RecallDocumentRecord>,
+) {
+  const relationCards = cards.filter((card) => studyCardMatchesRelationEdge(card, edge.id))
+  const eligibleCard = relationCards.find(isStudyCardReviewEligible)
+  const cardDocumentId = eligibleCard?.source_document_id ?? relationCards[0]?.source_document_id ?? null
+  if (cardDocumentId && documentById.has(cardDocumentId)) {
+    return cardDocumentId
+  }
+  const edgeDocumentId = edge.source_document_ids.find((documentId) => documentById.has(documentId)) ?? null
+  if (edgeDocumentId) {
+    return edgeDocumentId
+  }
+  return graphConnectionEdgeDocumentIds(edge, nodeById).find((documentId) => documentById.has(documentId)) ?? null
+}
+
+function buildSourceRelatedGraphConnectionSummary(
+  rows: SourceRelatedGraphConnectionRow[],
+  studyCards: StudyCardRecord[] = [],
+): SourceRelatedGraphConnectionSummary | null {
+  if (!rows.length) {
+    return null
+  }
+  const practiceQuestionEdgeIds = new Set<string>()
+  const practiceReadyEdgeIds = new Set<string>()
+  const practiceGapEdgeIds = new Set<string>()
+  const practicePracticedEdgeIds = new Set<string>()
+  const practiceScheduledEdgeIds = new Set<string>()
+  const practiceUnscheduledEdgeIds = new Set<string>()
+  let firstPracticeQuestionRelationEdge: KnowledgeEdgeRecord | null = null
+  let firstPracticeQuestionRelationEdgeId: string | null = null
+  let firstPracticeGapRelationEdgeId: string | null = null
+  let firstPracticeRelationEdge: KnowledgeEdgeRecord | null = null
+  let firstPracticeRelationEdgeId: string | null = null
+  let practiceQuestionCount = 0
+  let practiceReadyDueCount = 0
+  let practiceReadyNewCount = 0
+  for (const row of rows) {
+    if (practiceQuestionEdgeIds.has(row.edge.id) || practiceGapEdgeIds.has(row.edge.id)) {
+      continue
+    }
+    const practiceSummary = buildRelationPracticeCardSummary(studyCards, row.edge.id)
+    if (!practiceSummary.totalCount) {
+      practiceGapEdgeIds.add(row.edge.id)
+      firstPracticeGapRelationEdgeId = firstPracticeGapRelationEdgeId ?? row.edge.id
+      continue
+    }
+    practiceQuestionEdgeIds.add(row.edge.id)
+    firstPracticeQuestionRelationEdge = firstPracticeQuestionRelationEdge ?? row.edge
+    firstPracticeQuestionRelationEdgeId = firstPracticeQuestionRelationEdgeId ?? row.edge.id
+    practiceQuestionCount += practiceSummary.totalCount
+    if (practiceSummary.eligibleCount > 0) {
+      practiceReadyEdgeIds.add(row.edge.id)
+      firstPracticeRelationEdge = firstPracticeRelationEdge ?? row.edge
+      firstPracticeRelationEdgeId = firstPracticeRelationEdgeId ?? row.edge.id
+      practiceReadyDueCount += practiceSummary.dueCount
+      practiceReadyNewCount += practiceSummary.newCount
+    }
+    if (practiceSummary.practicedCount > 0) {
+      practicePracticedEdgeIds.add(row.edge.id)
+    }
+    if (practiceSummary.scheduledCount > 0) {
+      practiceScheduledEdgeIds.add(row.edge.id)
+    }
+    if (practiceSummary.unscheduledCount > 0) {
+      practiceUnscheduledEdgeIds.add(row.edge.id)
+    }
+  }
+  return {
+    confirmedRelationCount: rows.filter((row) => row.edge.status === 'confirmed').length,
+    firstPracticeQuestionRelationEdge,
+    firstPracticeQuestionRelationEdgeId,
+    firstPracticeGapRelationEdgeId,
+    firstPracticeRelationEdge,
+    firstPracticeRelationEdgeId,
+    practiceGapRelationCount: practiceGapEdgeIds.size,
+    practicePracticedRelationCount: practicePracticedEdgeIds.size,
+    practiceQuestionCount,
+    practiceReadyDueCount,
+    practiceReadyNewCount,
+    practiceReadyRelationCount: practiceReadyEdgeIds.size,
+    practiceScheduledRelationCount: practiceScheduledEdgeIds.size,
+    practiceUnscheduledRelationCount: practiceUnscheduledEdgeIds.size,
+    relatedSourceCount: new Set(rows.map((row) => row.relatedDocument.id)).size,
+  }
+}
+
 function sortGraphNodesForBrowse(
   nodes: KnowledgeNodeRecord[],
   selectedNodeId: string | null,
@@ -2964,6 +3355,14 @@ function buildSourceAttachedNoteAnchor(document: RecallDocumentRecord) {
 function getRecordStringValue(record: Record<string, unknown>, key: string) {
   const value = record[key]
   return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+function getRecordStringArrayValue(record: Record<string, unknown>, key: string) {
+  const value = record[key]
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
 }
 
 function getRecordNumberValue(record: Record<string, unknown>, key: string) {
@@ -3404,6 +3803,23 @@ function studyCardMatchesQuestionSearch(card: StudyCardRecord, normalizedQuery: 
   )
 }
 
+function studyCardMatchesRelationEdge(card: StudyCardRecord, edgeId: string | null | undefined) {
+  if (!edgeId) {
+    return true
+  }
+  return card.source_spans.some((sourceSpan) => getRecordStringValue(sourceSpan, 'edge_id') === edgeId)
+}
+
+function studyCardMatchesRelationEdgeSet(card: StudyCardRecord, edgeIds: ReadonlySet<string>) {
+  if (!edgeIds.size) {
+    return true
+  }
+  return card.source_spans.some((sourceSpan) => {
+    const edgeId = getRecordStringValue(sourceSpan, 'edge_id')
+    return Boolean(edgeId && edgeIds.has(edgeId))
+  })
+}
+
 function getSourceMemoryBlockSentenceTexts(block: DocumentView['blocks'][number]) {
   const blockMetadata =
     block.metadata && typeof block.metadata === 'object' ? (block.metadata as Record<string, unknown>) : null
@@ -3559,6 +3975,7 @@ export function RecallWorkspace({
   const [graphSavedPresets, setGraphSavedPresets] = useState<GraphSavedPreset[]>([])
   const [graphPresetDraftName, setGraphPresetDraftName] = useState('')
   const [graphConnectionDepth, setGraphConnectionDepth] = useState<GraphConnectionDepth>(2)
+  const [graphConnectionReviewScope, setGraphConnectionReviewScope] = useState<GraphConnectionReviewScope>('all')
   const [graphSpacingMode, setGraphSpacingMode] = useState<GraphSpacingMode>('balanced')
   const [graphHoverFocusEnabled, setGraphHoverFocusEnabled] = useState(true)
   const [graphShowUnconnectedNodes, setGraphShowUnconnectedNodes] = useState(true)
@@ -3586,6 +4003,11 @@ export function RecallWorkspace({
   const [graphAdvancedLayoutOpen, setGraphAdvancedLayoutOpen] = useState(false)
   const [graphQuickPicksOpen, setGraphQuickPicksOpen] = useState(false)
   const [graphGroupBuilderOpen, setGraphGroupBuilderOpen] = useState(false)
+  const [graphGapBuildInbox, setGraphGapBuildInbox] = useState<HighlightReviewInboxResponse | null>(null)
+  const [graphGapBuildInboxStatus, setGraphGapBuildInboxStatus] = useState<LoadState>('idle')
+  const [graphGapBuildInboxError, setGraphGapBuildInboxError] = useState<string | null>(null)
+  const [graphPromotionReturnOrigin, setGraphPromotionReturnOrigin] = useState<HighlightReviewReturnOrigin | null>(null)
+  const [graphFocusedRelationEdgeId, setGraphFocusedRelationEdgeId] = useState<string | null>(null)
   const graphCanvasViewportRef = useRef<HTMLDivElement | null>(null)
   const requestedHomeDocumentPreviewIdsRef = useRef<Set<string>>(new Set())
   const requestedHomePreviewDocumentIdsRef = useRef<Set<string>>(new Set())
@@ -3594,8 +4016,11 @@ export function RecallWorkspace({
   const graphSettingsDrawerResizeSessionRef = useRef<GraphSettingsDrawerResizeSession | null>(null)
   const graphNodeDragSuppressClickRef = useRef(false)
   const graphLastHandledFitRequestKeyRef = useRef(0)
+  const pendingGraphConnectionReviewEdgeRef = useRef<string | null>(null)
   const sourceMemorySearchInputRef = useRef<HTMLInputElement | null>(null)
   const studyQuestionSelectionScopeKeyRef = useRef<string | null>(null)
+  const pendingStudyFocusCardRef = useRef<{ documentId: string; cardId: string } | null>(null)
+  const loadedStudyScopeDocumentIdRef = useRef<string | null>(null)
   const [graphViewport, setGraphViewport] = useState<GraphCanvasViewportState>({
     offsetX: 0,
     offsetY: 0,
@@ -3645,6 +4070,7 @@ export function RecallWorkspace({
   const [documentNotes, setDocumentNotes] = useState<RecallNoteRecord[]>([])
   const [sourceWorkspaceNotes, setSourceWorkspaceNotes] = useState<RecallNoteRecord[]>([])
   const [sourceWorkspaceNotesStatus, setSourceWorkspaceNotesStatus] = useState<LoadState>('idle')
+  const [sourceFocusedRelationEdgeId, setSourceFocusedRelationEdgeId] = useState<string | null>(null)
   const [homeSourceNotesByDocumentId, setHomeSourceNotesByDocumentId] = useState<Record<string, RecallNoteRecord[]>>({})
   const [homeSourceNotesStatus, setHomeSourceNotesStatus] = useState<LoadState>('idle')
   const [homeSourceNoteSearchResults, setHomeSourceNoteSearchResults] = useState<RecallNoteSearchHit[]>([])
@@ -3703,7 +4129,29 @@ export function RecallWorkspace({
   const [homeReadingQueueStatus, setHomeReadingQueueStatus] = useState<LoadState>('idle')
   const [homeReadingQueueError, setHomeReadingQueueError] = useState<string | null>(null)
   const [homeReadingQueueState, setHomeReadingQueueState] = useState<RecallReaderQueueState>('all')
+  const [homeReadingQueueLearningFilter, setHomeReadingQueueLearningFilter] =
+    useState<LibraryReadingQueueLearningFilter>('all')
   const [homeReadingQueueBusyDocumentId, setHomeReadingQueueBusyDocumentId] = useState<string | null>(null)
+  const [homeHighlightReviewInbox, setHomeHighlightReviewInbox] = useState<HighlightReviewInboxResponse | null>(null)
+  const [homeHighlightReviewInboxStatus, setHomeHighlightReviewInboxStatus] = useState<LoadState>('idle')
+  const [homeHighlightReviewInboxError, setHomeHighlightReviewInboxError] = useState<string | null>(null)
+  const [homeHighlightReviewInboxState, setHomeHighlightReviewInboxState] = useState<HighlightReviewInboxState>('needs_review')
+  const [sourceHighlightReviewInbox, setSourceHighlightReviewInbox] = useState<HighlightReviewInboxResponse | null>(null)
+  const [sourceHighlightReviewInboxStatus, setSourceHighlightReviewInboxStatus] = useState<LoadState>('idle')
+  const [sourceHighlightReviewInboxError, setSourceHighlightReviewInboxError] = useState<string | null>(null)
+  const [sourceHighlightReviewInboxState, setSourceHighlightReviewInboxState] = useState<HighlightReviewInboxState>('needs_review')
+  const [homeHighlightReviewSelectedNoteIds, setHomeHighlightReviewSelectedNoteIds] = useState<string[]>([])
+  const [sourceHighlightReviewSelectedNoteIds, setSourceHighlightReviewSelectedNoteIds] = useState<string[]>([])
+  const [homeHighlightReviewSessionNoteIds, setHomeHighlightReviewSessionNoteIds] = useState<string[]>([])
+  const [homeHighlightReviewSessionActiveNoteId, setHomeHighlightReviewSessionActiveNoteId] = useState<string | null>(
+    null,
+  )
+  const [sourceHighlightReviewSessionNoteIds, setSourceHighlightReviewSessionNoteIds] = useState<string[]>([])
+  const [sourceHighlightReviewSessionActiveNoteId, setSourceHighlightReviewSessionActiveNoteId] = useState<
+    string | null
+  >(null)
+  const [highlightReviewBusyNoteId, setHighlightReviewBusyNoteId] = useState<string | null>(null)
+  const [highlightReviewBulkBusySurface, setHighlightReviewBulkBusySurface] = useState<'home' | 'source' | null>(null)
   const [homeCollectionSettingsError, setHomeCollectionSettingsError] = useState<string | null>(null)
   const [homeCollectionDraftState, setHomeCollectionDraftState] = useState<HomeCollectionDraftState | null>(null)
   const [homeCollectionDraftName, setHomeCollectionDraftName] = useState('')
@@ -3786,6 +4234,9 @@ export function RecallWorkspace({
   const studyProgressPeriodDays = continuityState.study.progressPeriodDays ?? 14
   const activeCardId = continuityState.study.activeCardId
   const studyQuestionSearchQuery = continuityState.study.questionSearchQuery ?? ''
+  const studyPathRelationEdgeIds = continuityState.study.pathRelationEdgeIds ?? EMPTY_STUDY_PATH_RELATION_EDGE_IDS
+  const studyPathRelationLabel = continuityState.study.pathRelationLabel ?? null
+  const studyRelationEdgeId = continuityState.study.relationEdgeId ?? null
   const studyReviewHistoryFilter = continuityState.study.reviewHistoryFilter ?? 'all'
   const studyScheduleDrilldown = continuityState.study.scheduleDrilldown ?? 'all'
   const studySourceScopeDocumentId = continuityState.study.sourceScopeDocumentId ?? null
@@ -3865,7 +4316,10 @@ export function RecallWorkspace({
       difficultyFilter: 'all',
       filter: 'all',
       knowledgeStageFilter: 'all',
+      pathRelationEdgeIds: [],
+      pathRelationLabel: null,
       questionSearchQuery: '',
+      relationEdgeId: null,
       reviewHistoryFilter: 'all',
       scheduleDrilldown: 'all',
     }))
@@ -4194,16 +4648,38 @@ export function RecallWorkspace({
         : reviewHistoryFilteredStudyQuestionCards,
     [reviewHistoryFilteredStudyQuestionCards, studyDifficultyFilter, studyDifficultyFilterActive],
   )
+  const studyPathRelationFilterActive = studyPathRelationEdgeIds.length > 0
+  const studyPathRelationEdgeIdSet = useMemo(
+    () => new Set(studyPathRelationEdgeIds),
+    [studyPathRelationEdgeIds],
+  )
+  const pathRelationFilteredStudyQuestionCards = useMemo(
+    () =>
+      studyPathRelationFilterActive
+        ? difficultyFilteredStudyQuestionCards.filter((card) =>
+            studyCardMatchesRelationEdgeSet(card, studyPathRelationEdgeIdSet),
+          )
+        : difficultyFilteredStudyQuestionCards,
+    [difficultyFilteredStudyQuestionCards, studyPathRelationEdgeIdSet, studyPathRelationFilterActive],
+  )
+  const studyRelationFilterActive = Boolean(studyRelationEdgeId)
+  const relationFilteredStudyQuestionCards = useMemo(
+    () =>
+      studyRelationFilterActive
+        ? pathRelationFilteredStudyQuestionCards.filter((card) => studyCardMatchesRelationEdge(card, studyRelationEdgeId))
+        : pathRelationFilteredStudyQuestionCards,
+    [pathRelationFilteredStudyQuestionCards, studyRelationEdgeId, studyRelationFilterActive],
+  )
   const normalizedStudyQuestionSearchQuery = normalizeSourceMemorySearchText(deferredStudyQuestionSearch)
   const studyQuestionSearchActive = normalizedStudyQuestionSearchQuery.length > 0
   const visibleStudyQuestionCards = useMemo(
     () =>
       studyQuestionSearchActive
-        ? difficultyFilteredStudyQuestionCards.filter((card) =>
+        ? relationFilteredStudyQuestionCards.filter((card) =>
             studyCardMatchesQuestionSearch(card, normalizedStudyQuestionSearchQuery),
           )
-        : difficultyFilteredStudyQuestionCards,
-    [difficultyFilteredStudyQuestionCards, normalizedStudyQuestionSearchQuery, studyQuestionSearchActive],
+        : relationFilteredStudyQuestionCards,
+    [normalizedStudyQuestionSearchQuery, relationFilteredStudyQuestionCards, studyQuestionSearchActive],
   )
   const scopedStudyCardCount = scopedStudyCards.length
   const collectionFilteredStudyQuestionCount = collectionFilteredStudyCards.length
@@ -4211,6 +4687,7 @@ export function RecallWorkspace({
   const stageFilteredStudyQuestionCount = stageFilteredStudyQuestionCards.length
   const reviewHistoryFilteredStudyQuestionCount = reviewHistoryFilteredStudyQuestionCards.length
   const difficultyFilteredStudyQuestionCount = difficultyFilteredStudyQuestionCards.length
+  const relationFilteredStudyQuestionCount = relationFilteredStudyQuestionCards.length
   const studyQuestionResultCount = visibleStudyQuestionCards.length
   const visibleStudyQuestionIdSet = useMemo(
     () => new Set(visibleStudyQuestionCards.map((card) => card.id)),
@@ -4227,6 +4704,13 @@ export function RecallWorkspace({
   const studyKnowledgeStageFilterLabel = formatStudyKnowledgeStageLabel(studyKnowledgeStageFilter)
   const studyReviewHistoryFilterLabel = formatStudyReviewHistoryFilterLabel(studyReviewHistoryFilter)
   const studyDifficultyFilterLabel = formatStudyDifficultyLabel(studyDifficultyFilter)
+  const studyPathRelationFilterLabel = studyPathRelationLabel ?? 'Selected path'
+  const pathRelationFilteredStudyQuestionCount = pathRelationFilteredStudyQuestionCards.length
+  const studyRelationFilterEdge = useMemo(
+    () => (studyRelationEdgeId ? graphSnapshot?.edges.find((edge) => edge.id === studyRelationEdgeId) ?? null : null),
+    [graphSnapshot?.edges, studyRelationEdgeId],
+  )
+  const studyRelationFilterLabel = studyRelationFilterEdge ? formatGraphRelationLabel(studyRelationFilterEdge) : 'Selected relation'
   const studyQuestionFilterStackActive =
     studyCollectionFilterActive ||
     studyFilter !== 'all' ||
@@ -4234,6 +4718,8 @@ export function RecallWorkspace({
     studyKnowledgeStageFilterActive ||
     studyReviewHistoryFilterActive ||
     studyDifficultyFilterActive ||
+    studyPathRelationFilterActive ||
+    studyRelationFilterActive ||
     studyQuestionSearchActive
   const studyQuestionSelectionScopeKey = [
     studySourceScopeDocumentId ?? 'global',
@@ -4243,6 +4729,9 @@ export function RecallWorkspace({
     studyKnowledgeStageFilter,
     studyReviewHistoryFilter,
     studyDifficultyFilter,
+    studyPathRelationEdgeIds.length ? studyPathRelationEdgeIds.join(',') : 'all-path-relations',
+    studyPathRelationLabel ?? '',
+    studyRelationEdgeId ?? 'all-relations',
     normalizedStudyQuestionSearchQuery,
   ].join('|')
   const activeStudyCard =
@@ -4733,6 +5222,47 @@ export function RecallWorkspace({
     () => new Map((graphSnapshot?.nodes ?? []).map((node) => [node.id, node])),
     [graphSnapshot?.nodes],
   )
+  const graphConnectionReviewEdges = useMemo(
+    () =>
+      [...(graphSnapshot?.edges ?? [])]
+        .filter(
+          (edge) =>
+            edge.status === 'suggested' &&
+            graphNodeById.has(edge.source_id) &&
+            graphNodeById.has(edge.target_id),
+        )
+        .sort((left, right) => {
+          if (right.evidence_count !== left.evidence_count) {
+            return right.evidence_count - left.evidence_count
+          }
+          if (right.confidence !== left.confidence) {
+            return right.confidence - left.confidence
+          }
+          return `${left.source_label} ${left.target_label}`.localeCompare(`${right.source_label} ${right.target_label}`)
+        }),
+    [graphNodeById, graphSnapshot?.edges],
+  )
+  const homeReadingQueueVisibleSourceIds = useMemo(
+    () => Array.from(new Set((homeReadingQueue?.rows ?? []).map((row) => row.id))),
+    [homeReadingQueue?.rows],
+  )
+  const sourceRelatedGraphConnectionSummaryByDocumentId = useMemo(() => {
+    if (!graphSnapshot?.edges.length || documents.length === 0) {
+      return new Map<string, SourceRelatedGraphConnectionSummary>()
+    }
+
+    return new Map(
+      documents
+        .map((document) => {
+          const summary = buildSourceRelatedGraphConnectionSummary(
+            getSourceRelatedGraphConnectionRows(document.id, graphSnapshot.edges, graphNodeById, documentById),
+            studyCards.filter((card) => card.source_document_id === document.id),
+          )
+          return summary ? ([document.id, summary] as const) : null
+        })
+        .filter((entry): entry is readonly [string, SourceRelatedGraphConnectionSummary] => Boolean(entry)),
+    )
+  }, [documentById, documents, graphNodeById, graphSnapshot?.edges, studyCards])
   const graphNodeMetaById = useMemo(
     () =>
       new Map(
@@ -5195,6 +5725,39 @@ export function RecallWorkspace({
   const graphPathResultEdgeIds = useMemo(
     () => new Set(graphPathVisibleResult?.edgeIds ?? []),
     [graphPathVisibleResult],
+  )
+  const graphPathVisibleEdgeIds = useMemo(() => graphPathVisibleResult?.edgeIds ?? [], [graphPathVisibleResult])
+  const graphPathPracticeSummary = useMemo(
+    () => buildGraphPathPracticeSummary(graphPathVisibleEdgeIds, graphSnapshot?.edges ?? [], studyCards),
+    [graphPathVisibleEdgeIds, graphSnapshot?.edges, studyCards],
+  )
+  const graphPathPracticeQueueCards = useMemo(
+    () =>
+      studySettings.default_session_limit === null
+        ? graphPathPracticeSummary.eligibleCards
+        : graphPathPracticeSummary.eligibleCards.slice(0, studySettings.default_session_limit),
+    [graphPathPracticeSummary.eligibleCards, studySettings.default_session_limit],
+  )
+  const graphPathPracticeCoveredEdgeIds = useMemo(() => {
+    const coveredEdgeIds = new Set<string>()
+    for (const card of graphPathPracticeSummary.cards) {
+      for (const sourceSpan of card.source_spans) {
+        const edgeId = getRecordStringValue(sourceSpan, 'edge_id')
+        if (edgeId) {
+          coveredEdgeIds.add(edgeId)
+        }
+      }
+    }
+    return coveredEdgeIds
+  }, [graphPathPracticeSummary.cards])
+  const graphPathPracticeBuildEdge = useMemo(
+    () =>
+      graphPathPracticeSummary.edges.find(
+        (edge) =>
+          !graphPathPracticeCoveredEdgeIds.has(edge.id) &&
+          Boolean(getGraphRelationPracticeSourceDocumentId(edge, studyCards, graphNodeById, documentById)),
+      ) ?? null,
+    [documentById, graphNodeById, graphPathPracticeCoveredEdgeIds, graphPathPracticeSummary.edges, studyCards],
   )
   const hoveredGraphNodeLayout = useMemo(
     () => graphCanvasNodes.find(({ node }) => node.id === graphHoveredNodeId) ?? null,
@@ -6108,6 +6671,7 @@ export function RecallWorkspace({
     setHomeReadingQueueError(null)
     void fetchLibraryReadingQueue({
       collectionId,
+      learningFilter: homeReadingQueueLearningFilter,
       limit: 8,
       scope,
       state: homeReadingQueueState,
@@ -6134,10 +6698,72 @@ export function RecallWorkspace({
   }, [
     libraryActiveSurface,
     externalReloadToken,
+    homeReadingQueueLearningFilter,
     homeReadingQueueState,
     homeSelectedSectionKey,
     homeSelectedBrowseSection?.key,
     homeSelectedCustomCollection?.id,
+    libraryFilterActive,
+    reloadToken,
+    section,
+  ])
+  useEffect(() => {
+    const selectedQueueSectionKey = homeSelectedSectionKey ? homeSelectedBrowseSection?.key ?? null : null
+    if (
+      section !== 'library' ||
+      libraryActiveSurface !== 'home' ||
+      libraryFilterActive ||
+      (selectedQueueSectionKey !== null && isHomePersonalNotesSection(selectedQueueSectionKey))
+    ) {
+      setHomeHighlightReviewInbox(null)
+      setHomeHighlightReviewInboxStatus('idle')
+      setHomeHighlightReviewInboxError(null)
+      return
+    }
+
+    const collectionId =
+      libraryFilterActive || !selectedQueueSectionKey ? null : homeSelectedCustomCollection?.id ?? null
+    const scope = collectionId ? 'all' : getReadingQueueScopeForHomeSection(selectedQueueSectionKey)
+
+    let active = true
+    setHomeHighlightReviewInboxStatus('loading')
+    setHomeHighlightReviewInboxError(null)
+    void fetchHighlightReviewInbox({
+      collectionId,
+      learningFilter: homeReadingQueueLearningFilter,
+      limit: 8,
+      readingState: homeReadingQueueState,
+      scope,
+      state: homeHighlightReviewInboxState,
+    })
+      .then((inbox) => {
+        if (!active) {
+          return
+        }
+        setHomeHighlightReviewInbox(inbox)
+        setHomeHighlightReviewInboxStatus('success')
+      })
+      .catch((error) => {
+        if (!active) {
+          return
+        }
+        setHomeHighlightReviewInbox(null)
+        setHomeHighlightReviewInboxStatus('error')
+        setHomeHighlightReviewInboxError(getErrorMessage(error, 'Could not load highlight review.'))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [
+    externalReloadToken,
+    homeHighlightReviewInboxState,
+    homeReadingQueueLearningFilter,
+    homeReadingQueueState,
+    homeSelectedBrowseSection?.key,
+    homeSelectedCustomCollection?.id,
+    homeSelectedSectionKey,
+    libraryActiveSurface,
     libraryFilterActive,
     reloadToken,
     section,
@@ -7074,6 +7700,14 @@ export function RecallWorkspace({
     })
   }, [])
 
+  const upsertRecallNoteEverywhere = useCallback((note: RecallNoteRecord) => {
+    setDocumentNotes((currentNotes) => upsertNoteRecord(currentNotes, note))
+    setSourceWorkspaceNotes((currentNotes) => upsertNoteRecord(currentNotes, note))
+    setNoteSearchResults((currentResults) => upsertNoteRecord(currentResults, note))
+    setHomeSourceNoteSearchResults((currentResults) => upsertNoteRecord(currentResults, note))
+    upsertHomeSourceNote(note)
+  }, [upsertHomeSourceNote])
+
   const removeHomeSourceNote = useCallback((note: RecallNoteRecord | RecallNoteSearchHit) => {
     const documentId = note.anchor.source_document_id
     setHomeSourceNotesByDocumentId((current) => {
@@ -7119,6 +7753,7 @@ export function RecallWorkspace({
   }, [updateGraphState])
 
   const loadStudy = useCallback(async (status: RecallStudyFilter) => {
+    const requestedSourceScopeDocumentId = studySourceScopeDocumentId ?? null
     setStudyStatus('loading')
     setStudyError(null)
     try {
@@ -7131,6 +7766,7 @@ export function RecallWorkspace({
           : fetchRecallStudyCards(status, cardLimit),
         fetchRecallStudyProgress(studySourceScopeDocumentId, studyProgressPeriodDays),
       ])
+      loadedStudyScopeDocumentIdRef.current = requestedSourceScopeDocumentId
       setStudyOverview(overview)
       setStudyProgress(progress)
       setStudyCards(cards)
@@ -7169,6 +7805,32 @@ export function RecallWorkspace({
       active = false
     }
   }, [activeSourceDocumentId])
+
+  useEffect(() => {
+    if (section !== 'library' || libraryActiveSurface !== 'home' || homeReadingQueueVisibleSourceIds.length === 0) {
+      return
+    }
+
+    let active = true
+    const visibleSourceIds = homeReadingQueueVisibleSourceIds
+    void Promise.all(visibleSourceIds.map((documentId) => fetchRecallStudyCards('all', 100, documentId)))
+      .then((cardGroups) => {
+        if (!active) {
+          return
+        }
+        const visibleSourceIdSet = new Set(visibleSourceIds)
+        const visibleSourceCards = cardGroups.flat()
+        setStudyCards((current) => [
+          ...visibleSourceCards,
+          ...current.filter((card) => !visibleSourceIdSet.has(card.source_document_id)),
+        ])
+      })
+      .catch(() => undefined)
+
+    return () => {
+      active = false
+    }
+  }, [homeReadingQueueVisibleSourceIds, libraryActiveSurface, section])
 
   const applyLoadedStudySettings = useCallback((settings: StudySettings) => {
     setStudySettings(settings)
@@ -7492,9 +8154,11 @@ export function RecallWorkspace({
     if (sourceScopeChanged) {
       updateStudyState((current) =>
 	        current.questionSearchQuery ||
+	        current.relationEdgeId ||
 	        current.scheduleDrilldown !== 'all' ||
 	        (current.collectionFilter ?? 'all') !== 'all' ||
 	        (current.difficultyFilter ?? 'all') !== 'all' ||
+	        (current.pathRelationEdgeIds ?? []).length > 0 ||
 	        (current.knowledgeStageFilter ?? 'all') !== 'all' ||
 	        (current.reviewHistoryFilter ?? 'all') !== 'all'
 	          ? {
@@ -7502,7 +8166,10 @@ export function RecallWorkspace({
 	              collectionFilter: 'all',
 	              difficultyFilter: 'all',
 	              knowledgeStageFilter: 'all',
+	              pathRelationEdgeIds: [],
+	              pathRelationLabel: null,
 	              questionSearchQuery: '',
+	              relationEdgeId: null,
 	              reviewHistoryFilter: 'all',
 	              scheduleDrilldown: 'all',
             }
@@ -7618,6 +8285,20 @@ export function RecallWorkspace({
   }, [activeSourceDocumentId, selectedNodeDetail, selectedNodeEdges])
 
   useEffect(() => {
+    const pendingEdgeId = pendingGraphConnectionReviewEdgeRef.current
+    if (!pendingEdgeId || !selectedNodeDetail) {
+      return
+    }
+    if (!selectedNodeEdges.some((edge) => edge.id === pendingEdgeId)) {
+      return
+    }
+    pendingGraphConnectionReviewEdgeRef.current = null
+    setGraphDetailPeekOpen(true)
+    setGraphDetailRelationsExpanded(true)
+    setGraphDetailView('connections')
+  }, [selectedNodeDetail, selectedNodeEdges])
+
+  useLayoutEffect(() => {
     setFocusedStudySourceSpanIndex(0)
     setStudyEvidencePeekOpen(false)
   }, [activeStudyCard?.id])
@@ -7634,7 +8315,7 @@ export function RecallWorkspace({
     studyScheduleDrilldown,
   ])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (section !== 'study' || showFocusedStudySplitView) {
       setStudyEvidencePeekOpen(false)
     }
@@ -7727,6 +8408,94 @@ export function RecallWorkspace({
     selectedNotesDocumentId,
     showingNoteSearch,
   ])
+
+  useEffect(() => {
+    if (!activeSourceDocumentId) {
+      setSourceHighlightReviewInbox(null)
+      setSourceHighlightReviewInboxStatus('idle')
+      setSourceHighlightReviewInboxError(null)
+      return
+    }
+
+    let active = true
+    setSourceHighlightReviewInboxStatus('loading')
+    setSourceHighlightReviewInboxError(null)
+    void fetchHighlightReviewInbox({
+      limit: 8,
+      sourceDocumentId: activeSourceDocumentId,
+      state: sourceHighlightReviewInboxState,
+    })
+      .then((inbox) => {
+        if (!active) {
+          return
+        }
+        setSourceHighlightReviewInbox(inbox)
+        setSourceHighlightReviewInboxStatus('success')
+      })
+      .catch((error) => {
+        if (!active) {
+          return
+        }
+        setSourceHighlightReviewInbox(null)
+        setSourceHighlightReviewInboxStatus('error')
+        setSourceHighlightReviewInboxError(getErrorMessage(error, 'Could not load source highlight review.'))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [activeSourceDocumentId, externalReloadToken, reloadToken, sourceHighlightReviewInboxState])
+
+  useEffect(() => {
+    if (section !== 'graph') {
+      setGraphGapBuildInboxStatus('idle')
+      setGraphGapBuildInboxError(null)
+      return
+    }
+
+    let active = true
+    setGraphGapBuildInboxStatus('loading')
+    setGraphGapBuildInboxError(null)
+    void fetchHighlightReviewInbox({
+      limit: 6,
+      state: 'unconnected',
+    })
+      .then((inbox) => {
+        if (!active) {
+          return
+        }
+        setGraphGapBuildInbox(inbox)
+        setGraphGapBuildInboxStatus('success')
+      })
+      .catch((error) => {
+        if (!active) {
+          return
+        }
+        setGraphGapBuildInbox(null)
+        setGraphGapBuildInboxStatus('error')
+        setGraphGapBuildInboxError(getErrorMessage(error, 'Could not load Graph gaps.'))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [externalReloadToken, reloadToken, section])
+
+  useEffect(() => {
+    setHomeHighlightReviewSessionNoteIds([])
+    setHomeHighlightReviewSessionActiveNoteId(null)
+  }, [
+    homeHighlightReviewInboxState,
+    homeReadingQueueLearningFilter,
+    homeReadingQueueState,
+    homeSelectedBrowseSection?.key,
+    homeSelectedCustomCollection?.id,
+  ])
+
+  useEffect(() => {
+    setSourceHighlightReviewSessionNoteIds([])
+    setSourceHighlightReviewSessionActiveNoteId(null)
+  }, [activeSourceDocumentId, sourceHighlightReviewInboxState])
 
   useEffect(() => {
     if (!selectedNotesDocumentId) {
@@ -7869,6 +8638,20 @@ export function RecallWorkspace({
     }
     const activeQueueCards = studyQuestionFilterStackActive ? visibleStudyQuestionCards : scopedStudyCards
     updateStudyState((current) => {
+      const pendingFocus = pendingStudyFocusCardRef.current
+      const pendingFocusMatches =
+        pendingFocus?.documentId === studySourceScopeDocumentId && pendingFocus.cardId === current.activeCardId
+      if (pendingFocusMatches) {
+        const pendingCardLoaded = activeQueueCards.some((card) => card.id === pendingFocus.cardId)
+        if (pendingCardLoaded) {
+          pendingStudyFocusCardRef.current = null
+          return current
+        }
+        if (loadedStudyScopeDocumentIdRef.current !== studySourceScopeDocumentId) {
+          return current
+        }
+        pendingStudyFocusCardRef.current = null
+      }
       const currentCardMatches = current.activeCardId
         ? activeQueueCards.some((card) => card.id === current.activeCardId)
         : false
@@ -7882,7 +8665,14 @@ export function RecallWorkspace({
             activeCardId: nextActiveCardId,
           }
     })
-  }, [scopedStudyCards, studyQuestionFilterStackActive, studyReviewSessionRecap, updateStudyState, visibleStudyQuestionCards])
+  }, [
+    scopedStudyCards,
+    studyQuestionFilterStackActive,
+    studyReviewSessionRecap,
+    studySourceScopeDocumentId,
+    updateStudyState,
+    visibleStudyQuestionCards,
+  ])
 
   useEffect(() => {
     if (
@@ -7946,10 +8736,25 @@ export function RecallWorkspace({
     if (section !== 'study' || !studySourceScopeDocumentId || scopedStudyCards.length === 0) {
       return
     }
+    const pendingFocus = pendingStudyFocusCardRef.current
+    const pendingFocusMatches =
+      pendingFocus?.documentId === studySourceScopeDocumentId && pendingFocus.cardId === activeCardId
     const currentCardMatches =
       activeCardId && scopedStudyCards.some((card) => card.id === activeCardId && card.source_document_id === studySourceScopeDocumentId)
     if (currentCardMatches) {
+      if (pendingFocusMatches) {
+        pendingStudyFocusCardRef.current = null
+      }
       return
+    }
+    if (
+      pendingFocusMatches &&
+      loadedStudyScopeDocumentIdRef.current !== studySourceScopeDocumentId
+    ) {
+      return
+    }
+    if (pendingFocusMatches) {
+      pendingStudyFocusCardRef.current = null
     }
     const matchingCard = scopedStudyCards.find((card) => card.source_document_id === studySourceScopeDocumentId)
     if (!matchingCard) {
@@ -8360,6 +9165,7 @@ export function RecallWorkspace({
 
   const handleSelectGraphNode = useCallback((node: KnowledgeNodeRecord) => {
     setGraphRequestedPathSelectionKey(null)
+    setGraphFocusedRelationEdgeId(null)
     updateGraphState((current) => ({
       ...current,
       pathSelectedNodeIds: [],
@@ -8378,6 +9184,7 @@ export function RecallWorkspace({
   }, [updateGraphState, updateSourceWorkspaceState])
 
   const handleToggleGraphPathNode = useCallback((node: KnowledgeNodeRecord) => {
+    setGraphFocusedRelationEdgeId(null)
     updateGraphState((current) => ({
       ...current,
       pathSelectedNodeIds: toggleGraphPathSelection(current.pathSelectedNodeIds, node.id),
@@ -8399,6 +9206,56 @@ export function RecallWorkspace({
     handleSelectGraphNode(counterpartNode)
   }, [graphNodeById, handleSelectGraphNode, selectedNodeDetail])
 
+  const handleReviewGraphConnection = useCallback((edge: KnowledgeEdgeRecord) => {
+    const sourceNode = graphNodeById.get(edge.source_id) ?? null
+    const targetNode = graphNodeById.get(edge.target_id) ?? null
+    const focusNode = sourceNode ?? targetNode
+    if (!focusNode) {
+      return
+    }
+    const pathSelectedNodeIds = sourceNode && targetNode ? [sourceNode.id, targetNode.id] : [focusNode.id]
+    const sourceDocumentId =
+      edge.source_document_ids[0] ??
+      focusNode.source_document_ids[0] ??
+      sourceNode?.source_document_ids[0] ??
+      targetNode?.source_document_ids[0] ??
+      null
+
+    pendingGraphConnectionReviewEdgeRef.current = edge.id
+    setGraphFocusedRelationEdgeId(edge.id)
+    setGraphRequestedPathSelectionKey(buildGraphPathSelectionKey(pathSelectedNodeIds))
+    setFocusedGraphEvidenceKey(sourceDocumentId ? `edge:${edge.id}` : null)
+    setBrowseDrawerOpen('graph', true)
+    setGraphDetailRelationsExpanded(true)
+    setGraphDetailView('connections')
+    if (sourceDocumentId) {
+      handleSelectLibraryDocument(sourceDocumentId)
+    }
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeDocumentId: sourceDocumentId ?? current.activeDocumentId,
+      activeTab: 'graph',
+      readerAnchor: sourceDocumentId && current.activeDocumentId === sourceDocumentId ? current.readerAnchor : null,
+    }))
+    updateGraphState((current) => ({
+      ...current,
+      pathSelectedNodeIds,
+      selectedNodeId: focusNode.id,
+      focusTrailNodeIds: pathSelectedNodeIds.reduce(
+        (trail, nodeId) => pushGraphFocusTrail(trail, nodeId),
+        current.focusTrailNodeIds,
+      ),
+    }))
+    onSectionChange('graph')
+  }, [
+    graphNodeById,
+    handleSelectLibraryDocument,
+    onSectionChange,
+    setBrowseDrawerOpen,
+    updateGraphState,
+    updateSourceWorkspaceState,
+  ])
+
   const handleOpenGraphDetailDrawer = useCallback(() => {
     setGraphDetailPeekOpen(true)
     setGraphDetailView('card')
@@ -8411,6 +9268,7 @@ export function RecallWorkspace({
 
   const handleClearGraphFocus = useCallback(() => {
     setGraphRequestedPathSelectionKey(null)
+    setGraphFocusedRelationEdgeId(null)
     updateGraphState((current) => ({
       ...current,
       pathSelectedNodeIds: [],
@@ -8420,6 +9278,7 @@ export function RecallWorkspace({
 
   const handleClearGraphPathSelection = useCallback(() => {
     setGraphRequestedPathSelectionKey(null)
+    setGraphFocusedRelationEdgeId(null)
     updateGraphState((current) => ({
       ...current,
       pathSelectedNodeIds: [],
@@ -8948,6 +9807,7 @@ export function RecallWorkspace({
   }
 
   function handleSelectStudyCard(card: StudyCardRecord) {
+    pendingStudyFocusCardRef.current = null
     updateStudyState((current) => ({ ...current, activeCardId: card.id }))
     updateSourceWorkspaceState((current) => ({
       ...current,
@@ -9075,6 +9935,7 @@ export function RecallWorkspace({
       correct: attemptedCards.filter((attempt) => attempt.is_correct === true).length,
       difficultyCounts: session.difficultyCounts,
       durationSeconds: Math.max(0, Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000)),
+      filterSnapshot: session.filterSnapshot,
       hintUsed: attemptedCards.filter((attempt) => attempt.response.hint_used === true).length,
       rated: completedCardIds.length,
       skipped: Math.max(0, completedCardIds.length - attemptedCards.length),
@@ -9098,7 +9959,10 @@ export function RecallWorkspace({
       collection_filter: studyCollectionFilter,
       difficulty_filter: studyDifficultyFilter,
       knowledge_stage_filter: studyKnowledgeStageFilter,
+      path_edge_ids: studyPathRelationEdgeIds,
+      path_label: studyPathRelationLabel,
       question_search_query: studyQuestionSearchQuery,
+      relation_edge_id: studyRelationEdgeId,
       review_history_filter: studyReviewHistoryFilter,
       schedule_drilldown: studyScheduleDrilldown,
       source_document_id: studySourceScopeDocumentId,
@@ -9244,6 +10108,7 @@ export function RecallWorkspace({
       cardIds: queueCards.map((card) => card.id),
       completedCardIds: [],
       difficultyCounts: buildStudySessionDifficultyCounts(queueCards),
+      filterSnapshot: startedSession.filter_snapshot ?? options.filterSnapshot,
       sourceDocumentIds: queueCards.map((card) => card.source_document_id),
       startedAt: startedSession.started_at,
       timeLimitSeconds: studyReviewTimerSeconds,
@@ -9307,7 +10172,10 @@ export function RecallWorkspace({
       difficultyFilter: studySettings.default_difficulty_filter,
       filter: 'all',
       knowledgeStageFilter: 'all',
+      pathRelationEdgeIds: [],
+      pathRelationLabel: null,
       questionSearchQuery: '',
+      relationEdgeId: null,
       reviewHistoryFilter: 'all',
       scheduleDrilldown: 'all',
       sourceScopeDocumentId: documentId,
@@ -9506,7 +10374,10 @@ export function RecallWorkspace({
 	        difficultyFilter: 'all',
 	        filter: 'all',
 	        knowledgeStageFilter: 'all',
+        pathRelationEdgeIds: [],
+        pathRelationLabel: null,
 	        questionSearchQuery: '',
+        relationEdgeId: null,
         reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
         sourceScopeDocumentId: current.sourceScopeDocumentId,
@@ -9531,6 +10402,69 @@ export function RecallWorkspace({
       setStudyMessage('Question created.')
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : 'Could not create that question.')
+    } finally {
+      setStudyBusyKey(null)
+    }
+  }
+
+  async function handleCreateRelationPracticeCard(sourceDocument: RecallDocumentRecord, edge: KnowledgeEdgeRecord) {
+    const relationLabel = formatGraphRelationLabel(edge)
+    const payload: StudyCardCreateRequest = {
+      answer: buildRelationPracticeAnswer(edge),
+      card_type: 'short_answer',
+      prompt: buildRelationPracticePrompt(edge),
+      question_difficulty: 'medium',
+      source_document_id: sourceDocument.id,
+      source_spans: [
+        {
+          edge_id: edge.id,
+          excerpt: edge.excerpt ?? relationLabel,
+          generated_card_type: 'relation',
+          manual_source: 'study_relation_manual',
+          relation_type: edge.relation_type,
+          source_id: edge.source_id,
+          source_label: edge.source_label,
+          target_id: edge.target_id,
+          target_label: edge.target_label,
+        },
+      ],
+    }
+    setStudyBusyKey(`relation-create:${edge.id}`)
+    setStudyMessage(null)
+    setError(null)
+    try {
+      const createdCard = await createRecallStudyCard(payload)
+      setStudyCards((currentCards) => [createdCard, ...currentCards.filter((card) => card.id !== createdCard.id)])
+      focusSourceStudyQuestions(sourceDocument.id, 'all', {
+        relationEdgeId: edge.id,
+      })
+      const sourceCards = await fetchRecallStudyCards('all', 100, sourceDocument.id)
+      const activeCreatedCard = sourceCards.find((card) => card.id === createdCard.id) ?? createdCard
+      setStudyCards((currentCards) => [
+        ...sourceCards,
+        ...currentCards.filter(
+          (card) => card.source_document_id !== sourceDocument.id && !sourceCards.some((sourceCard) => sourceCard.id === card.id),
+        ),
+      ])
+      updateStudyState((current) => ({
+        ...current,
+        activeCardId: activeCreatedCard.id,
+        pathRelationEdgeIds: [],
+        pathRelationLabel: null,
+        relationEdgeId: edge.id,
+        sourceScopeDocumentId: sourceDocument.id,
+      }))
+      setStudySelectedQuestionIds(new Set())
+      setShowAnswer(false)
+      setStudyChoiceReviewAttempts({})
+      setStudyShortAnswerReviewAttempts({})
+      setStudyMatchingReviewAttempts({})
+      setStudyOrderingReviewAttempts({})
+      setStudyEvidencePeekOpen(false)
+      setFocusedStudySourceSpanIndex(0)
+      setStudyMessage('Practice card created for this connection.')
+    } catch (createError) {
+      setError(getErrorMessage(createError, 'Could not create a practice card for that connection.'))
     } finally {
       setStudyBusyKey(null)
     }
@@ -9812,6 +10746,7 @@ export function RecallWorkspace({
       setSelectedNodeDetail(nodeDetail)
       setNotePromotionMode(null)
       setNotesMessage('Note promoted to the graph.')
+      setReloadToken((current) => current + 1)
       focusSourceGraph(activeNote.anchor.source_document_id, nodeDetail.node.id)
     } catch (promotionError) {
       const message = getErrorMessage(promotionError, 'Could not promote that note into the graph.')
@@ -9871,6 +10806,7 @@ export function RecallWorkspace({
       setStudyOrderingReviewAttempts({})
       setNotePromotionMode(null)
       setNotesMessage('Study card created from the note.')
+      setReloadToken((current) => current + 1)
       focusSourceStudy(activeNote.anchor.source_document_id, promotedCard.id)
     } catch (promotionError) {
       const message = getErrorMessage(promotionError, 'Could not create a study card from that note.')
@@ -9899,6 +10835,35 @@ export function RecallWorkspace({
       returnNoteId: note.id,
       returnToNotebook: options.returnToNotebook ?? notebookSectionActive,
     })
+  }
+
+  async function handleUpdateHighlightReviewRowState(
+    row: HighlightReviewInboxRow,
+    reviewState: 'unreviewed' | 'reviewed' | 'dismissed',
+    surface: 'home' | 'source',
+    options: { onSuccess?: () => void } = {},
+  ) {
+    setHighlightReviewBusyNoteId(row.note_id)
+    if (surface === 'home') {
+      setHomeHighlightReviewInboxError(null)
+    } else {
+      setSourceHighlightReviewInboxError(null)
+    }
+    try {
+      const updatedNote = await updateRecallNoteReviewState(row.note_id, { review_state: reviewState })
+      upsertRecallNoteEverywhere(updatedNote)
+      options.onSuccess?.()
+      setReloadToken((current) => current + 1)
+    } catch (reviewError) {
+      const message = getErrorMessage(reviewError, 'Could not update highlight review state.')
+      if (surface === 'home') {
+        setHomeHighlightReviewInboxError(message)
+      } else {
+        setSourceHighlightReviewInboxError(message)
+      }
+    } finally {
+      setHighlightReviewBusyNoteId(null)
+    }
   }
 
   function getFilteredStudyQuestionQueueFromCards(cards: StudyCardRecord[]) {
@@ -9931,10 +10896,13 @@ export function RecallWorkspace({
       studyDifficultyFilter === 'all'
         ? reviewFilteredCards
         : reviewFilteredCards.filter((card) => getStudyCardDifficulty(card) === studyDifficultyFilter)
+    const relationFilteredCards = studyRelationEdgeId
+      ? difficultyFilteredCards.filter((card) => studyCardMatchesRelationEdge(card, studyRelationEdgeId))
+      : difficultyFilteredCards
     const normalizedQuery = normalizeSourceMemorySearchText(studyQuestionSearchQuery)
     return normalizedQuery
-      ? difficultyFilteredCards.filter((card) => studyCardMatchesQuestionSearch(card, normalizedQuery))
-      : difficultyFilteredCards
+      ? relationFilteredCards.filter((card) => studyCardMatchesQuestionSearch(card, normalizedQuery))
+      : relationFilteredCards
   }
 
   async function handleReviewCard(rating: StudyReviewRating) {
@@ -10015,6 +10983,9 @@ export function RecallWorkspace({
           fetchRecallStudyProgress(studySourceScopeDocumentId, studyProgressPeriodDays)
             .then((progress) => setStudyProgress(progress))
             .catch(() => undefined)
+          if (getRecordStringValue(activeReviewSession.filterSnapshot, 'launch_intent') === 'highlight-covered-review') {
+            setReloadToken((current) => current + 1)
+          }
           setStudyReviewSession(null)
           setStudyReviewSessionRecap(recap)
         } else {
@@ -10491,8 +11462,9 @@ export function RecallWorkspace({
           ? 'Keep the source summary visible while reviewing study evidence and scheduling actions.'
           : 'Work from one source-centered summary with nearby reading, notebook, graph, and study handoffs.'
 
-  const focusSourceLibrary = useCallback((documentId: string) => {
+  const focusSourceLibrary = useCallback((documentId: string, options?: { focusedRelationEdgeId?: string | null }) => {
     handleSelectLibraryDocument(documentId)
+    setSourceFocusedRelationEdgeId(options?.focusedRelationEdgeId ?? null)
     updateLibraryState((current) => ({
       ...current,
       activeSurface: 'home',
@@ -10845,7 +11817,10 @@ export function RecallWorkspace({
         difficultyFilter: studySettings.default_difficulty_filter,
         filter: 'all',
         knowledgeStageFilter: 'all',
+        pathRelationEdgeIds: [],
+        pathRelationLabel: null,
         questionSearchQuery: '',
+        relationEdgeId: null,
         reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
         sourceScopeDocumentId: null,
@@ -10923,7 +11898,10 @@ export function RecallWorkspace({
         difficultyFilter: studySettings.default_difficulty_filter,
         filter: 'all',
         knowledgeStageFilter: 'all',
+        pathRelationEdgeIds: [],
+        pathRelationLabel: null,
         questionSearchQuery: '',
+        relationEdgeId: null,
         reviewHistoryFilter: 'all',
         scheduleDrilldown: 'all',
         sourceScopeDocumentId: null,
@@ -10988,6 +11966,899 @@ export function RecallWorkspace({
     )
   }
 
+  const renderHighlightReviewInboxPanel = (options: {
+    ariaLabel: string
+    contextLabel: string
+    error: string | null
+    inbox: HighlightReviewInboxResponse | null
+    selectedState: HighlightReviewInboxState
+    setSelectedState: (state: HighlightReviewInboxState) => void
+    status: LoadState
+    surface: 'home' | 'source'
+  }) => {
+    const { ariaLabel, contextLabel, error, inbox, selectedState, setSelectedState, status, surface } = options
+    const rows = inbox?.rows ?? []
+    const selectedNoteIds =
+      surface === 'home' ? homeHighlightReviewSelectedNoteIds : sourceHighlightReviewSelectedNoteIds
+    const selectedVisibleRows = rows.filter((row) => selectedNoteIds.includes(row.note_id))
+    const selectedVisibleCount = selectedVisibleRows.length
+    const visibleRowNoteIds = new Set(rows.map((row) => row.note_id))
+    const allVisibleRowsSelected = rows.length > 0 && rows.every((row) => selectedNoteIds.includes(row.note_id))
+    const bulkBusy = highlightReviewBulkBusySurface === surface
+    const sessionNoteIds =
+      surface === 'home' ? homeHighlightReviewSessionNoteIds : sourceHighlightReviewSessionNoteIds
+    const sessionActiveNoteId =
+      surface === 'home' ? homeHighlightReviewSessionActiveNoteId : sourceHighlightReviewSessionActiveNoteId
+    const setHighlightReviewSessionNoteIds =
+      surface === 'home' ? setHomeHighlightReviewSessionNoteIds : setSourceHighlightReviewSessionNoteIds
+    const setHighlightReviewSessionActiveNoteId =
+      surface === 'home' ? setHomeHighlightReviewSessionActiveNoteId : setSourceHighlightReviewSessionActiveNoteId
+    const sessionRowsById = new Map(rows.map((row) => [row.note_id, row]))
+    const sessionVisibleRows = sessionNoteIds
+      .map((noteId) => sessionRowsById.get(noteId) ?? null)
+      .filter((row): row is HighlightReviewInboxRow => row !== null)
+    const activeSessionRow =
+      (sessionActiveNoteId ? sessionRowsById.get(sessionActiveNoteId) ?? null : null) ?? sessionVisibleRows[0] ?? null
+    const activeSessionIndex = activeSessionRow ? sessionNoteIds.indexOf(activeSessionRow.note_id) : -1
+    const sessionQueueTotal = sessionNoteIds.length
+    const sessionHasStarted = sessionQueueTotal > 0
+    const sessionComplete = sessionHasStarted && !activeSessionRow
+    const sessionProgressLabel =
+      activeSessionRow && activeSessionIndex >= 0
+        ? `${activeSessionIndex + 1} of ${sessionQueueTotal}`
+        : sessionComplete
+          ? `${sessionQueueTotal} of ${sessionQueueTotal}`
+          : `0 of ${sessionQueueTotal}`
+    const sessionHasNext =
+      activeSessionRow && activeSessionIndex >= 0
+        ? sessionNoteIds.slice(activeSessionIndex + 1).some((noteId) => visibleRowNoteIds.has(noteId))
+        : false
+    const summary = inbox?.summary ?? {
+      covered_items: 0,
+      dismissed_items: 0,
+      graph_covered_items: 0,
+      needs_review_items: 0,
+      reviewable_covered_items: 0,
+      reviewed_items: 0,
+      total_items: 0,
+      uncovered_items: 0,
+      ungraphed_items: 0,
+    }
+    const reviewableStudyCardIds = inbox?.reviewable_study_card_ids ?? []
+    const reviewableCoveredCount = summary.reviewable_covered_items ?? reviewableStudyCardIds.length
+    const getOptionCount = (state: HighlightReviewInboxState) => {
+      if (state === 'needs_review') {
+        return summary.needs_review_items
+      }
+      if (state === 'covered') {
+        return summary.covered_items
+      }
+      if (state === 'uncovered') {
+        return summary.uncovered_items
+      }
+      if (state === 'connected') {
+        return summary.graph_covered_items
+      }
+      if (state === 'unconnected') {
+        return summary.ungraphed_items
+      }
+      if (state === 'reviewed') {
+        return summary.reviewed_items
+      }
+      if (state === 'dismissed') {
+        return summary.dismissed_items
+      }
+      return summary.total_items
+    }
+    const updateHighlightReviewSelection = (updater: (current: string[]) => string[]) => {
+      if (surface === 'home') {
+        setHomeHighlightReviewSelectedNoteIds(updater)
+        return
+      }
+      setSourceHighlightReviewSelectedNoteIds(updater)
+    }
+    const handleToggleHighlightReviewRowSelection = (noteId: string, checked: boolean) => {
+      updateHighlightReviewSelection((current) =>
+        checked ? Array.from(new Set([...current, noteId])) : current.filter((selectedId) => selectedId !== noteId),
+      )
+    }
+    const handleSelectVisibleHighlights = () => {
+      updateHighlightReviewSelection((current) => Array.from(new Set([...current, ...rows.map((row) => row.note_id)])))
+    }
+    const handleClearVisibleHighlights = () => {
+      updateHighlightReviewSelection((current) => current.filter((noteId) => !visibleRowNoteIds.has(noteId)))
+    }
+    const clearHighlightReviewSession = () => {
+      setHighlightReviewSessionNoteIds([])
+      setHighlightReviewSessionActiveNoteId(null)
+    }
+    const startHighlightReviewSession = (startRows: HighlightReviewInboxRow[]) => {
+      const nextNoteIds = startRows.map((row) => row.note_id)
+      setHighlightReviewSessionNoteIds(nextNoteIds)
+      setHighlightReviewSessionActiveNoteId(nextNoteIds[0] ?? null)
+    }
+    const advanceHighlightReviewSession = (currentNoteId: string) => {
+      const currentIndex = sessionNoteIds.indexOf(currentNoteId)
+      const nextNoteId = sessionNoteIds
+        .slice(currentIndex >= 0 ? currentIndex + 1 : 0)
+        .find((noteId) => noteId !== currentNoteId && visibleRowNoteIds.has(noteId))
+      setHighlightReviewSessionActiveNoteId(nextNoteId ?? null)
+    }
+    const handleSetHighlightReviewState = (state: HighlightReviewInboxState) => {
+      setSelectedState(state)
+      clearHighlightReviewSession()
+    }
+    const selectedRowsAllInState = (reviewState: RecallNoteReviewState) =>
+      selectedVisibleRows.length > 0 && selectedVisibleRows.every((row) => row.review_state === reviewState)
+    const handleBulkUpdateHighlightReviewState = async (reviewState: RecallNoteReviewState) => {
+      if (selectedVisibleRows.length === 0 || bulkBusy) {
+        return
+      }
+      setHighlightReviewBulkBusySurface(surface)
+      if (surface === 'home') {
+        setHomeHighlightReviewInboxError(null)
+      } else {
+        setSourceHighlightReviewInboxError(null)
+      }
+      try {
+        const updatedNotes = await Promise.all(
+          selectedVisibleRows.map((row) => updateRecallNoteReviewState(row.note_id, { review_state: reviewState })),
+        )
+        updatedNotes.forEach((updatedNote) => upsertRecallNoteEverywhere(updatedNote))
+        const updatedNoteIds = new Set(selectedVisibleRows.map((row) => row.note_id))
+        updateHighlightReviewSelection((current) => current.filter((noteId) => !updatedNoteIds.has(noteId)))
+        clearHighlightReviewSession()
+        setReloadToken((current) => current + 1)
+      } catch (reviewError) {
+        const message = getErrorMessage(reviewError, 'Could not update selected highlight review states.')
+        if (surface === 'home') {
+          setHomeHighlightReviewInboxError(message)
+        } else {
+          setSourceHighlightReviewInboxError(message)
+        }
+      } finally {
+        setHighlightReviewBulkBusySurface(null)
+      }
+    }
+    const handleOpenHighlightRow = (row: HighlightReviewInboxRow) => {
+      if (row.note_kind === 'sentence' && row.global_sentence_start !== null && row.global_sentence_start !== undefined) {
+        handleOpenDocumentInReader(row.source_document_id, {
+          readerIntent: 'highlight',
+          sentenceEnd: row.global_sentence_end ?? row.global_sentence_start,
+          sentenceStart: row.global_sentence_start,
+        })
+        return
+      }
+      focusSourceNotes(row.source_document_id, row.note_id)
+    }
+    const handleOpenHighlightNotebook = (row: HighlightReviewInboxRow) => {
+      focusSourceNotes(row.source_document_id, row.note_id)
+    }
+    const handleOpenHighlightStudy = (row: HighlightReviewInboxRow) => {
+      if (row.study_covered && row.study_card_id) {
+        focusSourceStudy(row.source_document_id, row.study_card_id)
+        return
+      }
+      focusSourceNotes(row.source_document_id, row.note_id, { promotionMode: 'study' })
+    }
+    const buildGraphPromotionReturnOrigin = (row: HighlightReviewInboxRow): HighlightReviewReturnOrigin => ({
+      collectionId: inbox?.collection_id ?? null,
+      learningFilter: inbox?.learning_filter ?? (surface === 'home' ? homeReadingQueueLearningFilter : 'all'),
+      readingState: inbox?.reading_state ?? (surface === 'home' ? homeReadingQueueState : 'all'),
+      scope: inbox?.scope ?? 'all',
+      sourceDocumentId: surface === 'source' ? row.source_document_id : inbox?.source_document_id ?? null,
+      sourceTitle: surface === 'source' ? row.source_title : null,
+      surface,
+    })
+    const handleOpenHighlightGraph = (row: HighlightReviewInboxRow) => {
+      if (row.graph_covered && row.graph_node_id) {
+        setGraphPromotionReturnOrigin(null)
+        focusSourceGraph(row.source_document_id, row.graph_node_id)
+        return
+      }
+      setGraphPromotionReturnOrigin(buildGraphPromotionReturnOrigin(row))
+      focusSourceNotes(row.source_document_id, row.note_id, { promotionMode: 'graph' })
+    }
+    const handleOpenHighlightStudyQuestions = () => {
+      if (surface === 'source') {
+        const sourceDocumentId = inbox?.source_document_id ?? activeSourceDocumentId ?? null
+        if (sourceDocumentId) {
+          focusSourceStudyQuestions(sourceDocumentId)
+          return
+        }
+      }
+      if (inbox?.collection_id) {
+        focusHomeCustomCollectionQuestions(inbox.collection_id)
+        return
+      }
+      setBrowseDrawerOpen('study', true)
+      onSectionChange('study')
+    }
+    const nextActionDescription =
+      reviewableStudyCardIds.length > 0
+        ? 'Ready Study cards are waiting for covered highlights.'
+        : summary.ungraphed_items > 0
+          ? 'Some highlights still need a Graph connection.'
+        : summary.uncovered_items > 0
+          ? 'Some highlights still need Study coverage.'
+          : summary.needs_review_items > 0
+            ? 'Review remaining highlights before they move into local memory.'
+            : summary.covered_items > 0
+              ? 'Study coverage is ready for follow-up questions.'
+              : summary.reviewed_items > 0
+                ? 'Reviewed highlights are ready for reference.'
+                : summary.dismissed_items > 0
+                  ? 'Dismissed highlights are still recoverable here.'
+                  : 'No highlight review work in this scope yet.'
+    const handleReviewCoveredHighlights = async () => {
+      if (!inbox || reviewableStudyCardIds.length === 0) {
+        return
+      }
+      const sourceDocumentId = surface === 'source' ? inbox.source_document_id ?? activeSourceDocumentId ?? null : null
+      const reviewableIdSet = new Set(reviewableStudyCardIds)
+      let candidateCards = studyCards.filter((card) => reviewableIdSet.has(card.id))
+      let coveredRows = rows.filter((row) => row.study_card_id && reviewableIdSet.has(row.study_card_id))
+      if (coveredRows.length < reviewableIdSet.size) {
+        try {
+          const coveredInbox = await fetchHighlightReviewInbox({
+            collectionId: inbox.collection_id ?? null,
+            learningFilter: inbox.learning_filter,
+            limit: 50,
+            readingState: inbox.reading_state,
+            scope: inbox.scope,
+            sourceDocumentId,
+            state: 'covered',
+          })
+          coveredRows = coveredInbox.rows.filter((row) => row.study_card_id && reviewableIdSet.has(row.study_card_id))
+        } catch {
+          coveredRows = []
+        }
+      }
+      const coveredSourceIds = Array.from(
+        new Set(coveredRows.map((row) => row.source_document_id).filter((documentId) => documentId)),
+      )
+      if (coveredSourceIds.length > 0) {
+        try {
+          const fetchedCardGroups = await Promise.all(
+            coveredSourceIds.map((documentId) => fetchRecallStudyCards('all', 100, documentId)),
+          )
+          const fetchedCards = fetchedCardGroups.flat()
+          const fetchedById = new Map(fetchedCards.map((card) => [card.id, card]))
+          const fetchedMatches = reviewableStudyCardIds
+            .map((cardId) => fetchedById.get(cardId) ?? null)
+            .filter((card): card is StudyCardRecord => card !== null)
+          if (fetchedMatches.length > candidateCards.length) {
+            candidateCards = fetchedMatches
+          }
+          setStudyCards((current) => [
+            ...fetchedCards,
+            ...current.filter((card) => !fetchedById.has(card.id)),
+          ])
+        } catch (studyCardError) {
+          if (candidateCards.length === 0) {
+            setError(getErrorMessage(studyCardError, 'Could not load covered Study cards.'))
+            return
+          }
+        }
+      }
+      if (candidateCards.length < reviewableIdSet.size) {
+        try {
+          const fetchedCards = await fetchRecallStudyCards('all', 100, sourceDocumentId)
+          const fetchedById = new Map(fetchedCards.map((card) => [card.id, card]))
+          const fetchedMatches = reviewableStudyCardIds
+            .map((cardId) => fetchedById.get(cardId) ?? null)
+            .filter((card): card is StudyCardRecord => card !== null)
+          if (fetchedMatches.length > candidateCards.length) {
+            candidateCards = fetchedMatches
+          }
+          setStudyCards((current) => [
+            ...fetchedCards,
+            ...current.filter((card) => !fetchedById.has(card.id)),
+          ])
+        } catch (studyCardError) {
+          if (candidateCards.length === 0) {
+            setError(getErrorMessage(studyCardError, 'Could not load covered Study cards.'))
+            return
+          }
+        }
+      }
+      const eligibleCards = orderStudyCardsForReviewQueue(
+        candidateCards.filter((card) => reviewableIdSet.has(card.id) && isStudyCardReviewEligible(card)),
+      )
+      const queueCards =
+        studySettings.default_session_limit === null
+          ? eligibleCards
+          : eligibleCards.slice(0, studySettings.default_session_limit)
+      if (queueCards.length === 0) {
+        setError('No covered highlights are ready for review right now.')
+        return
+      }
+
+      updateStudyState((current) => ({
+        ...current,
+        activeCardId: queueCards[0]?.id ?? null,
+        collectionFilter: inbox.collection_id ? `collection:custom:${inbox.collection_id}` : 'all',
+        difficultyFilter: studySettings.default_difficulty_filter,
+        filter: 'all',
+        knowledgeStageFilter: 'all',
+        pathRelationEdgeIds: [],
+        pathRelationLabel: null,
+        questionSearchQuery: '',
+        relationEdgeId: null,
+        reviewHistoryFilter: 'all',
+        scheduleDrilldown: 'all',
+        sourceScopeDocumentId: sourceDocumentId,
+      }))
+      onSectionChange('study')
+
+      const started = await startStudyReviewSessionForQueue(queueCards, {
+        filterSnapshot: {
+          collection_id: inbox.collection_id ?? null,
+          difficulty_filter: studySettings.default_difficulty_filter,
+          highlight_review_state: selectedState,
+          launch_intent: 'highlight-covered-review',
+          learning_filter: inbox.learning_filter,
+          reading_state: inbox.reading_state,
+          scope: inbox.scope,
+          source_document_id: sourceDocumentId,
+          status_filter: 'all',
+        },
+        sourceDocumentId,
+      })
+      if (!started) {
+        setBrowseDrawerOpen('study', true)
+      }
+    }
+
+    return (
+      <section
+        className="recall-detail-panel recall-source-summary-card recall-highlight-review-inbox-stage976"
+        role="region"
+        aria-label={ariaLabel}
+        data-highlight-review-inbox-stage976={surface}
+      >
+        <div className="recall-source-memory-heading-stage900">
+          <strong>Review highlights</strong>
+          <span>{contextLabel}</span>
+        </div>
+        <div className="reader-meta-row" role="list" aria-label="Highlight review summary">
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {formatCountLabel(summary.needs_review_items, 'needs review', 'need review')}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {formatCountLabel(summary.uncovered_items, 'uncovered', 'uncovered')}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {formatCountLabel(summary.covered_items, 'covered by Study', 'covered by Study')}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {formatCountLabel(summary.reviewed_items, 'reviewed', 'reviewed')}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {formatCountLabel(summary.dismissed_items, 'dismissed', 'dismissed')}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {formatCountLabel(summary.graph_covered_items, 'connected to Graph', 'connected to Graph')}
+          </span>
+          <span className="status-chip reader-meta-chip" role="listitem">
+            {formatCountLabel(summary.ungraphed_items, 'not in Graph', 'not in Graph')}
+          </span>
+        </div>
+        <div className="recall-actions recall-actions-inline" role="group" aria-label={`${ariaLabel} filters`}>
+          {HIGHLIGHT_REVIEW_STATE_OPTIONS.map((option) => (
+            <button
+              key={option.state}
+              aria-label={option.ariaLabel}
+              className={selectedState === option.state ? 'primary-button' : 'ghost-button'}
+              type="button"
+              onClick={() => handleSetHighlightReviewState(option.state)}
+            >
+              {option.label} {getOptionCount(option.state)}
+            </button>
+          ))}
+        </div>
+        <div
+          className="recall-actions recall-actions-inline recall-highlight-review-graph-filters-stage1000"
+          data-highlight-review-graph-filters-stage1000={surface}
+          role="group"
+          aria-label={`${ariaLabel} Graph filters`}
+        >
+          {HIGHLIGHT_REVIEW_GRAPH_STATE_OPTIONS.map((option) => (
+            <button
+              key={option.state}
+              aria-label={option.ariaLabel}
+              className={selectedState === option.state ? 'primary-button' : 'ghost-button'}
+              type="button"
+              onClick={() => handleSetHighlightReviewState(option.state)}
+            >
+              {option.label} {getOptionCount(option.state)}
+            </button>
+          ))}
+        </div>
+        {summary.total_items > 0 ? (
+          <div
+            className="recall-highlight-review-next-actions-stage992"
+            data-highlight-review-next-actions-stage992={surface}
+          >
+            <div className="recall-source-memory-heading-stage900">
+              <strong>Next action</strong>
+              <span>{nextActionDescription}</span>
+            </div>
+            <div className="reader-meta-row" role="list" aria-label={`${ariaLabel} next action summary`}>
+              {reviewableStudyCardIds.length > 0 ? (
+                <span className="status-chip reader-meta-chip" role="listitem">
+                  {formatCountLabel(reviewableCoveredCount, 'ready card', 'ready cards')}
+                </span>
+              ) : null}
+              {summary.uncovered_items > 0 ? (
+                <span className="status-chip reader-meta-chip" role="listitem">
+                  {formatCountLabel(summary.uncovered_items, 'uncovered highlight', 'uncovered highlights')}
+                </span>
+              ) : null}
+              {summary.covered_items > 0 ? (
+                <span className="status-chip reader-meta-chip" role="listitem">
+                  {formatCountLabel(summary.covered_items, 'Study-covered highlight', 'Study-covered highlights')}
+                </span>
+              ) : null}
+              {summary.ungraphed_items > 0 ? (
+                <span className="status-chip reader-meta-chip" role="listitem">
+                  {formatCountLabel(summary.ungraphed_items, 'highlight not in Graph', 'highlights not in Graph')}
+                </span>
+              ) : null}
+            </div>
+            <div className="recall-actions recall-actions-inline" role="group" aria-label={`${ariaLabel} next actions`}>
+              {reviewableStudyCardIds.length > 0 ? (
+                <button
+                  className="secondary-button"
+                  data-highlight-review-next-action-stage992="review-covered"
+                  disabled={studyBusyKey === 'session-start'}
+                  type="button"
+                  onClick={() => void handleReviewCoveredHighlights()}
+                >
+                  {studyBusyKey === 'session-start' ? 'Starting...' : 'Review covered highlights'}
+                </button>
+              ) : null}
+              {summary.uncovered_items > 0 ? (
+                <button
+                  className="ghost-button"
+                  data-highlight-review-next-action-stage992="uncovered"
+                  type="button"
+                  onClick={() => handleSetHighlightReviewState('uncovered')}
+                >
+                  Create Study cards
+                </button>
+              ) : null}
+              {summary.needs_review_items > 0 ? (
+                <button
+                  className="ghost-button"
+                  data-highlight-review-next-action-stage992="needs-review"
+                  type="button"
+                  onClick={() => handleSetHighlightReviewState('needs_review')}
+                >
+                  Review remaining highlights
+                </button>
+              ) : null}
+              {summary.ungraphed_items > 0 ? (
+                <button
+                  className="ghost-button"
+                  data-highlight-review-next-action-stage1000="unconnected"
+                  type="button"
+                  onClick={() => handleSetHighlightReviewState('unconnected')}
+                >
+                  Connect to Graph
+                </button>
+              ) : null}
+              {summary.reviewed_items > 0 ? (
+                <button
+                  className="ghost-button"
+                  data-highlight-review-next-action-stage992="reviewed"
+                  type="button"
+                  onClick={() => handleSetHighlightReviewState('reviewed')}
+                >
+                  Open reviewed highlights
+                </button>
+              ) : null}
+              {summary.covered_items > 0 ? (
+                <button
+                  className="ghost-button"
+                  data-highlight-review-next-action-stage992="study-questions"
+                  type="button"
+                  onClick={handleOpenHighlightStudyQuestions}
+                >
+                  Study questions
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+        {rows.length > 0 ? (
+          <div
+            className="recall-highlight-review-bulk-actions-stage994"
+            data-highlight-review-bulk-actions-stage994={surface}
+          >
+            <div className="recall-source-memory-heading-stage900">
+              <strong>Bulk triage</strong>
+              <span>{selectedVisibleCount > 0 ? 'Update selected visible rows together.' : 'Select visible rows to update them together.'}</span>
+            </div>
+            <div className="recall-actions recall-actions-inline" role="group" aria-label={`${ariaLabel} bulk actions`}>
+              <button
+                className="ghost-button"
+                disabled={bulkBusy || allVisibleRowsSelected}
+                type="button"
+                onClick={handleSelectVisibleHighlights}
+              >
+                Select visible highlights
+              </button>
+              <button
+                className="ghost-button"
+                disabled={bulkBusy || selectedVisibleCount === 0}
+                type="button"
+                onClick={handleClearVisibleHighlights}
+              >
+                Clear visible selection
+              </button>
+              <span className="status-chip reader-meta-chip">
+                {formatCountLabel(selectedVisibleCount, 'selected', 'selected')}
+              </span>
+              <button
+                className="ghost-button"
+                disabled={bulkBusy || selectedVisibleCount === 0 || selectedRowsAllInState('reviewed')}
+                type="button"
+                onClick={() => void handleBulkUpdateHighlightReviewState('reviewed')}
+              >
+                {bulkBusy ? 'Updating...' : 'Mark selected reviewed'}
+              </button>
+              <button
+                className="ghost-button"
+                disabled={bulkBusy || selectedVisibleCount === 0 || selectedRowsAllInState('dismissed')}
+                type="button"
+                onClick={() => void handleBulkUpdateHighlightReviewState('dismissed')}
+              >
+                {bulkBusy ? 'Updating...' : 'Dismiss selected'}
+              </button>
+              <button
+                className="ghost-button"
+                disabled={bulkBusy || selectedVisibleCount === 0 || selectedRowsAllInState('unreviewed')}
+                type="button"
+                onClick={() => void handleBulkUpdateHighlightReviewState('unreviewed')}
+              >
+                {bulkBusy ? 'Updating...' : 'Restore selected'}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {rows.length > 0 || sessionHasStarted ? (
+          <div
+            className="recall-highlight-review-session-stage996"
+            data-highlight-review-session-stage996={surface}
+            role="group"
+            aria-label={`${ariaLabel} guided review session`}
+          >
+            <div className="recall-source-memory-heading-stage900">
+              <strong>Review session</strong>
+              <span>
+                {sessionHasStarted
+                  ? sessionComplete
+                    ? 'Session complete.'
+                    : 'Work one highlight at a time.'
+                  : selectedVisibleCount > 0
+                    ? 'Start with the selected visible highlights.'
+                    : 'Start with the current visible queue.'}
+              </span>
+            </div>
+            <div className="recall-actions recall-actions-inline" role="group" aria-label={`${ariaLabel} session actions`}>
+              <button
+                className="ghost-button"
+                data-highlight-review-session-action-stage996="start-visible"
+                disabled={bulkBusy || rows.length === 0}
+                type="button"
+                onClick={() => startHighlightReviewSession(rows)}
+              >
+                Start visible review
+              </button>
+              <button
+                className="ghost-button"
+                data-highlight-review-session-action-stage996="start-selected"
+                disabled={bulkBusy || selectedVisibleCount === 0}
+                type="button"
+                onClick={() => startHighlightReviewSession(selectedVisibleRows)}
+              >
+                Review selected
+              </button>
+              {sessionHasStarted ? (
+                <button
+                  className="ghost-button"
+                  data-highlight-review-session-action-stage996="clear"
+                  type="button"
+                  onClick={clearHighlightReviewSession}
+                >
+                  Clear session
+                </button>
+              ) : null}
+              {sessionHasStarted ? (
+                <span className="status-chip reader-meta-chip">{sessionProgressLabel}</span>
+              ) : null}
+            </div>
+            {activeSessionRow ? (
+              <div
+                className="recall-highlight-review-session-active-stage996"
+                role="group"
+                aria-label={`${ariaLabel} active session highlight`}
+              >
+                <button
+                  className="recall-source-memory-primary-stage900"
+                  type="button"
+                  onClick={() => handleOpenHighlightRow(activeSessionRow)}
+                  aria-label={
+                    activeSessionRow.note_kind === 'sentence'
+                      ? `Open highlighted passage from ${activeSessionRow.source_title}`
+                      : `Open source note from ${activeSessionRow.source_title}`
+                  }
+                >
+                  <span className="recall-source-memory-copy-stage900">
+                    <strong>
+                      {activeSessionRow.body_preview ??
+                        activeSessionRow.excerpt_preview ??
+                        activeSessionRow.anchor_text}
+                    </strong>
+                    <span>{activeSessionRow.source_title}</span>
+                  </span>
+                  <span className="recall-source-memory-meta-stage900">
+                    <span>{activeSessionRow.note_kind === 'sentence' ? 'Highlighted passage' : 'Source note'}</span>
+                    <span>
+                      {activeSessionRow.study_covered
+                        ? 'Covered by Study'
+                        : activeSessionRow.review_state === 'reviewed'
+                          ? 'Reviewed'
+                          : activeSessionRow.review_state === 'dismissed'
+                            ? 'Dismissed'
+                            : 'Needs review'}
+                    </span>
+                    <span>{activeSessionRow.graph_covered ? 'Connected to Graph' : 'Not in Graph'}</span>
+                  </span>
+                </button>
+                <div className="recall-actions recall-actions-inline">
+                  {activeSessionRow.note_kind === 'sentence' ? (
+                    <button
+                      className="ghost-button"
+                      data-highlight-review-session-action-stage996="reader"
+                      type="button"
+                      onClick={() => handleOpenHighlightRow(activeSessionRow)}
+                    >
+                      Open in Reader
+                    </button>
+                  ) : null}
+                  <button
+                    className="ghost-button"
+                    data-highlight-review-session-action-stage996="notebook"
+                    type="button"
+                    onClick={() => handleOpenHighlightNotebook(activeSessionRow)}
+                  >
+                    Open in Notebook
+                  </button>
+                  <button
+                    className="ghost-button"
+                    data-highlight-review-session-action-stage996="study"
+                    type="button"
+                    onClick={() => handleOpenHighlightStudy(activeSessionRow)}
+                    aria-label={
+                      activeSessionRow.study_covered && activeSessionRow.study_card_id
+                        ? 'Open Study card'
+                        : `Create Study card from ${activeSessionRow.source_title}`
+                    }
+                  >
+                    {activeSessionRow.study_covered && activeSessionRow.study_card_id
+                      ? 'Open Study card'
+                      : 'Create Study card'}
+                  </button>
+                  <button
+                    className="ghost-button"
+                    data-highlight-review-session-action-stage998="graph"
+                    type="button"
+                    onClick={() => handleOpenHighlightGraph(activeSessionRow)}
+                    aria-label={
+                      activeSessionRow.graph_covered && activeSessionRow.graph_node_id
+                        ? 'Open Graph node'
+                        : 'Create Graph node'
+                    }
+                  >
+                    {activeSessionRow.graph_covered && activeSessionRow.graph_node_id
+                      ? 'Open Graph node'
+                      : 'Create Graph node'}
+                  </button>
+                  {activeSessionRow.review_state !== 'reviewed' ? (
+                    <button
+                      className="ghost-button"
+                      data-highlight-review-session-action-stage996="reviewed"
+                      disabled={highlightReviewBusyNoteId === activeSessionRow.note_id || bulkBusy}
+                      type="button"
+                      onClick={() =>
+                        void handleUpdateHighlightReviewRowState(activeSessionRow, 'reviewed', surface, {
+                          onSuccess: () => advanceHighlightReviewSession(activeSessionRow.note_id),
+                        })
+                      }
+                    >
+                      Mark reviewed
+                    </button>
+                  ) : null}
+                  {activeSessionRow.review_state !== 'dismissed' ? (
+                    <button
+                      className="ghost-button"
+                      data-highlight-review-session-action-stage996="dismissed"
+                      disabled={highlightReviewBusyNoteId === activeSessionRow.note_id || bulkBusy}
+                      type="button"
+                      onClick={() =>
+                        void handleUpdateHighlightReviewRowState(activeSessionRow, 'dismissed', surface, {
+                          onSuccess: () => advanceHighlightReviewSession(activeSessionRow.note_id),
+                        })
+                      }
+                    >
+                      Dismiss
+                    </button>
+                  ) : null}
+                  {activeSessionRow.review_state !== 'unreviewed' ? (
+                    <button
+                      className="ghost-button"
+                      data-highlight-review-session-action-stage996="restore"
+                      disabled={highlightReviewBusyNoteId === activeSessionRow.note_id || bulkBusy}
+                      type="button"
+                      onClick={() =>
+                        void handleUpdateHighlightReviewRowState(activeSessionRow, 'unreviewed', surface, {
+                          onSuccess: () => advanceHighlightReviewSession(activeSessionRow.note_id),
+                        })
+                      }
+                    >
+                      Restore
+                    </button>
+                  ) : null}
+                  <button
+                    className="ghost-button"
+                    data-highlight-review-session-action-stage996="next"
+                    disabled={!sessionHasNext}
+                    type="button"
+                    onClick={() => advanceHighlightReviewSession(activeSessionRow.note_id)}
+                  >
+                    Next highlight
+                  </button>
+                </div>
+              </div>
+            ) : sessionComplete ? (
+              <p className="small-note">Session complete. Reviewed and dismissed highlights remain recoverable through the filters.</p>
+            ) : null}
+          </div>
+        ) : null}
+        {status === 'error' && error ? <p className="small-note">{error}</p> : null}
+        {status === 'loading' && !inbox ? <p className="small-note">Loading highlight review…</p> : null}
+        {rows.length > 0 ? (
+          <div className="recall-source-memory-list-stage900" role="list" aria-label={ariaLabel}>
+            {rows.map((row) => {
+              const rowBusy = highlightReviewBusyNoteId === row.note_id
+              const rowSelected = selectedNoteIds.includes(row.note_id)
+              const rowPrimaryLabel =
+                row.note_kind === 'sentence'
+                  ? `Open highlighted passage from ${row.source_title}`
+                  : `Open source note from ${row.source_title}`
+              return (
+                <div
+                  key={row.note_id}
+                  className="recall-source-memory-item-stage900 recall-highlight-review-row-stage976"
+                  data-highlight-review-row-state-stage976={row.study_covered ? 'covered' : row.review_state}
+                  role="listitem"
+                >
+                  <label className="recall-highlight-review-select-stage994">
+                    <input
+                      aria-label={`Select highlight from ${row.source_title}`}
+                      checked={rowSelected}
+                      data-highlight-review-row-select-stage994={surface}
+                      disabled={bulkBusy || rowBusy}
+                      type="checkbox"
+                      onChange={(event) =>
+                        handleToggleHighlightReviewRowSelection(row.note_id, event.currentTarget.checked)
+                      }
+                    />
+                    <span aria-hidden="true" />
+                  </label>
+                  <button
+                    className="recall-source-memory-primary-stage900"
+                    type="button"
+                    onClick={() => handleOpenHighlightRow(row)}
+                    aria-label={rowPrimaryLabel}
+                  >
+                    <span className="recall-source-memory-copy-stage900">
+                      <strong>{row.body_preview ?? row.excerpt_preview ?? row.anchor_text}</strong>
+                      <span>{row.source_title}</span>
+                    </span>
+                    <span className="recall-source-memory-meta-stage900">
+                      <span>{row.note_kind === 'sentence' ? 'Highlighted passage' : 'Source note'}</span>
+                      <span>
+                        {row.study_covered
+                          ? 'Covered by Study'
+                          : row.review_state === 'reviewed'
+                            ? 'Reviewed'
+                            : row.review_state === 'dismissed'
+                              ? 'Dismissed'
+                              : 'Needs review'}
+                      </span>
+                      <span>{row.graph_covered ? 'Connected to Graph' : 'Not in Graph'}</span>
+                      {row.membership ? <span>{row.membership === 'direct' ? 'Direct' : 'Nested'}</span> : null}
+                    </span>
+                  </button>
+                  <div className="recall-actions recall-actions-inline">
+                    {row.note_kind === 'sentence' ? (
+                      <button className="ghost-button" type="button" onClick={() => handleOpenHighlightRow(row)}>
+                        Open in Reader
+                      </button>
+                    ) : null}
+                    <button className="ghost-button" type="button" onClick={() => handleOpenHighlightNotebook(row)}>
+                      Open in Notebook
+                    </button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => handleOpenHighlightStudy(row)}
+                      aria-label={
+                        row.study_covered && row.study_card_id
+                          ? 'Open Study card'
+                          : `Create Study card from ${row.source_title}`
+                      }
+                    >
+                      {row.study_covered && row.study_card_id ? 'Open Study card' : 'Create Study card'}
+                    </button>
+                    <button
+                      className="ghost-button"
+                      data-highlight-review-row-action-stage998="graph"
+                      type="button"
+                      onClick={() => handleOpenHighlightGraph(row)}
+                      aria-label={
+                        row.graph_covered && row.graph_node_id
+                          ? 'Open Graph node'
+                          : 'Create Graph node'
+                      }
+                    >
+                      {row.graph_covered && row.graph_node_id ? 'Open Graph node' : 'Create Graph node'}
+                    </button>
+                    {row.review_state !== 'reviewed' ? (
+                      <button
+                        className="ghost-button"
+                        disabled={rowBusy || bulkBusy}
+                        type="button"
+                        onClick={() => void handleUpdateHighlightReviewRowState(row, 'reviewed', surface)}
+                      >
+                        Mark reviewed
+                      </button>
+                    ) : null}
+                    {row.review_state !== 'dismissed' ? (
+                      <button
+                        className="ghost-button"
+                        disabled={rowBusy || bulkBusy}
+                        type="button"
+                        onClick={() => void handleUpdateHighlightReviewRowState(row, 'dismissed', surface)}
+                      >
+                        Dismiss
+                      </button>
+                    ) : null}
+                    {row.review_state !== 'unreviewed' ? (
+                      <button
+                        className="ghost-button"
+                        disabled={rowBusy || bulkBusy}
+                        type="button"
+                        onClick={() => void handleUpdateHighlightReviewRowState(row, 'unreviewed', surface)}
+                      >
+                        Restore
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="small-note">No highlights in this review state.</p>
+        )}
+      </section>
+    )
+  }
+
   const renderHomeCollectionWorkspaceActions = () => {
     if (libraryFilterActive || !homeSelectedCustomCollection) {
       return null
@@ -11010,7 +12881,6 @@ export function RecallWorkspace({
       homeCollectionOverview?.id === homeSelectedCustomCollection.id ? homeCollectionOverview : null
     const collectionReadingSummary = activeCollectionOverview?.reading_summary ?? null
     const collectionResumeSource = activeCollectionOverview?.resume_sources[0] ?? null
-    const collectionHighlightItems = activeCollectionOverview?.highlight_review_items.slice(0, 4) ?? []
     const handleOpenCollectionResume = () => {
       if (collectionResumeSource) {
         handleOpenDocumentInReader(collectionResumeSource.id, {
@@ -11023,23 +12893,6 @@ export function RecallWorkspace({
       if (firstCollectionDocument) {
         handleOpenDocumentInReader(firstCollectionDocument.id)
       }
-    }
-    const handleOpenCollectionHighlight = (item: LibraryCollectionHighlightReviewItem) => {
-      if (item.note_kind === 'sentence' && item.global_sentence_start !== null && item.global_sentence_start !== undefined) {
-        handleOpenDocumentInReader(item.source_document_id, {
-          readerIntent: 'highlight',
-          sentenceEnd: item.global_sentence_end ?? item.global_sentence_start,
-          sentenceStart: item.global_sentence_start,
-        })
-        return
-      }
-      focusSourceNotes(item.source_document_id, item.note_id)
-    }
-    const handleOpenCollectionHighlightNotebook = (item: LibraryCollectionHighlightReviewItem) => {
-      focusSourceNotes(item.source_document_id, item.note_id)
-    }
-    const handleCreateCollectionHighlightStudyCard = (item: LibraryCollectionHighlightReviewItem) => {
-      focusSourceNotes(item.source_document_id, item.note_id, { promotionMode: 'study' })
     }
 
     return (
@@ -11107,67 +12960,16 @@ export function RecallWorkspace({
             ) : null}
           </section>
         ) : null}
-        {collectionHighlightItems.length > 0 ? (
-          <section
-            className="recall-detail-panel recall-source-summary-card"
-            role="region"
-            aria-label="Collection highlight review"
-          >
-            <div className="recall-source-memory-heading-stage900">
-              <strong>Review highlights</strong>
-              <span>{formatCountLabel(collectionHighlightItems.length, 'recent note', 'recent notes')}</span>
-            </div>
-            <div className="recall-source-memory-list-stage900" role="list" aria-label="Collection highlight inbox">
-              {collectionHighlightItems.map((item) => (
-                <div key={item.note_id} className="recall-source-memory-item-stage900" role="listitem">
-                  <button
-                    className="recall-source-memory-primary-stage900"
-                    type="button"
-                    onClick={() => handleOpenCollectionHighlight(item)}
-                    aria-label={
-                      item.note_kind === 'sentence'
-                        ? `Open highlight from ${item.source_title}`
-                        : `Open source note from ${item.source_title}`
-                    }
-                  >
-                    <span className="recall-source-memory-copy-stage900">
-                      <strong>{item.body_preview ?? item.excerpt_preview ?? item.anchor_text}</strong>
-                      <span>{item.source_title}</span>
-                    </span>
-                    <span className="recall-source-memory-meta-stage900">
-                      <span>{item.note_kind === 'sentence' ? 'Highlighted passage' : 'Source note'}</span>
-                      <span>{item.membership === 'direct' ? 'Direct' : 'Nested'}</span>
-                    </span>
-                  </button>
-                  <div className="recall-actions recall-actions-inline">
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => handleOpenCollectionHighlight(item)}
-                    >
-                      Open in Reader
-                    </button>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => handleOpenCollectionHighlightNotebook(item)}
-                    >
-                      Open in Notebook
-                    </button>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => handleCreateCollectionHighlightStudyCard(item)}
-                      aria-label={`Create Study card from ${item.source_title}`}
-                    >
-                      Create Study card
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
+        {renderHighlightReviewInboxPanel({
+          ariaLabel: 'Collection highlight review',
+          contextLabel: collectionPath,
+          error: homeHighlightReviewInboxError,
+          inbox: homeHighlightReviewInbox,
+          selectedState: homeHighlightReviewInboxState,
+          setSelectedState: setHomeHighlightReviewInboxState,
+          status: homeHighlightReviewInboxStatus,
+          surface: 'home',
+        })}
         <div className="recall-actions recall-actions-inline">
           <button
             className="ghost-button"
@@ -11234,11 +13036,69 @@ export function RecallWorkspace({
         ? 'All sources'
         : queueScope.charAt(0).toUpperCase() + queueScope.slice(1)
     const rows = queue?.rows ?? []
+    const learningSummary = queue?.learning_summary ?? {
+      needs_review_sources: 0,
+      uncovered_sources: 0,
+      covered_sources: 0,
+      study_prompt_sources: 0,
+      graph_gap_sources: 0,
+    }
     const stateOptions: Array<{ label: string; state: RecallReaderQueueState; ariaLabel: string }> = [
       { label: 'All', state: 'all', ariaLabel: 'Show all reading queue' },
       { label: 'Unread', state: 'unread', ariaLabel: 'Show unread reading queue' },
       { label: 'In progress', state: 'in_progress', ariaLabel: 'Show in-progress reading queue' },
       { label: 'Completed', state: 'completed', ariaLabel: 'Show completed reading queue' },
+    ]
+    const activeLearningTotal =
+      homeReadingQueueState === 'unread'
+        ? queue?.summary.unread_sources
+        : homeReadingQueueState === 'in_progress'
+          ? queue?.summary.in_progress_sources
+          : homeReadingQueueState === 'completed'
+            ? queue?.summary.completed_sources
+            : queue?.summary.total_sources
+    const learningFilterOptions: Array<{
+      ariaLabel: string
+      count: number | null
+      filter: LibraryReadingQueueLearningFilter
+      label: string
+    }> = [
+      {
+        label: 'All learning',
+        filter: 'all',
+        ariaLabel: 'Show all learning queue',
+        count: activeLearningTotal ?? null,
+      },
+      {
+        label: 'Needs review',
+        filter: 'needs_review',
+        ariaLabel: 'Show sources needing highlight review',
+        count: learningSummary.needs_review_sources,
+      },
+      {
+        label: 'Uncovered',
+        filter: 'uncovered',
+        ariaLabel: 'Show sources with uncovered highlights',
+        count: learningSummary.uncovered_sources,
+      },
+      {
+        label: 'Covered',
+        filter: 'covered',
+        ariaLabel: 'Show sources covered by Study',
+        count: learningSummary.covered_sources,
+      },
+      {
+        label: 'Graph gaps',
+        filter: 'graph_gaps',
+        ariaLabel: 'Show sources with Graph gaps',
+        count: learningSummary.graph_gap_sources,
+      },
+      {
+        label: 'Study prompts',
+        filter: 'study_prompts',
+        ariaLabel: 'Show sources with Study prompts',
+        count: learningSummary.study_prompt_sources,
+      },
     ]
     const openQueueRow = (row: LibraryReadingQueueRow) => {
       handleOpenDocumentInReader(row.id, {
@@ -11264,83 +13124,342 @@ export function RecallWorkspace({
     }
 
     return (
-      <section
-        className="recall-detail-panel recall-source-summary-card recall-home-reading-queue-stage974"
-        role="region"
-        aria-label="Reading queue"
-        data-home-reading-queue-stage974="true"
-      >
-        <div className="recall-source-memory-heading-stage900">
-          <strong>Reading queue</strong>
-          <span>{contextLabel}</span>
-        </div>
-        <div className="reader-meta-row" role="list" aria-label="Reading queue summary">
-          <span className="status-chip reader-meta-chip" role="listitem">
-            {queue?.summary.unread_sources ?? 0} unread
-          </span>
-          <span className="status-chip reader-meta-chip" role="listitem">
-            {queue?.summary.in_progress_sources ?? 0} in progress
-          </span>
-          <span className="status-chip reader-meta-chip" role="listitem">
-            {queue?.summary.completed_sources ?? 0} completed
-          </span>
-        </div>
-        <div className="recall-actions recall-actions-inline" role="group" aria-label="Reading queue filters">
-          {stateOptions.map((option) => (
-            <button
-              key={option.state}
-              aria-label={option.ariaLabel}
-              className={homeReadingQueueState === option.state ? 'primary-button' : 'ghost-button'}
-              type="button"
-              onClick={() => setHomeReadingQueueState(option.state)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        {homeReadingQueueStatus === 'error' && homeReadingQueueError ? (
-          <p className="small-note">{homeReadingQueueError}</p>
-        ) : null}
-        {homeReadingQueueStatus === 'loading' && !queue ? <p className="small-note">Loading reading queue…</p> : null}
-        {rows.length > 0 ? (
-          <div className="recall-source-memory-list-stage900" role="list" aria-label="Reading queue rows">
-            {rows.map((row) => (
-              <div key={row.id} className="recall-source-memory-item-stage900" role="listitem">
-                <button
-                  className="recall-source-memory-primary-stage900"
-                  type="button"
-                  onClick={() => openQueueRow(row)}
-                  aria-label={`Continue reading ${row.title}`}
-                >
-                  <span className="recall-source-memory-copy-stage900">
-                    <strong>{row.title}</strong>
-                    <span>{row.progress_percent}% read</span>
-                  </span>
-                  <span className="recall-source-memory-meta-stage900">
-                    <span>{row.state === 'in_progress' ? 'In progress' : row.state === 'completed' ? 'Completed' : 'Unread'}</span>
-                    <span>
-                      {formatCountLabel(row.highlight_count, 'highlight', 'highlights')} · {formatCountLabel(row.study_counts.due + row.study_counts.new, 'Study prompt', 'Study prompts')}
-                    </span>
-                  </span>
-                </button>
-                {row.state !== 'completed' ? (
-                  <button
-                    className="ghost-button"
-                    disabled={homeReadingQueueBusyDocumentId === row.id}
-                    type="button"
-                    onClick={() => void markQueueRowComplete(row)}
-                    aria-label={`Mark ${row.title} complete`}
-                  >
-                    Mark complete
-                  </button>
-                ) : null}
-              </div>
+      <>
+        <section
+          className="recall-detail-panel recall-source-summary-card recall-home-reading-queue-stage974"
+          role="region"
+          aria-label="Reading queue"
+          data-home-reading-queue-stage974="true"
+        >
+          <div className="recall-source-memory-heading-stage900">
+            <strong>Reading queue</strong>
+            <span>{contextLabel}</span>
+          </div>
+          <div className="reader-meta-row" role="list" aria-label="Reading queue summary">
+            <span className="status-chip reader-meta-chip" role="listitem">
+              {queue?.summary.unread_sources ?? 0} unread
+            </span>
+            <span className="status-chip reader-meta-chip" role="listitem">
+              {queue?.summary.in_progress_sources ?? 0} in progress
+            </span>
+            <span className="status-chip reader-meta-chip" role="listitem">
+              {queue?.summary.completed_sources ?? 0} completed
+            </span>
+          </div>
+          <div className="recall-actions recall-actions-inline" role="group" aria-label="Reading queue filters">
+            {stateOptions.map((option) => (
+              <button
+                key={option.state}
+                aria-label={option.ariaLabel}
+                className={homeReadingQueueState === option.state ? 'primary-button' : 'ghost-button'}
+                type="button"
+                onClick={() => setHomeReadingQueueState(option.state)}
+              >
+                {option.label}
+              </button>
             ))}
           </div>
-        ) : (
-          <p className="small-note">No sources match this queue state.</p>
-        )}
-      </section>
+          <div className="recall-actions recall-actions-inline" role="group" aria-label="Reading queue learning filters">
+            {learningFilterOptions.map((option) => (
+              <button
+                key={option.filter}
+                aria-label={option.ariaLabel}
+                className={homeReadingQueueLearningFilter === option.filter ? 'primary-button' : 'ghost-button'}
+                type="button"
+                onClick={() => {
+                  setHomeReadingQueueLearningFilter(option.filter)
+                  if (option.filter === 'covered') {
+                    setHomeHighlightReviewInboxState('covered')
+                  } else if (option.filter === 'uncovered') {
+                    setHomeHighlightReviewInboxState('uncovered')
+                  } else if (option.filter === 'needs_review') {
+                    setHomeHighlightReviewInboxState('needs_review')
+                  } else if (option.filter === 'graph_gaps') {
+                    setHomeHighlightReviewInboxState('unconnected')
+                  }
+                }}
+              >
+                {option.count === null ? option.label : `${option.label} ${option.count}`}
+              </button>
+            ))}
+          </div>
+          {homeReadingQueueStatus === 'error' && homeReadingQueueError ? (
+            <p className="small-note">{homeReadingQueueError}</p>
+          ) : null}
+          {homeReadingQueueStatus === 'loading' && !queue ? <p className="small-note">Loading reading queue…</p> : null}
+          {rows.length > 0 ? (
+            <div className="recall-source-memory-list-stage900" role="list" aria-label="Reading queue rows">
+              {rows.map((row) => {
+                const highlightReviewCounts = getReadingQueueHighlightReviewCounts(row)
+                const studyPromptCount = row.study_counts.due + row.study_counts.new
+                const highlightGapLabel =
+                  highlightReviewCounts.needs_review > 0
+                    ? formatCountLabel(highlightReviewCounts.needs_review, 'needs review', 'need review')
+                    : null
+                const coveredGapLabel =
+                  highlightReviewCounts.covered > 0
+                    ? formatCountLabel(highlightReviewCounts.covered, 'covered by Study', 'covered by Study')
+                    : null
+                const graphGapLabel =
+                  highlightReviewCounts.ungraphed > 0
+                    ? formatCountLabel(highlightReviewCounts.ungraphed, 'not in Graph', 'not in Graph')
+                    : null
+                const relatedGraphSummary = sourceRelatedGraphConnectionSummaryByDocumentId.get(row.id) ?? null
+                const relatedGraphSourceLabel = relatedGraphSummary
+                  ? formatCountLabel(relatedGraphSummary.relatedSourceCount, 'related source', 'related sources')
+                  : null
+                const relatedGraphConfirmedLabel =
+                  relatedGraphSummary && relatedGraphSummary.confirmedRelationCount > 0
+                    ? formatCountLabel(relatedGraphSummary.confirmedRelationCount, 'confirmed relation', 'confirmed relations')
+                    : null
+                const relatedGraphPracticeReadyStatusParts =
+                  relatedGraphSummary && relatedGraphSummary.practiceReadyRelationCount > 0
+                    ? [
+                        relatedGraphSummary.practiceReadyDueCount > 0
+                          ? formatCountLabel(relatedGraphSummary.practiceReadyDueCount, 'due', 'due')
+                          : null,
+                        relatedGraphSummary.practiceReadyNewCount > 0
+                          ? formatCountLabel(relatedGraphSummary.practiceReadyNewCount, 'new', 'new')
+                          : null,
+                      ].filter((label): label is string => Boolean(label))
+                    : []
+                const relatedGraphPracticeLabel =
+                  relatedGraphSummary && relatedGraphSummary.practiceReadyRelationCount > 0
+                    ? `${formatCountLabel(
+                        relatedGraphSummary.practiceReadyRelationCount,
+                        'practice relation',
+                        'practice relations',
+                      )} · ${
+                        relatedGraphPracticeReadyStatusParts.length > 0
+                          ? relatedGraphPracticeReadyStatusParts.join(' · ')
+                          : formatCountLabel(relatedGraphSummary.practiceQuestionCount, 'question', 'questions')
+                      }`
+                    : null
+                const relatedGraphPracticeProgressStatusParts =
+                  relatedGraphSummary && !relatedGraphPracticeLabel
+                    ? [
+                        relatedGraphSummary.practiceScheduledRelationCount > 0
+                          ? formatCountLabel(relatedGraphSummary.practiceScheduledRelationCount, 'scheduled', 'scheduled')
+                          : null,
+                        relatedGraphSummary.practiceUnscheduledRelationCount > 0
+                          ? formatCountLabel(relatedGraphSummary.practiceUnscheduledRelationCount, 'unscheduled', 'unscheduled')
+                          : null,
+                      ].filter((label): label is string => Boolean(label))
+                    : []
+                const relatedGraphPracticeProgressLabel =
+                  relatedGraphSummary && !relatedGraphPracticeLabel && relatedGraphSummary.practiceQuestionCount > 0
+                    ? relatedGraphSummary.practicePracticedRelationCount > 0
+                      ? `${formatCountLabel(
+                          relatedGraphSummary.practicePracticedRelationCount,
+                          'practiced relation',
+                          'practiced relations',
+                        )} · ${
+                          relatedGraphPracticeProgressStatusParts.length > 0
+                            ? relatedGraphPracticeProgressStatusParts.join(' · ')
+                            : formatCountLabel(relatedGraphSummary.practiceQuestionCount, 'question', 'questions')
+                        }`
+                      : relatedGraphSummary.practiceScheduledRelationCount > 0
+                        ? `${formatCountLabel(
+                            relatedGraphSummary.practiceScheduledRelationCount,
+                            'scheduled relation',
+                            'scheduled relations',
+                          )} · ${formatCountLabel(relatedGraphSummary.practiceQuestionCount, 'question', 'questions')}`
+                        : relatedGraphSummary.practiceUnscheduledRelationCount > 0
+                          ? `${formatCountLabel(
+                              relatedGraphSummary.practiceUnscheduledRelationCount,
+                              'unscheduled relation',
+                              'unscheduled relations',
+                            )} · ${formatCountLabel(relatedGraphSummary.practiceQuestionCount, 'question', 'questions')}`
+                          : formatCountLabel(relatedGraphSummary.practiceQuestionCount, 'practice question', 'practice questions')
+                    : null
+                const relatedGraphPracticeGapLabel =
+                  relatedGraphSummary && relatedGraphSummary.practiceGapRelationCount > 0
+                    ? formatCountLabel(
+                        relatedGraphSummary.practiceGapRelationCount,
+                        'relation needs practice',
+                        'relations need practice',
+                      )
+                    : null
+                return (
+                  <div
+                    key={row.id}
+                    className="recall-source-memory-item-stage900 recall-reading-queue-learning-gap-row-stage978"
+                    data-reading-queue-learning-gaps-stage978="true"
+                    role="listitem"
+                  >
+                    <button
+                      className="recall-source-memory-primary-stage900"
+                      type="button"
+                      onClick={() => openQueueRow(row)}
+                      aria-label={`Continue reading ${row.title}`}
+                    >
+                      <span className="recall-source-memory-copy-stage900">
+                        <strong>{row.title}</strong>
+                        <span>{row.progress_percent}% read</span>
+                      </span>
+                      <span className="recall-source-memory-meta-stage900">
+                        <span>{row.state === 'in_progress' ? 'In progress' : row.state === 'completed' ? 'Completed' : 'Unread'}</span>
+                        <span>
+                          {formatCountLabel(row.highlight_count, 'highlight', 'highlights')} · {formatCountLabel(studyPromptCount, 'Study prompt', 'Study prompts')}
+                        </span>
+                        {highlightGapLabel ? <span>{highlightGapLabel}</span> : null}
+                        {coveredGapLabel ? <span>{coveredGapLabel}</span> : null}
+                        {graphGapLabel ? <span>{graphGapLabel}</span> : null}
+                        {relatedGraphSourceLabel ? (
+                          <span data-home-reading-queue-related-graph-signal-stage1012="true">
+                            {relatedGraphConfirmedLabel
+                              ? `${relatedGraphSourceLabel} · ${relatedGraphConfirmedLabel}`
+                              : relatedGraphSourceLabel}
+                          </span>
+                        ) : null}
+                        {relatedGraphPracticeLabel ? (
+                          <span data-home-reading-queue-relation-practice-signal-stage1016="true">
+                            {relatedGraphPracticeLabel}
+                          </span>
+                        ) : null}
+                        {relatedGraphPracticeProgressLabel ? (
+                          <span data-home-reading-queue-relation-practice-progress-stage1024="true">
+                            {relatedGraphPracticeProgressLabel}
+                          </span>
+                        ) : null}
+                        {relatedGraphPracticeGapLabel ? (
+                          <span data-home-reading-queue-relation-practice-gap-stage1020="true">
+                            {relatedGraphPracticeGapLabel}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                    <div className="recall-actions recall-actions-inline">
+                      {highlightReviewCounts.total > 0 ? (
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => {
+                            setSourceHighlightReviewInboxState(
+                              homeReadingQueueLearningFilter === 'covered'
+                                ? 'covered'
+                                : homeReadingQueueLearningFilter === 'uncovered'
+                                  ? 'uncovered'
+                                  : homeReadingQueueLearningFilter === 'graph_gaps'
+                                    ? 'unconnected'
+                                    : 'needs_review',
+                            )
+                            focusSourceLibrary(row.id)
+                          }}
+                          aria-label={`Review highlights for ${row.title}`}
+                        >
+                          Review highlights
+                        </button>
+                      ) : null}
+                      {relatedGraphSummary ? (
+                        <button
+                          className="ghost-button"
+                          data-home-reading-queue-related-graph-handoff-stage1012="true"
+                          type="button"
+                          onClick={() => focusSourceLibrary(row.id)}
+                          aria-label={`Open related sources for ${row.title}`}
+                        >
+                          Related sources
+                        </button>
+                      ) : null}
+                      {relatedGraphSummary?.firstPracticeRelationEdgeId ? (
+                        <button
+                          className="ghost-button"
+                          data-home-reading-queue-relation-practice-handoff-stage1016="true"
+                          type="button"
+                          onClick={() => {
+                            if (relatedGraphSummary.firstPracticeRelationEdge) {
+                              void handleStartRelationPracticeReviewSession(
+                                row.id,
+                                relatedGraphSummary.firstPracticeRelationEdge,
+                              )
+                              return
+                            }
+                            focusSourceStudyQuestions(row.id, 'all', {
+                              relationEdgeId: relatedGraphSummary.firstPracticeRelationEdgeId,
+                            })
+                          }}
+                          aria-label={`Practice connection for ${row.title}`}
+                        >
+                          {relatedGraphSummary.practiceReadyRelationCount === 1
+                            ? 'Practice connection'
+                            : 'Practice connections'}
+                        </button>
+                      ) : null}
+                      {relatedGraphSummary?.firstPracticeQuestionRelationEdgeId &&
+                      !relatedGraphSummary.firstPracticeRelationEdgeId ? (
+                        <button
+                          className="ghost-button"
+                          data-home-reading-queue-relation-practice-progress-handoff-stage1024="true"
+                          type="button"
+                          onClick={() =>
+                            focusSourceStudyQuestions(row.id, 'all', {
+                              relationEdgeId: relatedGraphSummary.firstPracticeQuestionRelationEdgeId,
+                            })
+                          }
+                          aria-label={`Study connection for ${row.title}`}
+                        >
+                          {relatedGraphSummary.practiceQuestionCount === 1 ? 'Study connection' : 'Study connections'}
+                        </button>
+                      ) : null}
+                      {relatedGraphSummary && relatedGraphSummary.practiceGapRelationCount > 0 ? (
+                        <button
+                          className="ghost-button"
+                          data-home-reading-queue-relation-practice-gap-handoff-stage1020="true"
+                          type="button"
+                          onClick={() => focusSourceLibrary(row.id)}
+                          aria-label={`Build practice for ${row.title}`}
+                        >
+                          Build practice
+                        </button>
+                      ) : null}
+                      {studyPromptCount > 0 ? (
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => focusSourceStudyQuestions(row.id)}
+                          aria-label={`Open Study prompts for ${row.title}`}
+                        >
+                          Study prompts
+                        </button>
+                      ) : null}
+                      {row.state !== 'completed' ? (
+                        <button
+                          className="ghost-button"
+                          disabled={homeReadingQueueBusyDocumentId === row.id}
+                          type="button"
+                          onClick={() => void markQueueRowComplete(row)}
+                          aria-label={`Mark ${row.title} complete`}
+                        >
+                          Mark complete
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="small-note">
+              {homeReadingQueueLearningFilter === 'all'
+                ? 'No sources match this queue state.'
+                : 'No sources match this queue and learning filter.'}
+            </p>
+          )}
+        </section>
+        {!collectionId
+          ? renderHighlightReviewInboxPanel({
+              ariaLabel: 'Home highlight review',
+              contextLabel,
+              error: homeHighlightReviewInboxError,
+              inbox: homeHighlightReviewInbox,
+              selectedState: homeHighlightReviewInboxState,
+              setSelectedState: setHomeHighlightReviewInboxState,
+              status: homeHighlightReviewInboxStatus,
+              surface: 'home',
+            })
+          : null}
+      </>
     )
   }
 
@@ -13328,7 +15447,7 @@ export function RecallWorkspace({
     onSectionChange('library')
   }, [handleSelectLibraryDocument, onSectionChange, setBrowseDrawerOpen, updateLibraryState, updateNotesState, updateSourceWorkspaceState])
 
-  const focusSourceGraph = useCallback((documentId: string, nodeId?: string | null) => {
+  const focusSourceGraph = useCallback((documentId: string, nodeId?: string | null, options?: { openDrawer?: boolean }) => {
     handleSelectLibraryDocument(documentId)
     const matchingNodeId =
       nodeId ?? graphSnapshot?.nodes.find((node) => node.source_document_ids.includes(documentId))?.id ?? null
@@ -13345,7 +15464,7 @@ export function RecallWorkspace({
       selectedNodeId: matchingNodeId,
       focusTrailNodeIds: pushGraphFocusTrail(current.focusTrailNodeIds, matchingNodeId),
     }))
-    setBrowseDrawerOpen('graph', false)
+    setBrowseDrawerOpen('graph', options?.openDrawer === true)
     onSectionChange('graph')
   }, [
     graphSnapshot,
@@ -13353,6 +15472,67 @@ export function RecallWorkspace({
     onSectionChange,
     setBrowseDrawerOpen,
     updateGraphState,
+    updateSourceWorkspaceState,
+  ])
+
+  const focusSourceGraphConnections = useCallback((documentId: string) => {
+    setGraphConnectionReviewScope('source')
+    focusSourceGraph(documentId, null, { openDrawer: true })
+  }, [focusSourceGraph])
+
+  const handleOpenGraphGapSourceReview = useCallback((row: HighlightReviewInboxRow) => {
+    setSourceHighlightReviewInboxState('unconnected')
+    focusSourceLibrary(row.source_document_id)
+  }, [focusSourceLibrary])
+
+  const handleCreateGraphGapNode = useCallback((row: HighlightReviewInboxRow) => {
+    setGraphPromotionReturnOrigin({
+      collectionId: graphGapBuildInbox?.collection_id ?? null,
+      learningFilter: graphGapBuildInbox?.learning_filter ?? 'graph_gaps',
+      readingState: graphGapBuildInbox?.reading_state ?? 'all',
+      scope: graphGapBuildInbox?.scope ?? 'all',
+      sourceDocumentId: row.source_document_id,
+      sourceTitle: row.source_title,
+      surface: 'graph',
+    })
+    focusSourceNotes(row.source_document_id, row.note_id, { promotionMode: 'graph' })
+  }, [focusSourceNotes, graphGapBuildInbox])
+
+  const handleReturnToGraphGaps = useCallback(() => {
+    const origin = graphPromotionReturnOrigin
+    if (!origin) {
+      return
+    }
+
+    setReloadToken((current) => current + 1)
+    setGraphPromotionReturnOrigin(null)
+    if (origin.sourceDocumentId) {
+      setSourceHighlightReviewInboxState('unconnected')
+      focusSourceLibrary(origin.sourceDocumentId)
+      return
+    }
+
+    applyHighlightReviewReturnFilters(origin)
+    setHomeHighlightReviewInboxState('unconnected')
+    setHomeSelectedSectionKey(origin.collectionId ? buildHomeCustomCollectionSectionKey(origin.collectionId) : null)
+    updateLibraryState((current) => ({
+      ...current,
+      activeSurface: 'home',
+    }))
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeTab: 'overview',
+      mode: 'browse',
+      readerAnchor: null,
+    }))
+    setBrowseDrawerOpen('library', false)
+    onSectionChange('library')
+  }, [
+    focusSourceLibrary,
+    graphPromotionReturnOrigin,
+    onSectionChange,
+    setBrowseDrawerOpen,
+    updateLibraryState,
     updateSourceWorkspaceState,
   ])
 
@@ -13364,6 +15544,7 @@ export function RecallWorkspace({
       scheduleDrilldown?: RecallStudyScheduleDrilldown
     },
   ) => {
+    pendingStudyFocusCardRef.current = cardId ? { documentId, cardId } : null
     handleSelectLibraryDocument(documentId)
     const sourceCards = studyCards.filter((card) => card.source_document_id === documentId)
     const matchingCardId = cardId ?? getNextStudyCardForQueue(sourceCards)?.id ?? null
@@ -13383,7 +15564,10 @@ export function RecallWorkspace({
 	      filter: 'all',
 	      activeCardId: matchingCardId,
 	      knowledgeStageFilter: 'all',
+      pathRelationEdgeIds: [],
+      pathRelationLabel: null,
       questionSearchQuery: '',
+      relationEdgeId: null,
       reviewHistoryFilter: 'all',
       scheduleDrilldown: options?.scheduleDrilldown ?? 'all',
       sourceScopeDocumentId: documentId,
@@ -13406,13 +15590,18 @@ export function RecallWorkspace({
   const focusSourceStudyQuestions = useCallback((
     documentId: string,
     scheduleDrilldown: RecallStudyScheduleDrilldown = 'all',
+    options?: { relationEdgeId?: string | null },
   ) => {
     handleSelectLibraryDocument(documentId)
+    const relationEdgeId = options?.relationEdgeId ?? null
     const sourceCards = studyCards.filter((card) => card.source_document_id === documentId)
     const matchingCards =
       scheduleDrilldown === 'all'
-        ? sourceCards
-        : sourceCards.filter((card) => studyCardMatchesScheduleDrilldown(card, scheduleDrilldown))
+        ? sourceCards.filter((card) => studyCardMatchesRelationEdge(card, relationEdgeId))
+        : sourceCards.filter((card) =>
+            studyCardMatchesScheduleDrilldown(card, scheduleDrilldown) &&
+            studyCardMatchesRelationEdge(card, relationEdgeId),
+          )
     const matchingCardId =
       getNextStudyCardForQueue(matchingCards)?.id ??
       matchingCards[0]?.id ??
@@ -13433,7 +15622,10 @@ export function RecallWorkspace({
 	      filter: 'all',
 	      activeCardId: matchingCardId,
 	      knowledgeStageFilter: 'all',
+      pathRelationEdgeIds: [],
+      pathRelationLabel: null,
       questionSearchQuery: '',
+      relationEdgeId,
       reviewHistoryFilter: 'all',
       scheduleDrilldown,
       sourceScopeDocumentId: documentId,
@@ -13449,6 +15641,386 @@ export function RecallWorkspace({
     updateStudyState,
   ])
 
+  const focusGraphPathStudyQuestions = useCallback((
+    target?: {
+      edgeIds?: string[]
+      label?: string | null
+      nodeIds?: string[]
+      sourceDocumentId?: string | null
+    },
+    options?: {
+      activeCardId?: string | null
+      cardsOverride?: StudyCardRecord[]
+    },
+  ) => {
+    const requestedEdgeIds = target?.edgeIds ?? graphPathVisibleResult?.edgeIds ?? []
+    const pathEdgeIds = Array.from(new Set(requestedEdgeIds.filter((edgeId) => edgeId.trim().length > 0)))
+    if (!pathEdgeIds.length) {
+      setBrowseDrawerOpen('study', true)
+      onSectionChange('study')
+      return false
+    }
+
+    const pathNodeIds = target?.nodeIds ?? graphPathVisibleResult?.nodeIds ?? []
+    const cards = options?.cardsOverride ?? studyCards
+    const pathSummary = buildGraphPathPracticeSummary(pathEdgeIds, graphSnapshot?.edges ?? [], cards)
+    const activePathEdgeIds = pathSummary.edgeIds.length ? pathSummary.edgeIds : pathEdgeIds
+    const pathLabel = target?.label?.trim() || buildGraphPathLabel(pathNodeIds, graphNodeById)
+    const pathCardSourceDocumentIds = Array.from(new Set(pathSummary.cards.map((card) => card.source_document_id))).filter(
+      (documentId) => documentById.has(documentId),
+    )
+    const fallbackSourceDocumentIds = pathSummary.sourceDocumentIds.filter((documentId) => documentById.has(documentId))
+    const targetSourceDocumentId =
+      target?.sourceDocumentId && documentById.has(target.sourceDocumentId) ? target.sourceDocumentId : null
+    const sourceScopeDocumentId =
+      pathCardSourceDocumentIds.length === 1
+        ? pathCardSourceDocumentIds[0]
+        : pathCardSourceDocumentIds.length === 0 && targetSourceDocumentId
+          ? targetSourceDocumentId
+          : pathCardSourceDocumentIds.length === 0 && fallbackSourceDocumentIds.length === 1
+            ? fallbackSourceDocumentIds[0]
+            : null
+    const activePathCardId =
+      options?.activeCardId ??
+      getNextStudyCardForQueue(pathSummary.cards)?.id ??
+      pathSummary.cards[0]?.id ??
+      null
+
+    if (sourceScopeDocumentId) {
+      handleSelectLibraryDocument(sourceScopeDocumentId)
+    }
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeDocumentId: sourceScopeDocumentId ?? current.activeDocumentId,
+      activeTab: 'study',
+      mode: 'browse',
+      readerAnchor:
+        sourceScopeDocumentId && current.activeDocumentId === sourceScopeDocumentId ? current.readerAnchor : null,
+    }))
+    updateStudyState((current) => ({
+      ...current,
+      activeCardId: activePathCardId,
+      collectionFilter: 'all',
+      difficultyFilter: 'all',
+      filter: 'all',
+      knowledgeStageFilter: 'all',
+      pathRelationEdgeIds: activePathEdgeIds,
+      pathRelationLabel: pathLabel,
+      questionSearchQuery: '',
+      relationEdgeId: null,
+      reviewHistoryFilter: 'all',
+      scheduleDrilldown: 'all',
+      sourceScopeDocumentId,
+    }))
+    setStudySelectedQuestionIds(new Set())
+    setShowAnswer(false)
+    setStudyChoiceReviewAttempts({})
+    setStudyShortAnswerReviewAttempts({})
+    setStudyMatchingReviewAttempts({})
+    setStudyOrderingReviewAttempts({})
+    setStudyEvidencePeekOpen(false)
+    setFocusedStudySourceSpanIndex(0)
+    setBrowseDrawerOpen('study', true)
+    onSectionChange('study')
+    return true
+  }, [
+    documentById,
+    graphNodeById,
+    graphPathVisibleResult,
+    graphSnapshot?.edges,
+    handleSelectLibraryDocument,
+    onSectionChange,
+    setBrowseDrawerOpen,
+    studyCards,
+    updateSourceWorkspaceState,
+    updateStudyState,
+  ])
+
+  async function handleBuildGraphPathPracticeCard() {
+    const pathResult = graphPathVisibleResult
+    const edge = graphPathPracticeBuildEdge
+    if (!pathResult || !edge) {
+      return false
+    }
+    const sourceDocumentId = getGraphRelationPracticeSourceDocumentId(edge, studyCards, graphNodeById, documentById)
+    const sourceDocument = sourceDocumentId ? documentById.get(sourceDocumentId) ?? null : null
+    if (!sourceDocument) {
+      setError('Choose a saved source before creating path practice.')
+      return false
+    }
+
+    const relationLabel = formatGraphRelationLabel(edge)
+    const payload: StudyCardCreateRequest = {
+      answer: buildRelationPracticeAnswer(edge),
+      card_type: 'short_answer',
+      prompt: buildRelationPracticePrompt(edge),
+      question_difficulty: 'medium',
+      source_document_id: sourceDocument.id,
+      source_spans: [
+        {
+          edge_id: edge.id,
+          excerpt: edge.excerpt ?? relationLabel,
+          generated_card_type: 'relation',
+          manual_source: 'study_relation_manual',
+          relation_type: edge.relation_type,
+          source_id: edge.source_id,
+          source_label: edge.source_label,
+          target_id: edge.target_id,
+          target_label: edge.target_label,
+        },
+      ],
+    }
+    setStudyBusyKey(`path-relation-create:${edge.id}`)
+    setStudyMessage(null)
+    setError(null)
+    try {
+      const createdCard = await createRecallStudyCard(payload)
+      const optimisticCards = [createdCard, ...studyCards.filter((card) => card.id !== createdCard.id)]
+      setStudyCards(optimisticCards)
+      let mergedCards = optimisticCards
+      let activeCreatedCard = createdCard
+      try {
+        const sourceCards = await fetchRecallStudyCards('all', 100, sourceDocument.id)
+        const sourceCardIds = new Set(sourceCards.map((card) => card.id))
+        activeCreatedCard = sourceCards.find((card) => card.id === createdCard.id) ?? createdCard
+        mergedCards = [
+          ...sourceCards,
+          ...optimisticCards.filter(
+            (card) => card.source_document_id !== sourceDocument.id && !sourceCardIds.has(card.id),
+          ),
+        ]
+        setStudyCards(mergedCards)
+      } catch {
+        mergedCards = optimisticCards
+      }
+      focusGraphPathStudyQuestions(
+        {
+          edgeIds: pathResult.edgeIds,
+          nodeIds: pathResult.nodeIds,
+          sourceDocumentId: sourceDocument.id,
+        },
+        {
+          activeCardId: activeCreatedCard.id,
+          cardsOverride: mergedCards,
+        },
+      )
+      setStudyMessage('Path practice card created.')
+      return true
+    } catch (createError) {
+      setError(getErrorMessage(createError, 'Could not create a practice card for that path.'))
+      return false
+    } finally {
+      setStudyBusyKey(null)
+    }
+  }
+
+  async function handleStartRelationPracticeReviewSession(
+    documentId: string,
+    edge: KnowledgeEdgeRecord,
+    options?: {
+      graphSelectedNodeId?: string | null
+      returnSurface?: RelationPracticeReturnSurface
+    },
+  ) {
+    const relationLabel = formatGraphRelationLabel(edge)
+    const returnSurface = options?.returnSurface ?? 'source'
+    handleSelectLibraryDocument(documentId)
+    const localSourceCards = studyCards.filter((card) => card.source_document_id === documentId)
+    let sourceCards = orderStudyCardsForReviewQueue(localSourceCards)
+    try {
+      const fetchedSourceCards = await fetchRecallStudyCards('all', 100, documentId)
+      sourceCards = orderStudyCardsForReviewQueue(fetchedSourceCards)
+      setStudyCards((current) => [
+        ...fetchedSourceCards,
+        ...current.filter((card) => card.source_document_id !== documentId),
+      ])
+    } catch {
+      sourceCards = orderStudyCardsForReviewQueue(localSourceCards)
+    }
+    const relationCards = sourceCards.filter((card) => studyCardMatchesRelationEdge(card, edge.id))
+    const eligibleQueueCards = getReviewEligibleStudyCards(relationCards)
+    const queueCards =
+      studySettings.default_session_limit === null
+        ? eligibleQueueCards
+        : eligibleQueueCards.slice(0, studySettings.default_session_limit)
+    const firstRelationCard = queueCards[0] ?? relationCards[0] ?? null
+
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeDocumentId: documentId,
+      activeTab: 'study',
+      mode: 'focused',
+      readerAnchor: current.activeDocumentId === documentId ? current.readerAnchor : null,
+    }))
+    updateStudyState((current) => ({
+      ...current,
+      activeCardId: firstRelationCard?.id ?? null,
+      collectionFilter: 'all',
+      difficultyFilter: 'all',
+      filter: 'all',
+      knowledgeStageFilter: 'all',
+      pathRelationEdgeIds: [],
+      pathRelationLabel: null,
+      questionSearchQuery: '',
+      relationEdgeId: edge.id,
+      reviewHistoryFilter: 'all',
+      scheduleDrilldown: 'all',
+      sourceScopeDocumentId: documentId,
+    }))
+    setStudySelectedQuestionIds(new Set())
+    setShowAnswer(false)
+    setStudyChoiceReviewAttempts({})
+    setStudyShortAnswerReviewAttempts({})
+    setStudyMatchingReviewAttempts({})
+    setStudyOrderingReviewAttempts({})
+    setStudyHintVisibleCardIds(new Set())
+    setStudyTimedOutCardIds(new Set())
+    setStudyReviewTimerRemainingSeconds(null)
+    setStudyEvidencePeekOpen(false)
+    setStudyReviewSessionRecap(null)
+    onSectionChange('study')
+
+    if (!queueCards.length) {
+      setBrowseDrawerOpen('study', true)
+      return false
+    }
+
+    const started = await startStudyReviewSessionForQueue(queueCards, {
+      filterSnapshot: {
+        collection_filter: 'all',
+        difficulty_filter: 'all',
+        knowledge_stage_filter: 'all',
+        launch_intent: 'relation-practice-review',
+        question_search_query: '',
+        relation_edge_id: edge.id,
+        relation_label: relationLabel,
+        review_history_filter: 'all',
+        ...(returnSurface === 'graph'
+          ? {
+              graph_selected_node_id: options?.graphSelectedNodeId ?? null,
+              graph_source_node_id: edge.source_id,
+              graph_target_node_id: edge.target_id,
+              return_surface: 'graph',
+            }
+          : {}),
+        schedule_drilldown: 'all',
+        source_document_id: documentId,
+        status_filter: 'all',
+      },
+      sourceDocumentId: documentId,
+    })
+    if (!started) {
+      setBrowseDrawerOpen('study', true)
+    }
+    return started
+  }
+
+  async function handleStartGraphPathPracticeReviewSession() {
+    const pathResult = graphPathVisibleResult
+    if (!pathResult || !pathResult.edgeIds.length || !graphPathPracticeQueueCards.length) {
+      return false
+    }
+
+    const sourceDocumentIds = graphPathPracticeSummary.sourceDocumentIds.filter((documentId) =>
+      documentById.has(documentId),
+    )
+    let pathCards = graphPathPracticeSummary.cards
+    if (sourceDocumentIds.length) {
+      try {
+        const fetchedCardsBySource = await Promise.all(
+          sourceDocumentIds.map((documentId) => fetchRecallStudyCards('all', 100, documentId)),
+        )
+        const fetchedCards = fetchedCardsBySource.flat()
+        const fetchedSourceIds = new Set(sourceDocumentIds)
+        const mergedCards = [
+          ...fetchedCards,
+          ...studyCards.filter((card) => !fetchedSourceIds.has(card.source_document_id)),
+        ]
+        setStudyCards(mergedCards)
+        pathCards = buildGraphPathPracticeSummary(pathResult.edgeIds, graphSnapshot?.edges ?? [], mergedCards).cards
+      } catch {
+        pathCards = graphPathPracticeSummary.cards
+      }
+    }
+
+    const eligibleQueueCards = getReviewEligibleStudyCards(pathCards)
+    const queueCards =
+      studySettings.default_session_limit === null
+        ? eligibleQueueCards
+        : eligibleQueueCards.slice(0, studySettings.default_session_limit)
+    if (!queueCards.length) {
+      return false
+    }
+
+    const firstPathCard = queueCards[0]
+    const queueSourceDocumentIds = Array.from(new Set(queueCards.map((card) => card.source_document_id)))
+    const sessionSourceDocumentId = queueSourceDocumentIds.length === 1 ? queueSourceDocumentIds[0] : null
+    const pathLabel = buildGraphPathLabel(pathResult.nodeIds, graphNodeById)
+
+    if (sessionSourceDocumentId) {
+      handleSelectLibraryDocument(sessionSourceDocumentId)
+    }
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeDocumentId: sessionSourceDocumentId ?? current.activeDocumentId,
+      activeTab: 'study',
+      mode: 'focused',
+      readerAnchor:
+        sessionSourceDocumentId && current.activeDocumentId === sessionSourceDocumentId ? current.readerAnchor : null,
+    }))
+    updateStudyState((current) => ({
+      ...current,
+      activeCardId: firstPathCard.id,
+      collectionFilter: 'all',
+      difficultyFilter: 'all',
+      filter: 'all',
+      knowledgeStageFilter: 'all',
+      pathRelationEdgeIds: pathResult.edgeIds,
+      pathRelationLabel: pathLabel,
+      questionSearchQuery: '',
+      relationEdgeId: null,
+      reviewHistoryFilter: 'all',
+      scheduleDrilldown: 'all',
+      sourceScopeDocumentId: sessionSourceDocumentId,
+    }))
+    setStudySelectedQuestionIds(new Set())
+    setShowAnswer(false)
+    setStudyChoiceReviewAttempts({})
+    setStudyShortAnswerReviewAttempts({})
+    setStudyMatchingReviewAttempts({})
+    setStudyOrderingReviewAttempts({})
+    setStudyHintVisibleCardIds(new Set())
+    setStudyTimedOutCardIds(new Set())
+    setStudyReviewTimerRemainingSeconds(null)
+    setStudyEvidencePeekOpen(false)
+    setStudyReviewSessionRecap(null)
+    onSectionChange('study')
+
+    const started = await startStudyReviewSessionForQueue(queueCards, {
+      filterSnapshot: {
+        collection_filter: 'all',
+        difficulty_filter: 'all',
+        knowledge_stage_filter: 'all',
+        launch_intent: 'graph-path-practice-review',
+        path_edge_ids: pathResult.edgeIds,
+        path_label: pathLabel,
+        path_node_ids: pathResult.nodeIds,
+        question_search_query: '',
+        relation_edge_id: null,
+        return_surface: 'graph_path',
+        review_history_filter: 'all',
+        schedule_drilldown: 'all',
+        source_document_id: sessionSourceDocumentId,
+        status_filter: 'all',
+      },
+      sourceDocumentId: sessionSourceDocumentId,
+    })
+    if (!started) {
+      setBrowseDrawerOpen('study', true)
+    }
+    return started
+  }
+
   const openStudyScheduleDrilldown = useCallback((drilldown: RecallStudyScheduleDrilldown) => {
     const normalizedQuery = normalizeSourceMemorySearchText(studyQuestionSearchQuery)
     const matchingCards = scopedStudyCards.filter((card) => {
@@ -13457,8 +16029,9 @@ export function RecallWorkspace({
       const stageMatches = studyKnowledgeStageFilter === 'all' || card.knowledge_stage === studyKnowledgeStageFilter
       const reviewHistoryMatches = studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter)
       const difficultyMatches = studyDifficultyFilter === 'all' || getStudyCardDifficulty(card) === studyDifficultyFilter
+      const relationMatches = studyCardMatchesRelationEdge(card, studyRelationEdgeId)
       const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
-      return collectionMatches && scheduleMatches && stageMatches && reviewHistoryMatches && difficultyMatches && searchMatches
+      return collectionMatches && scheduleMatches && stageMatches && reviewHistoryMatches && difficultyMatches && relationMatches && searchMatches
     })
     const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
     updateStudyState((current) => ({
@@ -13479,6 +16052,7 @@ export function RecallWorkspace({
     studyDifficultyFilter,
     studyKnowledgeStageFilter,
     studyQuestionSearchQuery,
+    studyRelationEdgeId,
     studyReviewHistoryFilter,
     updateStudyState,
   ])
@@ -13492,8 +16066,9 @@ export function RecallWorkspace({
       const statusMatches = studyScheduleDrilldown !== 'all' || studyFilter === 'all' || card.status === studyFilter
       const reviewHistoryMatches = studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter)
       const difficultyMatches = studyDifficultyFilter === 'all' || getStudyCardDifficulty(card) === studyDifficultyFilter
+      const relationMatches = studyCardMatchesRelationEdge(card, studyRelationEdgeId)
       const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
-      return collectionMatches && scheduleMatches && statusMatches && reviewHistoryMatches && difficultyMatches && searchMatches && card.knowledge_stage === stage
+      return collectionMatches && scheduleMatches && statusMatches && reviewHistoryMatches && difficultyMatches && relationMatches && searchMatches && card.knowledge_stage === stage
     })
     const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
     updateStudyState((current) => ({
@@ -13513,6 +16088,7 @@ export function RecallWorkspace({
     studyDifficultyFilter,
     studyFilter,
     studyQuestionSearchQuery,
+    studyRelationEdgeId,
     studyReviewHistoryFilter,
     studyScheduleDrilldown,
     updateStudyState,
@@ -13527,6 +16103,7 @@ export function RecallWorkspace({
       const statusMatches = studyScheduleDrilldown !== 'all' || studyFilter === 'all' || card.status === studyFilter
       const stageMatches = studyKnowledgeStageFilter === 'all' || card.knowledge_stage === studyKnowledgeStageFilter
       const difficultyMatches = studyDifficultyFilter === 'all' || getStudyCardDifficulty(card) === studyDifficultyFilter
+      const relationMatches = studyCardMatchesRelationEdge(card, studyRelationEdgeId)
       const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
       return (
         collectionMatches &&
@@ -13534,6 +16111,7 @@ export function RecallWorkspace({
         statusMatches &&
         stageMatches &&
         difficultyMatches &&
+        relationMatches &&
         searchMatches &&
         studyCardMatchesReviewHistoryFilter(card, filter)
       )
@@ -13557,6 +16135,7 @@ export function RecallWorkspace({
     studyFilter,
     studyKnowledgeStageFilter,
     studyQuestionSearchQuery,
+    studyRelationEdgeId,
     studyScheduleDrilldown,
     updateStudyState,
   ])
@@ -13571,8 +16150,9 @@ export function RecallWorkspace({
       const stageMatches = studyKnowledgeStageFilter === 'all' || card.knowledge_stage === studyKnowledgeStageFilter
       const reviewHistoryMatches = studyCardMatchesReviewHistoryFilter(card, studyReviewHistoryFilter)
       const difficultyMatches = studyDifficultyFilter === 'all' || getStudyCardDifficulty(card) === studyDifficultyFilter
+      const relationMatches = studyCardMatchesRelationEdge(card, studyRelationEdgeId)
       const searchMatches = !normalizedQuery || studyCardMatchesQuestionSearch(card, normalizedQuery)
-      return collectionMatches && scheduleMatches && statusMatches && stageMatches && reviewHistoryMatches && difficultyMatches && searchMatches
+      return collectionMatches && scheduleMatches && statusMatches && stageMatches && reviewHistoryMatches && difficultyMatches && relationMatches && searchMatches
     })
     const matchingCardId = getNextStudyCardForQueue(matchingCards)?.id ?? matchingCards[0]?.id ?? null
     updateStudyState((current) => ({
@@ -13592,6 +16172,7 @@ export function RecallWorkspace({
     studyFilter,
     studyKnowledgeStageFilter,
     studyQuestionSearchQuery,
+    studyRelationEdgeId,
     studyReviewHistoryFilter,
     studyScheduleDrilldown,
     updateStudyState,
@@ -13780,7 +16361,23 @@ export function RecallWorkspace({
       sourceOverviewLastReaderSession?.sentence_index ??
       (sourceOverviewResumeMode ? sourceOverviewReaderDocument?.progress_by_mode[sourceOverviewResumeMode] : null) ??
       null
-    const sourceOverviewReviewNotes = sortedSourceOverviewMemoryNotes.slice(0, 4)
+    const sourceOverviewReviewRows = sourceHighlightReviewInbox?.rows ?? []
+    const sourceOverviewReviewItemCount = sourceHighlightReviewInbox?.summary.total_items ?? sourceOverviewReviewRows.length
+    const sourceOverviewHighlightReviewSummary = sourceHighlightReviewInbox?.summary ?? {
+      covered_items: 0,
+      dismissed_items: 0,
+      graph_covered_items: 0,
+      needs_review_items: 0,
+      reviewable_covered_items: 0,
+      reviewed_items: 0,
+      total_items: 0,
+      uncovered_items: 0,
+      ungraphed_items: 0,
+    }
+    const sourceOverviewStudyPromptCount =
+      sourceOverviewReviewOverview.due_count + sourceOverviewReviewOverview.new_count
+    const sourceOverviewLearningGapVisible =
+      sourceOverviewHighlightReviewSummary.total_items > 0 || sourceOverviewStudyPromptCount > 0
     const sourceOverviewDirectCollections = sourceOverviewDocument
       ? getHomeCustomCollectionsForDocument(sourceOverviewDocument.id, homeCustomCollections)
       : []
@@ -13801,6 +16398,29 @@ export function RecallWorkspace({
         label: formatHomeCustomCollectionPathLabel(collection.id, homeCustomCollections),
       })),
     ]
+    const sourceOverviewSuggestedGraphConnectionEdges = sourceOverviewDocument
+      ? graphConnectionReviewEdges.filter((edge) =>
+          graphConnectionEdgeMatchesSourceDocument(edge, sourceOverviewDocument.id, graphNodeById),
+        )
+      : []
+    const sourceOverviewRelatedGraphConnectionRows = sourceOverviewDocument
+      ? getSourceRelatedGraphConnectionRows(
+          sourceOverviewDocument.id,
+          graphSnapshot?.edges ?? [],
+          graphNodeById,
+          documentById,
+        )
+      : []
+    const sourceOverviewRelatedGraphConnectionPreviewRows = sourceOverviewRelatedGraphConnectionRows.slice(0, 3)
+    const sourceOverviewRelatedSourceCount = new Set(
+      sourceOverviewRelatedGraphConnectionRows.map((row) => row.relatedDocument.id),
+    ).size
+    const sourceOverviewConfirmedRelatedGraphConnectionCount = sourceOverviewRelatedGraphConnectionRows.filter(
+      (row) => row.edge.status === 'confirmed',
+    ).length
+    const sourceOverviewStrongGraphConnectionCount = sourceOverviewSuggestedGraphConnectionEdges.filter(
+      (edge) => edge.confidence >= GRAPH_STRONG_CONNECTION_CONFIDENCE,
+    ).length
     const handleMarkSourceOverviewComplete = async () => {
       if (!sourceOverviewDocument) {
         return
@@ -13880,6 +16500,88 @@ export function RecallWorkspace({
               <strong>Source locator</strong>
               <span>{getDocumentSourcePreview(sourceOverviewDocument)}</span>
             </div>
+            {sourceOverviewLearningGapVisible ? (
+              <section
+                className="recall-detail-panel recall-source-summary-card recall-source-learning-gaps-stage978"
+                role="region"
+                aria-label="Source learning gaps"
+                data-source-learning-gaps-stage978="true"
+              >
+                <div className="recall-source-memory-heading-stage900">
+                  <strong>Learning gaps</strong>
+                  <span>{sourceOverviewDocument.title}</span>
+                </div>
+                <div className="reader-meta-row" role="list" aria-label="Source learning gap summary">
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {formatCountLabel(sourceOverviewHighlightReviewSummary.needs_review_items, 'needs review', 'need review')}
+                  </span>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {formatCountLabel(sourceOverviewHighlightReviewSummary.uncovered_items, 'uncovered', 'uncovered')}
+                  </span>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {formatCountLabel(sourceOverviewHighlightReviewSummary.covered_items, 'covered by Study', 'covered by Study')}
+                  </span>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {formatCountLabel(sourceOverviewHighlightReviewSummary.ungraphed_items, 'not in Graph', 'not in Graph')}
+                  </span>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {formatCountLabel(sourceOverviewStudyPromptCount, 'Study prompt', 'Study prompts')}
+                  </span>
+                  {sourceOverviewHighlightReviewSummary.dismissed_items > 0 ? (
+                    <span className="status-chip reader-meta-chip" role="listitem">
+                      {formatCountLabel(sourceOverviewHighlightReviewSummary.dismissed_items, 'dismissed', 'dismissed')}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="recall-actions recall-actions-inline">
+                  {sourceOverviewHighlightReviewSummary.needs_review_items > 0 ? (
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => setSourceHighlightReviewInboxState('needs_review')}
+                    >
+                      Review highlights
+                    </button>
+                  ) : null}
+                  {sourceOverviewHighlightReviewSummary.covered_items > 0 ? (
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => setSourceHighlightReviewInboxState('covered')}
+                    >
+                      Covered highlights
+                    </button>
+                  ) : null}
+                  {sourceOverviewHighlightReviewSummary.uncovered_items > 0 ? (
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => setSourceHighlightReviewInboxState('uncovered')}
+                    >
+                      Uncovered highlights
+                    </button>
+                  ) : null}
+                  {sourceOverviewHighlightReviewSummary.ungraphed_items > 0 ? (
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => setSourceHighlightReviewInboxState('unconnected')}
+                    >
+                      Graph-unconnected highlights
+                    </button>
+                  ) : null}
+                  {sourceOverviewStudyPromptCount > 0 ? (
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => focusSourceStudyQuestions(sourceOverviewDocument.id)}
+                    >
+                      Study prompts
+                    </button>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
             <div className="recall-detail-grid">
               <div className="recall-detail-panel">
                 <strong>Updated</strong>
@@ -13894,7 +16596,7 @@ export function RecallWorkspace({
                 <span>Open this source directly in Reader without losing your Recall context.</span>
               </div>
             </div>
-            {sourceOverviewResumeSentenceIndex !== null || sourceOverviewReviewNotes.length > 0 ? (
+            {sourceOverviewResumeSentenceIndex !== null || sourceOverviewReviewItemCount > 0 ? (
               <section
                 className="recall-detail-panel recall-source-summary-card"
                 role="region"
@@ -13945,74 +16647,16 @@ export function RecallWorkspace({
                     </div>
                   </>
                 ) : null}
-                {sourceOverviewReviewNotes.length > 0 ? (
-                  <div className="recall-source-memory-list-stage900" role="list" aria-label="Source highlight review">
-                    {sourceOverviewReviewNotes.map((note) => {
-                      const noteIsSource = isSourceAttachedNote(note)
-                      const notePreview = noteIsSource ? getSourceNoteBodyPreview(note) : getNoteRowPreview(note)
-                      return (
-                        <div key={note.id} className="recall-source-memory-item-stage900" role="listitem">
-                          <button
-                            className="recall-source-memory-primary-stage900"
-                            type="button"
-                            onClick={() =>
-                              noteIsSource
-                                ? focusSourceNotes(sourceOverviewDocument.id, note.id)
-                                : handleOpenDocumentInReader(sourceOverviewDocument.id, {
-                                    ...buildReaderAnchorOptions(note),
-                                    readerIntent: 'highlight',
-                                  })
-                            }
-                            aria-label={
-                              noteIsSource
-                                ? `Open source note from ${sourceOverviewDocument.title}`
-                                : `Open highlighted passage from ${sourceOverviewDocument.title}`
-                            }
-                          >
-                            <span className="recall-source-memory-copy-stage900">
-                              <strong>{notePreview}</strong>
-                              <span>{noteIsSource ? 'Source note' : 'Highlighted passage'}</span>
-                            </span>
-                            <span className="recall-source-memory-meta-stage900">
-                              <span>Updated {dateFormatter.format(new Date(note.updated_at))}</span>
-                            </span>
-                          </button>
-                          <div className="recall-actions recall-actions-inline">
-                            <button
-                              className="ghost-button"
-                              type="button"
-                              onClick={() =>
-                                noteIsSource
-                                  ? focusSourceNotes(sourceOverviewDocument.id, note.id)
-                                  : handleOpenDocumentInReader(sourceOverviewDocument.id, {
-                                      ...buildReaderAnchorOptions(note),
-                                      readerIntent: 'highlight',
-                                    })
-                              }
-                            >
-                              Open in Reader
-                            </button>
-                            <button
-                              className="ghost-button"
-                              type="button"
-                              onClick={() => focusSourceNotes(sourceOverviewDocument.id, note.id)}
-                            >
-                              Open in Notebook
-                            </button>
-                            <button
-                              className="ghost-button"
-                              type="button"
-                              onClick={() => focusSourceNotes(sourceOverviewDocument.id, note.id, { promotionMode: 'study' })}
-                              aria-label={`Create Study card from ${sourceOverviewDocument.title}`}
-                            >
-                              Create Study card
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : null}
+                {renderHighlightReviewInboxPanel({
+                  ariaLabel: 'Source highlight review',
+                  contextLabel: sourceOverviewDocument.title,
+                  error: sourceHighlightReviewInboxError,
+                  inbox: sourceHighlightReviewInbox,
+                  selectedState: sourceHighlightReviewInboxState,
+                  setSelectedState: setSourceHighlightReviewInboxState,
+                  status: sourceHighlightReviewInboxStatus,
+                  surface: 'source',
+                })}
               </section>
             ) : null}
             <section
@@ -14508,15 +17152,186 @@ export function RecallWorkspace({
                     ? '1 graph node nearby'
                     : `${activeSourceGraphNodes.length} graph nodes nearby`}
                 </span>
+                <div
+                  className="reader-meta-row"
+                  data-source-overview-graph-connection-summary-stage1008="true"
+                  role="list"
+                  aria-label="Source graph connection summary"
+                >
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {formatCountLabel(activeSourceGraphNodes.length, 'graph node', 'graph nodes')}
+                  </span>
+                  <span className="status-chip reader-meta-chip" role="listitem">
+                    {formatCountLabel(sourceOverviewSuggestedGraphConnectionEdges.length, 'suggested connection', 'suggested connections')}
+                  </span>
+                  {sourceOverviewRelatedSourceCount > 0 ? (
+                    <span className="status-chip reader-meta-chip" role="listitem">
+                      {formatCountLabel(sourceOverviewRelatedSourceCount, 'related source', 'related sources')}
+                    </span>
+                  ) : null}
+                  {sourceOverviewConfirmedRelatedGraphConnectionCount > 0 ? (
+                    <span className="status-chip reader-meta-chip" role="listitem">
+                      {formatCountLabel(sourceOverviewConfirmedRelatedGraphConnectionCount, 'confirmed relation', 'confirmed relations')}
+                    </span>
+                  ) : null}
+                  {sourceOverviewStrongGraphConnectionCount > 0 ? (
+                    <span className="status-chip reader-meta-chip" role="listitem">
+                      {formatCountLabel(sourceOverviewStrongGraphConnectionCount, 'strong suggestion', 'strong suggestions')}
+                    </span>
+                  ) : null}
+                </div>
                 <p className="small-note">
-                  {sourceWorkspacePrimaryNode
+                  {sourceOverviewRelatedGraphConnectionRows.length > 0
+                    ? 'Graph relations now link this source to nearby saved sources.'
+                    : sourceOverviewSuggestedGraphConnectionEdges.length > 0
+                    ? 'Suggested relations are ready to review against this source.'
+                    : sourceWorkspacePrimaryNode
                     ? sourceWorkspacePrimaryNode.description ?? sourceWorkspacePrimaryNode.label
                     : 'No graph node has been grounded from this source yet.'}
                 </p>
+                {sourceOverviewRelatedGraphConnectionPreviewRows.length > 0 ? (
+                  <div
+                    className="recall-source-memory-list-stage900"
+                    data-source-overview-related-graph-connections-stage1010="true"
+                    role="list"
+                    aria-label="Source related Graph connections"
+                  >
+                    {sourceOverviewRelatedGraphConnectionPreviewRows.map((row) => {
+                      const relationLabel = formatGraphRelationLabel(row.edge)
+                      const relationActionLabel = row.edge.status === 'suggested' ? 'Review relation' : 'Open relation'
+                      const relatedConceptLabel = row.relatedNode?.label ?? row.relatedDocument.title
+                      const relationPracticeSummary = buildRelationPracticeCardSummary(activeSourceStudyCards, row.edge.id)
+                      const relationPracticeQuestionCount = relationPracticeSummary.totalCount
+                      const relationPracticeDueCount = relationPracticeSummary.dueCount
+                      const relationPracticeNewCount = relationPracticeSummary.newCount
+                      const relationPracticeReady = relationPracticeSummary.eligibleCount > 0
+                      const relationCreateBusy = studyBusyKey === `relation-create:${row.edge.id}`
+                      return (
+                        <div
+                          key={`source-related-graph:${row.edge.id}:${row.relatedDocument.id}`}
+                          className="recall-source-memory-item-stage900 recall-source-memory-stack-item-stage906"
+                          data-source-overview-related-graph-edge-id-stage1014={row.edge.id}
+                          data-source-overview-related-graph-focused-stage1024={
+                            sourceFocusedRelationEdgeId === row.edge.id ? 'true' : undefined
+                          }
+                          data-source-overview-related-graph-row-stage1010="true"
+                          role="listitem"
+                        >
+                          <button
+                            className="recall-source-memory-primary-stage900"
+                            data-source-overview-related-graph-open-source-stage1010="true"
+                            type="button"
+                            onClick={() => focusSourceLibrary(row.relatedDocument.id)}
+                            aria-label={`Open related source ${row.relatedDocument.title}`}
+                          >
+                            <span className="recall-source-memory-copy-stage900">
+                              <strong>{row.relatedDocument.title}</strong>
+                              <span>{relationLabel}</span>
+                            </span>
+                            <span className="recall-source-memory-meta-stage900">
+                              <span>{row.edge.status === 'confirmed' ? 'Confirmed relation' : 'Suggested relation'}</span>
+                              <span>{formatCountLabel(row.edge.evidence_count, 'evidence span', 'evidence spans')}</span>
+                              <span>{relatedConceptLabel}</span>
+                              {relationPracticeQuestionCount > 0 ? (
+                                <span data-source-overview-related-graph-practice-stage1014="covered">
+                                  {formatCountLabel(relationPracticeQuestionCount, 'practice question', 'practice questions')}
+                                </span>
+                              ) : (
+                                <span data-source-overview-related-graph-practice-stage1014="none">No practice yet</span>
+                              )}
+                              {relationPracticeDueCount > 0 ? (
+                                <span>{formatCountLabel(relationPracticeDueCount, 'due', 'due')}</span>
+                              ) : null}
+                              {relationPracticeNewCount > 0 ? (
+                                <span>{formatCountLabel(relationPracticeNewCount, 'new', 'new')}</span>
+                              ) : null}
+                              {relationPracticeSummary.practicedCount > 0 ? (
+                                <span data-source-overview-related-graph-practice-progress-stage1024="practiced">Practiced</span>
+                              ) : null}
+                              {relationPracticeSummary.scheduledCount > 0 && !relationPracticeReady ? (
+                                <span data-source-overview-related-graph-practice-progress-stage1024="scheduled">Scheduled</span>
+                              ) : null}
+                              {relationPracticeSummary.unscheduledCount > 0 && !relationPracticeReady ? (
+                                <span data-source-overview-related-graph-practice-progress-stage1024="unscheduled">Unscheduled</span>
+                              ) : null}
+                            </span>
+                          </button>
+                          <button
+                            className="ghost-button recall-source-memory-reader-stage900"
+                            data-source-overview-related-graph-open-relation-stage1010="true"
+                            type="button"
+                            onClick={() => handleReviewGraphConnection(row.edge)}
+                            aria-label={`${relationActionLabel}: ${relationLabel}`}
+                          >
+                            {relationActionLabel}
+                          </button>
+                          {relationPracticeQuestionCount > 0 && relationPracticeReady ? (
+                            <button
+                              className="ghost-button recall-source-memory-reader-stage900"
+                              data-source-overview-related-graph-practice-handoff-stage1014="true"
+                              type="button"
+                              onClick={() =>
+                                void handleStartRelationPracticeReviewSession(sourceOverviewDocument.id, row.edge)
+                              }
+                              aria-label={`Practice relation: ${relationLabel}`}
+                            >
+                              Practice relation
+                            </button>
+                          ) : relationPracticeQuestionCount > 0 ? (
+                            <button
+                              className="ghost-button recall-source-memory-reader-stage900"
+                              data-source-overview-related-graph-practice-progress-handoff-stage1024="true"
+                              type="button"
+                              onClick={() =>
+                                focusSourceStudyQuestions(sourceOverviewDocument.id, 'all', {
+                                  relationEdgeId: row.edge.id,
+                                })
+                              }
+                              aria-label={`Study questions for relation: ${relationLabel}`}
+                            >
+                              Study questions
+                            </button>
+                          ) : (
+                            <button
+                              className="ghost-button recall-source-memory-reader-stage900"
+                              data-source-overview-related-graph-create-practice-stage1018="true"
+                              type="button"
+                              onClick={() => handleCreateRelationPracticeCard(sourceOverviewDocument, row.edge)}
+                              disabled={relationCreateBusy}
+                              aria-label={`Create practice card: ${relationLabel}`}
+                            >
+                              {relationCreateBusy ? 'Creating...' : 'Create practice card'}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {sourceOverviewRelatedGraphConnectionRows.length > sourceOverviewRelatedGraphConnectionPreviewRows.length ? (
+                      <span className="small-note">
+                        {formatCountLabel(
+                          sourceOverviewRelatedGraphConnectionRows.length - sourceOverviewRelatedGraphConnectionPreviewRows.length,
+                          'more related Graph connection',
+                          'more related Graph connections',
+                        )}{' '}
+                        available in Graph.
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="recall-actions recall-actions-inline">
                   <button className="ghost-button" type="button" onClick={() => focusSourceGraph(sourceOverviewDocument.id)}>
                     Open graph
                   </button>
+                  {sourceOverviewSuggestedGraphConnectionEdges.length > 0 ? (
+                    <button
+                      className="ghost-button"
+                      data-source-overview-review-graph-connections-stage1008="true"
+                      type="button"
+                      onClick={() => focusSourceGraphConnections(sourceOverviewDocument.id)}
+                    >
+                      Review connections
+                    </button>
+                  ) : null}
                 </div>
               </div>
               <div className="recall-detail-panel recall-source-summary-card">
@@ -15888,14 +18703,38 @@ export function RecallWorkspace({
                           const counterpartLabel = getGraphEdgeCounterpartLabel(edge, selectedNodeDetail.node.id)
                           const counterpartNodeId = getGraphEdgeCounterpartId(edge, selectedNodeDetail.node.id)
                           const canFollowConnection = graphNodeById.has(counterpartNodeId)
+                          const relationLabel = formatGraphRelationLabel(edge)
+                          const relationPracticeSummary = buildRelationPracticeCardSummary(studyCards, edge.id)
+                          const relationPracticeReady = relationPracticeSummary.eligibleCount > 0
+                          const relationPracticeSourceDocumentId = getGraphRelationPracticeSourceDocumentId(
+                            edge,
+                            studyCards,
+                            graphNodeById,
+                            documentById,
+                          )
+                          const relationPracticeSourceDocument = relationPracticeSourceDocumentId
+                            ? documentById.get(relationPracticeSourceDocumentId) ?? null
+                            : null
+                          const relationCreateBusy = studyBusyKey === `relation-create:${edge.id}`
+                          const relationFocused = graphFocusedRelationEdgeId === edge.id
                           return (
                             <div
                               key={`${selectedNodeDetail.node.id}:${edge.id}`}
-                              className="recall-search-hit recall-edge-card recall-evidence-card recall-graph-detail-relation-card"
+                              className={[
+                                'recall-search-hit',
+                                'recall-edge-card',
+                                'recall-evidence-card',
+                                'recall-graph-detail-relation-card',
+                                relationFocused ? 'recall-edge-card-focused-stage1028' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              data-graph-detail-relation-row-stage1026="true"
+                              data-graph-detail-relation-focused-stage1028={relationFocused ? 'true' : undefined}
                               role="listitem"
                             >
                               <span className="recall-collection-row-head">
-                                <strong>{edge.source_label} {formatRelationLabel(edge.relation_type)} {edge.target_label}</strong>
+                                <strong>{relationLabel}</strong>
                                 <span>{Math.round(edge.confidence * 100)}%</span>
                               </span>
                               {edge.excerpt ? <span className="recall-collection-row-preview">{edge.excerpt}</span> : null}
@@ -15903,6 +18742,45 @@ export function RecallWorkspace({
                                 <span className="status-chip">{edge.status}</span>
                                 <span className="status-chip">{edge.provenance}</span>
                                 <span className="status-chip">{formatCountLabel(edge.evidence_count, 'evidence span', 'evidence spans')}</span>
+                                {relationPracticeSummary.totalCount > 0 ? (
+                                  <span className="status-chip" data-graph-relation-practice-state-stage1026="covered">
+                                    {formatCountLabel(relationPracticeSummary.totalCount, 'practice question', 'practice questions')}
+                                  </span>
+                                ) : (
+                                  <span className="status-chip" data-graph-relation-practice-state-stage1026="none">
+                                    No practice yet
+                                  </span>
+                                )}
+                                {relationPracticeSummary.dueCount > 0 ? (
+                                  <span className="status-chip">{formatCountLabel(relationPracticeSummary.dueCount, 'due', 'due')}</span>
+                                ) : null}
+                                {relationPracticeSummary.newCount > 0 ? (
+                                  <span className="status-chip">{formatCountLabel(relationPracticeSummary.newCount, 'new', 'new')}</span>
+                                ) : null}
+                                {relationPracticeSummary.practicedCount > 0 ? (
+                                  <span
+                                    className="status-chip"
+                                    data-graph-relation-practice-progress-stage1026="practiced"
+                                  >
+                                    Practiced
+                                  </span>
+                                ) : null}
+                                {relationPracticeSummary.scheduledCount > 0 && !relationPracticeReady ? (
+                                  <span
+                                    className="status-chip"
+                                    data-graph-relation-practice-progress-stage1026="scheduled"
+                                  >
+                                    Scheduled
+                                  </span>
+                                ) : null}
+                                {relationPracticeSummary.unscheduledCount > 0 && !relationPracticeReady ? (
+                                  <span
+                                    className="status-chip"
+                                    data-graph-relation-practice-progress-stage1026="unscheduled"
+                                  >
+                                    Unscheduled
+                                  </span>
+                                ) : null}
                               </span>
                               <div className="recall-actions recall-actions-inline">
                                 {canFollowConnection ? (
@@ -15933,6 +18811,47 @@ export function RecallWorkspace({
                                     onClick={() => handleOpenEdgeInReader(edge)}
                                   >
                                     {buildOpenReaderLabel(documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source')}
+                                  </button>
+                                ) : null}
+                                {relationPracticeSourceDocument && relationPracticeSummary.totalCount > 0 && relationPracticeReady ? (
+                                  <button
+                                    className="ghost-button"
+                                    data-graph-relation-practice-handoff-stage1026="true"
+                                    type="button"
+                                    onClick={() =>
+                                      void handleStartRelationPracticeReviewSession(relationPracticeSourceDocument.id, edge, {
+                                        graphSelectedNodeId: selectedNodeDetail.node.id,
+                                        returnSurface: 'graph',
+                                      })
+                                    }
+                                    aria-label={`Practice connection: ${relationLabel}`}
+                                  >
+                                    Practice connection
+                                  </button>
+                                ) : relationPracticeSourceDocument && relationPracticeSummary.totalCount > 0 ? (
+                                  <button
+                                    className="ghost-button"
+                                    data-graph-relation-practice-progress-handoff-stage1026="true"
+                                    type="button"
+                                    onClick={() =>
+                                      focusSourceStudyQuestions(relationPracticeSourceDocument.id, 'all', {
+                                        relationEdgeId: edge.id,
+                                      })
+                                    }
+                                    aria-label={`Study questions for connection: ${relationLabel}`}
+                                  >
+                                    Study questions
+                                  </button>
+                                ) : relationPracticeSourceDocument ? (
+                                  <button
+                                    className="ghost-button"
+                                    data-graph-relation-create-practice-stage1026="true"
+                                    disabled={relationCreateBusy}
+                                    type="button"
+                                    onClick={() => handleCreateRelationPracticeCard(relationPracticeSourceDocument, edge)}
+                                    aria-label={`Create practice card: ${relationLabel}`}
+                                  >
+                                    {relationCreateBusy ? 'Creating...' : 'Create practice card'}
                                   </button>
                                 ) : null}
                               </div>
@@ -16194,15 +19113,30 @@ export function RecallWorkspace({
 
     return (
       <div className="recall-grid recall-grid-browse-condensed recall-focused-split-grid recall-focused-split-grid-graph-readable recall-focused-split-grid-graph-milestone-reset">
-        <section className="card stack-gap recall-collection-rail recall-collection-rail-condensed recall-source-side-rail recall-graph-focus-rail">
+        <section
+          className="card stack-gap recall-collection-rail recall-collection-rail-condensed recall-source-side-rail recall-graph-focus-rail"
+          aria-label="Graph focus tray"
+        >
           <div className="toolbar recall-collection-toolbar">
             <div className="section-header section-header-compact">
               <h2>Graph</h2>
               <p>Keep the active node nearby while live reading stays primary.</p>
             </div>
-            <button className="ghost-button" type="button" onClick={() => setBrowseDrawerOpen('graph', true)}>
-              Browse
-            </button>
+            <div className="recall-actions recall-actions-inline">
+              {graphPromotionReturnOrigin ? (
+                <button
+                  className="ghost-button"
+                  data-graph-gap-return-stage1004="true"
+                  type="button"
+                  onClick={handleReturnToGraphGaps}
+                >
+                  Back to Graph gaps
+                </button>
+              ) : null}
+              <button className="ghost-button" type="button" onClick={() => setBrowseDrawerOpen('graph', true)}>
+                Browse
+              </button>
+            </div>
           </div>
           <div className="recall-browse-drawer-summary stack-gap">
             <div className="recall-detail-panel recall-browse-summary-card recall-graph-focus-summary">
@@ -16639,6 +19573,38 @@ export function RecallWorkspace({
         : graphPathSelectionActive
           ? '1 node selected'
           : null
+    const graphPathPracticeReadyParts = [
+      graphPathPracticeSummary.dueCount > 0
+        ? formatCountLabel(graphPathPracticeSummary.dueCount, 'due', 'due')
+        : null,
+      graphPathPracticeSummary.newCount > 0
+        ? formatCountLabel(graphPathPracticeSummary.newCount, 'new', 'new')
+        : null,
+    ].filter(Boolean)
+    const graphPathPracticeStatusLabel =
+      graphPathResultActive && graphPathVisibleResult
+        ? graphPathPracticeSummary.totalCount > 0
+          ? graphPathPracticeSummary.eligibleCount > 0
+            ? `${formatCountLabel(graphPathPracticeSummary.totalCount, 'path question', 'path questions')} · ${graphPathPracticeReadyParts.join(' / ')}`
+            : `${formatCountLabel(graphPathPracticeSummary.totalCount, 'path question', 'path questions')} · ${
+                graphPathPracticeSummary.scheduledCount > 0
+                  ? 'scheduled'
+                  : graphPathPracticeSummary.unscheduledCount > 0
+                    ? 'unscheduled'
+                    : graphPathPracticeSummary.practicedCount > 0
+                      ? 'practiced'
+                      : 'not due'
+              }`
+          : 'No path practice yet'
+        : null
+    const graphPathPracticeStatusState =
+      graphPathResultActive && graphPathVisibleResult
+        ? graphPathPracticeSummary.eligibleCount > 0
+          ? 'ready'
+          : graphPathPracticeSummary.totalCount > 0
+            ? 'covered'
+            : 'none'
+        : null
     const graphFocusRailKicker = graphPathSelectionActive ? 'Path' : selectedGraphNode ? 'Focus' : graphFocusTrailNodes.length ? 'Path' : 'Graph'
     const graphFocusRailTitle = graphPathSelectionActive
       ? graphPathResultActive
@@ -16839,6 +19805,69 @@ export function RecallWorkspace({
     ]
       .filter(Boolean)
       .join(' ')
+    const graphGapBuildRows = graphGapBuildInbox?.rows ?? []
+    const graphGapBuildSummary = graphGapBuildInbox?.summary ?? {
+      covered_items: 0,
+      dismissed_items: 0,
+      graph_covered_items: 0,
+      needs_review_items: 0,
+      reviewable_covered_items: 0,
+      reviewed_items: 0,
+      total_items: 0,
+      uncovered_items: 0,
+      ungraphed_items: 0,
+    }
+    const graphGapBuildQueueStatus =
+      graphGapBuildInboxStatus === 'loading' && !graphGapBuildInbox
+        ? 'Loading Graph gaps'
+        : graphGapBuildSummary.ungraphed_items > 0
+          ? formatCountLabel(graphGapBuildSummary.ungraphed_items, 'not in Graph', 'not in Graph')
+          : 'No Graph gaps'
+    const graphConnectionReviewSourceEdges = activeSourceDocumentId
+      ? graphConnectionReviewEdges.filter((edge) =>
+          graphConnectionEdgeMatchesSourceDocument(edge, activeSourceDocumentId, graphNodeById),
+        )
+      : []
+    const graphConnectionReviewStrongEdges = graphConnectionReviewEdges.filter(
+      (edge) => edge.confidence >= GRAPH_STRONG_CONNECTION_CONFIDENCE,
+    )
+    const graphConnectionReviewMultiEvidenceEdges = graphConnectionReviewEdges.filter((edge) => edge.evidence_count > 1)
+    const effectiveGraphConnectionReviewScope =
+      graphConnectionReviewScope === 'source' && !activeSourceDocumentId ? 'all' : graphConnectionReviewScope
+    const graphConnectionReviewFilteredEdges =
+      effectiveGraphConnectionReviewScope === 'source'
+        ? graphConnectionReviewSourceEdges
+        : effectiveGraphConnectionReviewScope === 'strong'
+          ? graphConnectionReviewStrongEdges
+          : effectiveGraphConnectionReviewScope === 'multi_evidence'
+            ? graphConnectionReviewMultiEvidenceEdges
+            : graphConnectionReviewEdges
+    const graphConnectionReviewRows = graphConnectionReviewFilteredEdges.slice(0, 4)
+    const graphConnectionReviewTotalPendingCount = graphSnapshot?.pending_edges ?? graphConnectionReviewEdges.length
+    const graphConnectionReviewPendingCount =
+      effectiveGraphConnectionReviewScope === 'all'
+        ? graphConnectionReviewTotalPendingCount
+        : graphConnectionReviewFilteredEdges.length
+    const graphConnectionReviewScopeStatus =
+      effectiveGraphConnectionReviewScope === 'source'
+        ? 'source suggested connections'
+        : effectiveGraphConnectionReviewScope === 'strong'
+          ? 'strong suggested connections'
+          : effectiveGraphConnectionReviewScope === 'multi_evidence'
+            ? 'multi-evidence suggestions'
+            : 'suggested connections'
+    const graphConnectionReviewQueueStatus =
+      graphLoading && !graphSnapshot
+        ? 'Loading connections'
+        : graphConnectionReviewPendingCount > 0
+          ? formatCountLabel(graphConnectionReviewPendingCount, graphConnectionReviewScopeStatus.replace(/s$/, ''), graphConnectionReviewScopeStatus)
+          : effectiveGraphConnectionReviewScope === 'all'
+            ? 'No suggested connections'
+            : `No ${graphConnectionReviewScopeStatus}`
+    const graphConnectionReviewHiddenCount = Math.max(
+      graphConnectionReviewPendingCount - graphConnectionReviewRows.length,
+      0,
+    )
     const graphViewportStageClassName = [
       'recall-graph-canvas-viewport-stage',
       graphCanvasPanning ? 'recall-graph-canvas-viewport-stage-panning' : '',
@@ -17067,6 +20096,257 @@ export function RecallWorkspace({
                             </GraphSettingsDisclosure>
                           </div>
                         </GraphSettingsDisclosure>
+                      </section>
+                      <section
+                        className="recall-graph-sidebar-section recall-graph-gap-build-queue-stage1004"
+                        role="region"
+                        aria-label="Graph gap build queue"
+                        data-graph-gap-build-queue-stage1004="true"
+                      >
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Graph gaps</strong>
+                          <span>{graphGapBuildQueueStatus}</span>
+                        </div>
+                        <div className="recall-graph-detail-chip-list" role="list" aria-label="Graph gap build summary">
+                          <span className="status-chip status-muted" role="listitem">
+                            {formatCountLabel(graphGapBuildSummary.ungraphed_items, 'not in Graph', 'not in Graph')}
+                          </span>
+                          {graphGapBuildSummary.graph_covered_items > 0 ? (
+                            <span className="status-chip status-muted" role="listitem">
+                              {formatCountLabel(graphGapBuildSummary.graph_covered_items, 'connected', 'connected')}
+                            </span>
+                          ) : null}
+                        </div>
+                        {graphGapBuildInboxStatus === 'error' && graphGapBuildInboxError ? (
+                          <span className="recall-graph-sidebar-filter-note">{graphGapBuildInboxError}</span>
+                        ) : null}
+                        {graphGapBuildRows.length > 0 ? (
+                          <div className="recall-graph-quick-picks" role="list" aria-label="Graph gap build rows">
+                            {graphGapBuildRows.slice(0, 4).map((row) => (
+                              <article
+                                key={`graph-gap-build:${row.note_id}`}
+                                className="recall-graph-sidebar-preset-entry recall-graph-gap-build-row-stage1004"
+                                data-graph-gap-build-row-stage1004="true"
+                                role="listitem"
+                              >
+                                <div className="recall-graph-sidebar-preset-item">
+                                  <span className="recall-graph-sidebar-preset-item-topline">
+                                    <strong>{row.body_preview ?? row.excerpt_preview ?? row.anchor_text}</strong>
+                                    <span className="status-chip status-muted">Not in Graph</span>
+                                  </span>
+                                  <span className="recall-graph-sidebar-preset-item-summary">
+                                    {row.source_title}
+                                  </span>
+                                  <div className="recall-actions recall-actions-inline">
+                                    <button
+                                      className="ghost-button recall-graph-sidebar-toggle-chip"
+                                      type="button"
+                                      onClick={() => handleCreateGraphGapNode(row)}
+                                    >
+                                      Create Graph node
+                                    </button>
+                                    <button
+                                      className="ghost-button recall-graph-sidebar-toggle-chip"
+                                      type="button"
+                                      onClick={() => handleOpenGraphGapSourceReview(row)}
+                                    >
+                                      Open source review
+                                    </button>
+                                  </div>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        ) : graphGapBuildInboxStatus === 'loading' ? (
+                          <span className="recall-graph-sidebar-filter-note">Loading Graph gaps</span>
+                        ) : (
+                          <span className="recall-graph-sidebar-filter-note">No Graph gaps</span>
+                        )}
+                      </section>
+                      <section
+                        className="recall-graph-sidebar-section recall-graph-connection-review-stage1006"
+                        role="region"
+                        aria-label="Graph connection review queue"
+                        data-graph-connection-review-queue-stage1006="true"
+                      >
+                        <div className="recall-graph-sidebar-section-head">
+                          <strong>Connection review</strong>
+                          <span>{graphConnectionReviewQueueStatus}</span>
+                        </div>
+                        <div className="recall-graph-detail-chip-list" role="list" aria-label="Graph connection review summary">
+                          <span className="status-chip status-muted" role="listitem">
+                            {formatCountLabel(graphConnectionReviewTotalPendingCount, 'suggested', 'suggested')}
+                          </span>
+                          {activeSourceDocumentId ? (
+                            <span className="status-chip status-muted" role="listitem">
+                              {formatCountLabel(graphConnectionReviewSourceEdges.length, 'source', 'source')}
+                            </span>
+                          ) : null}
+                          {graphConnectionReviewStrongEdges.length > 0 ? (
+                            <span className="status-chip status-muted" role="listitem">
+                              {formatCountLabel(graphConnectionReviewStrongEdges.length, 'strong', 'strong')}
+                            </span>
+                          ) : null}
+                          {graphConnectionReviewMultiEvidenceEdges.length > 0 ? (
+                            <span className="status-chip status-muted" role="listitem">
+                              {formatCountLabel(graphConnectionReviewMultiEvidenceEdges.length, 'multi-evidence', 'multi-evidence')}
+                            </span>
+                          ) : null}
+                          {effectiveGraphConnectionReviewScope !== 'all' ? (
+                            <span className="status-chip status-muted" role="listitem">
+                              Showing {formatCountLabel(graphConnectionReviewFilteredEdges.length, 'match', 'matches')}
+                            </span>
+                          ) : null}
+                          {graphSnapshot?.confirmed_edges ? (
+                            <span className="status-chip status-muted" role="listitem">
+                              {formatCountLabel(graphSnapshot.confirmed_edges, 'confirmed', 'confirmed')}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div
+                          className="recall-graph-sidebar-toggle-row"
+                          data-graph-connection-review-scope-stage1008="true"
+                          role="group"
+                          aria-label="Graph connection review scope"
+                        >
+                          <button
+                            aria-pressed={effectiveGraphConnectionReviewScope === 'all'}
+                            className={
+                              effectiveGraphConnectionReviewScope === 'all'
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={() => setGraphConnectionReviewScope('all')}
+                          >
+                            All
+                          </button>
+                          {activeSourceDocumentId ? (
+                            <button
+                              aria-pressed={effectiveGraphConnectionReviewScope === 'source'}
+                              className={
+                                effectiveGraphConnectionReviewScope === 'source'
+                                  ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                  : 'ghost-button recall-graph-sidebar-toggle-chip'
+                              }
+                              type="button"
+                              onClick={() => setGraphConnectionReviewScope('source')}
+                            >
+                              This source
+                            </button>
+                          ) : null}
+                          <button
+                            aria-pressed={effectiveGraphConnectionReviewScope === 'strong'}
+                            className={
+                              effectiveGraphConnectionReviewScope === 'strong'
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={() => setGraphConnectionReviewScope('strong')}
+                          >
+                            Strong
+                          </button>
+                          <button
+                            aria-pressed={effectiveGraphConnectionReviewScope === 'multi_evidence'}
+                            className={
+                              effectiveGraphConnectionReviewScope === 'multi_evidence'
+                                ? 'ghost-button recall-graph-sidebar-toggle-chip recall-graph-sidebar-toggle-chip-active'
+                                : 'ghost-button recall-graph-sidebar-toggle-chip'
+                            }
+                            type="button"
+                            onClick={() => setGraphConnectionReviewScope('multi_evidence')}
+                          >
+                            Multi-evidence
+                          </button>
+                        </div>
+                        {graphConnectionReviewRows.length > 0 ? (
+                          <div className="recall-graph-quick-picks" role="list" aria-label="Graph connection review rows">
+                            {graphConnectionReviewRows.map((edge) => {
+                              const sourceTitle = edge.source_document_ids[0]
+                                ? documentTitleById.get(edge.source_document_ids[0]) ?? 'Saved source'
+                                : 'Saved source'
+                              return (
+                                <article
+                                  key={`graph-connection-review:${edge.id}`}
+                                  className="recall-graph-sidebar-preset-entry recall-graph-connection-review-row-stage1006"
+                                  data-graph-connection-review-row-stage1006="true"
+                                  role="listitem"
+                                >
+                                  <div className="recall-graph-sidebar-preset-item">
+                                    <span className="recall-graph-sidebar-preset-item-topline">
+                                      <strong>
+                                        {edge.source_label} {formatRelationLabel(edge.relation_type)} {edge.target_label}
+                                      </strong>
+                                      <span className="status-chip status-muted">{Math.round(edge.confidence * 100)}%</span>
+                                    </span>
+                                    <span className="recall-graph-sidebar-preset-item-summary">
+                                      {edge.excerpt?.trim() || sourceTitle}
+                                    </span>
+                                    <span className="recall-collection-row-meta">
+                                      <span className="status-chip">{edge.status}</span>
+                                      <span className="status-chip">{edge.provenance}</span>
+                                      <span className="status-chip">
+                                        {formatCountLabel(edge.evidence_count, 'evidence span', 'evidence spans')}
+                                      </span>
+                                    </span>
+                                    <div className="recall-actions recall-actions-inline">
+                                      <button
+                                        className="ghost-button recall-graph-sidebar-toggle-chip"
+                                        type="button"
+                                        onClick={() => handleReviewGraphConnection(edge)}
+                                      >
+                                        Review connection
+                                      </button>
+                                      {edge.source_document_ids[0] ? (
+                                        <button
+                                          className="ghost-button recall-graph-sidebar-toggle-chip"
+                                          type="button"
+                                          onClick={() => handleOpenEdgeInReader(edge)}
+                                        >
+                                          Open evidence
+                                        </button>
+                                      ) : null}
+                                      <button
+                                        className="ghost-button recall-graph-sidebar-toggle-chip"
+                                        disabled={graphBusyKey === `edge:${edge.id}:confirmed`}
+                                        type="button"
+                                        onClick={() => handleDecideEdge(edge, 'confirmed')}
+                                      >
+                                        Confirm
+                                      </button>
+                                      <button
+                                        className="ghost-button recall-graph-sidebar-toggle-chip"
+                                        disabled={graphBusyKey === `edge:${edge.id}:rejected`}
+                                        type="button"
+                                        onClick={() => handleDecideEdge(edge, 'rejected')}
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
+                                  </div>
+                                </article>
+                              )
+                            })}
+                          </div>
+                        ) : graphLoading ? (
+                          <span className="recall-graph-sidebar-filter-note">Loading suggested connections</span>
+                        ) : graphConnectionReviewPendingCount > 0 ? (
+                          <span className="recall-graph-sidebar-filter-note">
+                            Suggested connections are outside the current graph snapshot.
+                          </span>
+                        ) : (
+                          <span className="recall-graph-sidebar-filter-note">
+                            {effectiveGraphConnectionReviewScope === 'all'
+                              ? 'No suggested connections yet.'
+                              : `No ${graphConnectionReviewScopeStatus}.`}
+                          </span>
+                        )}
+                        {graphConnectionReviewHiddenCount > 0 ? (
+                          <span className="recall-graph-sidebar-filter-note">
+                            Showing {graphConnectionReviewRows.length} of {graphConnectionReviewPendingCount} {graphConnectionReviewScopeStatus}.
+                          </span>
+                        ) : null}
                       </section>
                       <section className="recall-graph-sidebar-section recall-graph-sidebar-section-filter-reset">
                         <div className="recall-graph-sidebar-section-head">
@@ -17689,7 +20969,13 @@ export function RecallWorkspace({
                   </div>
                   {graphBottomTrayVisible ? (
                     <div className="recall-graph-canvas-shell-footer recall-graph-canvas-shell-footer-v20 recall-graph-canvas-shell-footer-workbench-reset">
-                      <div className={`${graphFocusRailClassName} recall-graph-focus-rail-corner-reset`} aria-label="Graph focus tray">
+                      <div
+                        className={`${graphFocusRailClassName} recall-graph-focus-rail-corner-reset`}
+                        aria-label="Graph focus tray"
+                        data-graph-path-focused-stage1030={
+                          graphPathResultActive && graphPathVisibleResult ? 'true' : undefined
+                        }
+                      >
                         <div className="recall-graph-focus-rail-main">
                           <div className="recall-graph-focus-rail-copy">
                             <span className="status-chip status-muted recall-graph-focus-rail-kicker">{graphFocusRailKicker}</span>
@@ -17759,12 +21045,61 @@ export function RecallWorkspace({
                                   Find path
                                 </button>
                               ) : null}
+                              {graphPathPracticeStatusLabel ? (
+                                <span
+                                  className="status-chip status-muted"
+                                  data-graph-path-practice-status-stage1030={graphPathPracticeStatusState ?? undefined}
+                                >
+                                  {graphPathPracticeStatusLabel}
+                                </span>
+                              ) : null}
+                              {graphPathResultActive && graphPathVisibleResult && graphPathPracticeSummary.totalCount > 0 ? (
+                                <button
+                                  data-graph-path-questions-handoff-stage1032="true"
+                                  type="button"
+                                  onClick={() => focusGraphPathStudyQuestions()}
+                                >
+                                  Path questions
+                                </button>
+                              ) : null}
+                              {graphPathResultActive && graphPathVisibleResult && graphPathPracticeBuildEdge ? (
+                                <button
+                                  data-graph-path-practice-build-stage1032="true"
+                                  disabled={studyBusyKey === `path-relation-create:${graphPathPracticeBuildEdge.id}`}
+                                  type="button"
+                                  onClick={() => void handleBuildGraphPathPracticeCard()}
+                                >
+                                  {studyBusyKey === `path-relation-create:${graphPathPracticeBuildEdge.id}`
+                                    ? 'Building...'
+                                    : 'Build path practice'}
+                                </button>
+                              ) : null}
+                              {graphPathResultActive && graphPathVisibleResult && graphPathPracticeQueueCards.length ? (
+                                <button
+                                  data-graph-path-practice-handoff-stage1030="true"
+                                  disabled={studyBusyKey === 'session-start'}
+                                  type="button"
+                                  onClick={() => void handleStartGraphPathPracticeReviewSession()}
+                                >
+                                  Practice path
+                                </button>
+                              ) : null}
                               <button className="ghost-button" type="button" onClick={handleClearGraphPathSelection}>
                                 Clear selection
                               </button>
                             </div>
                           ) : graphSelectedNodeSourceDocumentId || selectedNodeId ? (
                             <div className="recall-graph-focus-rail-actions">
+                              {graphPromotionReturnOrigin ? (
+                                <button
+                                  className="ghost-button"
+                                  data-graph-gap-return-stage1004="true"
+                                  type="button"
+                                  onClick={handleReturnToGraphGaps}
+                                >
+                                  Back to Graph gaps
+                                </button>
+                              ) : null}
                               {graphJumpBackNode ? (
                                 <button className="ghost-button" type="button" onClick={handleJumpBackGraphFocus}>
                                   Jump back
@@ -17849,6 +21184,10 @@ export function RecallWorkspace({
   }
 
   function getStudyQuestionsEmptyMessage() {
+    if (studyRelationFilterActive) {
+      const scopeLabel = studySourceScopeDocumentId ? 'source-scoped ' : ''
+      return `No ${scopeLabel}questions match this Graph relation${studyQuestionSearchActive ? ' and search' : ''}.`
+    }
     if (studyCollectionFilterActive) {
       const scopeLabel = studySourceScopeDocumentId ? 'source-scoped ' : ''
       const scheduleLabel = studyScheduleDrilldownActive ? `${studyScheduleDrilldownLabel.toLowerCase()} ` : ''
@@ -18036,6 +21375,74 @@ export function RecallWorkspace({
     )
   }
 
+  function renderStudyRelationFilterChip(surface: 'desktop' | 'focused') {
+    if (!studyRelationFilterActive) {
+      return null
+    }
+
+    return (
+      <div
+        className={`reader-meta-row recall-study-relation-filter-chip-stage1014 recall-study-relation-filter-chip-${surface}-stage1014`}
+        data-study-relation-filter-chip-stage1014="true"
+        data-study-relation-filter-value-stage1014={studyRelationEdgeId ?? ''}
+        role="list"
+        aria-label="Active study relation filter"
+      >
+        <span className="status-chip reader-meta-chip" role="listitem">
+          Relation: {studyRelationFilterLabel}
+        </span>
+        <span className="status-chip reader-meta-chip" role="listitem">
+          {relationFilteredStudyQuestionCount} {relationFilteredStudyQuestionCount === 1 ? 'question' : 'questions'}
+        </span>
+        <button
+          className="ghost-button"
+          data-study-relation-filter-clear-stage1014="true"
+          type="button"
+          onClick={() => updateStudyState((current) => ({ ...current, relationEdgeId: null }))}
+        >
+          Clear relation
+        </button>
+      </div>
+    )
+  }
+
+  function renderStudyPathRelationFilterChip(surface: 'desktop' | 'focused') {
+    if (!studyPathRelationFilterActive) {
+      return null
+    }
+
+    return (
+      <div
+        className={`reader-meta-row recall-study-path-relation-filter-chip-stage1032 recall-study-path-relation-filter-chip-${surface}-stage1032`}
+        data-study-path-relation-filter-chip-stage1032="true"
+        data-study-path-relation-filter-value-stage1032={studyPathRelationEdgeIds.join(',')}
+        role="list"
+        aria-label="Active study path filter"
+      >
+        <span className="status-chip reader-meta-chip" role="listitem">
+          Path: {studyPathRelationFilterLabel}
+        </span>
+        <span className="status-chip reader-meta-chip" role="listitem">
+          {pathRelationFilteredStudyQuestionCount} {pathRelationFilteredStudyQuestionCount === 1 ? 'question' : 'questions'}
+        </span>
+        <button
+          className="ghost-button"
+          data-study-path-relation-filter-clear-stage1032="true"
+          type="button"
+          onClick={() =>
+            updateStudyState((current) => ({
+              ...current,
+              pathRelationEdgeIds: [],
+              pathRelationLabel: null,
+            }))
+          }
+        >
+          Clear path
+        </button>
+      </div>
+    )
+  }
+
   function renderStudyQuestionActiveFilters(surface: 'desktop' | 'focused') {
     if (!studyQuestionFilterStackActive) {
       return null
@@ -18107,6 +21514,32 @@ export function RecallWorkspace({
             onClick={() => updateStudyState((current) => ({ ...current, difficultyFilter: 'all' }))}
           >
             Difficulty: {studyDifficultyFilterLabel} x
+          </button>
+        ) : null}
+        {studyRelationFilterActive ? (
+          <button
+            className="status-chip reader-meta-chip"
+            data-study-relation-filter-inline-clear-stage1014="true"
+            type="button"
+            onClick={() => updateStudyState((current) => ({ ...current, relationEdgeId: null }))}
+          >
+            Relation: {studyRelationFilterLabel} x
+          </button>
+        ) : null}
+        {studyPathRelationFilterActive ? (
+          <button
+            className="status-chip reader-meta-chip"
+            data-study-path-relation-filter-inline-clear-stage1032="true"
+            type="button"
+            onClick={() =>
+              updateStudyState((current) => ({
+                ...current,
+                pathRelationEdgeIds: [],
+                pathRelationLabel: null,
+              }))
+            }
+          >
+            Path: {studyPathRelationFilterLabel} x
           </button>
         ) : null}
         {studyQuestionSearchActive ? (
@@ -19140,16 +22573,230 @@ export function RecallWorkspace({
     )
   }
 
+  function getCoveredHighlightReviewRecapOrigin(recap: StudyReviewSessionRecap | null) {
+    if (!recap || getRecordStringValue(recap.filterSnapshot, 'launch_intent') !== 'highlight-covered-review') {
+      return null
+    }
+    return {
+      collectionId: getRecordStringValue(recap.filterSnapshot, 'collection_id'),
+      learningFilter: getRecordStringValue(recap.filterSnapshot, 'learning_filter'),
+      readingState: getRecordStringValue(recap.filterSnapshot, 'reading_state'),
+      scope: getRecordStringValue(recap.filterSnapshot, 'scope'),
+      sourceDocumentId: getRecordStringValue(recap.filterSnapshot, 'source_document_id'),
+    }
+  }
+
+  function getRelationPracticeReviewRecapOrigin(recap: StudyReviewSessionRecap | null) {
+    if (!recap || getRecordStringValue(recap.filterSnapshot, 'launch_intent') !== 'relation-practice-review') {
+      return null
+    }
+    const returnSurface = getRecordStringValue(recap.filterSnapshot, 'return_surface')
+    return {
+      graphSelectedNodeId: getRecordStringValue(recap.filterSnapshot, 'graph_selected_node_id'),
+      graphSourceNodeId: getRecordStringValue(recap.filterSnapshot, 'graph_source_node_id'),
+      graphTargetNodeId: getRecordStringValue(recap.filterSnapshot, 'graph_target_node_id'),
+      relationEdgeId: getRecordStringValue(recap.filterSnapshot, 'relation_edge_id'),
+      relationLabel: getRecordStringValue(recap.filterSnapshot, 'relation_label'),
+      returnSurface: returnSurface === 'graph' ? 'graph' as const : 'source' as const,
+      sourceDocumentId: getRecordStringValue(recap.filterSnapshot, 'source_document_id'),
+    }
+  }
+
+  function getGraphPathPracticeReviewRecapOrigin(recap: StudyReviewSessionRecap | null) {
+    if (!recap || getRecordStringValue(recap.filterSnapshot, 'launch_intent') !== 'graph-path-practice-review') {
+      return null
+    }
+    return {
+      pathEdgeIds: getRecordStringArrayValue(recap.filterSnapshot, 'path_edge_ids'),
+      pathLabel: getRecordStringValue(recap.filterSnapshot, 'path_label') ?? 'Graph path',
+      pathNodeIds: getRecordStringArrayValue(recap.filterSnapshot, 'path_node_ids'),
+      sourceDocumentId: getRecordStringValue(recap.filterSnapshot, 'source_document_id'),
+    }
+  }
+
+  function applyHighlightReviewReturnFilters(origin: HighlightReviewReturnOrigin | ReturnType<typeof getCoveredHighlightReviewRecapOrigin>) {
+    if (!origin) {
+      return
+    }
+    if (
+      origin.readingState === 'all' ||
+      origin.readingState === 'unread' ||
+      origin.readingState === 'in_progress' ||
+      origin.readingState === 'completed'
+    ) {
+      setHomeReadingQueueState(origin.readingState)
+    }
+    if (
+      origin.learningFilter === 'all' ||
+      origin.learningFilter === 'needs_review' ||
+      origin.learningFilter === 'uncovered' ||
+      origin.learningFilter === 'covered' ||
+      origin.learningFilter === 'graph_gaps' ||
+      origin.learningFilter === 'study_prompts'
+    ) {
+      setHomeReadingQueueLearningFilter(origin.learningFilter)
+    }
+  }
+
+  function handleReturnToCoveredHighlightReview() {
+    const origin = getCoveredHighlightReviewRecapOrigin(studyReviewSessionRecap)
+    if (!origin) {
+      return
+    }
+    setReloadToken((current) => current + 1)
+    if (origin.sourceDocumentId) {
+      setSourceHighlightReviewInboxState('reviewed')
+      focusSourceLibrary(origin.sourceDocumentId)
+      return
+    }
+    applyHighlightReviewReturnFilters(origin)
+    setHomeHighlightReviewInboxState('reviewed')
+    setHomeSelectedSectionKey(origin.collectionId ? buildHomeCustomCollectionSectionKey(origin.collectionId) : null)
+    updateLibraryState((current) => ({
+      ...current,
+      activeSurface: 'home',
+    }))
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeTab: 'overview',
+      mode: 'browse',
+      readerAnchor: null,
+    }))
+    setBrowseDrawerOpen('library', false)
+    onSectionChange('library')
+  }
+
+  function handleReturnToRelationPracticeConnection() {
+    const origin = getRelationPracticeReviewRecapOrigin(studyReviewSessionRecap)
+    if (!origin?.sourceDocumentId) {
+      return
+    }
+    if (origin.returnSurface === 'graph' && origin.relationEdgeId) {
+      const relationEdge = graphSnapshot?.edges.find((edge) => edge.id === origin.relationEdgeId) ?? null
+      if (relationEdge) {
+        handleReviewGraphConnection(relationEdge)
+        return
+      }
+    }
+    focusSourceLibrary(origin.sourceDocumentId, { focusedRelationEdgeId: origin.relationEdgeId })
+  }
+
+  function handleReturnToGraphPathPractice() {
+    const origin = getGraphPathPracticeReviewRecapOrigin(studyReviewSessionRecap)
+    if (!origin?.pathNodeIds.length) {
+      return
+    }
+    const startNodeId = origin.pathNodeIds[0] ?? null
+    const endNodeId = origin.pathNodeIds[origin.pathNodeIds.length - 1] ?? null
+    const pathSelectedNodeIds = startNodeId && endNodeId ? [startNodeId, endNodeId] : origin.pathNodeIds.slice(0, 2)
+    setGraphFocusedRelationEdgeId(null)
+    setGraphRequestedPathSelectionKey(buildGraphPathSelectionKey(pathSelectedNodeIds))
+    setBrowseDrawerOpen('graph', true)
+    updateGraphState((current) => ({
+      ...current,
+      focusTrailNodeIds: origin.pathNodeIds.reduce(
+        (trail, nodeId) => pushGraphFocusTrail(trail, nodeId),
+        current.focusTrailNodeIds,
+      ),
+      pathSelectedNodeIds,
+      selectedNodeId: startNodeId ?? null,
+    }))
+    updateSourceWorkspaceState((current) => ({
+      ...current,
+      activeTab: 'graph',
+      mode: 'browse',
+      readerAnchor: null,
+    }))
+    onSectionChange('graph')
+  }
+
+  function handleOpenCoveredHighlightRecapQuestions() {
+    const origin = getCoveredHighlightReviewRecapOrigin(studyReviewSessionRecap)
+    if (!origin) {
+      return
+    }
+    if (origin.collectionId) {
+      focusHomeCustomCollectionQuestions(origin.collectionId)
+      return
+    }
+    if (origin.sourceDocumentId) {
+      focusSourceStudyQuestions(origin.sourceDocumentId)
+      return
+    }
+    setBrowseDrawerOpen('study', true)
+    onSectionChange('study')
+  }
+
+  function handleOpenRelationPracticeRecapQuestions() {
+    const origin = getRelationPracticeReviewRecapOrigin(studyReviewSessionRecap)
+    if (!origin?.sourceDocumentId) {
+      setBrowseDrawerOpen('study', true)
+      onSectionChange('study')
+      return
+    }
+    focusSourceStudyQuestions(origin.sourceDocumentId, 'all', {
+      relationEdgeId: origin.relationEdgeId,
+    })
+  }
+
+  function handleOpenGraphPathPracticeRecapQuestions() {
+    const origin = getGraphPathPracticeReviewRecapOrigin(studyReviewSessionRecap)
+    if (!origin?.pathEdgeIds.length) {
+      setBrowseDrawerOpen('study', true)
+      onSectionChange('study')
+      return
+    }
+    focusGraphPathStudyQuestions({
+      edgeIds: origin.pathEdgeIds,
+      label: origin.pathLabel,
+      nodeIds: origin.pathNodeIds,
+      sourceDocumentId: origin.sourceDocumentId,
+    })
+  }
+
   function renderStudySessionRecap() {
     if (!studyReviewSessionRecap) {
       return null
     }
+    const highlightReviewOrigin = getCoveredHighlightReviewRecapOrigin(studyReviewSessionRecap)
+    const relationPracticeOrigin = getRelationPracticeReviewRecapOrigin(studyReviewSessionRecap)
+    const graphPathPracticeOrigin = getGraphPathPracticeReviewRecapOrigin(studyReviewSessionRecap)
+    const highlightReviewReturnLabel = highlightReviewOrigin?.sourceDocumentId
+      ? 'Back to source highlights'
+      : highlightReviewOrigin?.collectionId
+        ? 'Back to collection highlights'
+        : 'Back to Home highlights'
+    const relationPracticeReturnLabel =
+      relationPracticeOrigin?.returnSurface === 'graph' ? 'Back to Graph connection' : 'Back to source connection'
     return (
       <div
         className="recall-study-session-recap-stage948"
         data-study-session-recap-stage948={studyReviewSessionRecap.sessionId}
+        data-study-graph-path-practice-recap-stage1030={graphPathPracticeOrigin ? 'true' : undefined}
+        data-study-highlight-review-recap-stage990={highlightReviewOrigin ? 'true' : undefined}
+        data-study-relation-practice-recap-stage1022={relationPracticeOrigin ? 'true' : undefined}
       >
         <strong>Session recap</strong>
+        {highlightReviewOrigin ? (
+          <>
+            <span>Covered highlights practiced</span>
+            <span>{formatCountLabel(studyReviewSessionRecap.rated, 'highlight reviewed', 'highlights reviewed')}</span>
+          </>
+        ) : null}
+        {relationPracticeOrigin ? (
+          <>
+            <span>Connection practiced</span>
+            <span>{formatCountLabel(studyReviewSessionRecap.rated, 'connection reviewed', 'connections reviewed')}</span>
+            {relationPracticeOrigin.relationLabel ? <span>{relationPracticeOrigin.relationLabel}</span> : null}
+          </>
+        ) : null}
+        {graphPathPracticeOrigin ? (
+          <>
+            <span>Path practiced</span>
+            <span>{formatCountLabel(studyReviewSessionRecap.rated, 'path question reviewed', 'path questions reviewed')}</span>
+            <span>{graphPathPracticeOrigin.pathLabel}</span>
+          </>
+        ) : null}
         <span>{formatCountLabel(studyReviewSessionRecap.attempted, 'attempt', 'attempts')}</span>
         <span>{formatCountLabel(studyReviewSessionRecap.correct, 'correct answer', 'correct answers')}</span>
         <span>{formatCountLabel(studyReviewSessionRecap.skipped, 'unattempted rating', 'unattempted ratings')}</span>
@@ -19168,6 +22815,36 @@ export function RecallWorkspace({
             .filter(Boolean)
             .join(' / ') || 'All difficulty'}
         </span>
+        {highlightReviewOrigin ? (
+          <span className="recall-actions recall-actions-inline" data-study-highlight-review-recap-actions-stage990="true">
+            <button className="secondary-button" type="button" onClick={handleReturnToCoveredHighlightReview}>
+              {highlightReviewReturnLabel}
+            </button>
+            <button className="ghost-button" type="button" onClick={handleOpenCoveredHighlightRecapQuestions}>
+              Study questions
+            </button>
+          </span>
+        ) : null}
+        {relationPracticeOrigin ? (
+          <span className="recall-actions recall-actions-inline" data-study-relation-practice-recap-actions-stage1022="true">
+            <button className="secondary-button" type="button" onClick={handleReturnToRelationPracticeConnection}>
+              {relationPracticeReturnLabel}
+            </button>
+            <button className="ghost-button" type="button" onClick={handleOpenRelationPracticeRecapQuestions}>
+              Study questions
+            </button>
+          </span>
+        ) : null}
+        {graphPathPracticeOrigin ? (
+          <span className="recall-actions recall-actions-inline" data-study-graph-path-practice-recap-actions-stage1030="true">
+            <button className="secondary-button" type="button" onClick={handleReturnToGraphPathPractice}>
+              Back to Graph path
+            </button>
+            <button className="ghost-button" type="button" onClick={handleOpenGraphPathPracticeRecapQuestions}>
+              Study path questions
+            </button>
+          </span>
+        ) : null}
       </div>
     )
   }
@@ -20411,6 +24088,7 @@ export function RecallWorkspace({
             studyReviewHistoryFilterActive ? studyReviewHistoryFilter : undefined
           }
           data-study-question-difficulty-stage952={questionDifficulty}
+          data-study-relation-question-result-stage1014={studyRelationFilterActive ? studyRelationEdgeId ?? undefined : undefined}
           data-study-question-schedule-state-stage934={card.status}
           data-study-question-selected-stage936={selected ? 'true' : undefined}
           data-study-question-type-stage940={card.card_type}
@@ -21233,7 +24911,10 @@ export function RecallWorkspace({
                       onClick={() =>
                         updateStudyState((current) => ({
                           ...current,
+                          pathRelationEdgeIds: [],
+                          pathRelationLabel: null,
                           questionSearchQuery: '',
+                          relationEdgeId: null,
                           sourceScopeDocumentId: null,
                         }))
                       }
@@ -21247,6 +24928,8 @@ export function RecallWorkspace({
                 {renderStudyKnowledgeStageFilterChip('desktop')}
                 {renderStudyReviewHistoryFilterChip('desktop')}
                 {renderStudyDifficultyFilterChip('desktop')}
+                {renderStudyPathRelationFilterChip('desktop')}
+                {renderStudyRelationFilterChip('desktop')}
                 {renderStudyQuestionActiveFilters('desktop')}
                 <div className="recall-study-question-create-row-stage938">
                   {renderStudyCardCreateAction('desktop')}
@@ -21301,6 +24984,7 @@ export function RecallWorkspace({
                     data-study-knowledge-stage-empty-stage924={studyKnowledgeStageFilterActive ? 'true' : undefined}
                     data-study-review-history-empty-stage928={studyReviewHistoryFilterActive ? 'true' : undefined}
                     data-study-difficulty-empty-stage952={studyDifficultyFilterActive ? studyDifficultyFilter : undefined}
+                    data-study-relation-empty-stage1014={studyRelationFilterActive ? studyRelationEdgeId ?? 'true' : undefined}
                   >
                     <p>{getStudyQuestionsEmptyMessage()}</p>
                     {studyQuestionSearchActive ? (
@@ -21356,6 +25040,32 @@ export function RecallWorkspace({
                         onClick={() => updateStudyState((current) => ({ ...current, difficultyFilter: 'all' }))}
                       >
                         Clear difficulty
+                      </button>
+                    ) : null}
+                    {studyPathRelationFilterActive ? (
+                      <button
+                        className="ghost-button"
+                        data-study-path-relation-empty-clear-stage1032="true"
+                        type="button"
+                        onClick={() =>
+                          updateStudyState((current) => ({
+                            ...current,
+                            pathRelationEdgeIds: [],
+                            pathRelationLabel: null,
+                          }))
+                        }
+                      >
+                        Clear path
+                      </button>
+                    ) : null}
+                    {studyRelationFilterActive ? (
+                      <button
+                        className="ghost-button"
+                        data-study-relation-empty-clear-stage1014="true"
+                        type="button"
+                        onClick={() => updateStudyState((current) => ({ ...current, relationEdgeId: null }))}
+                      >
+                        Clear relation
                       </button>
                     ) : null}
                   </div>
@@ -24792,6 +28502,8 @@ export function RecallWorkspace({
                       {renderStudyKnowledgeStageFilterChip('focused')}
                       {renderStudyReviewHistoryFilterChip('focused')}
                       {renderStudyDifficultyFilterChip('focused')}
+                      {renderStudyPathRelationFilterChip('focused')}
+                      {renderStudyRelationFilterChip('focused')}
                       {renderStudyQuestionActiveFilters('focused')}
                       <div className="recall-study-question-create-row-stage938">
                         {renderStudyCardCreateAction('focused')}
@@ -24942,6 +28654,9 @@ export function RecallWorkspace({
                           studyBrowseDrawerOpen && studyReviewHistoryFilterActive ? studyReviewHistoryFilter : undefined
                         }
                         data-study-question-difficulty-stage952={questionDifficulty}
+                        data-study-relation-question-result-stage1014={
+                          studyBrowseDrawerOpen && studyRelationFilterActive ? studyRelationEdgeId ?? undefined : undefined
+                        }
                         data-study-question-schedule-state-stage934={card.status}
                         data-study-question-selected-stage936={selected ? 'true' : undefined}
                         data-study-question-type-stage940={card.card_type}
@@ -25076,7 +28791,14 @@ export function RecallWorkspace({
                 ) : null}
               </div>
 
-              {!activeStudyCard ? <p className="small-note">No active study card yet.</p> : null}
+              {!activeStudyCard ? (
+                studyReviewSessionRecap ? (
+                  renderStudySessionRecap()
+                ) : (
+                  <p className="small-note">No active study card yet.</p>
+                )
+              ) : null}
+              {activeStudyCard && studyReviewSessionRecap ? renderStudySessionRecap() : null}
               {activeStudyCard ? (
                 <div
                   className={
@@ -25133,7 +28855,10 @@ export function RecallWorkspace({
                       >
                         {renderStudyCardEditSurface('focused')}
                         {renderStudyReviewSessionProgress(activeStudyCard, 'focused')}
-                        <div className="recall-study-focused-review-section recall-study-focused-review-section-prompt">
+                        <div
+                          className="recall-study-focused-review-section recall-study-focused-review-section-prompt"
+                          aria-label="Active review prompt"
+                        >
                           <strong>Prompt</strong>
                           <p>{activeStudyCard.prompt}</p>
                         </div>

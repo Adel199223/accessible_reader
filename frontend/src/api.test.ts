@@ -9,6 +9,7 @@ import {
   fetchLibraryCollectionOverview,
   completeRecallDocumentReading,
   fetchDocuments,
+  fetchHighlightReviewInbox,
   fetchLibraryReadingQueue,
   fetchRecallDocumentPreview,
   importBatchDocuments,
@@ -16,6 +17,7 @@ import {
   previewBatchImport,
   previewWorkspaceImport,
   saveLibrarySettings,
+  updateRecallNoteReviewState,
 } from './api'
 import type { LibrarySettings } from './types'
 
@@ -184,12 +186,20 @@ test('fetchLibraryReadingQueue reads scoped queue rows and completion posts mode
         dry_run: true,
         scope: 'all',
         state: 'in_progress',
+        learning_filter: 'covered',
         collection_id: 'collection:learning',
         summary: {
           total_sources: 2,
           unread_sources: 1,
           in_progress_sources: 1,
           completed_sources: 0,
+        },
+        learning_summary: {
+          needs_review_sources: 1,
+          uncovered_sources: 1,
+          covered_sources: 1,
+          study_prompt_sources: 1,
+          graph_gap_sources: 1,
         },
         rows: [
           {
@@ -207,6 +217,15 @@ test('fetchLibraryReadingQueue reads scoped queue rows and completion posts mode
             collection_paths: [[{ id: 'collection:learning', name: 'Learning' }]],
             note_count: 2,
             highlight_count: 1,
+            highlight_review_counts: {
+              total: 2,
+              needs_review: 1,
+              covered: 1,
+              reviewed: 1,
+              dismissed: 0,
+              graph_covered: 0,
+              ungraphed: 1,
+            },
             study_counts: { new: 1, due: 0, total: 1 },
           },
         ],
@@ -226,11 +245,13 @@ test('fetchLibraryReadingQueue reads scoped queue rows and completion posts mode
   await expect(
     fetchLibraryReadingQueue({
       collectionId: 'collection:learning',
+      learningFilter: 'covered',
       limit: 10,
       state: 'in_progress',
-    }),
+    } as Parameters<typeof fetchLibraryReadingQueue>[0] & { learningFilter: 'covered' }),
   ).resolves.toMatchObject({
     collection_id: 'collection:learning',
+    learning_filter: 'covered',
     rows: [expect.objectContaining({ id: 'doc-child', progress_percent: 67 })],
   })
   await expect(completeRecallDocumentReading('doc-child', 'reflowed')).resolves.toMatchObject({
@@ -239,7 +260,7 @@ test('fetchLibraryReadingQueue reads scoped queue rows and completion posts mode
   })
   expect(fetchMock).toHaveBeenNthCalledWith(
     1,
-    '/api/recall/library/reading-queue?collection_id=collection%3Alearning&state=in_progress&limit=10',
+    '/api/recall/library/reading-queue?collection_id=collection%3Alearning&state=in_progress&learning_filter=covered&limit=10',
     undefined,
   )
   expect(fetchMock).toHaveBeenNthCalledWith(
@@ -249,6 +270,111 @@ test('fetchLibraryReadingQueue reads scoped queue rows and completion posts mode
       body: JSON.stringify({ mode: 'reflowed' }),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
+    },
+  )
+})
+
+test('fetchHighlightReviewInbox reads scoped review rows and note review-state patching', async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(
+      buildJsonResponse({
+        scope: 'all',
+        state: 'covered',
+        reading_state: 'in_progress',
+        learning_filter: 'covered',
+        collection_id: 'collection:learning',
+        source_document_id: null,
+        summary: {
+          total_items: 2,
+          needs_review_items: 1,
+          uncovered_items: 1,
+          covered_items: 1,
+          reviewable_covered_items: 1,
+          reviewed_items: 1,
+          dismissed_items: 0,
+        },
+        reviewable_study_card_ids: ['card-note-child'],
+        rows: [
+          {
+            note_id: 'note-child',
+            note_kind: 'sentence',
+            source_document_id: 'doc-child',
+            source_title: 'Child source',
+            anchor_text: 'Important sentence.',
+            excerpt_preview: 'Important sentence.',
+            body_preview: 'Remember this.',
+            global_sentence_start: 1,
+            global_sentence_end: 1,
+            membership: 'descendant',
+            collection_paths: [[{ id: 'collection:learning', name: 'Learning' }]],
+            review_state: 'reviewed',
+            reviewed_at: '2026-03-13T00:33:00Z',
+            dismissed_at: null,
+            study_covered: true,
+            study_card_id: 'card-note-child',
+            updated_at: '2026-03-13T00:33:00Z',
+          },
+        ],
+      }),
+    )
+    .mockResolvedValueOnce(
+      buildJsonResponse({
+        id: 'note-child',
+        anchor: {
+          source_document_id: 'doc-child',
+          variant_id: 'variant-doc-child',
+          block_id: 'child-1',
+          sentence_start: 1,
+          sentence_end: 1,
+          global_sentence_start: 1,
+          global_sentence_end: 1,
+          anchor_text: 'Important sentence.',
+          excerpt_text: 'Important sentence.',
+        },
+        body_text: 'Remember this.',
+        review_state: 'dismissed',
+        reviewed_at: null,
+        dismissed_at: '2026-03-13T00:34:00Z',
+        study_covered: true,
+        study_card_id: 'card-note-child',
+        created_at: '2026-03-13T00:31:00Z',
+        updated_at: '2026-03-13T00:34:00Z',
+      }),
+    )
+  vi.stubGlobal('fetch', fetchMock)
+
+  await expect(
+    fetchHighlightReviewInbox({
+      collectionId: 'collection:learning',
+      learningFilter: 'covered',
+      limit: 5,
+      readingState: 'in_progress',
+      state: 'covered',
+    }),
+  ).resolves.toMatchObject({
+    reviewable_study_card_ids: ['card-note-child'],
+    summary: { covered_items: 1, needs_review_items: 1, reviewable_covered_items: 1 },
+    rows: [expect.objectContaining({ note_id: 'note-child', study_card_id: 'card-note-child' })],
+  })
+  await expect(
+    updateRecallNoteReviewState('note-child', { review_state: 'dismissed' }),
+  ).resolves.toMatchObject({
+    id: 'note-child',
+    review_state: 'dismissed',
+    dismissed_at: '2026-03-13T00:34:00Z',
+  })
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    1,
+    '/api/recall/library/highlight-review-inbox?collection_id=collection%3Alearning&state=covered&reading_state=in_progress&learning_filter=covered&limit=5',
+    undefined,
+  )
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    2,
+    '/api/recall/notes/note-child/review-state',
+    {
+      body: JSON.stringify({ review_state: 'dismissed' }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH',
     },
   )
 })

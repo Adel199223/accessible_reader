@@ -11,10 +11,19 @@ export interface RecallNoteAnchor {
   excerpt_text: string
 }
 
+export type RecallNoteReviewState = 'unreviewed' | 'reviewed' | 'dismissed'
+
 export interface RecallNoteRecord {
   id: string
   anchor: RecallNoteAnchor
   body_text?: string | null
+  review_state?: RecallNoteReviewState
+  reviewed_at?: string | null
+  dismissed_at?: string | null
+  study_covered?: boolean
+  study_card_id?: string | null
+  graph_covered?: boolean
+  graph_node_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -26,6 +35,10 @@ export interface RecallNoteCreateRequest {
 
 export interface RecallNoteUpdateRequest {
   body_text?: string | null
+}
+
+export interface RecallNoteReviewStateUpdateRequest {
+  review_state: RecallNoteReviewState
 }
 
 export interface RecallNoteGraphPromotionRequest {
@@ -44,6 +57,13 @@ export interface RecallNoteSearchHit {
   document_title: string
   score: number
   body_text?: string | null
+  review_state?: RecallNoteReviewState
+  reviewed_at?: string | null
+  dismissed_at?: string | null
+  study_covered?: boolean
+  study_card_id?: string | null
+  graph_covered?: boolean
+  graph_node_id?: string | null
   created_at: string
   updated_at: string
 }

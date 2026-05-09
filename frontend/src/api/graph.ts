@@ -6,7 +6,7 @@ import type {
 } from '../types'
 import { request } from './core'
 
-export function fetchRecallGraph(limitNodes = 40, limitEdges = 60) {
+export function fetchRecallGraph(limitNodes = 240, limitEdges = 400) {
   const search = new URLSearchParams({
     limit_edges: String(limitEdges),
     limit_nodes: String(limitNodes),

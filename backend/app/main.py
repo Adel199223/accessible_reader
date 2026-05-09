@@ -38,8 +38,11 @@ from .models import (
     KnowledgeGraphSnapshot,
     KnowledgeNodeDetail,
     KnowledgeNodeRecord,
+    HighlightReviewInboxResponse,
+    HighlightReviewInboxState,
     LibraryCollectionOverview,
     LibraryReadingQueueResponse,
+    LibraryReadingQueueLearningFilter,
     LibraryReadingQueueScope,
     LibraryReadingQueueState,
     LibrarySettings,
@@ -50,6 +53,7 @@ from .models import (
     RecallNoteCreateRequest,
     RecallNoteGraphPromotionRequest,
     RecallNoteRecord,
+    RecallNoteReviewStateUpdateRequest,
     RecallNoteSearchHit,
     RecallNoteStudyPromotionRequest,
     RecallNoteUpdateRequest,
@@ -487,6 +491,20 @@ def update_recall_note(note_id: str, payload: RecallNoteUpdateRequest) -> Recall
     return note
 
 
+@app.patch("/api/recall/notes/{note_id}/review-state", response_model=RecallNoteRecord)
+def update_recall_note_review_state(
+    note_id: str,
+    payload: RecallNoteReviewStateUpdateRequest,
+) -> RecallNoteRecord:
+    try:
+        note = repository.update_recall_note_review_state(note_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found.")
+    return note
+
+
 @app.delete("/api/recall/notes/{note_id}", status_code=204)
 def delete_recall_note(note_id: str) -> None:
     deleted = repository.delete_recall_note(note_id)
@@ -609,6 +627,7 @@ def get_recall_library_reading_queue(
     scope: LibraryReadingQueueScope = Query("all"),
     collection_id: str | None = None,
     state: LibraryReadingQueueState = Query("all"),
+    learning_filter: LibraryReadingQueueLearningFilter = Query("all"),
     limit: int = Query(default=20, ge=1, le=50),
 ) -> LibraryReadingQueueResponse:
     try:
@@ -616,6 +635,7 @@ def get_recall_library_reading_queue(
             scope=scope,
             collection_id=collection_id,
             state=state,
+            learning_filter=learning_filter,
             limit=limit,
         )
     except ValueError as error:
@@ -623,6 +643,33 @@ def get_recall_library_reading_queue(
     if not queue:
         raise HTTPException(status_code=404, detail="Library collection not found.")
     return queue
+
+
+@app.get("/api/recall/library/highlight-review-inbox", response_model=HighlightReviewInboxResponse)
+def get_recall_library_highlight_review_inbox(
+    scope: LibraryReadingQueueScope = Query("all"),
+    collection_id: str | None = None,
+    source_document_id: str | None = None,
+    state: HighlightReviewInboxState = Query("needs_review"),
+    reading_state: LibraryReadingQueueState = Query("all"),
+    learning_filter: LibraryReadingQueueLearningFilter = Query("all"),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> HighlightReviewInboxResponse:
+    try:
+        inbox = repository.get_highlight_review_inbox(
+            scope=scope,
+            collection_id=collection_id,
+            source_document_id=source_document_id,
+            state=state,
+            reading_state=reading_state,
+            learning_filter=learning_filter,
+            limit=limit,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not inbox:
+        raise HTTPException(status_code=404, detail="Highlight review source not found.")
+    return inbox
 
 
 @app.get("/api/recall/library/collections/{collection_id}/overview", response_model=LibraryCollectionOverview)

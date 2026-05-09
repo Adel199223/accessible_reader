@@ -1,5 +1,6 @@
 import type { ViewMode } from './base'
 import type { BatchResolvedImportFormat } from './import'
+import type { RecallNoteReviewState } from './recall'
 
 export interface LibraryCollection {
   id: string
@@ -83,6 +84,13 @@ export interface LibraryCollectionHighlightReviewItem {
   membership: 'direct' | 'descendant'
   global_sentence_start?: number | null
   global_sentence_end?: number | null
+  review_state?: RecallNoteReviewState
+  reviewed_at?: string | null
+  dismissed_at?: string | null
+  study_covered?: boolean
+  study_card_id?: string | null
+  graph_covered?: boolean
+  graph_node_id?: string | null
   updated_at: string
 }
 
@@ -107,6 +115,22 @@ export interface LibraryCollectionOverview {
 
 export type LibraryReadingQueueScope = 'all' | 'web' | 'documents' | 'captures' | 'untagged'
 export type LibraryReadingQueueState = 'all' | 'unread' | 'in_progress' | 'completed'
+export type LibraryReadingQueueLearningFilter =
+  | 'all'
+  | 'needs_review'
+  | 'uncovered'
+  | 'covered'
+  | 'study_prompts'
+  | 'graph_gaps'
+export type HighlightReviewInboxState =
+  | 'needs_review'
+  | 'uncovered'
+  | 'covered'
+  | 'connected'
+  | 'unconnected'
+  | 'reviewed'
+  | 'dismissed'
+  | 'all'
 
 export interface LibraryReadingQueueSummary {
   total_sources: number
@@ -119,6 +143,24 @@ export interface LibraryReadingQueueStudyCounts {
   new: number
   due: number
   total: number
+}
+
+export interface LibraryReadingQueueHighlightReviewCounts {
+  total: number
+  needs_review: number
+  covered: number
+  reviewed: number
+  dismissed: number
+  graph_covered: number
+  ungraphed: number
+}
+
+export interface LibraryReadingQueueLearningSummary {
+  needs_review_sources: number
+  uncovered_sources: number
+  covered_sources: number
+  study_prompt_sources: number
+  graph_gap_sources: number
 }
 
 export interface LibraryReadingQueueRow {
@@ -136,6 +178,7 @@ export interface LibraryReadingQueueRow {
   collection_paths: LibraryCollectionPathItem[][]
   note_count: number
   highlight_count: number
+  highlight_review_counts: LibraryReadingQueueHighlightReviewCounts
   study_counts: LibraryReadingQueueStudyCounts
 }
 
@@ -143,7 +186,55 @@ export interface LibraryReadingQueueResponse {
   dry_run: boolean
   scope: LibraryReadingQueueScope
   state: LibraryReadingQueueState
+  learning_filter: LibraryReadingQueueLearningFilter
   collection_id?: string | null
   summary: LibraryReadingQueueSummary
+  learning_summary: LibraryReadingQueueLearningSummary
   rows: LibraryReadingQueueRow[]
+}
+
+export interface HighlightReviewInboxSummary {
+  total_items: number
+  needs_review_items: number
+  uncovered_items: number
+  covered_items: number
+  reviewable_covered_items: number
+  reviewed_items: number
+  dismissed_items: number
+  graph_covered_items: number
+  ungraphed_items: number
+}
+
+export interface HighlightReviewInboxRow {
+  note_id: string
+  note_kind: 'sentence' | 'source'
+  source_document_id: string
+  source_title: string
+  anchor_text: string
+  excerpt_preview: string
+  body_preview?: string | null
+  global_sentence_start?: number | null
+  global_sentence_end?: number | null
+  membership?: 'direct' | 'descendant' | null
+  collection_paths: LibraryCollectionPathItem[][]
+  review_state: RecallNoteReviewState
+  reviewed_at?: string | null
+  dismissed_at?: string | null
+  study_covered: boolean
+  study_card_id?: string | null
+  graph_covered: boolean
+  graph_node_id?: string | null
+  updated_at: string
+}
+
+export interface HighlightReviewInboxResponse {
+  scope: LibraryReadingQueueScope
+  state: HighlightReviewInboxState
+  reading_state: LibraryReadingQueueState
+  learning_filter: LibraryReadingQueueLearningFilter
+  collection_id?: string | null
+  source_document_id?: string | null
+  summary: HighlightReviewInboxSummary
+  reviewable_study_card_ids: string[]
+  rows: HighlightReviewInboxRow[]
 }

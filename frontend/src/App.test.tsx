@@ -10,6 +10,7 @@ import type {
   DocumentView,
   KnowledgeGraphSnapshot,
   KnowledgeNodeDetail,
+  HighlightReviewInboxResponse,
   LibrarySettings,
   LibraryCollectionOverview,
   LibraryReadingQueueResponse,
@@ -683,6 +684,86 @@ function makeSourceRecallNote(id: string, documentId: string, sourceTitle: strin
   }
 }
 
+function getMockHighlightReviewCounts(documentId: string): LibraryReadingQueueResponse['rows'][number]['highlight_review_counts'] {
+  const notes = recallNotesByDocument[documentId] ?? []
+  const coveredNoteIds = new Set(
+    studyCardsState.flatMap((card) =>
+      card.source_spans
+        .map((span) => span.note_id)
+        .filter((noteId): noteId is string => Boolean(noteId)),
+    ),
+  )
+  return notes.reduce(
+    (counts, note) => {
+      const reviewState = note.review_state ?? 'unreviewed'
+      const studyCovered = coveredNoteIds.has(note.id)
+      const graphCovered = note.graph_covered ?? Boolean(note.graph_node_id)
+      counts.total += 1
+      if (reviewState === 'unreviewed' && !studyCovered) {
+        counts.needs_review += 1
+      }
+      if (studyCovered) {
+        counts.covered += 1
+      }
+      if (reviewState === 'reviewed') {
+        counts.reviewed += 1
+      }
+      if (reviewState === 'dismissed') {
+        counts.dismissed += 1
+      }
+      if (graphCovered) {
+        counts.graph_covered += 1
+      }
+      if (reviewState !== 'dismissed' && !graphCovered) {
+        counts.ungraphed += 1
+      }
+      return counts
+    },
+    {
+      total: 0,
+      needs_review: 0,
+      covered: 0,
+      reviewed: 0,
+      dismissed: 0,
+      graph_covered: 0,
+      ungraphed: 0,
+    },
+  )
+}
+
+function getMockReadingQueueLearningSummary(
+  rows: LibraryReadingQueueResponse['rows'],
+): LibraryReadingQueueResponse['learning_summary'] {
+  return rows.reduce(
+    (summary, row) => {
+      const reviewCounts = row.highlight_review_counts
+      if (reviewCounts.needs_review > 0) {
+        summary.needs_review_sources += 1
+      }
+      if (Math.max(0, reviewCounts.total - reviewCounts.covered - reviewCounts.dismissed) > 0) {
+        summary.uncovered_sources += 1
+      }
+      if (reviewCounts.covered > 0) {
+        summary.covered_sources += 1
+      }
+      if (row.study_counts.due + row.study_counts.new > 0) {
+        summary.study_prompt_sources += 1
+      }
+      if (reviewCounts.ungraphed > 0) {
+        summary.graph_gap_sources += 1
+      }
+      return summary
+    },
+    {
+      needs_review_sources: 0,
+      uncovered_sources: 0,
+      covered_sources: 0,
+      study_prompt_sources: 0,
+      graph_gap_sources: 0,
+    },
+  )
+}
+
 function getRecallDocumentTitle(documentId: string) {
   return recallDocuments.find((document) => document.id === documentId)?.title ?? 'Saved note'
 }
@@ -837,6 +918,7 @@ const {
   fetchRecallGraphMock,
   fetchRecallGraphNodeMock,
   fetchLibraryCollectionOverviewMock,
+  fetchHighlightReviewInboxMock,
   fetchLibraryReadingQueueMock,
   completeRecallDocumentReadingMock,
   fetchRecallNotesMock,
@@ -867,6 +949,7 @@ const {
   startRecallStudyReviewSessionMock,
   updateRecallStudyCardMock,
   updateRecallNoteMock,
+  updateRecallNoteReviewStateMock,
   mockSpeechState,
 } =
   vi.hoisted(() => {
@@ -888,6 +971,7 @@ const {
     const fetchRecallGraphMock = vi.fn()
     const fetchRecallGraphNodeMock = vi.fn()
     const fetchLibraryCollectionOverviewMock = vi.fn()
+    const fetchHighlightReviewInboxMock = vi.fn()
     const fetchLibraryReadingQueueMock = vi.fn()
     const completeRecallDocumentReadingMock = vi.fn()
     const fetchRecallNotesMock = vi.fn()
@@ -918,6 +1002,7 @@ const {
     const startRecallStudyReviewSessionMock = vi.fn()
     const updateRecallStudyCardMock = vi.fn()
     const updateRecallNoteMock = vi.fn()
+    const updateRecallNoteReviewStateMock = vi.fn()
 
     return {
       createRecallStudyAnswerAttemptMock,
@@ -936,6 +1021,7 @@ const {
       fetchRecallGraphMock,
       fetchRecallGraphNodeMock,
       fetchLibraryCollectionOverviewMock,
+      fetchHighlightReviewInboxMock,
       fetchLibraryReadingQueueMock,
       completeRecallDocumentReadingMock,
       fetchRecallNotesMock,
@@ -966,6 +1052,7 @@ const {
       startRecallStudyReviewSessionMock,
       updateRecallStudyCardMock,
       updateRecallNoteMock,
+      updateRecallNoteReviewStateMock,
       mockSpeechState: {
         isSupported: true,
         isSpeaking: false,
@@ -1012,6 +1099,7 @@ vi.mock('./api', () => ({
   fetchRecallGraph: fetchRecallGraphMock,
   fetchRecallGraphNode: fetchRecallGraphNodeMock,
   fetchLibraryCollectionOverview: fetchLibraryCollectionOverviewMock,
+  fetchHighlightReviewInbox: fetchHighlightReviewInboxMock,
   fetchLibraryReadingQueue: fetchLibraryReadingQueueMock,
   fetchRecallNotes: fetchRecallNotesMock,
   fetchSettings: vi.fn(async () => settings),
@@ -1045,6 +1133,7 @@ vi.mock('./api', () => ({
   searchRecall: vi.fn(),
   saveProgress: saveProgressMock,
   updateRecallNote: updateRecallNoteMock,
+  updateRecallNoteReviewState: updateRecallNoteReviewStateMock,
 }))
 
 vi.mock('./hooks/useSpeech', () => ({
@@ -1099,6 +1188,7 @@ beforeEach(() => {
   fetchRecallGraphMock.mockReset()
   fetchRecallGraphNodeMock.mockReset()
   fetchLibraryCollectionOverviewMock.mockReset()
+  fetchHighlightReviewInboxMock.mockReset()
   fetchLibraryReadingQueueMock.mockReset()
   completeRecallDocumentReadingMock.mockReset()
   fetchRecallNotesMock.mockReset()
@@ -1133,6 +1223,7 @@ beforeEach(() => {
   startRecallStudyReviewSessionMock.mockReset()
   updateRecallStudyCardMock.mockReset()
   updateRecallNoteMock.mockReset()
+  updateRecallNoteReviewStateMock.mockReset()
   window.history.pushState({}, '', '/reader')
   deleteDocumentRecordMock.mockImplementation(async (documentId: string) => {
     void documentId
@@ -1210,18 +1301,124 @@ beforeEach(() => {
       recent_activity: [],
     } satisfies LibraryCollectionOverview
   })
-  fetchLibraryReadingQueueMock.mockImplementation(async (): Promise<LibraryReadingQueueResponse> => ({
-    dry_run: true,
-    scope: 'all',
-    state: 'all',
-    collection_id: null,
-    summary: {
-      total_sources: documents.length,
-      unread_sources: documents.length,
-      in_progress_sources: 0,
-      completed_sources: 0,
+  fetchHighlightReviewInboxMock.mockImplementation(
+    async (options?: {
+      collectionId?: string | null
+      learningFilter?: string | null
+      limit?: number | null
+      readingState?: string | null
+      scope?: string | null
+      sourceDocumentId?: string | null
+      state?: string | null
+    }): Promise<HighlightReviewInboxResponse> => {
+      const studyCoveragePriority = { due: 0, new: 1, scheduled: 2, unscheduled: 3 } as const
+      const studyCardsForNote = (noteId: string) =>
+        studyCardsState.filter((card) => card.source_spans.some((span) => span.note_id === noteId))
+      const sortCoveredCardsForNote = (cards: typeof studyCardsState) =>
+        [...cards].sort((left, right) => studyCoveragePriority[left.status] - studyCoveragePriority[right.status])
+      const preferredStudyCardForNote = (noteId: string) => sortCoveredCardsForNote(studyCardsForNote(noteId))[0] ?? null
+      const noteRows = Object.entries(recallNotesByDocument).flatMap(([documentId, notes]) =>
+        notes
+          .filter((note) => !options?.sourceDocumentId || note.anchor.source_document_id === options.sourceDocumentId)
+          .filter(() => {
+            if (!options?.collectionId) {
+              return true
+            }
+            const collection = librarySettingsState.custom_collections.find(
+              (candidate) => candidate.id === options.collectionId,
+            )
+            return collection ? collection.document_ids.includes(documentId) : false
+          })
+          .map((note) => {
+            const source = recallDocuments.find((document) => document.id === note.anchor.source_document_id)
+            const coveredCards = studyCardsForNote(note.id)
+            const studyCard = preferredStudyCardForNote(note.id)
+            return {
+              note_id: note.id,
+              note_kind: note.anchor.kind === 'source' ? 'source' : 'sentence',
+              source_document_id: note.anchor.source_document_id,
+              source_title: source?.title ?? 'Unknown source',
+              anchor_text: note.anchor.anchor_text,
+              excerpt_preview: note.anchor.excerpt_text,
+              body_preview: note.body_text ?? null,
+              global_sentence_start: note.anchor.kind === 'source' ? null : note.anchor.global_sentence_start,
+              global_sentence_end: note.anchor.kind === 'source' ? null : note.anchor.global_sentence_end,
+              membership: options?.collectionId ? 'direct' : null,
+              collection_paths: [],
+              review_state: note.review_state ?? 'unreviewed',
+              reviewed_at: note.reviewed_at ?? null,
+              dismissed_at: note.dismissed_at ?? null,
+              study_covered: coveredCards.length > 0,
+              study_card_id: studyCard?.id ?? null,
+              graph_covered: note.graph_covered ?? false,
+              graph_node_id: note.graph_node_id ?? null,
+              updated_at: note.updated_at,
+            } satisfies HighlightReviewInboxResponse['rows'][number]
+          }),
+      )
+      const rowNeedsReview = (row: HighlightReviewInboxResponse['rows'][number]) =>
+        row.review_state === 'unreviewed' && !row.study_covered
+      const rowUncovered = (row: HighlightReviewInboxResponse['rows'][number]) =>
+        row.review_state !== 'dismissed' && !row.study_covered
+      const rowConnected = (row: HighlightReviewInboxResponse['rows'][number]) => row.graph_covered
+      const rowUnconnected = (row: HighlightReviewInboxResponse['rows'][number]) =>
+        row.review_state !== 'dismissed' && !row.graph_covered
+      const state = options?.state ?? 'needs_review'
+      const rows =
+        state === 'needs_review'
+          ? noteRows.filter(rowNeedsReview)
+          : state === 'uncovered'
+            ? noteRows.filter(rowUncovered)
+            : state === 'covered'
+              ? noteRows.filter((row) => row.study_covered)
+              : state === 'connected'
+                ? noteRows.filter(rowConnected)
+                : state === 'unconnected'
+                  ? noteRows.filter(rowUnconnected)
+                  : state === 'reviewed'
+                    ? noteRows.filter((row) => row.review_state === 'reviewed')
+                    : state === 'dismissed'
+                      ? noteRows.filter((row) => row.review_state === 'dismissed')
+                      : noteRows
+      const reviewableStudyCardIds = Array.from(
+        new Set(
+          noteRows.flatMap((row) =>
+            sortCoveredCardsForNote(studyCardsForNote(row.note_id))
+              .filter((card) => card.status === 'due' || card.status === 'new')
+              .map((card) => card.id),
+          ),
+        ),
+      )
+      return {
+        scope: 'all',
+        state: state as HighlightReviewInboxResponse['state'],
+        reading_state: (options?.readingState ?? 'all') as HighlightReviewInboxResponse['reading_state'],
+        learning_filter: (options?.learningFilter ?? 'all') as HighlightReviewInboxResponse['learning_filter'],
+        collection_id: options?.collectionId ?? null,
+        source_document_id: options?.sourceDocumentId ?? null,
+        summary: {
+          total_items: noteRows.length,
+          needs_review_items: noteRows.filter(rowNeedsReview).length,
+          uncovered_items: noteRows.filter(rowUncovered).length,
+          covered_items: noteRows.filter((row) => row.study_covered).length,
+          reviewable_covered_items: noteRows.filter((row) =>
+            studyCardsForNote(row.note_id).some((card) => card.status === 'due' || card.status === 'new'),
+          ).length,
+          reviewed_items: noteRows.filter((row) => row.review_state === 'reviewed').length,
+          dismissed_items: noteRows.filter((row) => row.review_state === 'dismissed').length,
+          graph_covered_items: noteRows.filter((row) => row.graph_covered).length,
+          ungraphed_items: noteRows.filter((row) => row.review_state !== 'dismissed' && !row.graph_covered).length,
+        },
+        reviewable_study_card_ids: reviewableStudyCardIds,
+        rows: rows.slice(0, options?.limit ?? 20),
+      }
     },
-    rows: documents.map((document) => ({
+  )
+  fetchLibraryReadingQueueMock.mockImplementation(async (options?: {
+    learningFilter?: string | null
+    state?: string | null
+  }): Promise<LibraryReadingQueueResponse> => {
+    const allRows: LibraryReadingQueueResponse['rows'] = documents.map((document) => ({
       id: document.id,
       title: document.title,
       source_type: document.source_type,
@@ -1236,13 +1433,50 @@ beforeEach(() => {
       collection_paths: [],
       note_count: recallNotesByDocument[document.id]?.length ?? 0,
       highlight_count: (recallNotesByDocument[document.id] ?? []).filter((note) => note.anchor.kind === 'sentence').length,
+      highlight_review_counts: getMockHighlightReviewCounts(document.id),
       study_counts: {
         due: studyCardsState.filter((card) => card.source_document_id === document.id && card.status === 'due').length,
         new: studyCardsState.filter((card) => card.source_document_id === document.id && card.status === 'new').length,
         total: studyCardsState.filter((card) => card.source_document_id === document.id).length,
       },
-    })),
-  }))
+    }))
+    const state = options?.state ?? 'all'
+    const learningFilter = options?.learningFilter ?? 'all'
+    const stateRows = state === 'all' ? allRows : allRows.filter((row) => row.state === state)
+    const rows = stateRows.filter((row) => {
+      if (learningFilter === 'needs_review') {
+        return row.highlight_review_counts.needs_review > 0
+      }
+      if (learningFilter === 'uncovered') {
+        return Math.max(0, row.highlight_review_counts.total - row.highlight_review_counts.covered - row.highlight_review_counts.dismissed) > 0
+      }
+      if (learningFilter === 'covered') {
+        return row.highlight_review_counts.covered > 0
+      }
+      if (learningFilter === 'study_prompts') {
+        return row.study_counts.due + row.study_counts.new > 0
+      }
+      if (learningFilter === 'graph_gaps') {
+        return row.highlight_review_counts.ungraphed > 0
+      }
+      return true
+    })
+    return {
+      dry_run: true,
+      scope: 'all',
+      state: state as LibraryReadingQueueResponse['state'],
+      learning_filter: learningFilter as LibraryReadingQueueResponse['learning_filter'],
+      collection_id: null,
+      summary: {
+        total_sources: allRows.length,
+        unread_sources: allRows.filter((row) => row.state === 'unread').length,
+        in_progress_sources: allRows.filter((row) => row.state === 'in_progress').length,
+        completed_sources: allRows.filter((row) => row.state === 'completed').length,
+      },
+      learning_summary: getMockReadingQueueLearningSummary(stateRows),
+      rows,
+    }
+  })
   completeRecallDocumentReadingMock.mockImplementation(async (documentId: string, mode = 'reflowed') => ({
     document_id: documentId,
     mode,
@@ -1276,6 +1510,30 @@ beforeEach(() => {
           (status === 'all' || card.status === status) &&
           (!sourceDocumentId || card.source_document_id === sourceDocumentId),
       ),
+  )
+  updateRecallNoteReviewStateMock.mockImplementation(
+    async (noteId: string, payload: { review_state: 'unreviewed' | 'reviewed' | 'dismissed' }) => {
+      for (const [documentId, notes] of Object.entries(recallNotesByDocument)) {
+        const noteIndex = notes.findIndex((note) => note.id === noteId)
+        if (noteIndex === -1) {
+          continue
+        }
+        const timestamp = '2026-03-13T01:05:00Z'
+        const updatedNote: RecallNoteRecord = {
+          ...notes[noteIndex],
+          review_state: payload.review_state,
+          reviewed_at: payload.review_state === 'reviewed' ? timestamp : null,
+          dismissed_at: payload.review_state === 'dismissed' ? timestamp : null,
+          updated_at: timestamp,
+        }
+        recallNotesByDocument = {
+          ...recallNotesByDocument,
+          [documentId]: [...notes.slice(0, noteIndex), updatedNote, ...notes.slice(noteIndex + 1)],
+        }
+        return updatedNote
+      }
+      throw new Error('Note not found.')
+    },
   )
   startRecallStudyReviewSessionMock.mockImplementation(async (payload: StudyReviewSessionStartRequest) => ({
     id: `study-session-mock-${startRecallStudyReviewSessionMock.mock.calls.length}`,
@@ -1346,6 +1604,7 @@ beforeEach(() => {
     const cardId = `card:manual:${studyCardsState.length + 1}`
     const supportPayload = payload.support_payload ?? null
     const questionDifficulty = payload.question_difficulty ?? 'medium'
+    const requestedSourceSpans = payload.source_spans
     const createdCard: StudyCardRecord = {
       id: cardId,
       source_document_id: source.id,
@@ -1353,15 +1612,22 @@ beforeEach(() => {
       prompt: payload.prompt.trim(),
       answer: payload.answer.trim(),
       card_type: cardType,
-      source_spans: [
-        {
-          anchor_kind: 'source',
-          excerpt: `${source.title} source evidence.`,
-          manual_source: 'study_manual',
-          source_document_id: source.id,
-          source_title: source.title,
-        },
-      ],
+      source_spans:
+        requestedSourceSpans && requestedSourceSpans.length > 0
+          ? requestedSourceSpans.map((span) => ({
+              ...span,
+              source_document_id: source.id,
+              source_title: source.title,
+            }))
+          : [
+              {
+                anchor_kind: 'source',
+                excerpt: `${source.title} source evidence.`,
+                manual_source: 'study_manual',
+                source_document_id: source.id,
+                source_title: source.title,
+              },
+            ],
       scheduling_state: {
         due_at: '2026-03-13T00:45:00Z',
         manual_card_type: cardType,
@@ -1626,6 +1892,22 @@ beforeEach(() => {
         ).length,
     }
     nodeDetailById[nodeId] = promotedDetail
+    recallNotesByDocument = {
+      ...recallNotesByDocument,
+      [documentId]: (recallNotesByDocument[documentId] ?? []).map((candidateNote) =>
+        candidateNote.id === noteId
+          ? {
+              ...candidateNote,
+              dismissed_at: null,
+              graph_covered: true,
+              graph_node_id: nodeId,
+              review_state: 'reviewed',
+              reviewed_at: '2026-03-13T01:08:00Z',
+              updated_at: '2026-03-13T01:08:00Z',
+            }
+          : candidateNote,
+      ),
+    }
     return promotedDetail
   })
   promoteRecallNoteToStudyCardMock.mockImplementation(async (noteId: string, payload: { prompt: string; answer: string }) => {
@@ -1734,7 +2016,9 @@ async function ensureLibraryOpen() {
       screen.queryByRole('heading', { name: 'Home', level: 2 })?.closest('section') ??
       screen.queryByRole('region', { name: 'Primary saved source flow' })?.closest('.recall-library-landing') ??
       screen.queryByRole('region', { name: / workspace$/i }) ??
-      screen.queryByRole('tab', { name: 'Source', selected: true })?.closest('section')
+      screen.queryByRole('tab', { name: 'Source', selected: true })?.closest('section') ??
+      document.querySelector('.recall-shell-frame-home .workspace-shell-main') ??
+      document.querySelector('main.workspace-shell-main')
     expect(librarySection).toBeTruthy()
     return librarySection as HTMLElement
   }
@@ -1750,6 +2034,9 @@ async function ensureLibraryOpen() {
     const sourceContextTab = screen.queryByRole('tab', { name: 'Source' })
     if (sourceContextTab && !hasLibrarySearchControl(librarySection)) {
       fireEvent.click(sourceContextTab)
+      await waitFor(() => {
+        expect(queryGlobalLibrarySearchControl() ?? hasLibrarySearchControl(getLibrarySection())).toBeTruthy()
+      }).catch(() => undefined)
     }
     if (!sourceContextTab && !hasLibrarySearchControl(librarySection)) {
       const overflowTrigger = screen.queryByRole('button', { name: 'More reading controls' })
@@ -1762,6 +2049,9 @@ async function ensureLibraryOpen() {
             expect(screen.queryByRole('tab', { name: 'Source' })).not.toBeNull()
           })
           fireEvent.click(screen.getByRole('tab', { name: 'Source' }))
+          await waitFor(() => {
+            expect(queryGlobalLibrarySearchControl() ?? hasLibrarySearchControl(getLibrarySection())).toBeTruthy()
+          }).catch(() => undefined)
         }
       }
     }
@@ -1776,6 +2066,9 @@ async function ensureLibraryOpen() {
       screen.queryByRole('button', { name: 'Search saved sources' })
     if (searchTrigger) {
       fireEvent.click(searchTrigger as HTMLButtonElement)
+      await waitFor(() => {
+        expect(queryGlobalLibrarySearchControl() ?? hasLibrarySearchControl(getLibrarySection())).toBeTruthy()
+      }).catch(() => undefined)
       if (queryGlobalLibrarySearchControl() || hasLibrarySearchControl(getLibrarySection())) {
         return
       }
@@ -1789,9 +2082,17 @@ async function ensureLibraryOpen() {
     fireEvent.click(toggleButton as HTMLButtonElement)
   }
 
+  const homeTab = screen.queryByRole('tab', { name: 'Home' })
+  if (homeTab) {
+    fireEvent.click(homeTab)
+    await waitFor(() => {
+      expect(queryGlobalLibrarySearchControl() ?? hasLibrarySearchControl(getLibrarySection())).toBeTruthy()
+    }).catch(() => undefined)
+  }
+
   await waitFor(() => {
     expect(queryGlobalLibrarySearchControl() ?? hasLibrarySearchControl(getLibrarySection())).toBeTruthy()
-  })
+  }, { timeout: 3000 })
 }
 
 async function ensureAddSourceDialogOpen() {
@@ -1891,7 +2192,9 @@ test('Home exposes workspace export manifest preview and ZIP action', async () =
   const exportPanel = screen.getByRole('group', { name: 'Export workspace' })
   expect(exportPanel).toHaveAttribute('data-home-workspace-export-stage958', 'true')
   expect(within(exportPanel).getByText('Export workspace')).toBeInTheDocument()
-  expect(within(exportPanel).getByText(/2 sources/)).toBeInTheDocument()
+  await waitFor(() => {
+    expect(within(exportPanel).getByText(/2 sources/)).toBeInTheDocument()
+  })
   expect(within(exportPanel).getByText(/2 notes/)).toBeInTheDocument()
   expect(within(exportPanel).getByText(/1 study card/)).toBeInTheDocument()
   expect(within(exportPanel).getByText(/2 attempts/)).toBeInTheDocument()
@@ -2971,7 +3274,7 @@ test('Home collection workspaces expose Review Graph and export actions for sele
   fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
 
   const workspaceActions = await screen.findByRole('region', { name: 'Collection workspace actions' })
-  expect(within(workspaceActions).getByText('Research')).toBeInTheDocument()
+  expect(within(workspaceActions).getByText('Research', { selector: 'strong' })).toBeInTheDocument()
   expect(within(workspaceActions).getByText('1 direct source')).toBeInTheDocument()
   expect(within(workspaceActions).getByText('2 sources with nested collections')).toBeInTheDocument()
   expect(within(workspaceActions).getByRole('link', { name: 'Export collection pack' })).toHaveAttribute(
@@ -3102,8 +3405,12 @@ test('Home collection workspaces expose reading resume and highlight review inbo
 
 test('Home reading queue filters rows and marks sources complete', async () => {
   let markedComplete = false
-  fetchLibraryReadingQueueMock.mockImplementation(async (options?: { state?: string | null }) => {
+  fetchLibraryReadingQueueMock.mockImplementation(async (options?: {
+    learningFilter?: string | null
+    state?: string | null
+  }) => {
     const state = options?.state ?? 'all'
+    const learningFilter = options?.learningFilter ?? 'all'
     const allRows: LibraryReadingQueueResponse['rows'] = [
       {
         id: 'doc-search',
@@ -3120,6 +3427,7 @@ test('Home reading queue filters rows and marks sources complete', async () => {
         collection_paths: [],
         note_count: 1,
         highlight_count: 1,
+        highlight_review_counts: getMockHighlightReviewCounts('doc-search'),
         study_counts: { due: 0, new: 1, total: 1 },
       },
       {
@@ -3137,14 +3445,36 @@ test('Home reading queue filters rows and marks sources complete', async () => {
         collection_paths: [],
         note_count: 1,
         highlight_count: 1,
+        highlight_review_counts: getMockHighlightReviewCounts('doc-reader'),
         study_counts: { due: 0, new: 0, total: 0 },
       },
     ]
-    const rows = state === 'all' ? allRows : allRows.filter((row) => row.state === state)
+    const stateRows = state === 'all' ? allRows : allRows.filter((row) => row.state === state)
+    const rows =
+      learningFilter === 'needs_review'
+        ? stateRows.filter((row) => row.highlight_review_counts.needs_review > 0)
+        : learningFilter === 'uncovered'
+          ? stateRows.filter(
+              (row) =>
+                Math.max(
+                  0,
+                  row.highlight_review_counts.total -
+                    row.highlight_review_counts.covered -
+                    row.highlight_review_counts.dismissed,
+                ) > 0,
+            )
+          : learningFilter === 'covered'
+            ? stateRows.filter((row) => row.highlight_review_counts.covered > 0)
+            : learningFilter === 'graph_gaps'
+              ? stateRows.filter((row) => row.highlight_review_counts.ungraphed > 0)
+              : learningFilter === 'study_prompts'
+                ? stateRows.filter((row) => row.study_counts.due + row.study_counts.new > 0)
+                : stateRows
     return {
       dry_run: true,
       scope: 'all',
       state: state as LibraryReadingQueueResponse['state'],
+      learning_filter: learningFilter as LibraryReadingQueueResponse['learning_filter'],
       collection_id: null,
       summary: {
         total_sources: 2,
@@ -3152,6 +3482,7 @@ test('Home reading queue filters rows and marks sources complete', async () => {
         in_progress_sources: markedComplete ? 0 : 1,
         completed_sources: markedComplete ? 1 : 0,
       },
+      learning_summary: getMockReadingQueueLearningSummary(stateRows),
       rows,
     }
   })
@@ -3194,6 +3525,1660 @@ test('Home reading queue filters rows and marks sources complete', async () => {
   await waitFor(() => {
     expect(within(readingQueue).getByText('0 in progress')).toBeInTheDocument()
   })
+})
+
+test('Home reading queue exposes source learning gaps and next-action handoffs', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      {
+        ...recallNotesByDocument['doc-search'][0],
+        review_state: 'reviewed',
+        reviewed_at: '2026-03-13T00:50:00Z',
+      },
+      makeSourceRecallNote('note-search-source-2', 'doc-search', 'Search target only', 'Source-level gap to review.'),
+    ],
+  }
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-search',
+      status: 'due',
+      source_spans: [
+        {
+          ...baseStudyCards[0].source_spans[0],
+          note_id: 'note-search-1',
+        },
+      ],
+    },
+  ]
+  fetchLibraryReadingQueueMock.mockImplementation(async () => ({
+    dry_run: true,
+    scope: 'all',
+    state: 'all',
+    learning_filter: 'all',
+    collection_id: null,
+    summary: {
+      total_sources: 2,
+      unread_sources: 1,
+      in_progress_sources: 1,
+      completed_sources: 0,
+    },
+    learning_summary: {
+      needs_review_sources: 2,
+      uncovered_sources: 2,
+      covered_sources: 1,
+      study_prompt_sources: 1,
+      graph_gap_sources: 2,
+    },
+    rows: [
+      {
+        id: 'doc-search',
+        title: 'Search target only',
+        source_type: 'paste',
+        state: 'in_progress',
+        mode: 'reflowed',
+        sentence_index: 1,
+        sentence_count: 3,
+        progress_percent: 67,
+        last_read_at: '2026-03-13T00:40:00Z',
+        updated_at: '2026-03-13T00:40:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 1,
+        highlight_count: 1,
+        highlight_review_counts: {
+          total: 2,
+          needs_review: 1,
+          covered: 1,
+          reviewed: 1,
+          dismissed: 0,
+          graph_covered: 0,
+          ungraphed: 2,
+        },
+        study_counts: { due: 1, new: 1, total: 2 },
+      },
+      {
+        id: 'doc-reader',
+        title: 'Reader stays here',
+        source_type: 'paste',
+        state: 'unread',
+        mode: 'reflowed',
+        sentence_index: 0,
+        sentence_count: 2,
+        progress_percent: 0,
+        last_read_at: null,
+        updated_at: '2026-03-13T00:35:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 1,
+        highlight_count: 1,
+        highlight_review_counts: {
+          total: 1,
+          needs_review: 1,
+          covered: 0,
+          reviewed: 0,
+          dismissed: 0,
+          graph_covered: 0,
+          ungraphed: 1,
+        },
+        study_counts: { due: 0, new: 0, total: 0 },
+      },
+    ] as unknown as LibraryReadingQueueResponse['rows'],
+  } satisfies LibraryReadingQueueResponse))
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  expect(within(readingQueue).getAllByText('1 needs review').length).toBeGreaterThan(0)
+  expect(within(readingQueue).getByText('1 covered by Study')).toBeInTheDocument()
+  expect(within(readingQueue).getByRole('button', { name: 'Review highlights for Search target only' })).toBeInTheDocument()
+  expect(within(readingQueue).getByRole('button', { name: 'Open Study prompts for Search target only' })).toBeInTheDocument()
+
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Review highlights for Search target only' }))
+
+  const sourceLearningGaps = await screen.findByRole('region', { name: 'Source learning gaps' })
+  expect(within(sourceLearningGaps).getByText('1 needs review')).toBeInTheDocument()
+  expect(within(sourceLearningGaps).getByText('1 covered by Study')).toBeInTheDocument()
+  expect(fetchHighlightReviewInboxMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sourceDocumentId: 'doc-search',
+      state: 'needs_review',
+    }),
+  )
+})
+
+test('Home reading queue learning filters compose with reading state and handoffs', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeRecallNote(
+        'note-search-covered',
+        'doc-search',
+        'variant-doc-search-reflowed',
+        'search-1',
+        0,
+        0,
+        0,
+        0,
+        'Covered sentence.',
+        'Covered sentence.',
+        'Covered note.',
+      ),
+      makeSourceRecallNote('note-search-source-gap', 'doc-search', 'Search target only', 'Source-level gap to review.'),
+    ],
+    'doc-reader': [
+      makeRecallNote(
+        'note-reader-gap',
+        'doc-reader',
+        'variant-doc-reader-reflowed',
+        'reader-1',
+        0,
+        0,
+        0,
+        0,
+        'Reader gap sentence.',
+        'Reader gap sentence.',
+        'Reader gap note.',
+      ),
+    ],
+  }
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-search',
+      status: 'due',
+      source_document_id: 'doc-search',
+      source_spans: [
+        {
+          ...baseStudyCards[0].source_spans[0],
+          note_id: 'note-search-covered',
+        },
+      ],
+    },
+  ]
+  fetchLibraryReadingQueueMock.mockImplementation(async (options?: {
+    learningFilter?: string | null
+    state?: string | null
+  }): Promise<LibraryReadingQueueResponse> => {
+    const allRows: LibraryReadingQueueResponse['rows'] = [
+      {
+        id: 'doc-search',
+        title: 'Search target only',
+        source_type: 'paste',
+        state: 'in_progress',
+        mode: 'reflowed',
+        sentence_index: 1,
+        sentence_count: 3,
+        progress_percent: 67,
+        last_read_at: '2026-03-13T00:40:00Z',
+        updated_at: '2026-03-13T00:40:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 2,
+        highlight_count: 1,
+        highlight_review_counts: {
+          total: 2,
+          needs_review: 1,
+          covered: 1,
+          reviewed: 0,
+          dismissed: 0,
+          graph_covered: 0,
+          ungraphed: 2,
+        },
+        study_counts: { due: 1, new: 0, total: 1 },
+      },
+      {
+        id: 'doc-reader',
+        title: 'Reader stays here',
+        source_type: 'paste',
+        state: 'unread',
+        mode: 'reflowed',
+        sentence_index: 0,
+        sentence_count: 2,
+        progress_percent: 0,
+        last_read_at: null,
+        updated_at: '2026-03-13T00:35:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 1,
+        highlight_count: 1,
+        highlight_review_counts: {
+          total: 1,
+          needs_review: 1,
+          covered: 0,
+          reviewed: 0,
+          dismissed: 0,
+          graph_covered: 0,
+          ungraphed: 1,
+        },
+        study_counts: { due: 0, new: 0, total: 0 },
+      },
+    ]
+    const state = options?.state ?? 'all'
+    const learningFilter = options?.learningFilter ?? 'all'
+    const stateRows = state === 'all' ? allRows : allRows.filter((row) => row.state === state)
+    const rows = stateRows.filter((row) => {
+      if (learningFilter === 'needs_review') {
+        return row.highlight_review_counts.needs_review > 0
+      }
+      if (learningFilter === 'uncovered') {
+        return Math.max(0, row.highlight_review_counts.total - row.highlight_review_counts.covered - row.highlight_review_counts.dismissed) > 0
+      }
+      if (learningFilter === 'covered') {
+        return row.highlight_review_counts.covered > 0
+      }
+      if (learningFilter === 'graph_gaps') {
+        return row.highlight_review_counts.ungraphed > 0
+      }
+      if (learningFilter === 'study_prompts') {
+        return row.study_counts.due + row.study_counts.new > 0
+      }
+      return true
+    })
+    return {
+      dry_run: true,
+      scope: 'all',
+      state: state as LibraryReadingQueueResponse['state'],
+      learning_filter: learningFilter as LibraryReadingQueueResponse['learning_filter'],
+      collection_id: null,
+      summary: {
+        total_sources: 2,
+        unread_sources: 1,
+        in_progress_sources: 1,
+        completed_sources: 0,
+      },
+      learning_summary: getMockReadingQueueLearningSummary(stateRows),
+      rows,
+    }
+  })
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const homeHighlightReview = await screen.findByRole('region', { name: 'Home highlight review' })
+  expect(within(homeHighlightReview).getByRole('button', { name: 'Show uncovered highlights' })).toBeInTheDocument()
+  expect(within(readingQueue).getByRole('button', { name: 'Show sources needing highlight review' })).toBeInTheDocument()
+  expect(within(readingQueue).getByRole('button', { name: 'Show sources with uncovered highlights' })).toBeInTheDocument()
+  expect(within(readingQueue).getByRole('button', { name: 'Show sources covered by Study' })).toBeInTheDocument()
+  expect(within(readingQueue).getByRole('button', { name: 'Show sources with Study prompts' })).toBeInTheDocument()
+
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Show sources covered by Study' }))
+
+  await waitFor(() => {
+    expect(fetchLibraryReadingQueueMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        learningFilter: 'covered',
+        state: 'all',
+      }),
+    )
+  })
+  await waitFor(() => {
+    expect(fetchHighlightReviewInboxMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        learningFilter: 'covered',
+        readingState: 'all',
+        scope: 'all',
+        state: 'covered',
+      }),
+    )
+  })
+  expect(within(readingQueue).getByText('Search target only')).toBeInTheDocument()
+  expect(within(readingQueue).queryByText('Reader stays here')).not.toBeInTheDocument()
+
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Show in-progress reading queue' }))
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Show sources needing highlight review' }))
+
+  await waitFor(() => {
+    expect(fetchLibraryReadingQueueMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        learningFilter: 'needs_review',
+        state: 'in_progress',
+      }),
+    )
+  })
+  await waitFor(() => {
+    expect(fetchHighlightReviewInboxMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        learningFilter: 'needs_review',
+        readingState: 'in_progress',
+        state: 'needs_review',
+      }),
+    )
+  })
+  expect(within(readingQueue).getByText('Search target only')).toBeInTheDocument()
+  expect(within(readingQueue).queryByText('Reader stays here')).not.toBeInTheDocument()
+
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Open Study prompts for Search target only' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(window.location.search).toContain('section=study')
+  })
+})
+
+test('Home reading queue Graph gaps lens opens Source highlight review Not in Graph', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeSourceRecallNote(
+        'note-search-graph-gap',
+        'doc-search',
+        'Search target only',
+        'Connect this source note to the local Graph.',
+      ),
+    ],
+    'doc-reader': [
+      {
+        ...makeSourceRecallNote(
+          'note-reader-connected',
+          'doc-reader',
+          'Reader stays here',
+          'Already connected to the local Graph.',
+        ),
+        review_state: 'reviewed',
+      },
+    ],
+  }
+  fetchLibraryReadingQueueMock.mockImplementation(async (options?: {
+    learningFilter?: string | null
+    state?: string | null
+  }): Promise<LibraryReadingQueueResponse> => {
+    const allRows = [
+      {
+        id: 'doc-search',
+        title: 'Search target only',
+        source_type: 'paste',
+        state: 'in_progress',
+        mode: 'reflowed',
+        sentence_index: 1,
+        sentence_count: 3,
+        progress_percent: 67,
+        last_read_at: '2026-03-13T00:40:00Z',
+        updated_at: '2026-03-13T00:40:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 1,
+        highlight_count: 0,
+        highlight_review_counts: {
+          total: 1,
+          needs_review: 1,
+          covered: 0,
+          reviewed: 0,
+          dismissed: 0,
+          graph_covered: 0,
+          ungraphed: 1,
+        },
+        study_counts: { due: 0, new: 0, total: 0 },
+      },
+      {
+        id: 'doc-reader',
+        title: 'Reader stays here',
+        source_type: 'paste',
+        state: 'in_progress',
+        mode: 'reflowed',
+        sentence_index: 1,
+        sentence_count: 2,
+        progress_percent: 100,
+        last_read_at: '2026-03-13T00:35:00Z',
+        updated_at: '2026-03-13T00:35:00Z',
+        membership: null,
+        collection_paths: [],
+        note_count: 1,
+        highlight_count: 0,
+        highlight_review_counts: {
+          total: 1,
+          needs_review: 0,
+          covered: 0,
+          reviewed: 1,
+          dismissed: 0,
+          graph_covered: 1,
+          ungraphed: 0,
+        },
+        study_counts: { due: 0, new: 0, total: 0 },
+      },
+    ] as unknown as LibraryReadingQueueResponse['rows']
+    const state = options?.state ?? 'all'
+    const learningFilter = options?.learningFilter ?? 'all'
+    const stateRows = state === 'all' ? allRows : allRows.filter((row) => row.state === state)
+    const rows = stateRows.filter((row) => {
+      if (learningFilter === 'graph_gaps') {
+        return row.highlight_review_counts.ungraphed > 0
+      }
+      return true
+    })
+    return {
+      dry_run: true,
+      scope: 'all',
+      state: state as LibraryReadingQueueResponse['state'],
+      learning_filter: learningFilter as LibraryReadingQueueResponse['learning_filter'],
+      collection_id: null,
+      summary: {
+        total_sources: 2,
+        unread_sources: 0,
+        in_progress_sources: 2,
+        completed_sources: 0,
+      },
+      learning_summary: {
+        needs_review_sources: 1,
+        uncovered_sources: 1,
+        covered_sources: 0,
+        study_prompt_sources: 0,
+        graph_gap_sources: 1,
+      } as unknown as LibraryReadingQueueResponse['learning_summary'],
+      rows,
+    }
+  })
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  expect(within(readingQueue).getByRole('button', { name: 'Show sources with Graph gaps' })).toBeInTheDocument()
+
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Show sources with Graph gaps' }))
+
+  await waitFor(() => {
+    expect(fetchLibraryReadingQueueMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        learningFilter: 'graph_gaps',
+        state: 'all',
+      }),
+    )
+  })
+  await waitFor(() => {
+    expect(fetchHighlightReviewInboxMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        learningFilter: 'graph_gaps',
+        readingState: 'all',
+        state: 'unconnected',
+      }),
+    )
+  })
+  expect(within(readingQueue).getByText('Search target only')).toBeInTheDocument()
+  expect(within(readingQueue).getByText('1 not in Graph')).toBeInTheDocument()
+  expect(within(readingQueue).queryByText('Reader stays here')).not.toBeInTheDocument()
+
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Review highlights for Search target only' }))
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  await waitFor(() => {
+    expect(fetchHighlightReviewInboxMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceDocumentId: 'doc-search',
+        state: 'unconnected',
+      }),
+    )
+  })
+  expect(within(sourceHighlightReview).getByRole('button', { name: 'Show Graph-unconnected highlights' })).toBeInTheDocument()
+})
+
+function installRelatedGraphSourceFixture() {
+  const readerMemoryNode: KnowledgeGraphSnapshot['nodes'][number] = {
+    id: 'node-reader-memory',
+    label: 'Reader Memory',
+    node_type: 'concept',
+    description: 'Reader memory stays attached to source context.',
+    confidence: 0.78,
+    mention_count: 1,
+    document_count: 1,
+    status: 'confirmed',
+    aliases: [],
+    source_document_ids: ['doc-reader'],
+  }
+  const confirmedRelatedEdge: KnowledgeGraphSnapshot['edges'][number] = {
+    id: 'edge-graph-related-reader',
+    source_id: 'node-knowledge-graphs',
+    source_label: 'Knowledge Graphs',
+    target_id: readerMemoryNode.id,
+    target_label: readerMemoryNode.label,
+    relation_type: 'explains',
+    provenance: 'manual',
+    confidence: 0.88,
+    status: 'confirmed',
+    evidence_count: 2,
+    source_document_ids: ['doc-search', 'doc-reader'],
+    excerpt: 'Knowledge Graphs explain why Reader memory stays attached.',
+  }
+  const rejectedRelatedEdge: KnowledgeGraphSnapshot['edges'][number] = {
+    ...confirmedRelatedEdge,
+    id: 'edge-graph-rejected-reader',
+    relation_type: 'contradicts',
+    status: 'rejected',
+    excerpt: 'Rejected relation should not appear in Reading queue.',
+  }
+
+  recallGraphState = {
+    ...recallGraphState,
+    confirmed_edges: recallGraphState.confirmed_edges + 1,
+    edges: [...recallGraphState.edges, confirmedRelatedEdge, rejectedRelatedEdge],
+    nodes: [...recallGraphState.nodes, readerMemoryNode],
+  }
+  nodeDetailById['node-knowledge-graphs'] = {
+    ...nodeDetailById['node-knowledge-graphs'],
+    outgoing_edges: [...nodeDetailById['node-knowledge-graphs'].outgoing_edges, confirmedRelatedEdge],
+  }
+  nodeDetailById[readerMemoryNode.id] = {
+    node: readerMemoryNode,
+    mentions: [],
+    outgoing_edges: [],
+    incoming_edges: [confirmedRelatedEdge],
+  }
+}
+
+function installRelatedGraphPracticeFixture() {
+  studyCardsState = [
+    {
+      ...studyCardsState[0],
+      id: 'card-related-graph-practice-stage1014',
+      prompt: 'How does Knowledge Graphs relate to Reader Memory?',
+      answer: 'Knowledge Graphs explain Reader Memory.',
+      card_type: 'short_answer',
+      source_spans: [
+        {
+          edge_id: 'edge-graph-related-reader',
+          excerpt: 'Knowledge Graphs explain why Reader memory stays attached.',
+          global_sentence_end: 2,
+          global_sentence_start: 2,
+          sentence_end: 2,
+          sentence_start: 2,
+        },
+      ],
+      scheduling_state: { due_at: '2026-03-13T00:20:00Z', review_count: 0 },
+      due_at: '2026-03-13T00:20:00Z',
+      review_count: 0,
+      status: 'new',
+      last_rating: null,
+      knowledge_stage: 'new',
+    },
+    {
+      ...studyCardsState[0],
+      id: 'card-general-source-practice-stage1014',
+      prompt: 'What do Knowledge Graphs support?',
+      source_spans: [
+        {
+          excerpt: 'Knowledge Graphs support Study Cards.',
+          global_sentence_end: 2,
+          global_sentence_start: 2,
+          sentence_end: 2,
+          sentence_start: 2,
+        },
+      ],
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+}
+
+function installGraphPathPracticeFixture() {
+  studyCardsState = [
+    {
+      ...studyCardsState[0],
+      id: 'card-graph-path-practice-stage1030',
+      prompt: 'How do Knowledge Graphs support Study Cards?',
+      answer: 'Knowledge Graphs support Study Cards.',
+      card_type: 'short_answer',
+      source_spans: [
+        {
+          edge_id: 'edge-graph-supports-card',
+          excerpt: 'Knowledge Graphs support Study Cards.',
+          global_sentence_end: 2,
+          global_sentence_start: 2,
+          sentence_end: 2,
+          sentence_start: 2,
+        },
+      ],
+      scheduling_state: { due_at: '2026-03-13T00:20:00Z', review_count: 0 },
+      due_at: '2026-03-13T00:20:00Z',
+      review_count: 0,
+      status: 'new',
+      last_rating: null,
+      knowledge_stage: 'new',
+    },
+    {
+      ...studyCardsState[0],
+      id: 'card-graph-path-distractor-stage1030',
+      prompt: 'What does the graph canvas show?',
+      source_spans: [
+        {
+          excerpt: 'Graph canvas context only.',
+          global_sentence_end: 0,
+          global_sentence_start: 0,
+          sentence_end: 0,
+          sentence_start: 0,
+        },
+      ],
+    },
+  ]
+  studyOverviewState = buildStudyOverview(studyCardsState)
+}
+
+async function openKnowledgeGraphsConnectionsTab() {
+  const knowledgeGraphsNode = await screen.findByRole('button', { name: 'Select node Knowledge Graphs' })
+  fireEvent.click(knowledgeGraphsNode)
+
+  const nodeDetailSection = await screen.findByLabelText('Node detail dock')
+  fireEvent.click(await within(nodeDetailSection as HTMLElement).findByRole('button', { name: 'Open card' }))
+
+  await waitFor(() => {
+    expect(within(nodeDetailSection as HTMLElement).getByRole('tab', { name: /Connections/i })).toBeInTheDocument()
+  })
+  fireEvent.click(within(nodeDetailSection as HTMLElement).getByRole('tab', { name: /Connections/i }))
+
+  const relationsList = await within(nodeDetailSection as HTMLElement).findByRole('list', {
+    name: 'Selected node connections',
+  })
+  return { nodeDetailSection: nodeDetailSection as HTMLElement, relationsList }
+}
+
+async function findKnowledgeGraphsToStudyCardsGraphPath() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Select node Knowledge Graphs' }), { ctrlKey: true })
+  const graphFocusTray = await screen.findByLabelText('Graph focus tray')
+  await waitFor(() => {
+    expect(graphFocusTray).toHaveTextContent('1 node selected')
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Select node Study Cards' }), { ctrlKey: true })
+  await waitFor(() => {
+    expect(within(graphFocusTray).getByRole('button', { name: 'Find path' })).toBeInTheDocument()
+  })
+  fireEvent.click(within(graphFocusTray).getByRole('button', { name: 'Find path' }))
+
+  await waitFor(() => {
+    expect(within(graphFocusTray).getByText('Shortest visible path')).toBeInTheDocument()
+  })
+  return graphFocusTray
+}
+
+test('Home reading queue related Graph source opens Source overview related rows', async () => {
+  installRelatedGraphSourceFixture()
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const searchQueueRow = within(readingQueue)
+    .getByText('Search target only')
+    .closest('[data-reading-queue-learning-gaps-stage978]') as HTMLElement
+  expect(searchQueueRow).not.toBeNull()
+  await waitFor(() => {
+    expect(within(searchQueueRow).getByText('1 related source · 1 confirmed relation')).toBeInTheDocument()
+  })
+  expect(within(searchQueueRow).getByRole('button', { name: 'Open related sources for Search target only' })).toBeInTheDocument()
+  expect(within(searchQueueRow).getByText('1 relation needs practice')).toBeInTheDocument()
+  expect(within(searchQueueRow).getByRole('button', { name: 'Build practice for Search target only' })).toBeInTheDocument()
+  expect(within(searchQueueRow).queryByText(/practice relation/)).not.toBeInTheDocument()
+  expect(within(searchQueueRow).queryByRole('button', { name: 'Practice connection for Search target only' })).not.toBeInTheDocument()
+  expect(within(readingQueue).queryByText('Rejected relation should not appear in Reading queue.')).not.toBeInTheDocument()
+
+  fireEvent.click(within(searchQueueRow).getByRole('button', { name: 'Build practice for Search target only' }))
+
+  const sourceOverviewSection = await screen.findByRole('heading', { name: 'Source overview', level: 2 })
+  const sourceOverview = sourceOverviewSection.closest('section') as HTMLElement
+  const relatedGraphConnections = await within(sourceOverview).findByRole('list', {
+    name: 'Source related Graph connections',
+  })
+  expect(relatedGraphConnections).toHaveTextContent('Reader stays here')
+  expect(relatedGraphConnections).toHaveTextContent('Knowledge Graphs explains Reader Memory')
+  expect(relatedGraphConnections).toHaveTextContent('No practice yet')
+  expect(
+    within(relatedGraphConnections).getByRole('button', {
+      name: 'Create practice card: Knowledge Graphs explains Reader Memory',
+    }),
+  ).toBeInTheDocument()
+  expect(relatedGraphConnections).not.toHaveTextContent('Rejected relation should not appear')
+})
+
+test('Home custom collection reading queue shows related Graph source signal', async () => {
+  installRelatedGraphSourceFixture()
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-search'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  await waitFor(() => {
+    expect(fetchLibraryReadingQueueMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        collectionId: 'collection:research',
+      }),
+    )
+  })
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const searchQueueRow = within(readingQueue)
+    .getByText('Search target only')
+    .closest('[data-reading-queue-learning-gaps-stage978]') as HTMLElement
+  expect(searchQueueRow).not.toBeNull()
+  expect(within(searchQueueRow).getByText('1 related source · 1 confirmed relation')).toBeInTheDocument()
+  expect(within(searchQueueRow).getByText('1 relation needs practice')).toBeInTheDocument()
+  expect(within(searchQueueRow).getByRole('button', { name: 'Build practice for Search target only' })).toBeInTheDocument()
+  expect(within(searchQueueRow).getByRole('button', { name: 'Open related sources for Search target only' })).toBeInTheDocument()
+})
+
+test('Home reading queue relation practice action starts relation-scoped Study review sessions', async () => {
+  installRelatedGraphSourceFixture()
+  installRelatedGraphPracticeFixture()
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const searchQueueRow = within(readingQueue)
+    .getByText('Search target only')
+    .closest('[data-reading-queue-learning-gaps-stage978]') as HTMLElement
+  expect(searchQueueRow).not.toBeNull()
+  await waitFor(() => {
+    expect(within(searchQueueRow).getByText('1 practice relation · 1 new')).toBeInTheDocument()
+  })
+  expect(within(searchQueueRow).getByRole('button', { name: 'Practice connection for Search target only' })).toBeInTheDocument()
+  expect(within(searchQueueRow).queryByRole('button', { name: 'Build practice for Search target only' })).not.toBeInTheDocument()
+
+  fireEvent.click(within(searchQueueRow).getByRole('button', { name: 'Practice connection for Search target only' }))
+
+  await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: ['card-related-graph-practice-stage1014'],
+        filter_snapshot: expect.objectContaining({
+          launch_intent: 'relation-practice-review',
+          relation_edge_id: 'edge-graph-related-reader',
+          relation_label: 'Knowledge Graphs explains Reader Memory',
+          source_document_id: 'doc-search',
+        }),
+        source_document_id: 'doc-search',
+      }),
+    )
+    expect(window.location.search).toContain('section=study')
+  })
+  expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+  expect(await screen.findByLabelText('Active review prompt')).toHaveTextContent(
+    'How does Knowledge Graphs relate to Reader Memory?',
+  )
+  expect(screen.queryByLabelText('Study questions manager')).not.toBeInTheDocument()
+})
+
+test('Home custom collection reading queue shows relation practice signal', async () => {
+  installRelatedGraphSourceFixture()
+  installRelatedGraphPracticeFixture()
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-search'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  await waitFor(() => {
+    expect(fetchLibraryReadingQueueMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        collectionId: 'collection:research',
+      }),
+    )
+  })
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const searchQueueRow = within(readingQueue)
+    .getByText('Search target only')
+    .closest('[data-reading-queue-learning-gaps-stage978]') as HTMLElement
+  expect(searchQueueRow).not.toBeNull()
+  await waitFor(() => {
+    expect(within(searchQueueRow).getByText('1 practice relation · 1 new')).toBeInTheDocument()
+  })
+  expect(within(searchQueueRow).getByRole('button', { name: 'Practice connection for Search target only' })).toBeInTheDocument()
+})
+
+test('Source overview relation practice action starts relation-scoped Study review sessions', async () => {
+  installRelatedGraphSourceFixture()
+  installRelatedGraphPracticeFixture()
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const searchQueueRow = within(readingQueue)
+    .getByText('Search target only')
+    .closest('[data-reading-queue-learning-gaps-stage978]') as HTMLElement
+  expect(searchQueueRow).not.toBeNull()
+  fireEvent.click(within(searchQueueRow).getByRole('button', { name: 'Open related sources for Search target only' }))
+
+  const sourceOverviewSection = await screen.findByRole('heading', { name: 'Source overview', level: 2 })
+  const sourceOverview = sourceOverviewSection.closest('section') as HTMLElement
+  const relatedGraphConnections = await within(sourceOverview).findByRole('list', {
+    name: 'Source related Graph connections',
+  })
+  const relationRow = within(relatedGraphConnections)
+    .getByText('Reader stays here')
+    .closest('[data-source-overview-related-graph-row-stage1010]') as HTMLElement
+  expect(relationRow).not.toBeNull()
+  expect(within(relationRow).getByText('1 practice question')).toBeInTheDocument()
+  expect(within(relationRow).getByText('1 new')).toBeInTheDocument()
+
+  fireEvent.click(
+    within(relationRow).getByRole('button', {
+      name: 'Practice relation: Knowledge Graphs explains Reader Memory',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: ['card-related-graph-practice-stage1014'],
+        filter_snapshot: expect.objectContaining({
+          launch_intent: 'relation-practice-review',
+          relation_edge_id: 'edge-graph-related-reader',
+          relation_label: 'Knowledge Graphs explains Reader Memory',
+          source_document_id: 'doc-search',
+        }),
+        source_document_id: 'doc-search',
+      }),
+    )
+    expect(window.location.search).toContain('section=study')
+  })
+  expect(await screen.findByLabelText('Active review prompt')).toHaveTextContent(
+    'How does Knowledge Graphs relate to Reader Memory?',
+  )
+  expect(screen.queryByLabelText('Study questions manager')).not.toBeInTheDocument()
+})
+
+test('Relation practice action opens filtered Study questions when no eligible relation cards can start a session', async () => {
+  installRelatedGraphSourceFixture()
+  installRelatedGraphPracticeFixture()
+  studyCardsState = studyCardsState.map((card) =>
+    card.id === 'card-related-graph-practice-stage1014'
+      ? {
+          ...card,
+          due_at: '2026-04-20T10:00:00Z',
+          scheduling_state: {
+            ...card.scheduling_state,
+            due_at: '2026-04-20T10:00:00Z',
+          },
+          status: 'scheduled' as const,
+        }
+      : card,
+  )
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const searchQueueRow = within(readingQueue)
+    .getByText('Search target only')
+    .closest('[data-reading-queue-learning-gaps-stage978]') as HTMLElement
+  expect(searchQueueRow).not.toBeNull()
+  await waitFor(() => {
+    expect(within(searchQueueRow).getByText('1 scheduled relation · 1 question')).toBeInTheDocument()
+  })
+  expect(within(searchQueueRow).queryByRole('button', { name: 'Practice connection for Search target only' })).not.toBeInTheDocument()
+
+  fireEvent.click(within(searchQueueRow).getByRole('button', { name: 'Study connection for Search target only' }))
+
+  await waitFor(() => {
+    expect(window.location.search).toContain('section=study')
+  })
+  expect(startRecallStudyReviewSessionMock).not.toHaveBeenCalled()
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  const relationFilter = within(questionManager).getByLabelText('Active study relation filter')
+  expect(relationFilter).toHaveTextContent('Relation: Knowledge Graphs explains Reader Memory')
+  expect(relationFilter).toHaveTextContent('1 question')
+  expect(within(questionManager).getByText('How does Knowledge Graphs relate to Reader Memory?')).toBeInTheDocument()
+  expect(within(questionManager).queryByText('What do Knowledge Graphs support?')).not.toBeInTheDocument()
+})
+
+test('Relation practice progress shows practiced scheduled state in Home and Source overview', async () => {
+  installRelatedGraphSourceFixture()
+  installRelatedGraphPracticeFixture()
+  studyCardsState = studyCardsState.map((card) =>
+    card.id === 'card-related-graph-practice-stage1014'
+      ? {
+          ...card,
+          due_at: '2026-04-20T10:00:00Z',
+          scheduling_state: {
+            ...card.scheduling_state,
+            due_at: '2026-04-20T10:00:00Z',
+            review_count: 1,
+          },
+          status: 'scheduled' as const,
+          review_count: 1,
+          last_rating: 'good' as const,
+          knowledge_stage: 'practiced' as const,
+        }
+      : card,
+  )
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const searchQueueRow = within(readingQueue)
+    .getByText('Search target only')
+    .closest('[data-reading-queue-learning-gaps-stage978]') as HTMLElement
+  expect(searchQueueRow).not.toBeNull()
+  await waitFor(() => {
+    expect(within(searchQueueRow).getByText('1 practiced relation · 1 scheduled')).toBeInTheDocument()
+  })
+  expect(within(searchQueueRow).queryByRole('button', { name: 'Practice connection for Search target only' })).not.toBeInTheDocument()
+  expect(within(searchQueueRow).getByRole('button', { name: 'Study connection for Search target only' })).toBeInTheDocument()
+
+  fireEvent.click(within(searchQueueRow).getByRole('button', { name: 'Open related sources for Search target only' }))
+
+  const sourceOverviewSection = await screen.findByRole('heading', { name: 'Source overview', level: 2 })
+  const sourceOverview = sourceOverviewSection.closest('section') as HTMLElement
+  const relatedGraphConnections = await within(sourceOverview).findByRole('list', {
+    name: 'Source related Graph connections',
+  })
+  const relationRow = within(relatedGraphConnections)
+    .getByText('Reader stays here')
+    .closest('[data-source-overview-related-graph-row-stage1010]') as HTMLElement
+  expect(relationRow).not.toBeNull()
+  expect(within(relationRow).getByText('1 practice question')).toBeInTheDocument()
+  expect(within(relationRow).getByText('Practiced')).toBeInTheDocument()
+  expect(within(relationRow).getByText('Scheduled')).toBeInTheDocument()
+  expect(
+    within(relationRow).queryByRole('button', {
+      name: 'Practice relation: Knowledge Graphs explains Reader Memory',
+    }),
+  ).not.toBeInTheDocument()
+
+  fireEvent.click(
+    within(relationRow).getByRole('button', {
+      name: 'Study questions for relation: Knowledge Graphs explains Reader Memory',
+    }),
+  )
+
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  expect(within(questionManager).getByLabelText('Active study relation filter')).toHaveTextContent(
+    'Relation: Knowledge Graphs explains Reader Memory',
+  )
+})
+
+test('Relation practice review sessions show a recap and return to source connection', async () => {
+  installRelatedGraphSourceFixture()
+  installRelatedGraphPracticeFixture()
+  reviewRecallStudyCardMock.mockImplementationOnce(async (cardId: string) => {
+    const currentCard = studyCardsState.find((card) => card.id === cardId) ?? studyCardsState[0]
+    const reviewedCard = {
+      ...currentCard,
+      review_count: currentCard.review_count + 1,
+      status: 'scheduled' as const,
+      last_rating: 'good' as const,
+      knowledge_stage: 'practiced' as const,
+    }
+    studyCardsState = studyCardsState.map((card) => (card.id === cardId ? reviewedCard : card))
+    return reviewedCard
+  })
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const searchQueueRow = within(readingQueue)
+    .getByText('Search target only')
+    .closest('[data-reading-queue-learning-gaps-stage978]') as HTMLElement
+  expect(searchQueueRow).not.toBeNull()
+  await waitFor(() => {
+    expect(within(searchQueueRow).getByText('1 practice relation · 1 new')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(searchQueueRow).getByRole('button', { name: 'Practice connection for Search target only' }))
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active review prompt')).toHaveTextContent(
+      'How does Knowledge Graphs relate to Reader Memory?',
+    )
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: /Show answer|Reveal answer/ }))
+  const goodRatingButton = await screen.findByRole('button', { name: 'Good' })
+  await waitFor(() => {
+    expect(goodRatingButton).not.toBeDisabled()
+  })
+  fireEvent.click(goodRatingButton)
+
+  expect(await screen.findByText('Connection practiced')).toBeInTheDocument()
+  expect(screen.getByText('1 connection reviewed')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Back to source connection' }))
+
+  const sourceOverviewSection = await screen.findByRole('heading', { name: 'Source overview', level: 2 })
+  const sourceOverview = sourceOverviewSection.closest('section') as HTMLElement
+  const relatedGraphConnections = await within(sourceOverview).findByRole('list', {
+    name: 'Source related Graph connections',
+  })
+  const returnedRelationRow = within(relatedGraphConnections)
+    .getByText('Reader stays here')
+    .closest('[data-source-overview-related-graph-row-stage1010]') as HTMLElement
+  expect(returnedRelationRow).not.toBeNull()
+  expect(returnedRelationRow).toHaveAttribute('data-source-overview-related-graph-focused-stage1024', 'true')
+  expect(returnedRelationRow).toHaveTextContent('Knowledge Graphs explains Reader Memory')
+})
+
+test('Source overview relation rows can create relation-backed Study practice from no-practice state', async () => {
+  installRelatedGraphSourceFixture()
+
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  const searchQueueRow = within(readingQueue)
+    .getByText('Search target only')
+    .closest('[data-reading-queue-learning-gaps-stage978]') as HTMLElement
+  expect(searchQueueRow).not.toBeNull()
+  fireEvent.click(within(searchQueueRow).getByRole('button', { name: 'Open related sources for Search target only' }))
+
+  const sourceOverviewSection = await screen.findByRole('heading', { name: 'Source overview', level: 2 })
+  const sourceOverview = sourceOverviewSection.closest('section') as HTMLElement
+  const relatedGraphConnections = await within(sourceOverview).findByRole('list', {
+    name: 'Source related Graph connections',
+  })
+  const relationRow = within(relatedGraphConnections)
+    .getByText('Reader stays here')
+    .closest('[data-source-overview-related-graph-row-stage1010]') as HTMLElement
+  expect(relationRow).not.toBeNull()
+  expect(within(relationRow).getByText('No practice yet')).toBeInTheDocument()
+  expect(
+    within(relationRow).queryByRole('button', {
+      name: 'Practice relation: Knowledge Graphs explains Reader Memory',
+    }),
+  ).not.toBeInTheDocument()
+  const createPracticeButton = within(relationRow).getByRole('button', {
+    name: 'Create practice card: Knowledge Graphs explains Reader Memory',
+  })
+
+  fireEvent.click(createPracticeButton)
+
+  await waitFor(() => {
+    expect(createRecallStudyCardMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        answer: 'Knowledge Graphs explain why Reader memory stays attached.',
+        card_type: 'short_answer',
+        prompt: 'What is the Graph connection between Knowledge Graphs and Reader Memory?',
+        source_document_id: 'doc-search',
+        source_spans: [
+          expect.objectContaining({
+            edge_id: 'edge-graph-related-reader',
+            excerpt: 'Knowledge Graphs explain why Reader memory stays attached.',
+            manual_source: 'study_relation_manual',
+            relation_type: 'explains',
+            source_id: 'node-knowledge-graphs',
+            source_label: 'Knowledge Graphs',
+            target_id: 'node-reader-memory',
+            target_label: 'Reader Memory',
+          }),
+        ],
+      }),
+    )
+  })
+  await waitFor(() => {
+    expect(window.location.search).toContain('section=study')
+  })
+
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  const relationFilter = within(questionManager).getByLabelText('Active study relation filter')
+  expect(relationFilter).toHaveTextContent('Relation: Knowledge Graphs explains Reader Memory')
+  expect(relationFilter).toHaveTextContent('1 question')
+  expect(
+    within(questionManager).getByText('What is the Graph connection between Knowledge Graphs and Reader Memory?'),
+  ).toBeInTheDocument()
+})
+
+test('Graph relation practice action starts relation-scoped Study review sessions', async () => {
+  installRelatedGraphSourceFixture()
+  installRelatedGraphPracticeFixture()
+
+  renderRecallApp('/recall?section=graph')
+
+  const { relationsList } = await openKnowledgeGraphsConnectionsTab()
+  const relationRow = within(relationsList)
+    .getByText('Knowledge Graphs explains Reader Memory')
+    .closest('[data-graph-detail-relation-row-stage1026]') as HTMLElement
+  expect(relationRow).not.toBeNull()
+  expect(within(relationRow).getByText('1 practice question')).toBeInTheDocument()
+  expect(within(relationRow).getByText('1 new')).toBeInTheDocument()
+  expect(
+    within(relationRow).getByRole('button', {
+      name: 'Practice connection: Knowledge Graphs explains Reader Memory',
+    }),
+  ).toBeInTheDocument()
+
+  fireEvent.click(
+    within(relationRow).getByRole('button', {
+      name: 'Practice connection: Knowledge Graphs explains Reader Memory',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: ['card-related-graph-practice-stage1014'],
+        filter_snapshot: expect.objectContaining({
+          graph_selected_node_id: 'node-knowledge-graphs',
+          graph_source_node_id: 'node-knowledge-graphs',
+          graph_target_node_id: 'node-reader-memory',
+          launch_intent: 'relation-practice-review',
+          relation_edge_id: 'edge-graph-related-reader',
+          relation_label: 'Knowledge Graphs explains Reader Memory',
+          return_surface: 'graph',
+          source_document_id: 'doc-search',
+        }),
+        source_document_id: 'doc-search',
+      }),
+    )
+    expect(window.location.search).toContain('section=study')
+  })
+  expect(await screen.findByLabelText('Active review prompt')).toHaveTextContent(
+    'How does Knowledge Graphs relate to Reader Memory?',
+  )
+})
+
+test('Graph path practice action starts path-scoped Study review sessions', async () => {
+  installGraphPathPracticeFixture()
+
+  renderRecallApp('/recall?section=graph')
+
+  const graphFocusTray = await findKnowledgeGraphsToStudyCardsGraphPath()
+  await waitFor(() => {
+    expect(within(graphFocusTray).getByText('1 path question · 1 new')).toBeInTheDocument()
+  })
+  expect(within(graphFocusTray).getByRole('button', { name: 'Practice path' })).toBeInTheDocument()
+
+  fireEvent.click(within(graphFocusTray).getByRole('button', { name: 'Practice path' }))
+
+  await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: ['card-graph-path-practice-stage1030'],
+        filter_snapshot: expect.objectContaining({
+          launch_intent: 'graph-path-practice-review',
+          path_edge_ids: ['edge-graph-supports-card'],
+          path_label: 'Knowledge Graphs to Study Cards',
+          path_node_ids: ['node-knowledge-graphs', 'node-study-cards'],
+          return_surface: 'graph_path',
+          source_document_id: 'doc-search',
+        }),
+        source_document_id: 'doc-search',
+      }),
+    )
+    expect(window.location.search).toContain('section=study')
+  })
+  expect(await screen.findByLabelText('Active review prompt')).toHaveTextContent(
+    'How do Knowledge Graphs support Study Cards?',
+  )
+  expect(screen.queryByLabelText('Study questions manager')).not.toBeInTheDocument()
+})
+
+test('Graph path practice review sessions return to highlighted Graph path', async () => {
+  installGraphPathPracticeFixture()
+  reviewRecallStudyCardMock.mockImplementationOnce(async (cardId: string) => {
+    const currentCard = studyCardsState.find((card) => card.id === cardId) ?? studyCardsState[0]
+    const reviewedCard = {
+      ...currentCard,
+      review_count: currentCard.review_count + 1,
+      status: 'scheduled' as const,
+      last_rating: 'good' as const,
+      knowledge_stage: 'practiced' as const,
+    }
+    studyCardsState = studyCardsState.map((card) => (card.id === cardId ? reviewedCard : card))
+    return reviewedCard
+  })
+
+  renderRecallApp('/recall?section=graph')
+
+  const graphFocusTray = await findKnowledgeGraphsToStudyCardsGraphPath()
+  fireEvent.click(await within(graphFocusTray).findByRole('button', { name: 'Practice path' }))
+
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active review prompt')).toHaveTextContent(
+      'How do Knowledge Graphs support Study Cards?',
+    )
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: /Show answer|Reveal answer/ }))
+  const goodRatingButton = await screen.findByRole('button', { name: 'Good' })
+  await waitFor(() => {
+    expect(goodRatingButton).not.toBeDisabled()
+  })
+  fireEvent.click(goodRatingButton)
+
+  expect(await screen.findByText('Path practiced')).toBeInTheDocument()
+  expect(screen.getByText('1 path question reviewed')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Back to Graph connection' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Back to source connection' })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Back to Graph path' }))
+
+  await waitFor(() => {
+    expect(window.location.search).toContain('section=graph')
+  })
+  const returnedGraphFocusTray = await screen.findByLabelText('Graph focus tray')
+  await waitFor(() => {
+    expect(returnedGraphFocusTray).toHaveAttribute('data-graph-path-focused-stage1030', 'true')
+  })
+  expect(within(returnedGraphFocusTray).getByText('Shortest visible path')).toBeInTheDocument()
+  expect(within(returnedGraphFocusTray).getByText('Knowledge Graphs')).toBeInTheDocument()
+  expect(within(returnedGraphFocusTray).getByText('Study Cards')).toBeInTheDocument()
+})
+
+test('Graph path practice status does not show a false-ready action without relation-backed cards', async () => {
+  renderRecallApp('/recall?section=graph')
+
+  const graphFocusTray = await findKnowledgeGraphsToStudyCardsGraphPath()
+
+  await waitFor(() => {
+    expect(within(graphFocusTray).getByText('No path practice yet')).toBeInTheDocument()
+  })
+  expect(within(graphFocusTray).queryByRole('button', { name: 'Practice path' })).not.toBeInTheDocument()
+})
+
+test('Graph path questions open Study Questions filtered to scheduled path cards', async () => {
+  installGraphPathPracticeFixture()
+  studyCardsState = studyCardsState.map((card) =>
+    card.id === 'card-graph-path-practice-stage1030'
+      ? {
+          ...card,
+          due_at: '2026-06-13T00:20:00Z',
+          knowledge_stage: 'practiced' as const,
+          last_rating: 'good' as const,
+          review_count: 1,
+          scheduling_state: {
+            ...card.scheduling_state,
+            due_at: '2026-06-13T00:20:00Z',
+            review_count: 1,
+          },
+          status: 'scheduled' as const,
+        }
+      : card,
+  )
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall?section=graph')
+
+  const graphFocusTray = await findKnowledgeGraphsToStudyCardsGraphPath()
+  await waitFor(() => {
+    expect(within(graphFocusTray).getByText('1 path question · scheduled')).toBeInTheDocument()
+  })
+  expect(within(graphFocusTray).queryByRole('button', { name: 'Practice path' })).not.toBeInTheDocument()
+
+  fireEvent.click(within(graphFocusTray).getByRole('button', { name: 'Path questions' }))
+
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  expect(within(questionManager).getByLabelText('Active study path filter')).toHaveTextContent(
+    'Path: Knowledge Graphs to Study Cards',
+  )
+  expect(within(questionManager).getByLabelText('Active study path filter')).toHaveTextContent('1 question')
+  expect(within(questionManager).getByText('How do Knowledge Graphs support Study Cards?')).toBeInTheDocument()
+  expect(within(questionManager).queryByText('What does the graph canvas show?')).not.toBeInTheDocument()
+})
+
+test('Graph path practice recap can open path-filtered Study Questions', async () => {
+  installGraphPathPracticeFixture()
+  reviewRecallStudyCardMock.mockImplementationOnce(async (cardId: string) => {
+    const currentCard = studyCardsState.find((card) => card.id === cardId) ?? studyCardsState[0]
+    const reviewedCard = {
+      ...currentCard,
+      knowledge_stage: 'practiced' as const,
+      last_rating: 'good' as const,
+      review_count: currentCard.review_count + 1,
+      status: 'scheduled' as const,
+    }
+    studyCardsState = studyCardsState.map((card) => (card.id === cardId ? reviewedCard : card))
+    return reviewedCard
+  })
+
+  renderRecallApp('/recall?section=graph')
+
+  const graphFocusTray = await findKnowledgeGraphsToStudyCardsGraphPath()
+  fireEvent.click(await within(graphFocusTray).findByRole('button', { name: 'Practice path' }))
+  await screen.findByLabelText('Active review prompt')
+
+  fireEvent.click(screen.getByRole('button', { name: /Show answer|Reveal answer/ }))
+  const goodRatingButton = await screen.findByRole('button', { name: 'Good' })
+  await waitFor(() => {
+    expect(goodRatingButton).not.toBeDisabled()
+  })
+  fireEvent.click(goodRatingButton)
+
+  expect(await screen.findByText('Path practiced')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Study path questions' }))
+
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  expect(within(questionManager).getByLabelText('Active study path filter')).toHaveTextContent(
+    'Path: Knowledge Graphs to Study Cards',
+  )
+  expect(within(questionManager).getByText('How do Knowledge Graphs support Study Cards?')).toBeInTheDocument()
+})
+
+test('Graph path practice gaps can create a first path practice card', async () => {
+  renderRecallApp('/recall?section=graph')
+
+  const graphFocusTray = await findKnowledgeGraphsToStudyCardsGraphPath()
+  await waitFor(() => {
+    expect(within(graphFocusTray).getByText('No path practice yet')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(graphFocusTray).getByRole('button', { name: 'Build path practice' }))
+
+  await waitFor(() => {
+    expect(createRecallStudyCardMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        answer: 'Knowledge Graphs support Study Cards.',
+        card_type: 'short_answer',
+        prompt: 'What is the Graph connection between Knowledge Graphs and Study Cards?',
+        source_document_id: 'doc-search',
+        source_spans: [
+          expect.objectContaining({
+            edge_id: 'edge-graph-supports-card',
+            excerpt: 'Knowledge Graphs support Study Cards.',
+            manual_source: 'study_relation_manual',
+            relation_type: 'supports',
+            source_id: 'node-knowledge-graphs',
+            source_label: 'Knowledge Graphs',
+            target_id: 'node-study-cards',
+            target_label: 'Study Cards',
+          }),
+        ],
+      }),
+    )
+  })
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  expect(within(questionManager).getByLabelText('Active study path filter')).toHaveTextContent(
+    'Path: Knowledge Graphs to Study Cards',
+  )
+  expect(within(questionManager).getByText('What is the Graph connection between Knowledge Graphs and Study Cards?')).toBeInTheDocument()
+})
+
+test('Graph relation practice review sessions return to focused Graph connection', async () => {
+  installRelatedGraphSourceFixture()
+  installRelatedGraphPracticeFixture()
+  reviewRecallStudyCardMock.mockImplementationOnce(async (cardId: string) => {
+    const currentCard = studyCardsState.find((card) => card.id === cardId) ?? studyCardsState[0]
+    const reviewedCard = {
+      ...currentCard,
+      review_count: currentCard.review_count + 1,
+      status: 'scheduled' as const,
+      last_rating: 'good' as const,
+      knowledge_stage: 'practiced' as const,
+    }
+    studyCardsState = studyCardsState.map((card) => (card.id === cardId ? reviewedCard : card))
+    return reviewedCard
+  })
+
+  renderRecallApp('/recall?section=graph')
+
+  const { relationsList } = await openKnowledgeGraphsConnectionsTab()
+  const relationRow = within(relationsList)
+    .getByText('Knowledge Graphs explains Reader Memory')
+    .closest('[data-graph-detail-relation-row-stage1026]') as HTMLElement
+  expect(relationRow).not.toBeNull()
+
+  fireEvent.click(
+    within(relationRow).getByRole('button', {
+      name: 'Practice connection: Knowledge Graphs explains Reader Memory',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active review prompt')).toHaveTextContent(
+      'How does Knowledge Graphs relate to Reader Memory?',
+    )
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: /Show answer|Reveal answer/ }))
+  const goodRatingButton = await screen.findByRole('button', { name: 'Good' })
+  await waitFor(() => {
+    expect(goodRatingButton).not.toBeDisabled()
+  })
+  fireEvent.click(goodRatingButton)
+
+  expect(await screen.findByText('Connection practiced')).toBeInTheDocument()
+  expect(screen.getByText('1 connection reviewed')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Back to source connection' })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Back to Graph connection' }))
+
+  await waitFor(() => {
+    expect(window.location.search).toContain('section=graph')
+  })
+  const returnedRelationsList = await screen.findByRole('list', { name: 'Selected node connections' })
+  const returnedRelationRow = within(returnedRelationsList)
+    .getByText('Knowledge Graphs explains Reader Memory')
+    .closest('[data-graph-detail-relation-row-stage1026]') as HTMLElement
+  expect(returnedRelationRow).not.toBeNull()
+  expect(returnedRelationRow).toHaveAttribute('data-graph-detail-relation-focused-stage1028', 'true')
+})
+
+test('Graph relation practice progress opens relation-filtered Study questions when not review-ready', async () => {
+  installRelatedGraphSourceFixture()
+  installRelatedGraphPracticeFixture()
+  studyCardsState = studyCardsState.map((card) =>
+    card.id === 'card-related-graph-practice-stage1014'
+      ? {
+          ...card,
+          due_at: '2026-04-20T10:00:00Z',
+          scheduling_state: {
+            ...card.scheduling_state,
+            due_at: '2026-04-20T10:00:00Z',
+            review_count: 1,
+          },
+          status: 'scheduled' as const,
+          review_count: 1,
+          last_rating: 'good' as const,
+          knowledge_stage: 'practiced' as const,
+        }
+      : card,
+  )
+  studyOverviewState = buildStudyOverview(studyCardsState)
+
+  renderRecallApp('/recall?section=graph')
+
+  const { relationsList } = await openKnowledgeGraphsConnectionsTab()
+  const relationRow = within(relationsList)
+    .getByText('Knowledge Graphs explains Reader Memory')
+    .closest('[data-graph-detail-relation-row-stage1026]') as HTMLElement
+  expect(relationRow).not.toBeNull()
+  expect(within(relationRow).getByText('1 practice question')).toBeInTheDocument()
+  expect(within(relationRow).getByText('Practiced')).toBeInTheDocument()
+  expect(within(relationRow).getByText('Scheduled')).toBeInTheDocument()
+  expect(
+    within(relationRow).queryByRole('button', {
+      name: 'Practice connection: Knowledge Graphs explains Reader Memory',
+    }),
+  ).not.toBeInTheDocument()
+
+  fireEvent.click(
+    within(relationRow).getByRole('button', {
+      name: 'Study questions for connection: Knowledge Graphs explains Reader Memory',
+    }),
+  )
+
+  expect(startRecallStudyReviewSessionMock).not.toHaveBeenCalled()
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  expect(within(questionManager).getByLabelText('Active study relation filter')).toHaveTextContent(
+    'Relation: Knowledge Graphs explains Reader Memory',
+  )
+  expect(within(questionManager).getByText('How does Knowledge Graphs relate to Reader Memory?')).toBeInTheDocument()
+})
+
+test('Graph relation rows can create relation-backed Study practice from no-practice state', async () => {
+  installRelatedGraphSourceFixture()
+
+  renderRecallApp('/recall?section=graph')
+
+  const { relationsList } = await openKnowledgeGraphsConnectionsTab()
+  const relationRow = within(relationsList)
+    .getByText('Knowledge Graphs explains Reader Memory')
+    .closest('[data-graph-detail-relation-row-stage1026]') as HTMLElement
+  expect(relationRow).not.toBeNull()
+  expect(within(relationRow).getByText('No practice yet')).toBeInTheDocument()
+  expect(
+    within(relationRow).queryByRole('button', {
+      name: 'Practice connection: Knowledge Graphs explains Reader Memory',
+    }),
+  ).not.toBeInTheDocument()
+
+  fireEvent.click(
+    within(relationRow).getByRole('button', {
+      name: 'Create practice card: Knowledge Graphs explains Reader Memory',
+    }),
+  )
+
+  await waitFor(() => {
+    expect(createRecallStudyCardMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        answer: 'Knowledge Graphs explain why Reader memory stays attached.',
+        card_type: 'short_answer',
+        prompt: 'What is the Graph connection between Knowledge Graphs and Reader Memory?',
+        source_document_id: 'doc-search',
+        source_spans: [
+          expect.objectContaining({
+            edge_id: 'edge-graph-related-reader',
+            excerpt: 'Knowledge Graphs explain why Reader memory stays attached.',
+            manual_source: 'study_relation_manual',
+            relation_type: 'explains',
+            source_id: 'node-knowledge-graphs',
+            source_label: 'Knowledge Graphs',
+            target_id: 'node-reader-memory',
+            target_label: 'Reader Memory',
+          }),
+        ],
+      }),
+    )
+  })
+  const questionManager = await screen.findByLabelText('Study questions manager')
+  expect(within(questionManager).getByLabelText('Active study relation filter')).toHaveTextContent(
+    'Relation: Knowledge Graphs explains Reader Memory',
+  )
+})
+
+test('Graph gap build queue opens Notebook Graph promotion and returns to Source Not in Graph', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      ...recallNotesByDocument['doc-search'],
+      makeSourceRecallNote(
+        'note-search-graph-gap-stage1004',
+        'doc-search',
+        'Search target only',
+        'Remaining Graph gap note.',
+      ),
+    ],
+  }
+
+  renderRecallApp('/recall?section=graph')
+
+  const graphRail = await screen.findByRole('complementary', { name: 'Graph settings sidebar' })
+  const graphGapQueue = await within(graphRail).findByRole('region', { name: 'Graph gap build queue' })
+  await waitFor(() => {
+    expect(within(graphGapQueue).getByText('Useful search note.')).toBeInTheDocument()
+    expect(within(graphGapQueue).getByText('Remaining Graph gap note.')).toBeInTheDocument()
+  })
+
+  const queueRow = within(graphGapQueue)
+    .getByText('Useful search note.')
+    .closest('[data-graph-gap-build-row-stage1004]') as HTMLElement
+  expect(queueRow).not.toBeNull()
+  fireEvent.click(within(queueRow).getByRole('button', { name: 'Create Graph node' }))
+
+  const workbench = await screen.findByRole('region', { name: 'Selected note workbench' })
+  const promotionHeading = within(workbench).getByRole('heading', { name: 'Promote note', level: 3 })
+  const promotionCard =
+    promotionHeading.closest('.recall-note-promote-inline-stage872') ??
+    promotionHeading.closest('.recall-note-promotion-card')
+  expect(within(promotionCard as HTMLElement).getByRole('tab', { name: 'Promote to Graph', selected: true })).toBeInTheDocument()
+
+  fireEvent.click(within(promotionCard as HTMLElement).getByRole('button', { name: 'Promote node' }))
+
+  await waitFor(() => {
+    expect(promoteRecallNoteToGraphNodeMock).toHaveBeenCalledWith('note-search-1', expect.objectContaining({
+      label: expect.any(String),
+    }))
+  })
+  const graphFocusTray = await screen.findByLabelText('Graph focus tray')
+  const returnButton = within(graphFocusTray).getByRole('button', { name: 'Back to Graph gaps' })
+  expect(returnButton).toBeInTheDocument()
+
+  fireEvent.click(returnButton)
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  await waitFor(() => {
+    expect(fetchHighlightReviewInboxMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceDocumentId: 'doc-search',
+        state: 'unconnected',
+      }),
+    )
+  })
+  expect(within(sourceHighlightReview).getByText('Remaining Graph gap note.')).toBeInTheDocument()
+  expect(within(sourceHighlightReview).queryByText('Useful search note.')).not.toBeInTheDocument()
+})
+
+test('Home Graph gap promotion return preserves Graph gaps learning filter', async () => {
+  renderRecallApp('/recall')
+
+  const readingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  fireEvent.click(within(readingQueue).getByRole('button', { name: 'Show sources with Graph gaps' }))
+
+  const homeHighlightReview = await screen.findByRole('region', { name: 'Home highlight review' })
+  await waitFor(() => {
+    expect(fetchHighlightReviewInboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        learningFilter: 'graph_gaps',
+        state: 'unconnected',
+      }),
+    )
+  })
+
+  const highlightRow = within(homeHighlightReview)
+    .getByText('Useful search note.')
+    .closest('[data-highlight-review-row-state-stage976]') as HTMLElement
+  fireEvent.click(within(highlightRow).getByRole('button', { name: 'Create Graph node' }))
+
+  const workbench = await screen.findByRole('region', { name: 'Selected note workbench' })
+  const promotionHeading = within(workbench).getByRole('heading', { name: 'Promote note', level: 3 })
+  const promotionCard =
+    promotionHeading.closest('.recall-note-promote-inline-stage872') ??
+    promotionHeading.closest('.recall-note-promotion-card')
+  fireEvent.click(within(promotionCard as HTMLElement).getByRole('button', { name: 'Promote node' }))
+
+  await waitFor(() => {
+    expect(promoteRecallNoteToGraphNodeMock).toHaveBeenCalledWith('note-search-1', expect.objectContaining({
+      label: expect.any(String),
+    }))
+  })
+  const graphFocusTray = await screen.findByLabelText('Graph focus tray')
+  fireEvent.click(within(graphFocusTray).getByRole('button', { name: 'Back to Graph gaps' }))
+
+  const restoredReadingQueue = await screen.findByRole('region', { name: 'Reading queue' })
+  await waitFor(() => {
+    expect(fetchLibraryReadingQueueMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        learningFilter: 'graph_gaps',
+      }),
+    )
+  })
+  await waitFor(() => {
+    expect(fetchHighlightReviewInboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        learningFilter: 'graph_gaps',
+        state: 'unconnected',
+      }),
+    )
+  })
+  expect(within(restoredReadingQueue).getByRole('button', { name: 'Show sources with Graph gaps' })).toHaveClass(
+    'primary-button',
+  )
 })
 
 test('Home highlight inbox Create Study card opens the Notebook promotion seam with Study selected', async () => {
@@ -3253,7 +5238,7 @@ test('Home highlight inbox Create Study card opens the Notebook promotion seam w
   const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
   fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
 
-  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  let highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
   fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Create Study card from Reader stays here' }))
 
   const selectedWorkbench = await screen.findByRole('region', { name: 'Selected note workbench' })
@@ -3263,6 +5248,1177 @@ test('Home highlight inbox Create Study card opens the Notebook promotion seam w
     promotionHeading.closest('.recall-note-promotion-card')
   expect(within(promotionCard as HTMLElement).getByRole('tab', { name: 'Create Study Card', selected: true })).toBeInTheDocument()
   expect(within(promotionCard as HTMLElement).getByRole('textbox', { name: 'Study prompt' })).toBeInTheDocument()
+})
+
+test('Home highlight review inbox filters note state and keeps dismissed notes recoverable', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  let highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  expect(within(highlightInbox).getByRole('button', { name: 'Show highlights needing review' })).toBeInTheDocument()
+  expect(within(highlightInbox).getByRole('button', { name: 'Show uncovered highlights' })).toBeInTheDocument()
+  expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+  expect(fetchHighlightReviewInboxMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      collectionId: 'collection:research',
+      learningFilter: 'all',
+      readingState: 'all',
+    }),
+  )
+
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Mark reviewed' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-reader-1', { review_state: 'reviewed' })
+  })
+  await waitFor(() => {
+    expect(within(highlightInbox).queryByText('Return to sentence two.')).not.toBeInTheDocument()
+  })
+
+  highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show reviewed highlights' }))
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+  })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Dismiss' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-reader-1', { review_state: 'dismissed' })
+  })
+
+  highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show dismissed highlights' }))
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+  })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Restore' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-reader-1', { review_state: 'unreviewed' })
+  })
+})
+
+test('Home highlight review bulk triage marks selected visible collection highlights reviewed', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-reader': [
+      ...recallNotesByDocument['doc-reader'],
+      makeRecallNote(
+        'note-reader-bulk-stage994',
+        'doc-reader',
+        'variant-doc-reader-reflowed',
+        'reader-1',
+        0,
+        0,
+        0,
+        0,
+        'Reader sentence one.',
+        'Reader sentence one. Reader sentence two.',
+        'Bulk review sentence one.',
+      ),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+    expect(within(highlightInbox).getByText('Bulk review sentence one.')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Select visible highlights' }))
+  expect(within(highlightInbox).getByText('2 selected')).toBeInTheDocument()
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Mark selected reviewed' }))
+
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-reader-1', { review_state: 'reviewed' })
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-reader-bulk-stage994', {
+      review_state: 'reviewed',
+    })
+  })
+  await waitFor(() => {
+    expect(within(highlightInbox).queryByText('Return to sentence two.')).not.toBeInTheDocument()
+    expect(within(highlightInbox).queryByText('Bulk review sentence one.')).not.toBeInTheDocument()
+  })
+
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show reviewed highlights' }))
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+    expect(within(highlightInbox).getByText('Bulk review sentence one.')).toBeInTheDocument()
+  })
+})
+
+test('Home highlight review guided session advances through visible collection highlights', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-reader': [
+      ...recallNotesByDocument['doc-reader'],
+      makeRecallNote(
+        'note-reader-session-stage996',
+        'doc-reader',
+        'variant-doc-reader-reflowed',
+        'reader-1',
+        0,
+        0,
+        0,
+        0,
+        'Reader sentence one.',
+        'Reader sentence one. Reader sentence two.',
+        'Guided session sentence.',
+      ),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+    expect(within(highlightInbox).getByText('Guided session sentence.')).toBeInTheDocument()
+  })
+
+  const session = within(highlightInbox).getByRole('group', {
+    name: 'Collection highlight review guided review session',
+  })
+  fireEvent.click(within(session).getByRole('button', { name: 'Start visible review' }))
+  expect(within(session).getByText('1 of 2')).toBeInTheDocument()
+  expect(within(session).getByText('Return to sentence two.')).toBeInTheDocument()
+
+  fireEvent.click(within(session).getByRole('button', { name: 'Mark reviewed' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-reader-1', { review_state: 'reviewed' })
+  })
+  await waitFor(() => {
+    expect(within(session).getByText('2 of 2')).toBeInTheDocument()
+    expect(within(session).getByText('Guided session sentence.')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(session).getByRole('button', { name: 'Dismiss' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-reader-session-stage996', {
+      review_state: 'dismissed',
+    })
+    expect(within(session).getByText('Session complete.')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show reviewed highlights' }))
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+  })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show dismissed highlights' }))
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Guided session sentence.')).toBeInTheDocument()
+  })
+})
+
+test('Home highlight review rows create Graph nodes through Notebook and return to focused Graph', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  const row = await within(highlightInbox).findByText('Return to sentence two.')
+  const highlightRow = row.closest('[data-highlight-review-row-state-stage976]') as HTMLElement
+  expect(highlightRow).not.toBeNull()
+  expect(highlightRow).toHaveTextContent('Not in Graph')
+  fireEvent.click(within(highlightRow).getByRole('button', { name: 'Create Graph node' }))
+
+  const workbench = await screen.findByRole('region', { name: 'Selected note workbench' })
+  const promotionCard = within(workbench)
+    .getByRole('heading', { name: 'Promote note', level: 3 })
+    .closest('.recall-note-promote-inline-stage872') ??
+    within(workbench)
+      .getByRole('heading', { name: 'Promote note', level: 3 })
+      .closest('.recall-note-promotion-card')
+  expect(promotionCard).not.toBeNull()
+  expect(within(promotionCard as HTMLElement).getByRole('tab', { name: 'Promote to Graph', selected: true })).toBeInTheDocument()
+
+  fireEvent.click(within(promotionCard as HTMLElement).getByRole('button', { name: 'Promote node' }))
+
+  await waitFor(() => {
+    expect(promoteRecallNoteToGraphNodeMock).toHaveBeenCalledWith('note-reader-1', expect.objectContaining({
+      label: expect.any(String),
+    }))
+  })
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Reader stays here workspace' })).toBeInTheDocument()
+  })
+})
+
+test('Home highlight review filters Graph-connected and unconnected queues', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-reader': [
+      {
+        ...recallNotesByDocument['doc-reader'][0],
+        graph_covered: true,
+        graph_node_id: 'node-knowledge-graphs',
+        review_state: 'reviewed',
+      },
+      makeRecallNote(
+        'note-reader-unconnected-stage1000',
+        'doc-reader',
+        'variant-doc-reader-reflowed',
+        'reader-unconnected-stage1000',
+        0,
+        1,
+        0,
+        1,
+        'Unconnected Graph filter sentence.',
+        'Unconnected Graph filter sentence.',
+        'Connect this highlight to Graph.',
+      ),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show Graph-unconnected highlights' }))
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Connect this highlight to Graph.')).toBeInTheDocument()
+    expect(within(highlightInbox).queryByText('Return to sentence two.')).not.toBeInTheDocument()
+  })
+  expect(within(highlightInbox).getByRole('button', { name: 'Create Graph node' })).toBeInTheDocument()
+
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show Graph-connected highlights' }))
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+    expect(within(highlightInbox).queryByText('Connect this highlight to Graph.')).not.toBeInTheDocument()
+  })
+  expect(within(highlightInbox).getByRole('button', { name: 'Open Graph node' })).toBeInTheDocument()
+})
+
+test('Home highlight review next action opens uncovered collection highlights', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-reader': [
+      {
+        ...recallNotesByDocument['doc-reader'][0],
+        review_state: 'reviewed',
+        reviewed_at: '2026-03-13T00:34:00Z',
+      },
+      makeRecallNote(
+        'note-reader-uncovered-stage992',
+        'doc-reader',
+        'variant-doc-reader-reflowed',
+        'reader-1',
+        0,
+        0,
+        0,
+        0,
+        'Reader sentence one.',
+        'Reader sentence one. Reader sentence two.',
+        'Second uncovered highlight.',
+      ),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show reviewed highlights' }))
+
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Next action')).toBeInTheDocument()
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Create Study cards' }))
+
+  await waitFor(() => {
+    expect(within(highlightInbox).getByRole('button', { name: 'Show uncovered highlights' })).toHaveClass(
+      'primary-button',
+    )
+    expect(within(highlightInbox).getByText('Second uncovered highlight.')).toBeInTheDocument()
+  })
+})
+
+test('Home covered highlight rows open their Study card handoff', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-reader',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      prompt: 'What should return to sentence two?',
+      answer: 'The saved highlight',
+      card_type: 'manual_note',
+      source_spans: [
+        {
+          excerpt: 'Reader sentence one. Reader sentence two.',
+          global_sentence_end: 1,
+          global_sentence_start: 1,
+          note_id: 'note-reader-1',
+          sentence_end: 1,
+          sentence_start: 1,
+        },
+      ],
+    },
+  ]
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show Study-covered highlights' }))
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+  })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Open Study card' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(window.location.search).toBe('?section=study')
+  })
+})
+
+test('Home covered highlight rows prefer reviewable Study handoff when a note has duplicate cards', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-reader-generated-distractor',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      prompt: 'A generated source distractor?',
+      answer: 'This is not the linked highlight card.',
+      card_type: 'short_answer',
+      status: 'new',
+      source_spans: [
+        {
+          chunk_id: 'chunk-reader-1',
+          excerpt: 'Reader sentence one. Reader sentence two.',
+        },
+      ],
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-reader-later-unscheduled',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      prompt: 'Later unscheduled duplicate?',
+      answer: 'Not ready.',
+      card_type: 'manual_note',
+      status: 'unscheduled',
+      source_spans: [
+        {
+          excerpt: 'Reader sentence one. Reader sentence two.',
+          global_sentence_end: 1,
+          global_sentence_start: 1,
+          note_id: 'note-reader-1',
+          sentence_end: 1,
+          sentence_start: 1,
+        },
+      ],
+    },
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-reader-ready',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      prompt: 'Ready linked highlight card?',
+      answer: 'The saved highlight.',
+      card_type: 'manual_note',
+      status: 'new',
+      source_spans: [
+        {
+          excerpt: 'Reader sentence one. Reader sentence two.',
+          global_sentence_end: 1,
+          global_sentence_start: 1,
+          note_id: 'note-reader-1',
+          sentence_end: 1,
+          sentence_start: 1,
+        },
+      ],
+    },
+  ]
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Show Study-covered highlights' }))
+  await waitFor(() => {
+    expect(within(highlightInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+  })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Open Study card' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getAllByText('Ready linked highlight card?').length).toBeGreaterThan(0)
+    expect(screen.queryAllByText('Later unscheduled duplicate?')).toHaveLength(0)
+  })
+})
+
+test('Home covered highlights start queue-scoped Study review sessions', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-reader',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      prompt: 'What should return to sentence two?',
+      answer: 'The saved highlight',
+      card_type: 'manual_note',
+      due_at: '2026-03-13T00:05:00Z',
+      status: 'due',
+      source_spans: [
+        {
+          excerpt: 'Reader sentence one. Reader sentence two.',
+          global_sentence_end: 1,
+          global_sentence_start: 1,
+          note_id: 'note-reader-1',
+          sentence_end: 1,
+          sentence_start: 1,
+        },
+      ],
+    },
+  ]
+  fetchHighlightReviewInboxMock.mockImplementation(async (options) => {
+    const row = {
+      note_id: 'note-reader-1',
+      note_kind: 'sentence',
+      source_document_id: 'doc-reader',
+      source_title: 'Reader stays here',
+      anchor_text: 'Reader sentence two.',
+      excerpt_preview: 'Reader sentence one. Reader sentence two.',
+      body_preview: 'Return to sentence two.',
+      global_sentence_start: 1,
+      global_sentence_end: 1,
+      membership: options?.collectionId ? 'direct' : null,
+      collection_paths: [],
+      review_state: 'reviewed',
+      reviewed_at: '2026-03-13T00:34:00Z',
+      dismissed_at: null,
+      study_covered: true,
+      study_card_id: 'card-note-reader',
+      updated_at: '2026-03-13T00:34:00Z',
+    }
+    const rows = options?.state === 'covered' || options?.state === 'all' ? [row] : []
+    return {
+      scope: 'all',
+      state: (options?.state ?? 'needs_review') as HighlightReviewInboxResponse['state'],
+      reading_state: (options?.readingState ?? 'all') as HighlightReviewInboxResponse['reading_state'],
+      learning_filter: (options?.learningFilter ?? 'all') as HighlightReviewInboxResponse['learning_filter'],
+      collection_id: options?.collectionId ?? null,
+      source_document_id: options?.sourceDocumentId ?? null,
+      summary: {
+        total_items: 1,
+        needs_review_items: 0,
+        uncovered_items: 0,
+        covered_items: 1,
+        reviewable_covered_items: 1,
+        reviewed_items: 1,
+        dismissed_items: 0,
+      },
+      reviewable_study_card_ids: ['card-note-reader'],
+      rows,
+    } as unknown as HighlightReviewInboxResponse
+  })
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Review covered highlights' }))
+
+  await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: ['card-note-reader'],
+        filter_snapshot: expect.objectContaining({
+          collection_id: 'collection:research',
+          highlight_review_state: 'needs_review',
+          launch_intent: 'highlight-covered-review',
+          learning_filter: 'all',
+          reading_state: 'all',
+          scope: 'all',
+        }),
+        source_document_id: null,
+      }),
+    )
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+  })
+})
+
+test('Home covered highlight review sessions show a recap and return to reviewed highlights', async () => {
+  librarySettingsState = {
+    custom_collections: [
+      {
+        id: 'collection:research',
+        name: 'Research',
+        document_ids: ['doc-reader'],
+        origin: 'manual',
+        parent_id: null,
+        sort_index: 0,
+      },
+    ],
+  }
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-reader',
+      source_document_id: 'doc-reader',
+      document_title: 'Reader stays here',
+      prompt: 'What should return to sentence two?',
+      answer: 'The saved highlight',
+      card_type: 'manual_note',
+      due_at: '2026-03-13T00:05:00Z',
+      status: 'due',
+      source_spans: [
+        {
+          excerpt: 'Reader sentence one. Reader sentence two.',
+          global_sentence_end: 1,
+          global_sentence_start: 1,
+          note_id: 'note-reader-1',
+          sentence_end: 1,
+          sentence_start: 1,
+        },
+      ],
+    },
+  ]
+  reviewRecallStudyCardMock.mockImplementationOnce(async (cardId: string) => {
+    recallNotesByDocument = {
+      ...recallNotesByDocument,
+      'doc-reader': recallNotesByDocument['doc-reader'].map((note) =>
+        note.id === 'note-reader-1'
+          ? {
+              ...note,
+              review_state: 'reviewed',
+              reviewed_at: '2026-03-13T00:56:00Z',
+              updated_at: '2026-03-13T00:56:00Z',
+            }
+          : note,
+      ),
+    }
+    const reviewedCard = {
+      ...studyCardsState[0],
+      id: cardId,
+      review_count: 1,
+      status: 'scheduled' as const,
+      last_rating: 'good' as const,
+      knowledge_stage: 'practiced' as const,
+    }
+    studyCardsState = studyCardsState.map((card) => (card.id === cardId ? reviewedCard : card))
+    return reviewedCard
+  })
+
+  renderRecallApp('/recall')
+
+  const rail = await screen.findByRole('complementary', { name: 'Home collection rail' })
+  fireEvent.click(within(rail).getByRole('button', { name: /^Research/i }))
+
+  const highlightInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  fireEvent.click(within(highlightInbox).getByRole('button', { name: 'Review covered highlights' }))
+  await waitFor(() => {
+    expect(screen.getByLabelText('Active review prompt')).toHaveTextContent('What should return to sentence two?')
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show answer' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Good' }))
+
+  const recap = await screen.findByText('Covered highlights practiced')
+  expect(recap).toBeInTheDocument()
+  expect(screen.getByText('1 highlight reviewed')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Back to collection highlights' }))
+  const returnedInbox = await screen.findByRole('region', { name: 'Collection highlight review' })
+  await waitFor(() => {
+    expect(within(returnedInbox).getByRole('button', { name: 'Show reviewed highlights' })).toHaveClass(
+      'primary-button',
+    )
+    expect(within(returnedInbox).getByText('Return to sentence two.')).toBeInTheDocument()
+  })
+})
+
+test('Source covered highlights start source-scoped Study review sessions', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-search',
+      source_document_id: 'doc-search',
+      document_title: 'Search target only',
+      prompt: 'What search note is useful?',
+      answer: 'Useful search note.',
+      card_type: 'manual_note',
+      due_at: '2026-03-13T00:05:00Z',
+      status: 'due',
+      source_spans: [
+        {
+          excerpt: 'Search sentence one. Search sentence two.',
+          global_sentence_end: 1,
+          global_sentence_start: 0,
+          note_id: 'note-search-1',
+          sentence_end: 1,
+          sentence_start: 0,
+        },
+      ],
+    },
+  ]
+  fetchHighlightReviewInboxMock.mockImplementation(async (options) => {
+    const row = {
+      note_id: 'note-search-1',
+      note_kind: 'sentence',
+      source_document_id: 'doc-search',
+      source_title: 'Search target only',
+      anchor_text: 'Search sentence one. Search sentence two.',
+      excerpt_preview: 'Search sentence one. Search sentence two.',
+      body_preview: 'Useful search note.',
+      global_sentence_start: 0,
+      global_sentence_end: 1,
+      membership: null,
+      collection_paths: [],
+      review_state: 'reviewed',
+      reviewed_at: '2026-03-13T00:34:00Z',
+      dismissed_at: null,
+      study_covered: true,
+      study_card_id: 'card-note-search',
+      updated_at: '2026-03-13T00:34:00Z',
+    }
+    return {
+      scope: 'all',
+      state: (options?.state ?? 'needs_review') as HighlightReviewInboxResponse['state'],
+      reading_state: 'all',
+      learning_filter: 'all',
+      collection_id: null,
+      source_document_id: options?.sourceDocumentId ?? null,
+      summary: {
+        total_items: 1,
+        needs_review_items: 0,
+        uncovered_items: 0,
+        covered_items: 1,
+        reviewable_covered_items: 1,
+        reviewed_items: 1,
+        dismissed_items: 0,
+      },
+      reviewable_study_card_ids: ['card-note-search'],
+      rows: options?.state === 'covered' || options?.state === 'all' ? [row] : [],
+    } as unknown as HighlightReviewInboxResponse
+  })
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Review covered highlights' }))
+
+  await waitFor(() => {
+    expect(startRecallStudyReviewSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card_ids: ['card-note-search'],
+        filter_snapshot: expect.objectContaining({
+          highlight_review_state: 'needs_review',
+          launch_intent: 'highlight-covered-review',
+          source_document_id: 'doc-search',
+        }),
+        source_document_id: 'doc-search',
+      }),
+    )
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+  })
+})
+
+test('Source highlight review next action opens source-scoped Study questions', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-search',
+      source_document_id: 'doc-search',
+      document_title: 'Search target only',
+      prompt: 'What search note is useful?',
+      answer: 'Useful search note.',
+      card_type: 'manual_note',
+      due_at: '2026-03-13T00:05:00Z',
+      status: 'due',
+      source_spans: [
+        {
+          excerpt: 'Search sentence one. Search sentence two.',
+          global_sentence_end: 1,
+          global_sentence_start: 0,
+          note_id: 'note-search-1',
+          sentence_end: 1,
+          sentence_start: 0,
+        },
+      ],
+    },
+  ]
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  await waitFor(() => {
+    expect(within(sourceHighlightReview).getByText('Next action')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Study questions' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getAllByText('What search note is useful?').length).toBeGreaterThan(0)
+  })
+})
+
+test('Source covered highlight review sessions return to reviewed source highlights', async () => {
+  studyCardsState = [
+    {
+      ...baseStudyCards[0],
+      id: 'card-note-search',
+      source_document_id: 'doc-search',
+      document_title: 'Search target only',
+      prompt: 'What search note is useful?',
+      answer: 'Useful search note.',
+      card_type: 'manual_note',
+      due_at: '2026-03-13T00:05:00Z',
+      status: 'due',
+      source_spans: [
+        {
+          excerpt: 'Search sentence one. Search sentence two.',
+          global_sentence_end: 1,
+          global_sentence_start: 0,
+          note_id: 'note-search-1',
+          sentence_end: 1,
+          sentence_start: 0,
+        },
+      ],
+    },
+  ]
+  reviewRecallStudyCardMock.mockImplementationOnce(async (cardId: string) => {
+    recallNotesByDocument = {
+      ...recallNotesByDocument,
+      'doc-search': recallNotesByDocument['doc-search'].map((note) =>
+        note.id === 'note-search-1'
+          ? {
+              ...note,
+              review_state: 'reviewed',
+              reviewed_at: '2026-03-13T00:56:00Z',
+              updated_at: '2026-03-13T00:56:00Z',
+            }
+          : note,
+      ),
+    }
+    const reviewedCard = {
+      ...studyCardsState[0],
+      id: cardId,
+      review_count: 1,
+      status: 'scheduled' as const,
+      last_rating: 'good' as const,
+      knowledge_stage: 'practiced' as const,
+    }
+    studyCardsState = studyCardsState.map((card) => (card.id === cardId ? reviewedCard : card))
+    return reviewedCard
+  })
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Review covered highlights' }))
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Study', selected: true })).toBeInTheDocument()
+    expect(screen.getAllByText('What search note is useful?').length).toBeGreaterThan(0)
+  })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Reveal answer' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Good' }))
+
+  expect(await screen.findByText('Covered highlights practiced')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Back to source highlights' }))
+
+  const returnedSourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  await waitFor(() => {
+    expect(
+      within(returnedSourceHighlightReview).getByRole('button', { name: 'Show reviewed highlights' }),
+    ).toHaveClass('primary-button')
+    expect(within(returnedSourceHighlightReview).getByText('Useful search note.')).toBeInTheDocument()
+  })
+})
+
+test('Source overview highlight review controls dismiss and restore source highlights', async () => {
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  expect(within(sourceHighlightReview).getByText('Useful search note.')).toBeInTheDocument()
+
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Dismiss' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-search-1', { review_state: 'dismissed' })
+  })
+
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Show dismissed highlights' }))
+  await waitFor(() => {
+    expect(within(sourceHighlightReview).getByText('Useful search note.')).toBeInTheDocument()
+  })
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Restore' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-search-1', { review_state: 'unreviewed' })
+  })
+})
+
+test('Source overview highlight review bulk triage dismisses and restores selected visible highlights', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      ...recallNotesByDocument['doc-search'],
+      makeRecallNote(
+        'note-search-bulk-stage994',
+        'doc-search',
+        'variant-doc-search-reflowed',
+        'search-1',
+        1,
+        1,
+        1,
+        1,
+        'Search sentence two.',
+        'Search sentence one. Search sentence two.',
+        'Bulk source search note.',
+      ),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  await waitFor(() => {
+    expect(within(sourceHighlightReview).getByText('Useful search note.')).toBeInTheDocument()
+    expect(within(sourceHighlightReview).getByText('Bulk source search note.')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Select visible highlights' }))
+  expect(within(sourceHighlightReview).getByText('2 selected')).toBeInTheDocument()
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Dismiss selected' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-search-1', { review_state: 'dismissed' })
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-search-bulk-stage994', {
+      review_state: 'dismissed',
+    })
+  })
+
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Show dismissed highlights' }))
+  await waitFor(() => {
+    expect(within(sourceHighlightReview).getByText('Useful search note.')).toBeInTheDocument()
+    expect(within(sourceHighlightReview).getByText('Bulk source search note.')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Select visible highlights' }))
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Restore selected' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-search-1', { review_state: 'unreviewed' })
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-search-bulk-stage994', {
+      review_state: 'unreviewed',
+    })
+  })
+})
+
+test('Source highlight review guided session updates only selected visible highlights', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      ...recallNotesByDocument['doc-search'],
+      makeRecallNote(
+        'note-search-session-stage996',
+        'doc-search',
+        'variant-doc-search-reflowed',
+        'search-1',
+        1,
+        1,
+        1,
+        1,
+        'Search sentence two.',
+        'Search sentence one. Search sentence two.',
+        'Unselected source session note.',
+      ),
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  await waitFor(() => {
+    expect(within(sourceHighlightReview).getByText('Useful search note.')).toBeInTheDocument()
+    expect(within(sourceHighlightReview).getByText('Unselected source session note.')).toBeInTheDocument()
+  })
+
+  const selectedRow = within(sourceHighlightReview)
+    .getByText('Useful search note.')
+    .closest('[data-highlight-review-row-state-stage976]') as HTMLElement
+  fireEvent.click(within(selectedRow).getByRole('checkbox', { name: 'Select highlight from Search target only' }))
+
+  const session = within(sourceHighlightReview).getByRole('group', {
+    name: 'Source highlight review guided review session',
+  })
+  fireEvent.click(within(session).getByRole('button', { name: 'Review selected' }))
+  expect(within(session).getByText('1 of 1')).toBeInTheDocument()
+  expect(within(session).getByText('Useful search note.')).toBeInTheDocument()
+
+  fireEvent.click(within(session).getByRole('button', { name: 'Dismiss' }))
+  await waitFor(() => {
+    expect(updateRecallNoteReviewStateMock).toHaveBeenCalledWith('note-search-1', { review_state: 'dismissed' })
+    expect(within(session).getByText('Session complete.')).toBeInTheDocument()
+  })
+  expect(updateRecallNoteReviewStateMock).not.toHaveBeenCalledWith('note-search-session-stage996', {
+    review_state: 'dismissed',
+  })
+
+  fireEvent.click(within(sourceHighlightReview).getByRole('button', { name: 'Show dismissed highlights' }))
+  await waitFor(() => {
+    expect(within(sourceHighlightReview).getByText('Useful search note.')).toBeInTheDocument()
+    expect(within(sourceHighlightReview).queryByText('Unselected source session note.')).not.toBeInTheDocument()
+  })
+})
+
+test('Source learning gaps expose Graph-unconnected highlight review filter', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': [
+      makeRecallNote(
+        'note-search-unconnected-stage1000',
+        'doc-search',
+        'variant-doc-search-reflowed',
+        'search-unconnected-stage1000',
+        0,
+        1,
+        0,
+        1,
+        'Source unconnected Graph sentence.',
+        'Source unconnected Graph sentence.',
+        'Source Graph gap highlight.',
+      ),
+      {
+        ...recallNotesByDocument['doc-search'][0],
+        graph_covered: true,
+        graph_node_id: 'node-knowledge-graphs',
+        review_state: 'reviewed',
+      },
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceOverviewSection = await screen.findByRole('heading', { name: 'Source overview', level: 2 })
+  const sourceOverview = sourceOverviewSection.closest('section') as HTMLElement
+  const learningGaps = sourceOverview.querySelector(
+    '[data-source-learning-gaps-stage978="true"]',
+  ) as HTMLElement
+  expect(learningGaps).not.toBeNull()
+  expect(learningGaps).toHaveTextContent('not in Graph')
+  fireEvent.click(within(learningGaps).getByRole('button', { name: 'Graph-unconnected highlights' }))
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  await waitFor(() => {
+    expect(within(sourceHighlightReview).getByText('Source Graph gap highlight.')).toBeInTheDocument()
+    expect(within(sourceHighlightReview).queryByText('Useful search note.')).not.toBeInTheDocument()
+  })
+  const session = within(sourceHighlightReview).getByRole('group', {
+    name: 'Source highlight review guided review session',
+  })
+  fireEvent.click(within(session).getByRole('button', { name: 'Start visible review' }))
+  expect(within(session).getByText('Not in Graph')).toBeInTheDocument()
+  expect(within(session).getByRole('button', { name: 'Create Graph node' })).toBeInTheDocument()
+})
+
+test('Source highlight review guided session opens Graph-covered active highlights', async () => {
+  recallNotesByDocument = {
+    ...recallNotesByDocument,
+    'doc-search': recallNotesByDocument['doc-search'].map((note) =>
+      note.id === 'note-search-1'
+        ? {
+            ...note,
+            graph_covered: true,
+            graph_node_id: 'node-knowledge-graphs',
+          }
+        : note,
+    ),
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceHighlightReview = await screen.findByRole('region', { name: 'Source highlight review' })
+  await waitFor(() => {
+    expect(within(sourceHighlightReview).getByText('Useful search note.')).toBeInTheDocument()
+  })
+
+  const session = within(sourceHighlightReview).getByRole('group', {
+    name: 'Source highlight review guided review session',
+  })
+  fireEvent.click(within(session).getByRole('button', { name: 'Start visible review' }))
+  expect(within(session).getByText('Connected to Graph')).toBeInTheDocument()
+  fireEvent.click(within(session).getByRole('button', { name: 'Open Graph node' }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('tab', { name: 'Graph', selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Search target only workspace' })).toBeInTheDocument()
+  })
+  await waitFor(() => {
+    expect(fetchRecallGraphNodeMock).toHaveBeenCalledWith('node-knowledge-graphs')
+  })
 })
 
 test('Source overview shows reading resume and opens highlighted passages', async () => {
@@ -3332,12 +6488,20 @@ test('Reader Next in queue advances inside the launch scope', async () => {
     dry_run: true,
     scope: 'all',
     state: 'all',
+    learning_filter: 'all',
     collection_id: null,
     summary: {
       total_sources: 2,
       unread_sources: 1,
       in_progress_sources: 1,
       completed_sources: 0,
+    },
+    learning_summary: {
+      needs_review_sources: 1,
+      uncovered_sources: 1,
+      covered_sources: 0,
+      study_prompt_sources: 1,
+      graph_gap_sources: 1,
     },
     rows: [
       {
@@ -3355,6 +6519,7 @@ test('Reader Next in queue advances inside the launch scope', async () => {
         collection_paths: [],
         note_count: 1,
         highlight_count: 1,
+        highlight_review_counts: getMockHighlightReviewCounts('doc-search'),
         study_counts: { due: 0, new: 1, total: 1 },
       },
       {
@@ -3372,6 +6537,7 @@ test('Reader Next in queue advances inside the launch scope', async () => {
         collection_paths: [],
         note_count: 1,
         highlight_count: 1,
+        highlight_review_counts: getMockHighlightReviewCounts('doc-reader'),
         study_counts: { due: 0, new: 0, total: 0 },
       },
     ],
@@ -3810,6 +6976,381 @@ test('Recall graph browse mode opens a focused node detail and lets the user con
 
   await waitFor(() => {
     expect(decideRecallGraphEdgeMock).toHaveBeenCalledWith('edge-graph-supports-card', 'confirmed')
+  })
+})
+
+test('Graph connection review queue focuses a suggested relation and confirms it', async () => {
+  decideRecallGraphEdgeMock.mockImplementationOnce(async (_edgeId: string, decision: 'confirmed' | 'rejected') => {
+    const updatedEdge = {
+      ...recallGraphState.edges[0],
+      provenance: decision === 'confirmed' ? 'manual' : recallGraphState.edges[0].provenance,
+      status: decision,
+    }
+    recallGraphState = {
+      ...recallGraphState,
+      confirmed_edges: decision === 'confirmed' ? 1 : 0,
+      edges: recallGraphState.edges.map((edge) => (edge.id === updatedEdge.id ? updatedEdge : edge)),
+      pending_edges: 0,
+    }
+    return updatedEdge
+  })
+
+  renderRecallApp('/recall?section=graph')
+
+  const graphRail = await screen.findByRole('complementary', { name: 'Graph settings sidebar' })
+  const connectionQueue = await within(graphRail).findByRole('region', { name: 'Graph connection review queue' })
+  await waitFor(() => {
+    expect(within(connectionQueue).getByText('Knowledge Graphs supports Study Cards')).toBeInTheDocument()
+  })
+  expect(within(connectionQueue).getByText('1 suggested connection')).toBeInTheDocument()
+  expect(within(connectionQueue).getByText('1 evidence span')).toBeInTheDocument()
+
+  const queueRow = within(connectionQueue)
+    .getByText('Knowledge Graphs supports Study Cards')
+    .closest('[data-graph-connection-review-row-stage1006]') as HTMLElement
+  expect(queueRow).not.toBeNull()
+
+  fireEvent.click(within(queueRow).getByRole('button', { name: 'Review connection' }))
+
+  const nodeDetailSection = await screen.findByLabelText('Node detail dock')
+  await waitFor(() => {
+    expect(within(nodeDetailSection as HTMLElement).getByRole('tab', { name: /Connections/i, selected: true })).toBeInTheDocument()
+  })
+  expect(within(nodeDetailSection as HTMLElement).getByRole('list', { name: 'Selected node connections' })).toHaveTextContent(
+    'Knowledge Graphs supports Study Cards',
+  )
+  expect(screen.getByLabelText('Graph focus tray')).toHaveTextContent('Knowledge Graphs to Study Cards')
+
+  fireEvent.click(within(queueRow).getByRole('button', { name: 'Confirm' }))
+
+  await waitFor(() => {
+    expect(decideRecallGraphEdgeMock).toHaveBeenCalledWith('edge-graph-supports-card', 'confirmed')
+    expect(within(connectionQueue).queryByText('Knowledge Graphs supports Study Cards')).not.toBeInTheDocument()
+  })
+  expect(within(connectionQueue).getByText('No suggested connections yet.')).toBeInTheDocument()
+})
+
+test('Graph connection review queue scopes strong and multi-evidence suggestions', async () => {
+  recallGraphState = {
+    ...recallGraphState,
+    pending_edges: 2,
+    nodes: [
+      ...recallGraphState.nodes,
+      {
+        id: 'node-reader-memory',
+        label: 'Reader Memory',
+        node_type: 'concept',
+        description: 'Reader memory stays attached to source context.',
+        confidence: 0.72,
+        mention_count: 1,
+        document_count: 1,
+        status: 'suggested',
+        aliases: [],
+        source_document_ids: ['doc-reader'],
+      },
+      {
+        id: 'node-reader-context',
+        label: 'Reader Context',
+        node_type: 'concept',
+        description: 'Reader context carries source evidence.',
+        confidence: 0.7,
+        mention_count: 1,
+        document_count: 1,
+        status: 'suggested',
+        aliases: [],
+        source_document_ids: ['doc-reader'],
+      },
+    ],
+    edges: [
+      ...recallGraphState.edges,
+      {
+        id: 'edge-reader-memory-context',
+        source_id: 'node-reader-memory',
+        source_label: 'Reader Memory',
+        target_id: 'node-reader-context',
+        target_label: 'Reader Context',
+        relation_type: 'supports',
+        provenance: 'inferred',
+        confidence: 0.52,
+        status: 'suggested',
+        evidence_count: 2,
+        source_document_ids: ['doc-reader'],
+        excerpt: 'Reader memory keeps context attached.',
+      },
+    ],
+  }
+
+  renderRecallApp('/recall?section=graph')
+
+  const graphRail = await screen.findByRole('complementary', { name: 'Graph settings sidebar' })
+  const connectionQueue = await within(graphRail).findByRole('region', { name: 'Graph connection review queue' })
+  await waitFor(() => {
+    expect(within(connectionQueue).getByText('Knowledge Graphs supports Study Cards')).toBeInTheDocument()
+    expect(within(connectionQueue).getByText('Reader Memory supports Reader Context')).toBeInTheDocument()
+  })
+
+  fireEvent.click(within(connectionQueue).getByRole('button', { name: 'Strong' }))
+  await waitFor(() => {
+    expect(within(connectionQueue).getByText('Knowledge Graphs supports Study Cards')).toBeInTheDocument()
+    expect(within(connectionQueue).queryByText('Reader Memory supports Reader Context')).not.toBeInTheDocument()
+  })
+
+  fireEvent.click(within(connectionQueue).getByRole('button', { name: 'Multi-evidence' }))
+  await waitFor(() => {
+    expect(within(connectionQueue).getByText('Reader Memory supports Reader Context')).toBeInTheDocument()
+    expect(within(connectionQueue).queryByText('Knowledge Graphs supports Study Cards')).not.toBeInTheDocument()
+  })
+})
+
+test('Source overview opens a source-scoped Graph connection review queue', async () => {
+  recallGraphState = {
+    ...recallGraphState,
+    pending_edges: 2,
+    nodes: [
+      ...recallGraphState.nodes,
+      {
+        id: 'node-reader-memory',
+        label: 'Reader Memory',
+        node_type: 'concept',
+        description: 'Reader memory stays attached to source context.',
+        confidence: 0.72,
+        mention_count: 1,
+        document_count: 1,
+        status: 'suggested',
+        aliases: [],
+        source_document_ids: ['doc-reader'],
+      },
+      {
+        id: 'node-reader-context',
+        label: 'Reader Context',
+        node_type: 'concept',
+        description: 'Reader context carries source evidence.',
+        confidence: 0.7,
+        mention_count: 1,
+        document_count: 1,
+        status: 'suggested',
+        aliases: [],
+        source_document_ids: ['doc-reader'],
+      },
+    ],
+    edges: [
+      ...recallGraphState.edges,
+      {
+        id: 'edge-reader-memory-context',
+        source_id: 'node-reader-memory',
+        source_label: 'Reader Memory',
+        target_id: 'node-reader-context',
+        target_label: 'Reader Context',
+        relation_type: 'supports',
+        provenance: 'inferred',
+        confidence: 0.52,
+        status: 'suggested',
+        evidence_count: 2,
+        source_document_ids: ['doc-reader'],
+        excerpt: 'Reader memory keeps context attached.',
+      },
+    ],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceOverviewSection = await screen.findByRole('heading', { name: 'Source overview', level: 2 })
+  const sourceOverview = sourceOverviewSection.closest('section') as HTMLElement
+  const graphConnectionSummary = sourceOverview.querySelector(
+    '[data-source-overview-graph-connection-summary-stage1008="true"]',
+  ) as HTMLElement
+  expect(graphConnectionSummary).not.toBeNull()
+  expect(graphConnectionSummary).toHaveTextContent('1 suggested connection')
+
+  fireEvent.click(within(sourceOverview).getByRole('button', { name: 'Review connections' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(window.location.search).toContain('section=graph')
+  })
+  const graphRail = await screen.findByRole('complementary', { name: 'Graph settings sidebar' })
+  const connectionQueue = await within(graphRail).findByRole('region', { name: 'Graph connection review queue' })
+  const scopeControls = within(connectionQueue).getByRole('group', { name: 'Graph connection review scope' })
+  expect(within(scopeControls).getByRole('button', { name: 'This source' })).toHaveAttribute('aria-pressed', 'true')
+  expect(within(connectionQueue).getByText('Knowledge Graphs supports Study Cards')).toBeInTheDocument()
+  expect(within(connectionQueue).queryByText('Reader Memory supports Reader Context')).not.toBeInTheDocument()
+})
+
+test('Source overview shows related Graph sources and opens the related source', async () => {
+  const readerMemoryNode: KnowledgeGraphSnapshot['nodes'][number] = {
+    id: 'node-reader-memory',
+    label: 'Reader Memory',
+    node_type: 'concept',
+    description: 'Reader memory stays attached to source context.',
+    confidence: 0.78,
+    mention_count: 1,
+    document_count: 1,
+    status: 'confirmed',
+    aliases: [],
+    source_document_ids: ['doc-reader'],
+  }
+  const confirmedRelatedEdge: KnowledgeGraphSnapshot['edges'][number] = {
+    id: 'edge-graph-related-reader',
+    source_id: 'node-knowledge-graphs',
+    source_label: 'Knowledge Graphs',
+    target_id: readerMemoryNode.id,
+    target_label: readerMemoryNode.label,
+    relation_type: 'explains',
+    provenance: 'manual',
+    confidence: 0.88,
+    status: 'confirmed',
+    evidence_count: 2,
+    source_document_ids: ['doc-search', 'doc-reader'],
+    excerpt: 'Knowledge Graphs explain why Reader memory stays attached.',
+  }
+  const rejectedRelatedEdge: KnowledgeGraphSnapshot['edges'][number] = {
+    ...confirmedRelatedEdge,
+    id: 'edge-graph-rejected-reader',
+    relation_type: 'contradicts',
+    status: 'rejected',
+    excerpt: 'Rejected relation should not appear in Source overview.',
+  }
+
+  recallGraphState = {
+    ...recallGraphState,
+    confirmed_edges: 1,
+    edges: [...recallGraphState.edges, confirmedRelatedEdge, rejectedRelatedEdge],
+    nodes: [...recallGraphState.nodes, readerMemoryNode],
+  }
+  nodeDetailById['node-knowledge-graphs'] = {
+    ...nodeDetailById['node-knowledge-graphs'],
+    outgoing_edges: [...nodeDetailById['node-knowledge-graphs'].outgoing_edges, confirmedRelatedEdge],
+  }
+  nodeDetailById[readerMemoryNode.id] = {
+    node: readerMemoryNode,
+    mentions: [],
+    outgoing_edges: [],
+    incoming_edges: [confirmedRelatedEdge],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceOverviewSection = await screen.findByRole('heading', { name: 'Source overview', level: 2 })
+  const sourceOverview = sourceOverviewSection.closest('section') as HTMLElement
+  const relatedGraphConnections = await within(sourceOverview).findByRole('list', {
+    name: 'Source related Graph connections',
+  })
+  expect(relatedGraphConnections).toHaveTextContent('Reader stays here')
+  expect(relatedGraphConnections).toHaveTextContent('Knowledge Graphs explains Reader Memory')
+  expect(relatedGraphConnections).toHaveTextContent('Confirmed relation')
+  expect(relatedGraphConnections).toHaveTextContent('2 evidence spans')
+  expect(relatedGraphConnections).not.toHaveTextContent('Rejected relation should not appear')
+
+  const graphConnectionSummary = sourceOverview.querySelector(
+    '[data-source-overview-graph-connection-summary-stage1008="true"]',
+  ) as HTMLElement
+  expect(graphConnectionSummary).toHaveTextContent('1 related source')
+  expect(graphConnectionSummary).toHaveTextContent('1 confirmed relation')
+
+  fireEvent.click(within(relatedGraphConnections).getByRole('button', { name: 'Open related source Reader stays here' }))
+
+  await waitFor(() => {
+    expect(sourceOverview).toHaveTextContent('Reader stays here')
+  })
+})
+
+test('Source overview related Graph source opens the focused relation', async () => {
+  const readerMemoryNode: KnowledgeGraphSnapshot['nodes'][number] = {
+    id: 'node-reader-memory',
+    label: 'Reader Memory',
+    node_type: 'concept',
+    description: 'Reader memory stays attached to source context.',
+    confidence: 0.78,
+    mention_count: 1,
+    document_count: 1,
+    status: 'suggested',
+    aliases: [],
+    source_document_ids: ['doc-reader'],
+  }
+  const suggestedRelatedEdge: KnowledgeGraphSnapshot['edges'][number] = {
+    id: 'edge-graph-related-reader',
+    source_id: 'node-knowledge-graphs',
+    source_label: 'Knowledge Graphs',
+    target_id: readerMemoryNode.id,
+    target_label: readerMemoryNode.label,
+    relation_type: 'explains',
+    provenance: 'inferred',
+    confidence: 0.82,
+    status: 'suggested',
+    evidence_count: 2,
+    source_document_ids: ['doc-search', 'doc-reader'],
+    excerpt: 'Knowledge Graphs explain why Reader memory stays attached.',
+  }
+
+  recallGraphState = {
+    ...recallGraphState,
+    edges: [...recallGraphState.edges, suggestedRelatedEdge],
+    nodes: [...recallGraphState.nodes, readerMemoryNode],
+    pending_edges: 2,
+  }
+  nodeDetailById['node-knowledge-graphs'] = {
+    ...nodeDetailById['node-knowledge-graphs'],
+    outgoing_edges: [...nodeDetailById['node-knowledge-graphs'].outgoing_edges, suggestedRelatedEdge],
+  }
+  nodeDetailById[readerMemoryNode.id] = {
+    node: readerMemoryNode,
+    mentions: [],
+    outgoing_edges: [],
+    incoming_edges: [suggestedRelatedEdge],
+  }
+
+  renderRecallApp('/recall')
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Open Search target only' })).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open Search target only' }))
+
+  const sourceOverviewSection = await screen.findByRole('heading', { name: 'Source overview', level: 2 })
+  const sourceOverview = sourceOverviewSection.closest('section') as HTMLElement
+  const relatedGraphConnections = await within(sourceOverview).findByRole('list', {
+    name: 'Source related Graph connections',
+  })
+  fireEvent.click(within(relatedGraphConnections).getByRole('button', { name: 'Review relation: Knowledge Graphs explains Reader Memory' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/recall')
+    expect(window.location.search).toContain('section=graph')
+  })
+  const nodeDetailSection = await screen.findByLabelText('Node detail dock')
+  await waitFor(() => {
+    expect(within(nodeDetailSection as HTMLElement).getByRole('tab', { name: /Connections/i, selected: true })).toBeInTheDocument()
+  })
+  expect(within(nodeDetailSection as HTMLElement).getByRole('list', { name: 'Selected node connections' })).toHaveTextContent(
+    'Knowledge Graphs explains Reader Memory',
+  )
+  expect(screen.getByLabelText('Graph focus tray')).toHaveTextContent('Knowledge Graphs to Reader Memory')
+})
+
+test('Graph connection review queue opens relation evidence in Reader', async () => {
+  renderRecallApp('/recall?section=graph')
+
+  const graphRail = await screen.findByRole('complementary', { name: 'Graph settings sidebar' })
+  const connectionQueue = await within(graphRail).findByRole('region', { name: 'Graph connection review queue' })
+  const queueLabel = await within(connectionQueue).findByText('Knowledge Graphs supports Study Cards')
+  const queueRow = queueLabel.closest('[data-graph-connection-review-row-stage1006]') as HTMLElement
+  expect(queueRow).not.toBeNull()
+
+  fireEvent.click(within(queueRow).getByRole('button', { name: 'Open evidence' }))
+
+  await waitFor(() => {
+    expect(window.location.pathname).toBe('/reader')
+    expect(window.location.search).toContain('document=doc-search')
   })
 })
 
